@@ -20,7 +20,7 @@ The owner reviews as a player, from screenshots and a link, not from code. Repor
 
 ## Published copy
 
-`main` is served by GitHub Pages from the repo root at https://hermannwwr-cmyk.github.io/lets-play/. Every push to `main` redeploys it within a minute or two; confirm with the "pages build and deployment" workflow run for that commit. `.nojekyll` turns off Jekyll. The owner also has a private claude.ai Artifact copy titled "Let's Play!": after a change, rebuild it by deleting the hub's skeleton and head-tag lines (doctype, html, head, body, meta, link) and publishing it with the `games/` files (without their icons and manifests) as supporting files.
+`main` is served by GitHub Pages from the repo root at https://hermannwwr-cmyk.github.io/Lets-Play/. Every push to `main` redeploys it within a minute or two; confirm with the "pages build and deployment" workflow run for that commit. `.nojekyll` turns off Jekyll. The owner also has a private claude.ai Artifact copy titled "Let's Play!": after a change, rebuild it by deleting the hub's skeleton and head-tag lines (doctype, html, head, body, meta, link) and publishing it with the `games/` files (without their icons and manifests) as supporting files.
 
 ## Where the games come from
 

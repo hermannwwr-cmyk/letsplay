@@ -8,7 +8,7 @@ Three kids' games in one app, for children around 6–7, played mostly on a tabl
 | 🐻 | **Grizzly and the Lemmings** | 20 gentle mini games: catching, counting, adding and taking away with pictures, mazes, puzzles and more. |
 | 🚆 | **MRT Train** | Ride a real MRT line and answer adding and taking-away questions (numbers up to 10) as passengers get on and off. |
 
-Play it at **https://hermannwwr-cmyk.github.io/lets-play/** (on an iPad: Safari → Share → Add to Home Screen), or open `index.html`, tap a picture, and play. Every game has a round cream "all games" button (four coloured squares) on its start screen to come back.
+Play it at **https://hermannwwr-cmyk.github.io/Lets-Play/** (on an iPad: Safari → Share → Add to Home Screen), or open `index.html`, tap a picture, and play. Every game has a round cream "all games" button (four coloured squares) on its start screen to come back.
 
 ## One play-time limit for all three
 
