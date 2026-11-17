@@ -902,7 +902,7 @@
       L.path = pathThrough([[b.x + 40 * b.k, b.y - 4 * k], [W / 2 - 150 * k, peakY + 14 * k], [W / 2 + 150 * k, peakY + 10 * k], [m.x - 40 * m.k, m.y - 4 * k]], 14 * k, 30 * k, peakY, gyBase);
     } else {
       const size = clamp(usableW * 0.15, 34, 104);
-      const titleY = top0 + 12 + 60 * bs + size * 0.62;
+      const titleY = top0 + Math.max(12 + 60 * bs, 76) + size * 0.62;   // clear of the top bar (it ends 62 px down)
       const startY = titleY + size * 0.55;
       const order = ['mrt', 'bus', 'grizzly'];
       const sum = order.reduce((s, key) => s + TOPS[key] + V_BOT, 0);
@@ -1652,63 +1652,148 @@
     ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -r * 0.6); ctx.moveTo(0, 0); ctx.lineTo(r * 0.45, r * 0.2); ctx.stroke();
     ctx.restore();
   }
-  function drawTopBar(asleep) {
-    const s = L.bs;
-    UI = { ox: SAFE.l + 14, oy: SAFE.t + 12, s };
-    ctx.save(); ctx.translate(UI.ox, UI.oy); ctx.scale(s, s);
-    roundButton(30, 30, openGate, () => {
-      ctx.fillStyle = GLYPH;
-      for (let i = 0; i < 8; i++) { ctx.save(); ctx.rotate(i * Math.PI / 4); ctx.fill(rr(-3.6, -15, 7.2, 9, 2)); ctx.restore(); }
-      circle(0, 0, 10, GLYPH); circle(0, 0, 4, P.cream);
-    });
-    if (playTime.limit && !asleep) {
-      // minutes left, then a little sun-to-moon track that pre-readers can follow
-      const left = Math.max(0, playTime.left());
-      const label = `${Math.ceil(left / 60)} min`;
-      ctx.font = `600 22px ${FONT}`;
-      const tw = ctx.measureText(label).width;
-      const room = (W - SAFE.r - 14 - 120 * s - 10 - (SAFE.l + 14)) / s - 66;
-      let trackW = clamp(room - (tw + 58 + 24), 0, 84);
-      if (trackW < 44) trackW = 0;
-      const w = tw + 58 + (trackW ? trackW + 24 : 0);
-      panel(66, 13, w, 38, 19, P.cream, { depth: 4, rim: 2.5 });
-      drawClockIcon(88, 32, 11);
-      text(label, 108, 33, 22, GLYPH, null, 'left');
-      if (trackW) {
-      const x0 = 108 + tw + 22, x1 = x0 + trackW, ty = 32, sh = playTime.share();
-      ctx.lineCap = 'round';
-      const g = ctx.createLinearGradient(x0, 0, x1, 0);
-      g.addColorStop(0, '#ffd45c'); g.addColorStop(0.65, '#ff9a6a'); g.addColorStop(1, '#4a3f8f');
-      ctx.strokeStyle = g; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(x0 + 8, ty); ctx.lineTo(x1 - 8, ty); ctx.stroke();
-      circle(x0, ty, 7, '#ffc21f');
-      ctx.strokeStyle = '#ffc21f'; ctx.lineWidth = 2;
-      for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2; ctx.beginPath(); ctx.moveTo(x0 + Math.cos(a) * 9, ty + Math.sin(a) * 9); ctx.lineTo(x0 + Math.cos(a) * 11.5, ty + Math.sin(a) * 11.5); ctx.stroke(); }
-      circle(x1, ty, 8, '#4a3f8f');
-      const cut = new Path2D(); cut.rect(x1 - 12, ty - 12, 24, 24); cut.arc(x1 + 3.5, ty - 2.5, 5.6, 0, Math.PI * 2, true);
-      ctx.save(); ctx.clip(cut, 'evenodd'); circle(x1, ty, 6, '#fff3c4'); ctx.restore();
-      const dx = lerp(x0 + 10, x1 - 10, sh);
-      circle(dx, ty, 6.5, '#ffffff'); ctx.strokeStyle = GLYPH; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(dx, ty, 6.5, 0, Math.PI * 2); ctx.stroke();
-      }
+  // ---- Top bar: a paper cog (grown-ups), a time pill, and a joined music | sound capsule ----
+  const BAR_FILL = '#fff6e0', BAR_RIM = '#d9b57f', BAR_EDGE = '#e8d3a8', BAR_STRING = '#b08a5a';
+  const NUM_WORDS = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen', 'Twenty', 'Twenty-one', 'Twenty-two', 'Twenty-three', 'Twenty-four', 'Twenty-five', 'Twenty-six', 'Twenty-seven', 'Twenty-eight', 'Twenty-nine', 'Thirty'];
+  const numWord = n => NUM_WORDS[n] || String(n);
+  const pillTap = { at: -9, said: -9 };              // the pill's bounce, and when it last spoke
+  // where the bar sits, in CSS px (also used by the sleep card and the clouds to keep clear of it)
+  function barGeom() {
+    const phone = Math.min(W, H) < 600, phoneLand = phone && W > H, strings = H >= 420;
+    const edgeL = SAFE.l + (phoneLand ? 20 : 14), edgeR = SAFE.r + (phoneLand ? 20 : 12);
+    const CH = 44, PH = 44, capTop = SAFE.t + (strings ? 18 : 12), cy = capTop + CH / 2;
+    const HW = 54, CW = 2 * HW, COG = 44;               // tap sizes: each capsule half, the cog
+    const capR = W - edgeR, capL = capR - CW;
+    const pillX = edgeL + COG + 12;                     // 12 px between the cog's and the pill's tap areas
+    let pillW = 0;
+    if (playTime.limit && state.screen !== 'sleep') {
+      ctx.font = `700 ${phone ? 16 : 18}px ${FONT}`;
+      pillW = 12 + 2 * ((phone ? 7 : 8) + 6) + 8 + ctx.measureText(`${Math.ceil(Math.max(0, playTime.left()) / 60)} min`).width + 16;
     }
+    return { phone, strings, edgeL, edgeR, CH, PH, capTop, cy, HW, CW, COG, capL, capR, pillX, pillW,
+      cogX: edgeL + COG / 2, bottom: capTop + CH, leftEnd: pillW ? pillX + pillW : edgeL + COG };
+  }
+  // clouds fade out where they would pass behind the bar
+  function cloudClear(x, y, s) {
+    const G = barGeom(), y1 = G.bottom + 18, cx0 = x - 60 * s, cx1 = x + 60 * s, cy0 = y - 48 * s, cy1 = y + 24 * s;
+    const away = (x0, x1) => Math.max(x0 - cx1, cx0 - x1, cy0 - y1, 0);
+    return clamp01(Math.min(away(-999, Math.max(G.leftEnd + 14, SAFE.l + 90)), away(Math.min(G.capL - 24, W - SAFE.r - 230), W + 999)) / 30);
+  }
+  function barPaper(p) {
+    ctx.save(); ctx.translate(0, 2); ctx.fillStyle = 'rgba(60,30,40,.14)'; ctx.fill(p); ctx.restore();   // a little lift off the page
+    ctx.fillStyle = BAR_FILL; ctx.fill(p);
+    shadeEdge(p, 3, BAR_EDGE);
+    rimOf(p, BAR_RIM, 2);
+  }
+  function cogPath(r) {
+    const p = new Path2D(), n = 8, ro = r, ri = r * 0.76;
+    for (let i = 0; i < n; i++) {
+      const a = i / n * Math.PI * 2, h = Math.PI / n;
+      const pts = [[a - h * 0.95, ri], [a - h * 0.42, ro], [a + h * 0.42, ro], [a + h * 0.95, ri]];
+      pts.forEach(([b, rad], j) => { const x = Math.cos(b) * rad, y = Math.sin(b) * rad; (i === 0 && j === 0) ? p.moveTo(x, y) : p.lineTo(x, y); });
+    }
+    p.closePath();
+    return p;
+  }
+  function barMoon(x, y, r, col) {                    // a crescent: the disc minus an offset bite
+    const disc = new Path2D(); disc.arc(x, y, r, 0, Math.PI * 2);
+    const bite = new Path2D(); bite.rect(x - r - 2, y - r - 2, 2 * r + 4, 2 * r + 4); bite.arc(x + r * 0.55, y - r * 0.4, r * 0.8, 0, Math.PI * 2);
+    ctx.save(); ctx.clip(disc); ctx.fillStyle = col; ctx.fill(bite, 'evenodd'); ctx.restore();
+  }
+  // the sun turning into the moon as the day's time is used, ringed by the time that is left
+  function drawSkyDot(x, y, r, sh) {
+    const evening = sh >= 0.55, col = evening ? '#7b62c9' : (sh < 0.3 ? '#ffb21f' : '#ff9440');
+    const R = r + 5.5;
+    ctx.lineCap = 'round'; ctx.lineWidth = 3;
+    ctx.strokeStyle = '#f3dcb5'; ctx.beginPath(); ctx.arc(x, y, R, 0, Math.PI * 2); ctx.stroke();
+    if (sh < 1) { ctx.strokeStyle = col; ctx.beginPath(); ctx.arc(x, y, R, -Math.PI / 2, -Math.PI / 2 + (1 - sh) * Math.PI * 2); ctx.stroke(); }
+    if (sh > 0.6) { barMoon(x, y, r * 1.05, col); return; }
+    circle(x, y, r * 0.66, col);                       // a round sun with six short rays
+    ctx.strokeStyle = col; ctx.lineWidth = 1.7;
+    for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2 - Math.PI / 2; ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * r * 0.95, y + Math.sin(a) * r * 0.95); ctx.lineTo(x + Math.cos(a) * r * 1.2, y + Math.sin(a) * r * 1.2); ctx.stroke(); }
+  }
+  function pillBounce() {                             // 0.92 -> 1.05 -> 1 over a quarter second
+    const t = (time - pillTap.at) / 0.25;
+    if (t < 0 || t >= 1) return 1;
+    return t < 0.3 ? lerp(1, 0.92, t / 0.3) : t < 0.65 ? lerp(0.92, 1.05, (t - 0.3) / 0.35) : lerp(1.05, 1, (t - 0.65) / 0.35);
+  }
+  function tapPill() {
+    pillTap.at = time;
+    if (time - pillTap.said < 3) return;               // no chattering on repeat taps
+    pillTap.said = time;
+    const m = Math.ceil(Math.max(0, playTime.left()) / 60);
+    say(m <= 1 ? 'One minute left! Almost bedtime.' : `${numWord(m)} minutes left!`);
+  }
+  function drawTimePill(G) {
+    const left = Math.max(0, playTime.left()), mins = Math.ceil(left / 60), last = left <= 60;
+    const label = `${mins} min`, fs = G.phone ? 16 : 18, ir = G.phone ? 7 : 8;
+    const x = G.pillX, w = G.pillW, h = G.PH, y = G.cy - h / 2, iw = 2 * (ir + 6);
+    const hitY = Math.min(y, G.cy - 26), hitH = Math.max(h, 52);
+    const pressed = hot(x, hitY, w, hitH) && pointer.down, k = pillBounce() * (pressed ? 0.95 : 1);
+    ctx.save(); ctx.translate(x + w / 2, G.cy); ctx.scale(k, k); ctx.translate(-(x + w / 2), -G.cy);
+    const p = rr(x, y, w, h, h / 2);
+    if (last) {
+      ctx.save(); ctx.translate(0, 2); ctx.fillStyle = 'rgba(60,30,40,.14)'; ctx.fill(p); ctx.restore();
+      ctx.fillStyle = '#f5b83d'; ctx.fill(p); shadeEdge(p, 3, '#d9962a'); rimOf(p, '#d08a1f', 2);
+    } else barPaper(p);
+    const ix = x + 12 + iw / 2, iy = G.cy;
+    if (last) barMoon(ix, iy, ir + 3, '#fff6e0');      // a tiny cream moon
+    else drawSkyDot(ix, iy, ir, playTime.share());
+    text(label, ix + iw / 2 + 8, iy + 1, fs, last ? INK : GLYPH, null, 'left', 700);
     ctx.restore();
-    UI = { ox: W - SAFE.r - 14 - 120 * s, oy: SAFE.t + 12, s };
-    ctx.save(); ctx.translate(UI.ox, UI.oy); ctx.scale(s, s);
-    roundButton(30, 30, () => { musicOn = !musicOn; save('hub-music', musicOn); }, () => {
+    pushButton(x, hitY, w, hitH, tapPill);
+  }
+  function drawTopBar(asleep) {
+    const G = barGeom();
+    UI = { ox: 0, oy: 0, s: 1 };
+    // grown-up cog: borderless paper with a deeper rim and a soft shadow, so it holds on any background
+    {
+      const x = G.cogX, y = G.cy, r = 15, box = G.COG;
+      const pressed = hot(x - box / 2, y - box / 2, box, box) && pointer.down;
+      ctx.save(); ctx.translate(x, y + (pressed ? 1.5 : 0));
+      ctx.save(); ctx.shadowColor = 'rgba(50,30,20,.35)'; ctx.shadowBlur = 5; ctx.shadowOffsetY = 1.5;
+      ctx.fillStyle = '#f3dcae'; ctx.fill(cogPath(r)); ctx.restore();
+      solid(cogPath(r), '#f3dcae', { depth: 2.6, rim: 2, rimColor: '#a07a4a' });
+      circle(0, 0, r * 0.38, '#a07a4a'); circle(0, 0, r * 0.2, '#f3dcae');
+      ctx.restore();
+      pushButton(x - box / 2, y - box / 2, box, box, openGate);
+    }
+    // time pill: the sun-to-moon ring and the minutes left; a tap says them out loud
+    if (playTime.limit && !asleep) drawTimePill(G);
+    // music | sound: one solid paper capsule, hung from two short strings
+    {
+      const { capL, CW, CH, cy, HW } = G, y = cy - CH / 2, mid = capL + CW / 2;
+      const hitH = 52, hitY = cy - hitH / 2;
+      const mp = hot(capL, hitY, HW, hitH) && pointer.down, sp = hot(mid, hitY, HW, hitH) && pointer.down;
+      const pins = [capL + CW * 0.24, capL + CW * 0.76];
+      if (G.strings) {
+        ctx.strokeStyle = BAR_STRING; ctx.lineWidth = 2; ctx.lineCap = 'round';
+        for (const sx of pins) { ctx.beginPath(); ctx.moveTo(sx, -2); ctx.lineTo(sx, y + 6); ctx.stroke(); }
+      }
+      const cap = rr(capL, y, CW, CH, CH / 2);
+      barPaper(cap);
+      if (mp || sp) { ctx.save(); ctx.clip(cap); ctx.fillStyle = 'rgba(217,181,127,.32)'; ctx.fillRect(mp ? capL : mid, y, CW / 2, CH); ctx.restore(); }
+      if (G.strings) for (const sx of pins) { circle(sx, y + 6, 2.6, BAR_STRING); circle(sx - 0.7, y + 5.3, 0.9, '#d9b98a'); }   // the pins
+      ctx.strokeStyle = 'rgba(217,181,127,.8)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(mid, y + 11); ctx.lineTo(mid, y + CH - 9); ctx.stroke();
+      const gs = G.phone ? 22 / 27 : 24 / 27;
+      ctx.save(); ctx.translate(capL + CW * 0.26, cy + 2 + (mp ? 1 : 0)); ctx.scale(gs, gs);
       ctx.globalAlpha = musicOn ? 1 : 0.4;
-      ctx.strokeStyle = GLYPH; ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.strokeStyle = GLYPH; ctx.lineWidth = 3.2; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       ellipse(-6, 8, 6, 4.5, GLYPH, -0.4); ellipse(8, 5, 6, 4.5, GLYPH, -0.4);
       ctx.beginPath(); ctx.moveTo(-1, 7); ctx.lineTo(-1, -11); ctx.lineTo(13, -14); ctx.lineTo(13, 4); ctx.stroke();
       ctx.globalAlpha = 1;
       if (!musicOn) { ctx.strokeStyle = P.coral; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(-13, -13); ctx.lineTo(13, 13); ctx.stroke(); }
-    });
-    roundButton(90, 30, () => { muted = !muted; save('hub-mute', muted); if (muted) hush(); }, () => {
+      ctx.restore();
+      ctx.save(); ctx.translate(capL + CW * 0.72, cy + 2 + (sp ? 1 : 0)); ctx.scale(gs, gs);
       ctx.fillStyle = GLYPH; ctx.lineJoin = 'round';
       ctx.beginPath(); ctx.moveTo(-13, -5); ctx.lineTo(-6, -5); ctx.lineTo(2, -12); ctx.lineTo(2, 12); ctx.lineTo(-6, 5); ctx.lineTo(-13, 5); ctx.closePath(); ctx.fill();
       ctx.lineCap = 'round';
-      if (muted) { ctx.strokeStyle = P.coral; ctx.lineWidth = 3.5; ctx.beginPath(); ctx.moveTo(7, -6); ctx.lineTo(15, 6); ctx.moveTo(15, -6); ctx.lineTo(7, 6); ctx.stroke(); }
-      else { ctx.strokeStyle = GLYPH; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(3, 0, 7, -0.8, 0.8); ctx.stroke(); ctx.beginPath(); ctx.arc(3, 0, 12.5, -0.7, 0.7); ctx.stroke(); }
-    });
-    ctx.restore();
+      if (muted) { ctx.strokeStyle = P.coral; ctx.lineWidth = 3.8; ctx.beginPath(); ctx.moveTo(7, -6); ctx.lineTo(15, 6); ctx.moveTo(15, -6); ctx.lineTo(7, 6); ctx.stroke(); }
+      else { ctx.strokeStyle = GLYPH; ctx.lineWidth = 3.2; ctx.beginPath(); ctx.arc(3, 0, 7, -0.8, 0.8); ctx.stroke(); ctx.beginPath(); ctx.arc(3, 0, 12.5, -0.7, 0.7); ctx.stroke(); }
+      ctx.restore();
+      pushButton(capL, hitY, HW, hitH, () => { musicOn = !musicOn; save('hub-music', musicOn); });
+      pushButton(mid, hitY, HW, hitH, () => { muted = !muted; save('hub-mute', muted); if (muted) hush(); });
+    }
     UI = { ox: 0, oy: 0, s: 1 };
   }
 
@@ -2197,7 +2282,11 @@
     if (L.land) drawSunMoon(tod, phase, asleep);
     if (balloon && !balloon.hidden && tod.night < 0.6) { ctx.globalAlpha = 1 - tod.night; drawBalloon(balloon.x, balloon.y, balloon.s); ctx.globalAlpha = 1; }
     ctx.globalAlpha = 1 - tod.night * 0.65;
-    for (const c of clouds) drawCloud(c.x + parX * 0.15, c.y, c.s);
+    for (const c of clouds) {
+      const x = c.x + parX * 0.15, f = cloudClear(x, c.y, c.s);   // never behind the top bar
+      if (f <= 0) continue;
+      ctx.globalAlpha = (1 - tod.night * 0.65) * f; drawCloud(x, c.y, c.s);
+    }
     ctx.globalAlpha = 1;
     if (tod.night < 0.5) for (const b of birds) drawBird(b.x, b.y + Math.sin(time * 1.3 + b.seed) * 8, b.s, time * 9 + b.seed, mixColor('#5a5f8f', '#3a2a3c', 0.3));
     drawShootingStar();
@@ -2454,8 +2543,8 @@
     const x = W / 2 - w / 2;
     let y = L.title.y - h * 0.48;
     // keep it below the gear and the music / sound buttons when it reaches under them (narrow phones)
-    const bs = L.bs, barL = SAFE.l + 14 + 62 * bs, barR = W - SAFE.r - 14 - 120 * bs - 4 * bs;
-    if (x < barL || x + w > barR) y = Math.max(y, SAFE.t + 12 + 62 * bs + 8);
+    const G = barGeom(), barL = G.edgeL + G.COG, barR = G.capL - 4;
+    if (x < barL || x + w > barR) y = Math.max(y, G.bottom + 20);
     panel(x, y, w, h, Math.min(30, h * 0.3), P.cream, { depth: 7, rimColor: P.tan, edge: '#d9b57f' });
     // a big sleepy moon with a face
     const mr = h * 0.4, mx = x + mr * 1.25, my = y + h * 0.5 + Math.sin(time * 1.2) * 2;
