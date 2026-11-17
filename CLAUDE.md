@@ -20,7 +20,13 @@ The owner reviews as a player, from screenshots and a link, not from code. Repor
 
 ## Published copy
 
-`main` is served by GitHub Pages from the repo root at https://hermannwwr-cmyk.github.io/letsplay/. Every push to `main` redeploys it within a minute or two; confirm with the "pages build and deployment" workflow run for that commit. `.nojekyll` turns off Jekyll. The owner also has a private claude.ai Artifact copy titled "Let's Play!": after a change, rebuild it by deleting the hub's skeleton and head-tag lines (doctype, html, head, body, meta, link) and publishing it with the `games/` files (without their icons and manifests) as supporting files.
+`main` is served by GitHub Pages from the repo root at https://hermannwwr-cmyk.github.io/letsplay/. Every push to `main` redeploys it within a minute or two. Cloud containers usually can't reach github.io (the proxy refuses it), so confirm a deploy with the "pages build and deployment" workflow run for that commit (GitHub MCP `actions_list`). `.nojekyll` turns off Jekyll.
+
+The owner also has a private claude.ai Artifact copy titled "Let's Play!" (https://claude.ai/artifact/3HjW7hseEgPHX7MHT1sJvp). After a change, rebuild it in a scratch folder and republish it to that URL, with the hub as the page and the five `games/` files as supporting files at the same paths (the games' icons and manifests aren't needed). The host supplies the document skeleton, so strip it and the head tags from the hub:
+```
+sed -e '/^<!DOCTYPE html>/d' -e '/^<\/\?html/d' -e '/^<\/\?head>$/d' -e '/^<\/\?body>$/d' -e '/^<meta /d' -e '/^<link rel=/d' index.html > lets-play.html
+```
+Keep `<title>` and `<style>` near the top of `index.html` and each head tag on its own line, so this stays a line deletion.
 
 ## Where the games come from
 
@@ -29,7 +35,7 @@ The games are copies of the owner's standalone games, plus a small "hub mode" pa
 - Grizzly: the `Grizzly-and-the-lemmings-game` repo's `index.html` (its CLAUDE.md documents the game in depth).
 - MRT: the `MRT-GAME` repo's `index.html` (its CLAUDE.md and `tests/play.js` document and test it).
 
-Hub mode only switches on with `?hub=1` inside an iframe (`const HUB = /[?&]hub=1\b/.test(location.search) && window.parent !== window`). Without it each copy behaves exactly like the original. To bring in a newer version of a game, re-apply that game's hub-mode code (everything guarded by `HUB`, plus the hub-only CSS) to the new file; `git log -p games/<game>` shows it.
+Hub mode only switches on with `?hub=1` inside an iframe (`const HUB = /[?&]hub=1\b/.test(location.search) && window.parent !== window`). Without it each copy behaves exactly like the original. To bring in a newer version of a game, re-apply that game's hub-mode code (everything guarded by `HUB`, plus the hub-only CSS) to the new file. The hub-mode code exists only here, not in the original repos. This repo starts from a single import commit, so diff `games/<game>` against the original game's file to see exactly what hub mode adds (the step-by-step history is on the `claude/dazzling-albattani-67ajm8` branch of `Bendy-Bus-Game`, where the app was first built; that branch is no longer updated).
 
 ## Hub ↔ game protocol (postMessage, always to `'*'`)
 
@@ -54,6 +60,7 @@ In hub mode every game: doesn't count time or touch its own play-time storage; h
 ## The hub (`index.html`)
 
 One canvas, in the Grizzly paper-cut art style (its art kit, palette and the embedded Fredoka font were copied in).
+- **Finding your way** (one IIFE, about 2,700 lines): `GAMES` (url, name, spoken name, colour per key) and `ORDER` near the top, then `playTime` with `DEFAULT_LIMIT`, `LIMIT_CHOICES` and `FORCE_SLEEP_AFTER`; the art kit and the heroes (`drawBear`, `drawLemmingAt`, `drawBusHero`, `drawTrainHero`); `layout()` (landscape and portrait placement of the places, path and props); `SKY` and the tints; one `draw<Game>Place()` per place; then the frame lifecycle (`openGame`, `sendTime`, `closeGame`, `updateTransition`, `goSleep`, `LANDSCAPE_ONLY`, `showRotate`/`showOver`/`checkRotate`, `reloadPlayTime`). A fourth game would need a `GAMES`/`ORDER` entry, a place in `layout()`, a `draw…Place()`, a loading scene, and hub mode in the game itself.
 - **Launcher:** a panoramic storybook world with three places on paper islands joined by a path: the bendy bus at its stop, Grizzly and the lemmings, the MRT train on a viaduct. Places idle-animate and take turns doing a "look at me" act. A tap pops (pointerdown), then on pointerup squashes, plays a sound, speaks the name, throws confetti, zooms in and closes an iris in that game's colour with its hero bouncing while the frame loads. Landscape: places side by side; portrait: zig-zag down the hills. Arrow keys / Enter / 1–3 / M work too.
 - **Turn sideways:** Grizzly and Bus are landscape games. On a portrait screen the hub shows a "Turn me sideways!" card instead, opens the game when the device turns, and covers a running game (not counting time) if it's turned back upright. MRT opens in any orientation.
 - **Play time:** storage `hub-limit` (minutes, default 20; Off/10/15/20/30) and `hub-play` = `{day:'Y-M-D' (no zero padding), used: seconds, extra: minutes}`. Counts whole seconds only while a game frame is showing (after hello, no transition, no modal, no sideways card, page visible), and never past the allowance. Re-reads on `storage` events and when the page becomes visible. The launcher shows minutes left plus a sun-to-moon track; the sky follows `share()` from dawn to night, with warm window and lamp light drawn after the night tint.
