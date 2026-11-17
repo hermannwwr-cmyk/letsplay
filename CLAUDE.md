@@ -28,6 +28,8 @@ sed -e '/^<!DOCTYPE html>/d' -e '/^<\/\?html/d' -e '/^<\/\?head>$/d' -e '/^<\/\?
 ```
 Keep `<title>` and `<style>` near the top of `index.html` and each head tag on its own line, so this stays a line deletion.
 
+**Previewing before going live:** a push to `main` goes public at once, so visible changes are shown to the owner first and pushed to `main` only after they say go. Show options as screenshots (before/after sheets at phone and iPad sizes), then build the chosen one into the preview Artifact "Let's Play! Preview" (https://claude.ai/artifact/TsjDv2hfXpHCB2ba5Lv4v5; same build, with `<title>` changed to match). Meanwhile commit the work to the `claude/dazzling-albattani-67ajm8` branch (Pages doesn't serve it), then fast-forward `main` to it on approval and republish the main Artifact.
+
 ## Where the games come from
 
 The games are copies of the owner's standalone games, plus a small "hub mode" patch in each:
