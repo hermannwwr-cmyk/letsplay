@@ -11,7 +11,7 @@ index.html               the hub: storybook launcher, shared play time, grown-up
 games/bus/               Bendy Bus Counting Fun (index.html, game.js, style.css), canvas, landscape
 games/grizzly/index.html Grizzly and the Lemmings (20 mini games), canvas 960x540, landscape
 games/mrt/index.html     MRT Math Express, DOM, portrait-phone first
-icons/, manifest.webmanifest, .nojekyll   hosting
+icons/, manifest.webmanifest, .nojekyll   hosting (icons drawn with the hub's art: node icons/make-icons.js)
 ```
 
 No build step, no dependencies; everything is drawn and synthesised in code and works offline from `file://` (the bus game loads the Baloo 2 web font when online and falls back without it).
