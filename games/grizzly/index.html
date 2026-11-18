@@ -38,6 +38,7 @@
   const W = 960, H = 540, GROUND = 470;
   const canvas = document.getElementById('game');
   let ctx = canvas.getContext('2d');
+  const MAIN_CTX = ctx;   // ctx is swapped briefly while cached pictures are painted
   // make sure the built-in font is loaded before the first words are drawn
   if (document.fonts && document.fonts.load) { document.fonts.load('600 20px Fredoka'); document.fonts.load('700 20px Fredoka'); }
 
@@ -237,12 +238,19 @@
   // Reads short instructions aloud so pre-readers can play.
   // queue = true waits for anything already being said instead of cutting it off.
   // Returns the utterance (or null when nothing is said), so a caller can wait for it to end.
-  function say(words, queue = false) {
+  // keep = true protects an important line (the one-minute warning, the goodnight): until it has
+  // been said, later lines queue up behind it instead of cutting it off.
+  let keepUntil = 0;
+  function say(words, queue = false, keep = false) {
     if (muted || hubHeld || !window.speechSynthesis) return null;
     try {
-      if (!queue) window.speechSynthesis.cancel();
+      if (!queue && performance.now() > keepUntil) window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(words);
       u.rate = 0.95; u.pitch = 1.2;
+      if (keep) {
+        keepUntil = performance.now() + 1000 + words.length * 90;   // a generous guess, ended early by onend
+        u.onend = u.onerror = () => { keepUntil = 0; };
+      }
       window.speechSynthesis.speak(u);
       return u;
     } catch (e) { return null; /* voice not available */ }
@@ -755,6 +763,7 @@
   //    squash: > 0 squashes flat, < 0 stretches tall
   // ---------------------------------------------------------------------
   function drawBear(x, groundY, scale = 1, o = {}) {
+    if (sleepyNow()) o = Object.assign({}, o, { pose: 'sleep', dance: false, happy: false, moving: false });   // saying goodnight
     const facing = o.facing || 1, walk = o.walk || 0, moving = !!o.moving, dance = !!o.dance;
     const pose = o.pose || (dance ? 'dance' : o.happy ? 'up' : 'rest');
     const asleep = pose === 'sleep', puzzled = pose === 'scratch';
@@ -922,7 +931,7 @@
     ctx.scale((m.dir || 1) * (1 + sq), 1 - sq);
     const coat = m.color || LEMMING_COLORS[0], cap = dark(coat, 0.4), rim = dark(coat, 0.36);
     const seed = m.seed || 0, s = Math.sin(m.step || 0);
-    const face = m.mode === 'fly' ? 'dizzy' : m.face || (m.carry ? 'cheeky' : undefined);
+    const face = sleepyNow() ? 'sleep' : m.mode === 'fly' ? 'dizzy' : m.face || (m.carry ? 'cheeky' : undefined);
 
     // feet and tail
     [-7 + s * 4, 7 - s * 4].forEach(fx => solid(ell(fx, -2.5, 6.5, 3.8), '#f08a5d', { depth: 0, rim: 1.4 }));
@@ -1261,11 +1270,19 @@
   // "Leave the game?": in the games where one stray tap on Home would throw away a long run,
   // Home asks first, with two big picture buttons. The game waits meanwhile.
   const ASK_BEFORE_HOME = ['catch', 'boop', 'leap', 'rafts', 'stack', 'bounce'];
-  let confirmHome = null;
+  let confirmHome = null, readyT = 0;   // readyT: a moment to get ready again after PLAY
   function homeTapped() {
     const key = Object.keys(S).find(k => S[k] === scene);
-    if (!overlay && ASK_BEFORE_HOME.includes(key)) { confirmHome = { t0: time }; keys.left = keys.right = false; say('Leave the game?'); return; }
+    if (!overlay && ASK_BEFORE_HOME.includes(key)) { confirmHome = { t0: time }; keys.left = keys.right = false; say('Keep playing, or go home?'); return; }
     go('menu');
+  }
+  function keepPlaying() { confirmHome = null; readyT = 0.75; }
+  // "Ready!" for the moment after PLAY, while the game waits
+  function drawReady() {
+    const k = readyT / 0.75;
+    ctx.globalAlpha = Math.min(1, k * 2);
+    text('Ready!', W / 2, H / 2 - 40, 64 + (1 - k) * 10, P.honeyLight, '#5b3420');
+    ctx.globalAlpha = 1;
   }
   function drawConfirmHome() {
     buttons.length = 0;                                           // only these two work
@@ -1274,7 +1291,7 @@
     ctx.save(); ctx.translate(W / 2, H / 2); ctx.scale(0.9 + 0.1 * pop, 0.9 + 0.1 * pop); ctx.translate(-W / 2, -H / 2);
     panel(W / 2 - 270, 120, 540, 290, 34, P.cream, { depth: 8, rimColor: P.tan, edge: '#d9b57f' });
     text('Leave the game?', W / 2, 178, 42, P.woodDark, null);
-    button('PLAY', W / 2 - 128, 312, 220, 104, '#4fb659', () => { confirmHome = null; }, 'next');
+    button('PLAY', W / 2 - 128, 312, 220, 104, '#4fb659', keepPlaying, 'next');
     button('HOME', W / 2 + 128, 312, 220, 104, P.teal, () => { confirmHome = null; go('menu'); }, 'home');
     ctx.restore();
   }
@@ -1344,14 +1361,14 @@
     // inside the all-in-one app, the app shows its own sleep scene: just tell it
     if (name === 'sleep' && HUB) { hubSleep(); return; }
     const afterGoodnight = !!night;
-    night = null; graceT = 0; overlayT = 0; saidLastGo = false;
+    night = null; roundStars = null; graceT = 0; overlayT = 0; saidLastGo = false;
     sleepQuiet = name === 'sleep' && afterGoodnight;
     scene = S[name];
     songKey = name;
-    overlay = null; confirmHome = null;
+    overlay = null; confirmHome = null; readyT = 0;
     particles = [];
     keys.left = keys.right = false;
-    if (window.speechSynthesis) try { window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
+    if (window.speechSynthesis && performance.now() > keepUntil) try { window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
     if (intro) say(intro);
     scene.start();
   }
@@ -1824,7 +1841,7 @@
           }
         }
         if (nextT > 0) {
-          if (lastTurn()) return;                                   // bedtime: no new cards
+          if (lastTurn(round + 1)) return;                                   // bedtime: no new cards
           nextT -= dt;
           if (nextT <= 0) { round++; deal(); sfx.flip(); }
         }
@@ -1931,10 +1948,16 @@
   // A star still to be won: solid cream paper with a deeper rim, so it shows on leaves and at night.
   const EMPTY_STAR = '#f1e3c2';
   // Centred at the top, or just right of the play-time clock when that is showing there.
+  let roundStars = null;   // the last round stars drawn, so the goodnight can light the last one
+  function roundStarSpot(i, total) {
+    const top = clockOnTop() && !night;
+    return { x: top ? W / 2 + 92 + i * 36 : W / 2 - (total - 1) * 20 + i * 40, y: top ? 30 : 38, r: top ? 15 : 16 };
+  }
   function drawRoundStars(done, total) {
+    roundStars = { done, total };
     for (let i = 0; i < total; i++) {
-      const x = clockOnTop() ? W / 2 + 92 + i * 36 : W / 2 - (total - 1) * 20 + i * 40;
-      drawStar(x, clockOnTop() ? 30 : 38, clockOnTop() ? 15 : 16, i < done ? P.honey : EMPTY_STAR);
+      const { x, y, r } = roundStarSpot(i, total);
+      drawStar(x, y, r, i < done ? P.honey : EMPTY_STAR);
     }
   }
 
@@ -1955,7 +1978,7 @@
       const back = Math.min(5, target), front = target - back;
       const rowXs = (n, gap, cx) => Array.from({ length: n }, (_, i) => cx + (i - (n - 1) / 2) * gap);
       const spots = front
-        ? rowXs(back, 118, 580).map(x => ({ x, y: GROUND - 12 })).concat(rowXs(front, 118, 580).map(x => ({ x, y: GROUND + 48 })))
+        ? rowXs(back, 118, 580).map(x => ({ x, y: GROUND - 26 })).concat(rowXs(front, 118, 580).map(x => ({ x, y: GROUND + 50 })))
         : rowXs(back, target > 3 ? 110 : 120, 580).map(x => ({ x, y: GROUND }));
       lems = spots.map((sp, i) => ({ x: W + 60 + i * 80, tx: sp.x, y: sp.y, color: pick(LEMMING_COLORS),
         step: rand(0, 6), hop: 0, jy: 0, jv: 0, num: 0, seed: rand(0, 10) }));
@@ -1971,7 +1994,7 @@
           l.step += dt * 14;
           if (l.x > l.tx) {
             l.x = Math.max(l.tx, l.x - 360 * dt); l.hop = Math.abs(Math.sin(l.step)) * 5;
-            if (l.x === l.tx) puff(l.x + 15, l.y, 3, 40); // skid to a stop
+            if (l.x === l.tx) puff(l.x + 36, l.y, 2, 24); // a little skid puff behind it
           } else l.hop = 0;
           updateHop(l, dt);
         }
@@ -1982,7 +2005,7 @@
           if (Math.random() < 0.15) jump(pick(lems));
           timer -= dt;
           if (timer <= 0) {
-            if (round + 1 < RANGES.length && lastTurn()) return;   // bedtime: no new round
+            if (round + 1 < RANGES.length && lastTurn(round + 1)) return;   // bedtime: no new round
             round++;
             if (round >= RANGES.length) { phase = 'done'; celebrate('count', 'Super counting!', 'You counted every lemming!'); }
             else newRound();
@@ -2146,7 +2169,7 @@
           if (Math.random() < 0.12 && standing.length) jump(pick(standing));
           timer -= dt;
           if (timer <= 0) {
-            if (round + 1 < ROUNDS && lastTurn()) return;          // bedtime: no new round
+            if (round + 1 < ROUNDS && lastTurn(round + 1)) return;          // bedtime: no new round
             round++;
             if (round >= ROUNDS) {
               phase = 'done';
@@ -2399,7 +2422,7 @@
         if (phase === 'win') {
           timer -= dt;
           if (timer <= 0) {
-            if (round + 1 < SIZES.length && lastTurn()) return;    // bedtime: no new maze
+            if (round + 1 < SIZES.length && lastTurn(round + 1)) return;    // bedtime: no new maze
             round++;
             if (round >= SIZES.length) { phase = 'done'; celebrate('maze', 'Maze master!', 'Grizzly found all the honey!'); }
             else newRound();
@@ -2574,7 +2597,7 @@
           }
           if (timer <= 0) {
             if (seq.length >= GOAL) { phase = 'done'; celebrate('simon', 'Super memory!', 'You copied all of Grizzly\'s drumming!'); }
-            else if (lastTurn()) return;                           // bedtime: no longer pattern
+            else if (lastTurn(seq.length - 1)) return;                           // bedtime: no longer pattern
             else { seq.push(nextDrum()); misses = 0; watch(1.0); say('Watch!', true); }
           }
         } else if (phase === 'oops' && timer <= 0) watch(0.4);
@@ -2758,7 +2781,7 @@
           if (Math.random() < 0.06) { const f = pick(fans); if (f.jy === 0) f.jv = -320; }
           timer -= dt;
           if (timer <= 0) {
-            if (puzzle + 1 < BLANKS.length && lastTurn()) return;  // bedtime: no new puzzle
+            if (puzzle + 1 < BLANKS.length && lastTurn(puzzle + 1)) return;  // bedtime: no new puzzle
             puzzle++;
             if (puzzle >= BLANKS.length) { phase = 'done'; celebrate('sudoku', 'Sudoku star!', 'You solved every puzzle!'); }
             else newPuzzle();
@@ -2938,7 +2961,7 @@
           if (Math.random() < 0.06) jump(lem);
           if (timer < 1.2) lem.x += 300 * dt;          // off they go with the treat
           if (lem.x > W + 80) {
-            if (idx + 1 < CUSTOMERS.length && lastTurn()) return;  // bedtime: the shop closes
+            if (idx + 1 < CUSTOMERS.length && lastTurn(idx + 1)) return;  // bedtime: the shop closes
             idx++;
             if (idx >= CUSTOMERS.length) { phase = 'done'; celebrate('shop', 'Super shopkeeper!', 'You helped every customer!'); }
             else newCustomer();
@@ -3147,6 +3170,7 @@
     }
 
     return {
+      calm() { return onGround && tumbleT <= 0; },                  // bedtime waits until the lemming is on the ground
       start() {
         dist = 0; speed = speedFor(0); ly = 0; lv = 0; onGround = true; holdT = 0; jumpBuf = 0; land = 0;
         tumbleT = 0; rot = 0; obstacles = []; honeys = []; nextObs = 500; honeyCount = 0; tumbles = 0;
@@ -3550,6 +3574,7 @@
     function jump(l) { if (l.jy === 0) l.jv = -330; }
 
     return {
+      calm() { return !falling; },                                  // not while a pot is dropping
       start() {
         pots = []; falling = null; tumbling = []; phase = 'play'; cam = 0; phi = 0;
         respawnT = 0; wobble = 0; doneT = 0; puzzledT = 0; cheerT = 0; misses = 0; help = 0; calm = 1;
@@ -3895,7 +3920,7 @@
         } else if (phase === 'cheer') {
           timer -= dt;
           if (timer <= 0) {
-            if (round < ROUNDS.length - 1 && lastTurn()) return;   // bedtime: no new round
+            if (round < ROUNDS.length - 1 && lastTurn(round + 1)) return;   // bedtime: no new round
             if (round === ROUNDS.length - 1) { phase = 'done'; celebrate('hide', 'Super seeker!', 'You found every lemming!'); }
             else { phase = 'duck'; SPOTS.forEach(s => { s.want = false; }); }
           }
@@ -4027,7 +4052,7 @@
         const row = two ? Math.floor(i / per) : 0, col = i % per;
         const tx = 575 - (per - 1) * gap / 2 + col * gap + (two ? (row ? 38 : -38) : 0);
         const l = { tx, x: tx + 900, y: two ? (row ? GROUND + 58 : GROUND - 2) : GROUND, s, color: coat, dir, face: undefined, hat: false,
-          step: rand(0, 6), seed: rand(0, 10), jy: 0, jv: 0, land: 0, wob: 0, odd: i === oddI };
+          step: rand(0, 6), seed: rand(0, 10), jy: 0, jv: 0, land: 0, wob: 0, odd: i === oddI, noBlink: R.kind === 'sleep' };
         if (l.odd) {
           oddOne = l;
           if (R.kind === 'coat' || R.kind === 'shade') l.color = pair[1];
@@ -4049,7 +4074,7 @@
           l.step += dt * 14; l.wob = Math.max(0, l.wob - dt);
           if (l.x > l.tx) {
             l.x = Math.max(l.tx, l.x - SPEED * dt);
-            if (l.x === l.tx) puff(l.x + 14, l.y, 2, 40);          // skid to a stop
+            if (l.x === l.tx) puff(l.x + 36 * l.s / 1.7, l.y, 2, 24);   // a little skid puff behind it
           }
           updateHop(l, dt);
         }
@@ -4068,7 +4093,7 @@
           timer -= dt;
           if (Math.random() < 0.1) jump(pick(lems), -230);
           if (timer <= 0) {
-            if (round + 1 < ROUNDS.length && lastTurn()) return;   // bedtime: no new round
+            if (round + 1 < ROUNDS.length && lastTurn(round + 1)) return;   // bedtime: no new round
             round++;
             if (round >= ROUNDS.length) { phase = 'done'; celebrate('odd', 'Sharp eyes!', 'You spotted every odd one out!'); }
             else newRound();
@@ -4090,7 +4115,7 @@
           const y = l.y + l.jy - (walking ? Math.abs(Math.sin(l.step)) * 5 : 0);
           const m = {
             color: l.color, seed: l.seed, dir: walking ? -1 : l.dir, step: walking ? l.step : 0, squash: hopSquash(l),
-            face: leaving || cheering ? 'happy' : l.face, noBlink: ROUNDS[round].kind === 'sleep',
+            face: leaving || cheering ? 'happy' : l.face, noBlink: l.noBlink,
             rot: l.wob > 0 ? Math.sin(l.wob * 40) * 0.2 * Math.min(1, l.wob / 0.25) : 0,   // shaking its head: not me!
           };
           drawLemmingAt(l.x, y, l.s, m);
@@ -4473,7 +4498,7 @@
           if (Math.random() < 0.05) { const f = pick(pals); if (f.jy === 0) f.jv = -300; }
           timer -= dt;
           if (timer <= 0) {
-            if (round + 1 < ROUNDS.length && lastTurn()) return;   // bedtime: no new picture
+            if (round + 1 < ROUNDS.length && lastTurn(round + 1)) return;   // bedtime: no new picture
             if (round + 1 >= ROUNDS.length) { phase = 'done'; celebrate('jigsaw', 'Puzzle champ!', 'You finished every picture!'); }
             else { round++; newRound(); }
           }
@@ -4672,7 +4697,7 @@
         } else if (phase === 'right') {
           waveT += dt; timer -= dt;
           if (timer <= 0) {
-            if (round + 1 < ROUNDS.length && lastTurn()) return;   // bedtime: no new pattern
+            if (round + 1 < ROUNDS.length && lastTurn(round + 1)) return;   // bedtime: no new pattern
             round++;
             if (round >= ROUNDS.length) { phase = 'done'; celebrate('next', 'Pattern pro!', 'You finished every pattern!'); }
             else newRound();
@@ -4912,7 +4937,7 @@
         if (phase === 'solved') {
           timer -= dt;
           if (timer <= 0) {
-            if (round + 1 < ROUNDS.length && lastTurn()) return;   // bedtime: no new round
+            if (round + 1 < ROUNDS.length && lastTurn(round + 1)) return;   // bedtime: no new round
             if (round + 1 >= ROUNDS.length) { phase = 'done'; celebrate('shadow', 'Shadow star!', 'You matched every shadow!'); }
             else { round++; newRound(); }
           }
@@ -5146,6 +5171,8 @@
     }
 
     return {
+      // nobody in the air or on the mat
+      calm() { return lems.every(m => m.state === 'wait' || m.state === 'peek' || m.state === 'home' || m.state === 'run' || m.state === 'climb'); },
       start() {
         lems = []; count = 0; made = 0; clock = 0; cheerT = 0; puzzledT = 0; doneT = 0; rustle = 0;
         finished = false; saidQuick = false; bumps = 0;
@@ -5493,7 +5520,7 @@
           if (Math.random() < 0.05 && fan.jy === 0) fan.jv = -300;
           timer -= dt;
           if (timer <= 0) {
-            if (round + 1 < dotsShapes.length && lastTurn()) return; // bedtime: no new picture
+            if (round + 1 < dotsShapes.length && lastTurn(round + 1)) return; // bedtime: no new picture
             round++;
             if (round >= dotsShapes.length) { phase = 'done'; celebrate('dots', 'Dot star!', 'You drew every picture!'); }
             else newRound();
@@ -5801,19 +5828,27 @@
 
   // Bedtime, the gentle way. A game calls lastTurn() where it would start a new round: once time
   // is up it says goodnight instead (and returns true, so the round doesn't start).
-  let night = null; // { t, spoken, posted }: the goodnight is under way
-  function lastTurn() {
+  // stars: how many round stars the finished round brings, so its star still lights up.
+  let night = null; // { t, spoken, posted, stars }: the goodnight is under way
+  const sleepyNow = () => !!night && ctx === MAIN_CTX && inGame();   // everyone looks sleepy while it's said
+  function lastTurn(stars) {
     if (playTime.left() > 0) return false;
-    goodnight();
+    goodnight(stars);
     return true;
   }
-  function goodnight() {
+  // The action games (no rounds to finish) end at a calm moment, CONT_GRACE seconds after time is
+  // up (never mid-jump: scene.calm() says when). They stand still while the goodnight is said.
+  const CONT_GRACE = 35, CONT_MAX_WAIT = 15;
+  const sceneKey = () => Object.keys(S).find(k => S[k] === scene);
+  const isContinuous = () => ASK_BEFORE_HOME.includes(sceneKey());
+  function goodnight(stars) {
     if (night) return;
-    night = { t: 0, spoken: false, posted: false };
+    night = { t: 0, spoken: false, posted: false, stars: stars || 0 };
+    if (night.stars) sfx.catch();
     keys.left = keys.right = false;
     sfx.night();
-    const u = say('That was the last one. Goodnight!', true);
-    if (u) u.onend = u.onerror = () => { if (night) night.spoken = true; };
+    const u = say('That was the last one. Goodnight!', true, true);
+    if (u) u.onend = u.onerror = () => { keepUntil = 0; if (night) night.spoken = true; };
     else night.spoken = true;
   }
   // The goodnight has been said (or had long enough): Grizzly goes to sleep. Inside the
@@ -5836,7 +5871,7 @@
     const left = playTime.left();
     if (left > LAST_MINUTE) { warnedLastMinute = false; saidLastGo = false; return; }
     if (left > 0) {
-      if (!warnedLastMinute) { warnedLastMinute = true; say('One more minute, then Grizzly needs to sleep!', true); }
+      if (!warnedLastMinute) { warnedLastMinute = true; say('One more minute, then Grizzly needs to sleep!', true, true); }
       saidLastGo = false;
       return;
     }
@@ -5846,14 +5881,26 @@
     overlayT = overlay ? overlayT + dt : 0;
     if (!saidLastGo && !overlay && graceT > 0.8) { saidLastGo = true; say('Last go!', true); }
     if (overlayT > 2.6 || graceT > BEDTIME_GRACE) goodnight();
+    else if (!overlay && isContinuous() && graceT > CONT_GRACE && (!scene.calm || scene.calm() || graceT > CONT_GRACE + CONT_MAX_WAIT)) goodnight();
   }
   // "Goodnight!": a small paper card with a moon while the goodnight is said.
   function drawGoodnight() {
     const k = clamp01(night.t / 0.5);
     ctx.fillStyle = `rgba(28,20,60,${0.35 * k})`; ctx.fillRect(0, 0, W, H);
     const pop = easeOutBack(Math.min(1, night.t / 0.45));
-    ctx.save(); ctx.translate(W / 2, H / 2 - 20); ctx.scale(pop, pop);
-    panel(-190, -62, 380, 124, 34, '#2f3a78', { depth: 7, rimColor: '#1d2557', edge: '#1d2557' });
+    // the round stars stay bright above the dimming, with the star for the finished round popping in
+    if (roundStars) {
+      const done = Math.max(roundStars.done, night.stars);
+      for (let i = 0; i < roundStars.total; i++) {
+        const fresh = i >= roundStars.done && i < done, s = fresh ? easeOutBack(clamp01((night.t - 0.3) / 0.4)) : 1;
+        const { x, y, r } = roundStarSpot(i, roundStars.total);
+        if (i < done) drawStar(x, y, r * (fresh ? 0.6 + 0.4 * s + Math.sin(time * 6) * 0.04 : 1), P.honey);
+        else drawStar(x, y, r, EMPTY_STAR);
+      }
+    }
+    // the card sits up top, clear of Grizzly and his speech bubble
+    ctx.save(); ctx.translate(W / 2, 122); ctx.scale(pop, pop);
+    panel(-190, -58, 380, 116, 34, '#2f3a78', { depth: 7, rimColor: '#1d2557', edge: '#1d2557' });
     circle(-118, 0, 34, P.honeyLight);
     circle(-102, -12, 29, '#2f3a78');
     [[-60, -36, 7], [140, -34, 6], [150, 30, 5]].forEach(([x, y, r]) => drawSparkle(x, y + Math.sin(time * 3 + x) * 2, r, '#fff6c8'));
@@ -6026,7 +6073,7 @@
     Object.assign(swipe, { on: !modal && scene === S.menu && pageCount() > 1, x: p.x, y: p.y, moved: false });
     pressedButton = !!hitButton(p);
     if (pressedButton) return;
-    if (!overlay && !modal && !night && !confirmHome && scene.pointer) scene.pointer(p);
+    if (!overlay && !modal && !night && !confirmHome && readyT <= 0 && scene.pointer) scene.pointer(p);
   });
   window.addEventListener('pointermove', e => {
     const p = toGame(e); pointer.x = p.x; pointer.y = p.y;
@@ -6073,7 +6120,7 @@
     if (night) return;                                             // saying goodnight
     if (confirmHome) {
       e.preventDefault();
-      if (k === 'Enter' || k === ' ') confirmHome = null;
+      if (k === 'Enter' || k === ' ') keepPlaying();
       else if (k === 'Escape') { confirmHome = null; go('menu'); }
       return;
     }
@@ -6111,7 +6158,9 @@
       particles.push({ x: rand(0, W), y: -10, vx: rand(-40, 40), vy: rand(50, 150), life: 3, max: 3,
         color: pick(['#ff5c8a', '#ffd93d', '#6bcb77', '#4d96ff', '#c77dff']), kind: 'confetti', size: rand(6, 11) });
     }
-    if (!confirmHome) scene.update(dt);
+    // the action games stand still while asked "Leave the game?", for a moment after PLAY, and at goodnight
+    if (readyT > 0) readyT = Math.max(0, readyT - dt);
+    if (!confirmHome && readyT <= 0 && !(night && isContinuous())) scene.update(dt);
     updatePlayTime(dt);
     if (modal && modal.shake > 0) modal.shake -= dt;
     updateMusic();
@@ -6126,6 +6175,7 @@
     drawMute();
     drawPlayClock();
     if (confirmHome && !night) drawConfirmHome();
+    else if (readyT > 0 && !night) drawReady();
     if (night) drawGoodnight();
     if (modal) drawModal();
   }
@@ -6133,11 +6183,15 @@
   go(playTime.left() <= 0 ? 'sleep' : 'menu');
   hubBackdrop();
   let last = performance.now();
+  // One bad frame must never stop the game: log the first error and keep looping.
+  let loopErrors = 0;
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
-    if (!hubHeld) { update(dt); render(); hubBackdrop(); }
     requestAnimationFrame(frame);
+    if (hubHeld) return;
+    try { update(dt); render(); hubBackdrop(); }
+    catch (err) { if (!loopErrors++) console.error('Grizzly frame error:', err); }
   }
   requestAnimationFrame(frame);
 
