@@ -2753,7 +2753,7 @@
   }
   // While a game fills the screen the hub draws nothing: its loop stops, music scheduling stops and the
   // big canvas and painted layers are let go. wakeLoop() brings them back (closing, the sideways card).
-  let loopRunning = true, layoutDirty = false;
+  let loopRunning = true, layoutDirty = false, inputSince = false;
   const gameShown = () => state.screen === 'game' && !trans && !rotateCard && !modal;
   function freeLayers() {
     for (const k in layerCache) { const c = layerCache[k] && layerCache[k].canvas; if (c) { c.width = 0; c.height = 0; } }
@@ -2781,7 +2781,9 @@
   function frameLoop(now) {
     if (!loopRunning) return;
     // the sleep scene moves slowly: about 30 frames a second is plenty
-    if (state.screen === 'sleep' && !trans && !modal && now - lastT < 30) { requestAnimationFrame(frameLoop); return; }
+    // (a tap or key draws the next frame at once, so the buttons always match what is on screen)
+    if (state.screen === 'sleep' && !trans && !modal && !inputSince && now - lastT < 30) { requestAnimationFrame(frameLoop); return; }
+    inputSince = false;
     const real = Math.max(0, (now - lastT) / 1000);
     lastT = now;
     try { update(Math.min(0.1, real), Math.min(0.25, real)); render(); } catch (e) { console.error(e); }
@@ -2877,7 +2879,7 @@
   window.addEventListener('pointermove', e => { pointer.x = e.clientX; pointer.y = e.clientY;
     if (L && !pointer.down) parTarget = ((e.clientX / W) - 0.5) * -14; });
   window.addEventListener('pointerup', e => {
-    initAudio(true);
+    initAudio(true); inputSince = true;
     pointer.x = e.clientX; pointer.y = e.clientY; pointer.down = false;
     ORDER.forEach(k => { placeAnim[k].press = 0; });
     if (pressedButton) {
@@ -2896,7 +2898,7 @@
   window.addEventListener('touchend', () => initAudio(true), { passive: true });
   window.addEventListener('click', () => initAudio(true));
   window.addEventListener('keydown', e => {
-    initAudio(true);
+    initAudio(true); inputSince = true;
     const k = e.key;
     if (modal) {
       e.preventDefault();

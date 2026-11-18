@@ -436,11 +436,30 @@
     background:
       repeating-linear-gradient(90deg, transparent 0 30px, #fff6d5 30px 96px, transparent 96px 130px) 0 9px / 100% 6px no-repeat,
       linear-gradient(#2b3440, #2b3440) 0 0 / 100% 24px no-repeat,
-      linear-gradient(var(--line), var(--line)) 0 46px / 100% 8px no-repeat,
+      linear-gradient(var(--line), var(--line)) 0 calc(var(--sky) - 15px) / 100% 9px no-repeat,
+      repeating-linear-gradient(90deg, transparent 0 18px, rgba(255,255,255,.35) 18px 20px) 0 calc(var(--sky) - 15px) / 100% 9px no-repeat,
       repeating-linear-gradient(0deg, transparent 0 19px, #d5dde4 19px 20px),
       repeating-linear-gradient(90deg, transparent 0 39px, #d5dde4 39px 40px),
       #f3f6f9; }
   .scene[data-place="ug"] .indoor { opacity: 1; }
+  /* the underground wall above the train: a big name board in the line colour, a round clock and a little line map */
+  .ug-wall { position: absolute; z-index: 0; left: 0; right: 0; --wh: min(88px, calc(var(--sky) - 42px)); top: calc(var(--sky) - 18px - var(--wh)); height: var(--wh); display: none; align-items: center; justify-content: center; gap: 4%; pointer-events: none; }
+  .scene[data-place="ug"] .ug-wall { display: flex; }
+  .ug-board { height: 100%; max-height: 80px; display: flex; align-items: center; padding: 0 .8em; border-radius: 10px; background: var(--line); color: #fff;
+    font-size: clamp(12px, calc(var(--wh) * .48), 38px); font-weight: 800; white-space: nowrap; box-shadow: inset -4px -4px 0 rgba(0,0,0,.14), 0 3px 0 rgba(40,50,70,.15); }
+  .ug-clock, .ug-map { display: none; flex: none; }
+  .ug-clock { position: relative; height: 100%; max-height: 72px; aspect-ratio: 1; border-radius: 50%; background: #fbfaf5; box-shadow: inset 0 0 0 4px #c9d3dc, inset -4px -4px 0 4px #e6ebf0; }
+  .ug-clock::before, .ug-clock::after { content: ""; position: absolute; left: 50%; bottom: 50%; width: 4px; margin-left: -2px; border-radius: 2px; background: #5b6b7c; transform-origin: 50% 100%; }
+  .ug-clock::before { height: 28%; transform: rotate(-60deg); }
+  .ug-clock::after { height: 38%; background: var(--line); transform: rotate(30deg); }
+  .ug-map { height: 70%; max-height: 54px; aspect-ratio: 2.6; border-radius: 8px; background:
+      radial-gradient(circle, #fff 0 22%, var(--line) 24% 38%, transparent 40%) 8% 50% / 25% 60% repeat-x,
+      linear-gradient(var(--line), var(--line)) 50% 50% / 84% 5px no-repeat, #fbfaf5; box-shadow: inset -3px -3px 0 #e6ebf0; }
+  /* big sideways tablets and tall upright tablets have room for the clock and the map too */
+  @media (orientation: landscape) and (min-width: 700px) and (min-height: 701px), (orientation: portrait) and (min-width: 600px) and (min-height: 1100px) {
+    .ug-clock, .ug-map { display: block; }
+  }
+  @media (max-height: 700px), (max-width: 520px) { .ug-wall { display: none !important; } } /* too little wall on phones */
   .env-pill { position: absolute; z-index: 4; top: 8px; left: 8px; background: rgba(255,255,255,.88); border-radius: 999px; padding: 1px 8px; font-size: 15px; line-height: 1.5; box-shadow: 0 2px 0 rgba(0,0,0,.12); pointer-events: none; }
   /* ---- The station, drawn in a storybook style: flat shapes, soft colours, no outlines. The train is seen
      straight on from the platform; the sky shows above it, with HDB flats and trees peeking over the roof. ---- */
@@ -460,7 +479,7 @@
      it run off to the left, so it can drive away to the right. No operator branding. */
   .train {
     position: relative; display: flex; justify-content: center; align-items: stretch; gap: 8px;
-    margin-left: -700px; padding: 12px 0 24px 700px;
+    margin-left: -700px; padding: var(--tpadT, 12px) 0 var(--tpadB, 24px) 700px;
     background:
       var(--cars) 0 0 / 696px 100% no-repeat,
       linear-gradient(var(--line), var(--line)) 0 calc(100% - 16px) / 100% 9px no-repeat,
@@ -481,7 +500,7 @@
     .carbox::after { content: ""; position: absolute; right: 15px; bottom: 32px; width: 9px; height: 9px; border-radius: 50%; background: #ffe27a; }
   }
   /* full-height double sliding doors that open to the inside */
-  .door { position: relative; flex: none; width: 30px; margin: -4px 0 -24px; border-radius: 5px; overflow: hidden;
+  .door { position: relative; flex: none; width: 30px; margin: -4px 0 calc(-1 * var(--tpadB, 24px)); border-radius: 5px; overflow: hidden;
     background: linear-gradient(90deg, transparent 44%, #f2c94c 44% 56%, transparent 56%), linear-gradient(#66768f, #8c9bb1); /* inside: a yellow grab pole */ box-shadow: 0 0 0 1.5px #bcc7d2; }
   .door i { position: absolute; top: 0; bottom: 0; width: 50%; background: var(--leaf); transition: transform .6s ease-in-out; }
   .door i:first-child { left: 0; box-shadow: inset -1px 0 0 #bcc7d2; }
@@ -650,7 +669,7 @@
     .helprow { flex-wrap: wrap; }
     /* end screen: the summary on the left, the buttons on the right */
     #end.screen { max-width: 980px; }
-    #end.screen.active { display: grid; grid-template-columns: 1fr 1fr; align-content: center; align-items: center; gap: 14px 32px; }
+    #end.screen.active { display: grid; grid-template-columns: 1fr 1fr; align-content: center; align-items: start; gap: 14px 32px; }
     .end-sum, .end-act { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
     /* interchange: the signs in two columns */
     .xchg-card { max-width: 820px; }
@@ -658,6 +677,7 @@
   }
   @media (orientation: landscape) and (min-width: 700px) and (min-aspect-ratio: 5/4) and (min-height: 701px) {
     .scene { --sky: 136px; --floor: 136px; --paxh: 104px; --seat: 60px; } /* fitScene() then sizes it to fill the column */
+    #game.screen.active { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
     .g-left { justify-content: flex-start; }
     .tally { font-size: 34px; }
     #end h1 { font-size: 46px; }
@@ -799,6 +819,7 @@
     <div class="layer far" id="layerFar"></div>
     <div class="layer near" id="layerNear"></div>
     <div class="indoor" aria-hidden="true"></div>
+    <div class="ug-wall" aria-hidden="true"><i class="ug-clock"></i><b class="ug-board" id="ugBoard"></b><i class="ug-map"></i></div>
     <div class="rain" aria-hidden="true"></div>
     <div class="flash" aria-hidden="true"></div>
     <div class="env-pill" id="envPill"></div>
@@ -1233,16 +1254,27 @@
   // so there are no empty bands above and below it. Elsewhere the CSS sizes apply.
   const tallSide = matchMedia("(orientation: landscape) and (min-width: 700px) and (min-aspect-ratio: 5/4) and (min-height: 701px)");
   function fitScene() {
-    const sc = $("scene").style, vars = ["--sky", "--floor", "--paxh", "--seat"];
+    const sc = $("scene").style, vars = ["--sky", "--floor", "--paxh", "--seat", "--tpadT", "--tpadB"];
     if (!tallSide.matches) { vars.forEach(v => sc.removeProperty(v)); return; }
     if (!$("game").classList.contains("active") || S.riding) return;
     const left = document.querySelector(".g-left"), H = left.clientHeight - document.querySelector(".signrow").offsetHeight - 12;
     if (H < 200) return;
-    const seat = Math.max(46, Math.min(76, Math.floor((left.clientWidth - 200) / 5)));
+    const ug = $("scene").dataset.place === "ug";
+    const seat = Math.max(46, Math.min(ug ? 90 : 76, Math.floor((left.clientWidth - 200) / 5)));
     const rest = Math.max(180, H - (2 * seat + 19 + 36)); // the train: two rows of seats in the window, plus its body
-    const floor = Math.round(Math.min(rest * .4, 180)), sky = rest - floor;
+    let sky, floor, paxh, grow = 0;
+    if (ug) { // underground: a low wall with the station's name board, just room on the platform for the people,
+      // and the rest of the height goes to the train (a taller car). The scene keeps the same height either way.
+      paxh = Math.round(Math.min(140, seat * 1.5)); floor = paxh + 26;
+      sky = Math.round(Math.min(rest - floor, Math.max(70, seat * 1.15)));
+      grow = Math.round(Math.min(Math.max(0, rest - floor - sky), seat * .7)); // a taller car, but not an empty one
+      sky = rest - floor - grow; // anything left over: more wall, with a bigger name board
+    } else {
+      floor = Math.round(Math.min(rest * .4, 180)); sky = rest - floor; paxh = Math.round(Math.min(floor * .8, 140));
+    }
     sc.setProperty("--seat", seat + "px"); sc.setProperty("--sky", sky + "px");
-    sc.setProperty("--floor", floor + "px"); sc.setProperty("--paxh", Math.round(Math.min(floor * .8, 140)) + "px");
+    sc.setProperty("--floor", floor + "px"); sc.setProperty("--paxh", paxh + "px");
+    sc.setProperty("--tpadT", 12 + Math.round(grow * .4) + "px"); sc.setProperty("--tpadB", 24 + Math.round(grow * .6) + "px");
   }
 
   // ---- questions ----
@@ -1292,6 +1324,7 @@
     S.lastStops = null; $("stopsPill").hidden = true; S.weatherLeft = rand(...WEATHER_EVERY); S.envStops = 0;
     if (playTime.limit() && playTime.left() <= LAST_CALL) lastCall(); // the last minute already: just the last stops (said as the doors close)
     document.documentElement.style.setProperty("--line", S.line.color);
+    setBoard(st[S.at]);
     applyEnv(isUnderground(S.line, st[S.at]) ? "ug" : "open");
     $("starCount").textContent = "⭐ 0";
     setSign("Start", st[S.at]);
@@ -1440,7 +1473,7 @@
       setSign("Next stop", next);
       stepEnv();
       const place = isUnderground(S.line, next) ? "ug" : "open";
-      ride(() => { fillScene(S.q); applyEnv(place); }, arrive);
+      ride(() => { fillScene(S.q); setBoard(next); applyEnv(place); }, arrive);
     }, reduceMotion ? 200 : 900);
   }
 
@@ -2173,7 +2206,7 @@
     // Every station name along one line (start picker). Each name is set at right angles to the line
     // (like a real MRT map), so neighbouring names stand side by side instead of running into each other.
     if (o.names) {
-      const st = o.names.stations;
+      const st = o.names.stations, placed = [];
       st.forEach((name, i) => {
         const here = name === o.here;
         const [x, y] = POS[name], a = POS[st[Math.max(0, i - 1)]], b = POS[st[Math.min(st.length - 1, i + 1)]];
@@ -2184,10 +2217,21 @@
         if (y < 12 && ang < 0) ang = -ang;       // don't run off the top of the map
         // Alternate sides of the line (1st station one side, 2nd the other…) so neighbours get twice the room,
         // but flip a name back if it would run off the edge of the map.
-        const r = ang * Math.PI / 180, len = name.length * 1.15 * Math.cos(r);
+        const fits = (a, sd) => { const c = Math.cos(a * Math.PI / 180), L = name.length * 1.15 * c; return sd < 0 ? x - L >= -4 : x + L <= 198; };
         let side = i % 2 ? -1 : 1;
-        if (side < 0 && x - len < -4) side = 1;
-        if (side > 0 && x + len > 198) side = -1;
+        if (!fits(ang, side)) side = -side;
+        // If the name would run into one already placed (where the line zigzags), try the other side, then
+        // flatter or steeper angles, and keep the first that's clear.
+        const tries = [[ang, side], [ang, -side], [0, side], [0, -side], [ang + 35, side], [ang - 35, side], [ang + 35, -side], [ang - 35, -side], [ang + 70, side], [ang - 70, side], [ang + 70, -side], [ang - 70, -side]]
+          .map(([a, sd]) => [Math.max(-80, Math.min(80, a)), sd]).filter(([a, sd]) => fits(a, sd));
+        const seg = (a, sd) => { // the label as a line segment from its start to its end, in map units
+          const rr = a * Math.PI / 180, d0 = sd * (here ? 3.6 : 1.7), L = name.length * (here ? 1.4 : 1.12) * sd;
+          return [x + d0 * Math.cos(rr), y + d0 * Math.sin(rr), x + (d0 + L) * Math.cos(rr), y + (d0 + L) * Math.sin(rr)];
+        };
+        const room = t => Math.min(9, ...placed.map(q => segDist(seg(...t), q)));
+        const pick = tries.find(t => room(t) >= 2.3) || tries.reduce((m, t) => room(t) > room(m) ? t : m, tries[0] || [ang, side]); // or the clearest
+        ang = pick[0]; side = pick[1]; placed.push(seg(ang, side));
+        const r = ang * Math.PI / 180;
         const d = side * (here ? 3.6 : 1.7); // the chosen station's name sits clear of its red ring
         const tx = x + d * Math.cos(r), ty = y + d * Math.sin(r) + .7;
         const t = add("text", { x: tx, y: ty, "font-size": here ? 2.5 : 2, "font-weight": "bold", fill: here ? "#d42e12" : "#1d2b3a", stroke: "#fff", "stroke-width": here ? .8 : .6,
@@ -2203,6 +2247,14 @@
       if (!o.names) add("text", { x, y: y - 3, "font-size": 5, "text-anchor": "middle" }).textContent = "🚆"; // the picker marks it in red instead
       if (!o.names) label(o.here, true); // the picker already names it, in red, along the line
     }
+  }
+  // Shortest distance between two line segments [x1, y1, x2, y2] (for keeping map labels apart).
+  function segDist(a, b) {
+    const pt = (px, py, [x1, y1, x2, y2]) => { const dx = x2 - x1, dy = y2 - y1, l = dx * dx + dy * dy || 1, t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / l)); return Math.hypot(px - x1 - t * dx, py - y1 - t * dy); };
+    const cross = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+    const A = [a[0], a[1]], B = [a[2], a[3]], C = [b[0], b[1]], D = [b[2], b[3]];
+    if (cross(A, B, C) * cross(A, B, D) < 0 && cross(C, D, A) * cross(C, D, B) < 0) return 0;
+    return Math.min(pt(b[0], b[1], a), pt(b[2], b[3], a), pt(a[0], a[1], b), pt(a[2], a[3], b));
   }
   // Scroll a map so a station sits in the middle of the view.
   function centreOn(scroller, svg, name) {
@@ -2245,9 +2297,12 @@
     return h < 6 ? "night" : h < 11 ? "morning" : h < 17 ? "afternoon" : h < 19 ? "evening" : "night";
   }
   // Show a place (underground "ug" or outside "open") and the current time and weather on the scene.
+  // the underground wall's station name board (and its little line map, in the line colour)
+  const setBoard = name => { $("ugBoard").textContent = name; };
   function applyEnv(place) {
     const sc = $("scene");
     sc.dataset.place = place; sc.dataset.time = S.time; sc.dataset.weather = S.weather;
+    fitScene();
     const pill = $("envPill");
     if (place === "ug") { pill.textContent = "🚇"; pill.title = "Underground"; }
     else {
