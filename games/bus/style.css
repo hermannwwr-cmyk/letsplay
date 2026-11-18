@@ -7,12 +7,12 @@ html, body {
   -webkit-tap-highlight-color: transparent;
   font-family: "Baloo 2", "Comic Sans MS", "Chalkboard SE", "Trebuchet MS", system-ui, sans-serif;
 }
+/* left/top/size are set in whole pixels by resize() (no half-pixel seam around the scene) */
 #stage {
   --u: 12.8px;
-  position: absolute; left: 50%; top: 50%;
+  position: absolute; left: 0; top: 0;
   width: 1280px; height: 720px;
-  transform: translate(-50%, -50%);
-  overflow: hidden; background: #87ceeb;
+  overflow: hidden;
   box-shadow: 0 10px 40px rgba(0,0,0,.35);
 }
 #game { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
@@ -28,12 +28,16 @@ button { font-family: inherit; cursor: pointer; border: none; color: inherit; }
 }
 #stars.bump { animation: bump .5s cubic-bezier(.2,1.8,.4,1); }
 #controls { position: absolute; right: 1.5%; top: 2.2%; display: flex; gap: calc(var(--u) * .8); z-index: 5; }
+/* at least 46px so small fingers can hit them on a phone */
 #controls button {
-  width: calc(var(--u) * 5); height: calc(var(--u) * 5); border-radius: 50%;
-  background: #fff; font-size: calc(var(--u) * 2.4); line-height: 1;
+  width: max(46px, calc(var(--u) * 5)); height: max(46px, calc(var(--u) * 5)); border-radius: 50%; padding: 0;
+  background: #fff; font-size: max(22px, calc(var(--u) * 2.4)); line-height: 1;
   box-shadow: 0 .18em 0 rgba(0,0,0,.18);
 }
 #controls button.off { opacity: .45; filter: grayscale(1); }
+/* small screens (phone held sideways): the buttons stand in a column on the right,
+   clear of the route strip and the question card (the bus ends well before them) */
+.small #controls { flex-direction: column; gap: 6px; right: 1.2%; }
 
 /* ---------- Banner ---------- */
 #banner {
@@ -49,7 +53,7 @@ button { font-family: inherit; cursor: pointer; border: none; color: inherit; }
 
 /* ---------- Question ---------- */
 #question {
-  position: absolute; left: 50%; top: 9%;
+  position: absolute; left: 50%; top: 11.5%;
   transform: translateX(-50%);
   background: rgba(255,255,255,.96);
   border-radius: calc(var(--u) * 2.5);
@@ -77,6 +81,8 @@ button { font-family: inherit; cursor: pointer; border: none; color: inherit; }
 .choice.c2 { background: #ffa62b; }
 .choice.wrong { background: #b8b8b8 !important; animation: shake .45s; box-shadow: none; }
 .choice.right { background: #35c46a !important; animation: bounce .7s; }
+/* while we count together the buttons rest (dimmed, not tappable) */
+#choices.helping .choice { opacity: .4; filter: saturate(.5); pointer-events: none; transition: opacity .3s, filter .3s; }
 
 /* ---------- Title ---------- */
 .screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; }
@@ -142,12 +148,15 @@ button { font-family: inherit; cursor: pointer; border: none; color: inherit; }
 .green { background: #35c46a; }
 .blue { background: #4d96ff; }
 
+/* upright phone (standalone only): a hint in the empty space above the scene */
 #rotate {
-  display: none; position: absolute; left: 50%; bottom: 3%; transform: translateX(-50%);
-  background: rgba(0,0,0,.6); color: #fff; padding: .2em 1em; border-radius: 999px;
-  font-size: calc(var(--u) * 3); white-space: nowrap; pointer-events: none;
+  display: none; position: fixed; left: 50%; top: max(18px, env(safe-area-inset-top)); transform: translateX(-50%);
+  background: rgba(0,0,0,.55); color: #fff; padding: .25em 1em; border-radius: 999px;
+  font-size: 18px; font-weight: 700; line-height: 1.25; text-align: center; pointer-events: none;
+  width: max-content; max-width: calc(100vw - 32px);
 }
 @media (orientation: portrait) and (max-width: 760px) { #rotate { display: block; } }
+.hub #rotate { display: none !important; }
 
 /* ---------- Animations ---------- */
 @keyframes popIn { 0% { opacity: 0; scale: .4; } 100% { opacity: 1; scale: 1; } }
@@ -161,7 +170,7 @@ button { font-family: inherit; cursor: pointer; border: none; color: inherit; }
 .hub #hud { position: absolute; left: 1.5%; top: 2.2%; display: flex; align-items: flex-start; gap: calc(var(--u) * .8); }
 .hub #stars { position: static; }
 .hub #stage { box-shadow: none; }
-.hub.held *, .hub.held *::before, .hub.held *::after { animation-play-state: paused !important; }
+.held *, .held *::before, .held *::after { animation-play-state: paused !important; }
 #playClock {
   display: flex; align-items: center; gap: .3em;
   background: #fff6e0; border-radius: 999px; margin-top: calc(var(--u) * .35); line-height: 1.3;

@@ -8,7 +8,7 @@
 <title>Bendy Bus Counting Fun</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -22,7 +22,7 @@
     <button id="btnSound" title="Sound and voice" aria-label="Sound and voice">🔊</button>
     <button id="btnMusic" title="Music" aria-label="Music">🎵</button>
     <button id="btnMap" class="hidden" title="Route map" aria-label="Route map">🗺️</button>
-    <button id="btnHome"class="hidden" title="Back to start" aria-label="Back to start">🏠</button>
+    <button id="btnHome" class="hidden" title="Back to start" aria-label="Back to start">🏠</button>
   </div>
 
   <div id="banner" class="hidden"></div>
@@ -51,9 +51,8 @@
       </div>
     </div>
   </div>
-
-  <div id="rotate">Turn your device sideways for a bigger bus! 📱↻</div>
 </div>
+<div id="rotate">Turn your device sideways for a bigger bus! 📱↻</div>
 <script src="game.js"></script>
 </body>
 </html>

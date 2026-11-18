@@ -33,14 +33,16 @@
   const HUB = /[?&]hub=1\b/.test(location.search) && window.parent !== window;
   const hub = { limit: 0, left: null, share: 0, warned: false, warnPending: false, slept: false, paused: false, held: false };
   function hubPost(m) { try { window.parent.postMessage(m, '*'); } catch (e) { /* ignore */ } }
-  // Timers that stand still while the hub holds the game (the "turn me sideways" card covers it).
-  // Without a hold they are plain setTimeouts.
+  // The game stands still (no updates, timers, speech or sound) while the hub holds it
+  // (the "turn me sideways" card covers it) or while the page is hidden; see setFrozen().
+  let frozen = false, pageHidden = !!document.hidden;
+  // Timers that stand still while the game is frozen. Otherwise they are plain setTimeouts.
   const holdTimers = new Set();
   function later(fn, ms) {
     const t = { ms: Math.max(0, ms || 0), start: performance.now(), id: 0 };
     t.fire = () => { holdTimers.delete(t); fn(); };
     holdTimers.add(t);
-    if (!hub.held) t.id = setTimeout(t.fire, t.ms);
+    if (!frozen) t.id = setTimeout(t.fire, t.ms);
     return t;
   }
   function cancelLater(t) { if (t) { clearTimeout(t.id); holdTimers.delete(t); } }
@@ -48,7 +50,7 @@
   if (HUB) {
     document.documentElement.classList.add('hub');
     window.addEventListener('message', (e) => { if (e.source === window.parent) onHubMessage(e.data); });
-    hubPost({ hub: 'hello', game: 'bus' });
+    // ('hello' is sent at the end of the setup, once everything is ready)
   }
 
   function resize() {
@@ -57,6 +59,11 @@
     const sw = Math.floor(W * s), sh = Math.floor(H * s);
     stage.style.width = sw + 'px';
     stage.style.height = sh + 'px';
+    // whole pixels, so no light seam shows around the scene
+    stage.style.left = Math.floor((vw - sw) / 2) + 'px';
+    stage.style.top = Math.floor((vh - sh) / 2) + 'px';
+    // small screens: bigger-than-scale buttons stand in a column (see style.css)
+    document.documentElement.classList.toggle('small', sw < 920);
     stage.style.setProperty('--u', (sw / 100) + 'px');
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width = Math.round(sw * dpr);
@@ -96,6 +103,8 @@
   const store = {
     get(k, d) { try { const v = localStorage.getItem('bendybus.' + k); return v === null ? d : v === '1'; } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem('bendybus.' + k, v ? '1' : '0'); } catch (e) { /* ignore */ } },
+    num(k) { try { const n = Math.floor(Number(localStorage.getItem('bendybus.' + k))); return n > 0 ? n : 0; } catch (e) { return 0; } },
+    setNum(k, n) { try { localStorage.setItem('bendybus.' + k, String(n)); } catch (e) { /* ignore */ } },
   };
 
   const Sound = {
@@ -104,8 +113,9 @@
     musicOn: store.get('music', true),
     lastEngine: 0,
     init() {
-      if (hub.paused || hub.held) return;
-      if (this.ac) { if (this.ac.state === 'suspended') this.ac.resume(); return; }
+      if (hub.paused || frozen) return;
+      // (iPhone/iPad can leave the context 'interrupted' after a call or a locked screen)
+      if (this.ac) { if (this.ac.state !== 'running' && this.ac.state !== 'closed') this.ac.resume().catch(() => {}); return; }
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return;
       // iPhone/iPad: play sound even when the silent switch is on
@@ -293,29 +303,61 @@
         || vs.find((v) => /en[-_](GB|AU|IE)/i.test(v.lang))
         || vs.find((v) => /^en/i.test(v.lang)) || null;
     },
-    say(text, interrupt = false) {
-      if (!this.ok || !Sound.sfxOn) return;
+    live: new Set(),   // utterances not finished yet (also keeps them from being garbage-collected)
+    // Returns true if the line was handed to the speech engine. onend runs once when it
+    // has been said (or was cut off by another line), but not when a freeze cut it off.
+    say(text, interrupt = false, onend = null) {
+      if (!this.ok || !Sound.sfxOn) return false;
       try {
         if (!this.voice) this.pick();
         if (interrupt) speechSynthesis.cancel();
         const u = new SpeechSynthesisUtterance(text);
         if (this.voice) { u.voice = this.voice; u.lang = this.voice.lang; }
         u.rate = 0.95; u.pitch = 1.15; u.volume = 1;
+        let ended = false;
+        const end = () => { if (ended) return; ended = true; this.live.delete(u); if (onend && !u.dead) onend(); };
+        u.onend = end; u.onerror = end;
+        this.live.add(u);
         speechSynthesis.speak(u);
-      } catch (e) { /* speech not available */ }
+        return true;
+      } catch (e) { return false; }
     },
-    stop() { if (this.ok) try { speechSynthesis.cancel(); } catch (e) { /* ignore */ } },
+    // dead: the lines are cut off by a freeze and will be said again, so their onend must not run
+    stop(dead = false) {
+      if (!this.ok) return;
+      if (dead) for (const u of this.live) u.dead = true;
+      this.live.clear();
+      try { speechSynthesis.cancel(); } catch (e) { /* ignore */ }
+    },
   };
   if (Voice.ok) { Voice.pick(); speechSynthesis.onvoiceschanged = () => Voice.pick(); }
-  let lastSaid = '';
-  const say = (t, i) => { if (!hub.paused && !hub.held) { lastSaid = t; Voice.say(t, i); } };
+  let lastSaid = '', lastEnd = null;
+  const say = (t, i, onend) => {
+    if (hub.paused || frozen) return false;
+    lastSaid = t; lastEnd = onend || null;
+    return Voice.say(t, i, onend);
+  };
+  // Say a line and wait until it has been said, so the next line never cuts it off.
+  // If the browser never reports the end, a generous fallback time moves on; without
+  // sound it waits a short pause instead. minMs: wait at least this long (for the pictures).
+  function sayWait(text, interrupt = false, minMs = 0) {
+    const r = run;
+    const spoken = new Promise((res) => {
+      let fallback = null, done = false;
+      const finish = () => { if (done) return; done = true; cancelLater(fallback); res(); };
+      const est = 500 + text.length * 70;
+      const ok = say(text, interrupt, finish);
+      fallback = later(finish, ok ? est * 1.6 + 1500 : Math.min(est, 1400));
+    });
+    const pause = new Promise((res) => later(res, minMs));
+    return Promise.all([spoken, pause]).then(() => { if (r && r.aborted) throw new Abort(); });
+  }
 
   ['pointerdown', 'touchend', 'keydown'].forEach((t) => document.addEventListener(t, () => Sound.init(), { passive: true }));
 
-  document.addEventListener('visibilitychange', () => {
-    if (!Sound.ac) return;
-    if (document.hidden) { Sound.ac.suspend(); Voice.stop(); } else if (!hub.paused && !hub.held) Sound.ac.resume();
-  });
+  // A hidden page stands still too (the timers of a stop in progress, speech and sound),
+  // and carries on where it was when it is shown again.
+  document.addEventListener('visibilitychange', () => { pageHidden = !!document.hidden; setFrozen(); });
 
   // ====================================================================
   // Layout of the bus and the street
@@ -327,6 +369,9 @@
   const WINDOWS = [[270, 338], [344, 412], [418, 488], [558, 634], [676, 744], [750, 816], [888, 956], [962, 1030], [1036, 1098]];
   const SLOTS = [];
   WINDOWS.forEach(([a, b]) => { const w = b - a; SLOTS.push(a + w * 0.28, a + w * 0.72); });
+  // New passengers sit from the front: one per window first (easy to count), then the second seats.
+  const SEAT_ORDER = [...SLOTS.keys()].filter((i) => i % 2 === 0).concat([...SLOTS.keys()].filter((i) => i % 2 === 1));
+  const SEAT_RANK = []; SEAT_ORDER.forEach((slot, k) => { SEAT_RANK[slot] = k; });
   const DOOR_IN = DOORS[0].x + DOORS[0].w / 2;
   const DOOR_OUT = DOORS[2].x + DOORS[2].w / 2;
   const PAVE_Y = 688;
@@ -399,7 +444,9 @@
     onboard: [], people: [], signs: [], puffs: [], parts: [], pops: [], labels: [],
     puffTimer: 0, nextDest: 'Bus Interchange',
     map: { a: 0, open: false, manual: false, pts: [], decor: null, timer: null },
+    endA: 0, endShown: false, helping: false, dingTimer: null, askLine: '',
   };
+  let starTotal = store.num('stars');   // every star ever earned here (shown on the hub's launcher)
 
   // ---------- async flow helpers (with abort support) ----------
   class Abort extends Error {}
@@ -419,7 +466,7 @@
   const ui = {
     title: $('title'), end: $('end'), hud: $('hud'), banner: $('banner'),
     question: $('question'), qText: $('qText'), choices: $('choices'),
-    stars: $('stars'), starCount: $('starCount'),
+    stars: $('stars'), starCount: $('starCount'), controls: $('controls'),
     btnSound: $('btnSound'), btnMusic: $('btnMusic'), btnHome: $('btnHome'), btnMap: $('btnMap'),
   };
   let bannerTimer = null;
@@ -466,14 +513,16 @@
     if (x > BUS.front && x < BUS.rear && y > BUS.top && y < BUS.bot + 30) { Sound.init(); Sound.honk(); }
   });
 
+  // Three numbers in a row that are all possible answers (1 to 5 when someone always
+  // gets on or off), with the right one anywhere among them, in a shuffled order so
+  // its place (and colour) gives nothing away.
   function makeChoices(ans, cap) {
-    const hi = Math.max(cap, ans + 2);
-    const lo = game.level && game.level.oneWay && ans > 0 ? 1 : 0;   // someone always gets on or off
-    const near = shuffle([ans - 1, ans + 1]).filter((n) => n >= lo && n <= hi);
-    const far = shuffle([ans - 2, ans + 2, ans - 3, ans + 3]).filter((n) => n >= lo && n <= hi);
-    const set = new Set([ans]);
-    for (const n of [...near, ...far]) { if (set.size >= 3) break; set.add(n); }
-    return [...set].sort((a, b) => a - b);
+    const lo = Math.min(game.level && game.level.oneWay ? 1 : 0, ans);
+    const hi = Math.max(cap, ans, lo + 2);
+    const starts = [];
+    for (let s0 = ans - 2; s0 <= ans; s0++) if (s0 >= lo && s0 + 2 <= hi) starts.push(s0);
+    const s0 = pick(starts);
+    return shuffle([s0, s0 + 1, s0 + 2]);
   }
 
   // Ask a question; resolves when the child picks the right answer.
@@ -483,6 +532,7 @@
       let busy = false, firstTry = true;
       ui.qText.textContent = text;
       ui.choices.innerHTML = '';
+      ui.choices.classList.remove('helping'); game.helping = false;
       makeChoices(answer, game.level.cap).forEach((n, i) => {
         const b = document.createElement('button');
         b.className = 'choice c' + i;
@@ -498,10 +548,15 @@
           } else {
             busy = true; firstTry = false;
             b.classList.add('wrong'); b.disabled = true;
+            // the buttons rest while we count together, and wake up for "which number is it?"
+            game.helping = true; ui.choices.classList.add('helping');
             Sound.wrong();
-            say("Hmm, not quite. Let's count together!", true);
-            try { await hintFn(); } catch (e) { if (!(e instanceof Abort)) console.error(e); }
+            try {
+              await sayWait("Hmm, not quite. Let's count together!", false, 600);
+              await hintFn();
+            } catch (e) { if (!(e instanceof Abort)) console.error(e); }
             if (r.aborted) return;
+            game.helping = false; ui.choices.classList.remove('helping');
             busy = false;
             say('Now, which number is it?');
           }
@@ -513,25 +568,25 @@
       void ui.question.offsetWidth;
       game.askLine = speakText || text;
       // hub mode: a last-minute warning not given yet goes first (the counting is over by now)
-      const warned = HUB && hubWarnNow();
-      say(speakText || text, !warned);
+      // (queued, not cutting off a line still being said)
+      if (HUB) hubWarnNow();
+      say(speakText || text);
     }));
   }
 
   // Count things one by one with number labels (used as a hint)
+  // (each number waits for the one before to be said)
   async function countAloud(targets) {
     game.labels = [];
-    await sleep(1600);
-    if (!targets.length) { say('Nobody! That is zero.'); await sleep(1500); return; }
+    if (!targets.length) { await sayWait('Nobody! That is zero.', false, 1500); return; }
+    await sleep(250);
     for (let i = 0; i < targets.length; i++) {
       game.labels.push({ pos: targets[i], n: i + 1, t: 0 });
       Sound.pop(i + 1);
-      say(String(i + 1), true);
-      await sleep(850);
+      await sayWait(String(i + 1), false, 850);
     }
-    await sleep(300);
-    say(`${targets.length}!`, true);
-    await sleep(900);
+    await sleep(250);
+    await sayWait(`${targets.length}!`, false, 900);
   }
   const busTargets = (list = game.onboard) => [...list].sort((a, b) => SLOTS[a.slot] - SLOTS[b.slot])
     .map((p) => () => ({ x: SLOTS[p.slot], y: 462 + game.kneel }));
@@ -556,8 +611,18 @@
   }
   function freeSlot() {
     const used = new Set(game.onboard.map((p) => p.slot));
-    const free = SLOTS.map((_, i) => i).filter((i) => !used.has(i));
-    return pick(free);
+    return SEAT_ORDER.find((i) => !used.has(i));
+  }
+  // the passenger who sat down last (furthest back) gets off first
+  const lastSeated = () => game.onboard.filter((p) => !p.leaving).sort((a, b) => SEAT_RANK[b.slot] - SEAT_RANK[a.slot])[0];
+  function fillTitleBus() {
+    game.onboard = [];
+    for (let i = 0; i < 4; i++) game.onboard.push({ look: makeLook(), slot: [3, 6, 10, 15][i], appear: 1, leaving: false });
+  }
+  function earnStar() {
+    starTotal++;
+    store.setNum('stars', starTotal);
+    if (HUB) hubPost({ hub: 'stars', count: starTotal });
   }
   function addPop(x, y, n, color = '#ffcf3f') { game.pops.push({ x, y, n, t: 0, color }); }
 
@@ -584,18 +649,20 @@
   function makeRoute(level) {
     const places = shuffle(PLACES.slice()).slice(0, 5);
     const stops = [];
-    let onboard = 0;
+    let onboard = 0, offRun = 0;
     places.forEach(([name, icon, key, color], i) => {
       if (level.oneWay) {
         // Only one thing happens per stop, so there is just one group to count.
+        // (never three "got off" stops in a row)
         let off = 0, on = 0;
-        const getOn = i === 0 || onboard === 0 || (onboard < level.cap && (i % 2 === 0 ? Math.random() < 0.75 : Math.random() < 0.35));
+        const getOn = i === 0 || onboard === 0 || (onboard < level.cap && (offRun >= 2 || (i % 2 === 0 ? Math.random() < 0.75 : Math.random() < 0.35)));
         if (getOn) on = randi(i === 0 ? 2 : 1, Math.min(level.maxOn, level.cap - onboard));
         else off = randi(1, Math.min(level.maxOff, onboard));
         // keep someone on board for the last stop
         if (i === 4 && onboard - off + on === 0) { off = 0; on = randi(1, 2); }
         stops.push({ name, icon, key, color, off, on, terminus: false });
         onboard = onboard - off + on;
+        offRun = off > 0 ? offRun + 1 : 0;
         return;
       }
       let off = 0, on;
@@ -619,7 +686,11 @@
     game.nextDest = stop.name;
     game.signs.push({ wx: POLE_X - game.distTarget, name: stop.name, icon: stop.icon, key: stop.key, color: stop.color });
     game.bellAt = stop.off > 0 ? game.distTarget - 1050 : null;
-    if (game.mode === 'play') showMap(3400);
+    if (game.mode === 'play') {
+      ui.btnMap.classList.remove('hidden');
+      // the map pops up by itself on the first leg only (the strip at the top shows the rest)
+      if (game.stopIndex === 0) showMap(3000);
+    }
     return guard(new Promise((res) => { game.arriveResolve = res; }));
   }
 
@@ -636,9 +707,9 @@
     game.stops = makeRoute(game.level);
     game.stopIndex = 0;
     layoutMap();
-    ui.btnMap.classList.remove('hidden');
     ui.title.classList.add('hidden');
-    ui.end.classList.add('hidden');
+    ui.end.classList.add('hidden'); game.endShown = false;
+    ui.controls.classList.remove('hidden');
     ui.hud.classList.remove('hidden');
     ui.btnHome.classList.remove('hidden');
     try {
@@ -674,6 +745,9 @@
     banner(`Next stop: ${stop.icon} ${stop.name}`, 3200);
     say(`Next stop, ${stop.name}!`);
     await arrive;
+    // counting time: the map closes and its button rests until the bus drives on
+    hideMap();
+    ui.btnMap.classList.add('hidden');
     Sound.hiss();
     later(() => Sound.ambient(stop.key), 500);
     await sleep(700);
@@ -682,7 +756,8 @@
     if (idx === 0 && waiting.length) {
       const first = await ask('How many people are waiting at the bus stop?', waiting.length, null,
         () => countAloud(peopleTargets(waiting)));
-      await reward(first, `${waiting.length} ${waiting.length === 1 ? 'person is' : 'people are'} waiting!`, null);
+      const w = `${waiting.length} ${waiting.length === 1 ? 'person is' : 'people are'} waiting!`;
+      await reward(first, w, w);
     }
 
     // Open doors
@@ -693,8 +768,8 @@
     // ---- Getting off ----
     if (stop.off > 0) {
       banner(stop.terminus ? 'Last stop! Everybody off! 👋' : "Let's count who gets OFF! 👋", 2400);
-      say(stop.terminus ? 'Last stop! Everybody gets off. Count with me!' : "Let's count who gets off!", true);
-      await sleep(2000);
+      await sayWait(stop.terminus ? 'Last stop! Everybody gets off. Count with me!' : "Let's count who gets off!", false, 1500);
+      await sleep(300);
       const spots = [];
       const wait = stop.terminus || game.level.oneWay;
       if (stop.terminus) {
@@ -710,26 +785,24 @@
         await alightOne(k + 1, wait ? spots[k] : null);
       }
       await sleep(900);
-      say(`${stop.off} got off.`, true);
-      await sleep(1500);
+      // (when the question is about just this group, it is not given away right before it)
+      if (!wait) await sayWait(`${stop.off} got off.`, false, 1500);
     }
 
     // ---- Getting on ----
     game.boarded = [];
     if (stop.on > 0) {
       banner("Now count who gets ON! 🎫", 2400);
-      say("Now let's count who gets on!", true);
-      await sleep(1900);
+      await sayWait("Now let's count who gets on!", false, 1500);
+      await sleep(300);
       for (let k = 0; k < waiting.length; k++) {
         await boardOne(waiting[k], k + 1, waiting.slice(k + 1));
       }
       await sleep(700);
-      say(`${stop.on} got on.`, true);
-      await sleep(1500);
+      if (!game.level.oneWay) await sayWait(`${stop.on} got on.`, false, 1500);
     } else if (!stop.terminus && !game.level.oneWay) {
       banner('Nobody is getting on here 🙂', 2200);
-      say('Nobody is getting on here.', true);
-      await sleep(2200);
+      await sayWait('Nobody is getting on here.', false, 2200);
     }
 
     if (!stop.terminus) {
@@ -743,7 +816,7 @@
     if (stop.terminus) {
       const first = await ask('How many people got off the bus?', stop.off, null,
         () => countAloud(peopleTargets(game.alighted)));
-      await reward(first, `${stop.off} got off!`, null);
+      await reward(first, `${stop.off} got off!`, `${stop.off} ${stop.off === 1 ? 'person' : 'people'} got off!`);
     } else if (game.level.oneWay) {
       // Ask only about the group the child just counted.
       // (At the first stop the warm-up already asked about these same people.)
@@ -778,18 +851,19 @@
 
   async function reward(firstTry, bannerText, spoken) {
     const praise = pick(PRAISE);
-    say(praise + (spoken ? ' ' + spoken : ''), true);
+    earnStar();
     starBurst(W / 2, 300);
     if (firstTry) confetti(90);
     flyStar(() => { game.stars++; updateStars(true); Sound.pop(8); });
     banner(bannerText, 2800, 'eq');
-    await sleep(3000);
+    // (the right answer may cut off the question; nothing cuts off the praise)
+    await sayWait(praise + (spoken ? ' ' + spoken : ''), true, 3000);
     game.labels = [];
   }
 
   async function alightOne(n, spot) {
-    // pick a passenger, fade them out of the window
-    const pas = pick(game.onboard);
+    // the passenger who sat down last fades out of the window
+    const pas = lastSeated();
     pas.leaving = true;
     await sleep(350);
     game.onboard.splice(game.onboard.indexOf(pas), 1);
@@ -799,7 +873,7 @@
     p.badge = { n, t: 0 };
     game.alighted.push(p);
     Sound.pop(n);
-    say(String(n), true);
+    say(String(n));
     if (spot) {
       walk(p, [{ x: DOOR_OUT, y: 650 }, { x: spot.x, y: spot.y }], 200).then(() => { p.front = true; p.wave = true; });
       await sleep(1150);
@@ -823,7 +897,7 @@
     if (game.boarded) game.boarded.push(pas);
     addPop(DOOR_IN, 540, n);
     Sound.pop(n);
-    say(String(n), true);
+    say(String(n));
     await sleep(650);
   }
 
@@ -846,7 +920,7 @@
     }
     for (let i = 0; i < total; i++) later(() => Sound.pop(i + 1), 150 * i + 100);
     hideMap();
-    ui.end.classList.remove('hidden');
+    ui.end.classList.remove('hidden'); game.endShown = true;
     ui.btnHome.classList.add('hidden');
     ui.btnMap.classList.add('hidden');
   }
@@ -857,6 +931,8 @@
     game.parts = game.parts.filter((p) => p.kind === 'confetti');
     game.signs = [];
     game.distTarget = null; game.arriveResolve = null; game.bellAt = null;
+    cancelLater(game.dingTimer); game.dingTimer = null;
+    game.helping = false; ui.choices.classList.remove('helping');
     setDoors(0, 0, 0);
     game.cruise = keepCruise ? 170 : game.v;
     hideBanner();
@@ -868,15 +944,24 @@
     run = null;
     Voice.stop();
     resetScene(true);
+    fillTitleBus();
     game.mode = 'title';
     game.nextDest = 'Bus Interchange';
     ui.title.classList.remove('hidden');
-    ui.end.classList.add('hidden');
+    ui.end.classList.add('hidden'); game.endShown = false;
     ui.hud.classList.add('hidden');
+    ui.controls.classList.remove('hidden');
     ui.btnHome.classList.add('hidden');
     ui.btnMap.classList.add('hidden');
     hideMap();
-    if (timeUp()) hubSleep();
+    if (timeUp()) { hubSleep(); return; }
+    welcome('Tap Play to drive the bus again!');
+  }
+  // A spoken hello on the title screen (only once the page may speak, so not before a first tap)
+  function welcome(line) {
+    let active = true;
+    try { if (navigator.userActivation) active = navigator.userActivation.hasBeenActive; } catch (e) { /* ignore */ }
+    if (active) later(() => { if (game.mode === 'title' && !timeUp()) say(line); }, 700);
   }
 
   // ====================================================================
@@ -894,7 +979,9 @@
       if (game.bellAt != null && game.dist >= game.bellAt) {
         game.bellAt = null; game.bellFlash = 4;
         Sound.ding();
-        later(() => say('Ding! Someone wants to get off.'), 900);
+        const r = run;
+        cancelLater(game.dingTimer);
+        game.dingTimer = later(() => { game.dingTimer = null; if (r && run === r && !r.aborted) say('Ding! Someone wants to get off.'); }, 900);
       }
       if (game.dist >= game.distTarget) {
         game.dist = game.distTarget; game.v = 0; game.distTarget = null;
@@ -965,6 +1052,7 @@
     game.pops = game.pops.filter((p) => p.t < 1.4);
     for (const l of game.labels) l.t += dt;
     game.map.a = clamp(game.map.a + (game.map.open ? dt * 4 : -dt * 4), 0, 1);
+    game.endA = clamp(game.endA + (game.endShown ? dt / 0.4 : -dt * 4), 0, 1);
   }
 
   // ====================================================================
@@ -2208,8 +2296,8 @@
     for (const s of game.signs) drawSign(s);
     [...game.people].sort((a, b) => a.y - b.y).forEach(drawPerson);
     if (HUB) { hubLetterbox(); drawNight(); }
-    drawOverlays();
     drawMap();
+    drawOverlays();   // (count numbers stay on top)
     drawRoute();
   }
 
@@ -2297,14 +2385,17 @@
     const p = skyPhase();
     const [top, bot] = p > 0 ? skyAt(p) : ['#5db7f0', '#d4f0ff'];
     const dark = 0.36 * smooth(0.8, 1, p);
-    const g = (c) => (dark > 0.003 ? mixHex(c, '#121848', dark) : c);
+    // the map and the end card dim the scene; the bands dim with it
+    const dim = Math.round(100 * Math.max(0.45 * game.map.a, 0.35 * game.endA)) / 100;
+    const dimmed = (c) => (dim > 0 ? mixHex(c, '#14283c', dim) : c);
+    const g = (c) => dimmed(dark > 0.003 ? mixHex(c, '#121848', dark) : c);
     const r = stage.getBoundingClientRect();
     const y = (v) => (r.top + (v / H) * r.height).toFixed(1) + 'px';
-    const key = [top, bot, Math.round(dark * 100), y(0), y(H)].join();
+    const key = [top, bot, Math.round(dark * 100), dim, y(0), y(H)].join();
     if (key === lbKey) return;
     lbKey = key;
     const grass = g('#7cc56a');
-    const bg = `linear-gradient(to bottom, ${top} 0px, ${top} ${y(0)}, ${bot} ${y(422)}, ${grass} ${y(422)}, ${grass} ${y(444)},`
+    const bg = `linear-gradient(to bottom, ${dimmed(top)} 0px, ${dimmed(top)} ${y(0)}, ${dimmed(bot)} ${y(422)}, ${grass} ${y(422)}, ${grass} ${y(444)},`
       + ` ${g('#666b73')} ${y(444)}, ${g('#666b73')} ${y(616)}, ${g('#d6d6d6')} ${y(616)}, ${g('#d6d6d6')} ${y(628)},`
       + ` ${g('#e8dcc8')} ${y(628)}, ${g('#e8dcc8')} ${y(708)}, ${grass} ${y(708)}, ${g('#5fae4f')} 100%)`;
     document.documentElement.style.background = bg;
@@ -2324,33 +2415,40 @@
     if (Sound.ac) { try { Sound.ac.suspend(); } catch (e) { /* ignore */ } }
   }
 
-  // Hold (the hub's "turn me sideways" card covers us): everything stands still and goes
-  // quiet (the update clock, the timers of the stop in progress, speech, music and sounds),
-  // then carries on from the same moment. A line cut off by the hold is said again.
-  let heldLine = '';
+  // Hold (the hub's "turn me sideways" card covers us) or a hidden page: everything stands
+  // still and goes quiet (the update clock, the timers of the stop in progress, speech, music
+  // and sounds), then carries on from the same moment. A line cut off is said again.
   function hubHold(on) {
     if (on === hub.held || hub.paused) return;
+    hub.held = on;
+    setFrozen();
+  }
+  let heldLine = '', heldEnd = null;
+  function setFrozen() {
+    const want = (hub.held || pageHidden) && !hub.paused;
+    if (want === frozen) return;
     const now = performance.now();
-    if (on) {
-      hub.held = true;
+    if (want) {
+      frozen = true;
       let talking = false;
       try { talking = Voice.ok && (speechSynthesis.speaking || speechSynthesis.pending); } catch (e) { /* ignore */ }
       heldLine = talking ? lastSaid : '';
-      Voice.stop();
+      heldEnd = talking ? lastEnd : null;
+      Voice.stop(true);
       for (const t of holdTimers) { clearTimeout(t.id); t.ms = Math.max(0, t.ms - (now - t.start)); }
       clearInterval(Music.timer); Music.timer = null;
       if (Sound.ac) { try { Sound.ac.suspend(); } catch (e) { /* ignore */ } }
       document.documentElement.classList.add('held');
     } else {
-      hub.held = false;
+      frozen = false;
       document.documentElement.classList.remove('held');
       last = now;                                       // no jump in the update clock
       for (const t of holdTimers) { t.start = now; t.id = setTimeout(t.fire, t.ms); }
-      if (Sound.ac && !document.hidden) { try { Sound.ac.resume(); } catch (e) { /* ignore */ } Music.start(); }
-      // the question on screen, or else the line that was cut off
-      const q = !ui.question.classList.contains('hidden') && game.askLine;
-      if (heldLine) say(heldLine, true); else if (q) say(q, true);
-      heldLine = '';
+      if (Sound.ac) { try { Sound.ac.resume().catch(() => {}); } catch (e) { /* ignore */ } Music.start(); }
+      // the line that was cut off, or else the question on screen (not while counting together)
+      const q = !ui.question.classList.contains('hidden') && !game.helping && game.askLine;
+      if (heldLine) say(heldLine, true, heldEnd); else if (q) say(q, true);
+      heldLine = ''; heldEnd = null;
     }
   }
 
@@ -2359,25 +2457,54 @@
   // we tell the hub (which shows everyone asleep).
   async function goodnight() {
     game.mode = 'night';
-    nightT = 0;
     hideMap(); hideBanner();
     ui.question.classList.add('hidden');
     ui.hud.classList.add('hidden');
+    ui.controls.classList.add('hidden');   // (no music button to tap over the lullaby)
     ui.btnHome.classList.add('hidden');
     ui.btnMap.classList.add('hidden');
     game.glow = null; game.labels = [];
-    setDoors(0, 0, 0);
     game.cruise = 0;
     if (Sound.mus) Sound.mus.gain.setTargetAtTime(0, Sound.ac.currentTime, 0.6);
+    // the last passengers get off, turn round and wave goodbye, then walk home
+    if (game.onboard.length) {
+      setDoors(0, 0, 1);
+      Sound.doorOpen();
+      await sleep(800);
+      const home = [];
+      for (let k = 0; game.onboard.length; k++) {
+        const pas = lastSeated();
+        pas.leaving = true;
+        await sleep(300);
+        game.onboard.splice(game.onboard.indexOf(pas), 1);
+        const p = newPerson(pas.look, DOOR_OUT, 600, false);
+        p.alpha = 0; p.fadeIn = true;
+        walk(p, [{ x: DOOR_OUT, y: 650 }, { x: DOOR_OUT + 100 + k * 72, y: PAVE_Y - 4 + (k % 2) * 12 }], 200)
+          .then(() => { if (p.path.length === 0) { p.front = true; p.wave = true; } });
+        home.push(p);
+        await sleep(450);
+      }
+      await sleep(900);
+      await sayWait('Bye bye, everyone! See you tomorrow!', false, 1800);
+      home.forEach((p, k) => later(() => {
+        p.front = false; p.wave = false;
+        walk(p, [{ x: W + 140, y: p.y }], 150).then(() => { p.remove = true; });
+      }, k * 150));
+      setDoors(0, 0, 0);
+      Sound.doorClose();
+      await sleep(1300);
+    } else setDoors(0, 0, 0);
+    nightT = 0;   // the sky turns to night
     await sleep(700);
     banner('Goodnight, bus! 🌙', 0);
-    say('Goodnight, bus! Sleep tight.', true);
+    say('Goodnight, bus! Sleep tight.');
     [76, 72, 67, 64].forEach((m, i) => Sound.tone(midi(m), 0.9, { type: 'sine', vol: 0.07, when: i * 0.45 }));
     await sleep(2300);
     Sound.tone(midi(55), 0.25, { type: 'triangle', vol: 0.05 });   // headlights click off
     await sleep(2800);
     hubSleep();
   }
+
 
   // 0 = bright morning ... 1 = night. Follows the share of today's time used,
   // and goes to night during the goodnight moment.
@@ -2388,9 +2515,10 @@
   const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
   function mixHex(a, b, t) {
     const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
-    const c = (sh) => Math.round(lerp((pa >> sh) & 255, (pb >> sh) & 255, t));
-    return `rgb(${c(16)},${c(8)},${c(0)})`;
+    const c = (sh) => Math.round(lerp((pa >> sh) & 255, (pb >> sh) & 255, t)).toString(16).padStart(2, '0');
+    return `#${c(16)}${c(8)}${c(0)}`;   // (hex, so it can be mixed again)
   }
+
   const SKY_KEYS = [
     [0, '#5db7f0', '#d4f0ff'], [0.5, '#5db7f0', '#d4f0ff'], [0.68, '#6aa6e6', '#ffe2b4'],
     [0.82, '#7a70c2', '#ffae7e'], [0.92, '#2f3c7c', '#8b6ca8'], [1, '#1b2352', '#40508e'],
@@ -2506,14 +2634,21 @@
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
-    if (!hub.held) { update(dt); draw(); }
+    if (!frozen) { update(dt); draw(); }
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
 
   // a few friendly passengers on the title-screen bus
-  for (let i = 0; i < 4; i++) game.onboard.push({ look: makeLook(), slot: [3, 6, 10, 15][i], appear: 1, leaving: false });
+  fillTitleBus();
+  welcome('Hello! Tap Play to drive the bus!');
 
   // test/debug hook
   window.__bendyBus = { game, startRoute, toTitle, Sound };
+
+  // hub mode: everything is set up, so say hello (and how many stars we have)
+  if (HUB) {
+    hubPost({ hub: 'hello', game: 'bus' });
+    if (starTotal) hubPost({ hub: 'stars', count: starTotal });
+  }
 })();
