@@ -61,6 +61,8 @@ async function fromCache(req) {
 }
 async function store(cacheName, req, res) {
   if (!res || !(res.ok || res.type === 'opaque')) return;
+  // an old worker still finishing a request must not bring back the cache a newer version deleted
+  if (cacheName === VERSION && !(await caches.has(VERSION))) return;
   try {
     const cache = await caches.open(cacheName);
     const url = new URL(req.url); url.search = '';                     // one copy per file, whatever the query
@@ -89,7 +91,6 @@ async function cacheFirst(event, cacheName) {
   const req = event.request;
   const hit = cacheName === FONTS ? await caches.match(req) : await fromCache(req);
   if (hit) return hit;
-  // (fetch starts after the cache lookup; respondWith is still pending, so waitUntil is allowed)
   const res = fetch(req);
   event.waitUntil(res.then(r => store(cacheName, req, r.clone())).catch(() => {}));
   return res;
