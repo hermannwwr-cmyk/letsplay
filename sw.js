@@ -72,11 +72,16 @@ async function fromCache(req) {
   return (await caches.match(req, { ignoreSearch: true })) ||        // games load as index.html?hub=1
     (req.mode === 'navigate' ? caches.match('./index.html') : undefined);
 }
+// the response is for the file that was asked for (opaque responses have no URL to check)
+function samePath(res, req) {
+  if (!res.url) return res.type !== 'opaqueredirect';
+  const a = new URL(res.url), b = new URL(req.url);
+  return a.origin + a.pathname === b.origin + b.pathname;
+}
 async function store(cacheName, req, res) {
   if (!res || !(res.ok || res.type === 'opaque')) return;
   // never keep a page we were sent to instead (a Wi-Fi login page) under this file's name
-  if (res.redirected) return;
-  if (res.url) { const a = new URL(res.url), b = new URL(req.url); if (a.origin + a.pathname !== b.origin + b.pathname) return; }
+  if (res.redirected || !samePath(res, req)) return;
   // an old worker still finishing a request must not bring back the cache a newer version deleted
   if (cacheName === VERSION && !(await caches.has(VERSION))) return;
   try {
@@ -92,7 +97,8 @@ async function networkFirst(event) {
   const raw = fetchWithin(req, 30000, { cache: 'no-cache' });
   event.waitUntil(raw.then(res => store(VERSION, req, res.clone())).catch(() => {}));   // keep the fresh copy
   // an error page (404, 503) counts as no answer when there is a good copy
-  const net = raw.then(res => (res.ok || res.type === 'opaqueredirect') ? res : Promise.reject(res));
+  // (and so does a redirect or a different page, e.g. a Wi-Fi login page): the cached copy is used instead
+  const net = raw.then(res => (res.ok && !res.redirected && samePath(res, req)) ? res : Promise.reject(res));
   const cached = fromCache(req);
   let timer;
   const slow = new Promise(resolve => { timer = setTimeout(resolve, NET_WAIT); });

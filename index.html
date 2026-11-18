@@ -39,12 +39,15 @@
     width: calc(100% - var(--sal) - var(--sar)); height: calc(100% - var(--sat) - var(--sab)); }
   body.playing #hub { display: none; }
   body.covering #hub { pointer-events: auto; }
+  /* MRT's start-screen dock carried on into the safe-area strips beside and under it (paintFrameBg) */
+  .strip { position: fixed; z-index: 0; pointer-events: none; display: none; }
   #fontwarm { position: absolute; left: -999px; top: -999px; font: 600 20px Fredoka; }
 </style>
 </head>
 <body>
 <canvas id="hub"></canvas>
 <div id="safe"></div>
+<div id="frameDock" class="strip"></div><div id="frameDeck" class="strip"></div>
 <div id="fontwarm">Let's Play 0123456789</div>
 <script>
 (() => {
@@ -1869,7 +1872,11 @@
     if (k === 'back') modal.typed = modal.typed.slice(0, -1);
     else if (k === 'ok') {
       if (modal.typed && Number(modal.typed) === modal.a * modal.b) { modal.mode = 'settings'; sfx.yay(); }
-      else { modal.shake = 0.4; sfx.nope(); newSum(); }
+      else {
+        modal.shake = 0.4; sfx.nope();
+        const prev = modal.a * modal.b;
+        do newSum(); while (modal.a * modal.b === prev);   // a new sum with a different answer
+      }
     } else if (modal.typed.length < 2) { modal.typed += k; sfx.click(); }
   }
   function closeModal() {
@@ -2070,7 +2077,7 @@
     try { frame.contentWindow && frame.contentWindow.postMessage({ hub: 'pause' }, '*'); } catch (e) { /* ignore */ }
     try { frame.remove(); } catch (e) { /* ignore */ }
     frame = null; frameLoaded = false; state.hello = null;
-    frameBg = ''; document.body.style.background = '';
+    frameBg = ''; document.body.style.background = ''; hideStrips();
   }
   function sendTime() {
     if (!frame || !frame.contentWindow) return;
@@ -2083,22 +2090,48 @@
   // pale page colour otherwise. The screen is read from the frame when it is same-origin (https); from
   // file:// it can't be, and the start-screen colours are used.
   let frameBg = '';
+  const stripEls = { dock: document.getElementById('frameDock'), deck: document.getElementById('frameDeck') };
+  let stripKey = '';
+  function hideStrips() { stripKey = ''; stripEls.dock.style.display = stripEls.deck.style.display = 'none'; }
   function paintFrameBg() {
     if (state.key !== 'mrt' || !frame) return;
-    let mode = 'home';
+    let mode = 'home', dock = null, fw = 0, fh = 0;
     try {
-      const b = frame.contentDocument && frame.contentDocument.body;
-      if (b) mode = b.classList.contains('night') ? 'night' : (b.dataset.screen || 'home') === 'home' ? 'home' : 'page';
-    } catch (e) { /* another origin: keep the start-screen colours */ }
-    // MRT's own page backgrounds (its body[data-screen="home"], body.night and --bg), plus its viaduct deck under the dock
-    const bg = {
-      home: 'linear-gradient(to top, #a8a297 0 var(--sab), transparent var(--sab)), linear-gradient(#6ec1ff, #bfe6ff 55%, #e6f6ff)',
-      night: 'linear-gradient(#0c1734, #2a3a63)',
-      page: '#f1f8ff',
-    }[mode];
-    if (bg === frameBg) return;
-    frameBg = bg;
-    document.body.style.background = bg;
+      const d = frame.contentDocument, b = d && d.body;
+      if (b) {
+        mode = b.classList.contains('night') ? 'night' : (b.dataset.screen || 'home') === 'home' ? 'home' : 'page';
+        const el = mode === 'home' && d.querySelector('.start-dock');
+        if (el) {
+          const r = el.getBoundingClientRect(), cs = frame.contentWindow.getComputedStyle(el);
+          dock = { r, img: cs.backgroundImage, pos: cs.backgroundPosition, size: cs.backgroundSize, rep: cs.backgroundRepeat };
+          fw = frame.contentWindow.innerWidth; fh = frame.contentWindow.innerHeight;
+        }
+      }
+    } catch (e) { dock = null; /* another origin (file://): plain start-screen colours */ }
+    // MRT's own page backgrounds: its start-screen sky (laid over the frame's area so it carries on into
+    // the strips, with its sun glow continuing across the seam), its night sky, or its --bg
+    let bg;
+    if (mode === 'home') {
+      const fx = SAFE.l + 0.88 * (W - SAFE.l - SAFE.r), fy = SAFE.t + 0.06 * (H - SAFE.t - SAFE.b);
+      bg = [
+        dock ? null : 'linear-gradient(to top, #a8a297 0 var(--sab), transparent var(--sab))',
+        `radial-gradient(circle at ${fx.toFixed(1)}px ${fy.toFixed(1)}px, rgba(255,246,196,.95) 0 34px, rgba(255,246,196,.35) 35px 70px, transparent 110px)`,
+        'linear-gradient(#6ec1ff, #bfe6ff 55%, #e6f6ff) 0 var(--sat) / 100% calc(100% - var(--sat) - var(--sab)) no-repeat',
+        'linear-gradient(#6ec1ff 50%, #e6f6ff 50%)',
+      ].filter(Boolean).join(', ');
+    } else bg = mode === 'night' ? 'linear-gradient(#0c1734, #2a3a63)' : '#f1f8ff';
+    if (bg !== frameBg) { frameBg = bg; document.body.style.background = bg; }
+    // the dock (flats, trees, viaduct) carries on into the strip on its side, and its deck under it
+    if (!dock || !dock.r.width) { if (stripKey) hideStrips(); return; }
+    const r = dock.r, toRight = r.right >= fw - 1, toBottom = r.bottom >= fh - 1;
+    const left = SAFE.l + r.left, top = SAFE.t + r.top, width = r.width + (toRight ? SAFE.r : 0);
+    const key = [left, top, width, r.height, dock.img.length, dock.pos, dock.size, SAFE.b, toBottom].join('|');
+    if (key === stripKey) return;
+    stripKey = key;
+    Object.assign(stripEls.dock.style, { display: 'block', left: left + 'px', top: top + 'px', width: width + 'px', height: r.height + 'px',
+      backgroundImage: dock.img, backgroundPosition: dock.pos, backgroundSize: dock.size, backgroundRepeat: dock.rep });
+    if (toBottom && SAFE.b > 0) Object.assign(stripEls.deck.style, { display: 'block', left: left + 'px', top: (H - SAFE.b) + 'px', width: width + 'px', height: SAFE.b + 'px', background: '#a8a297' });
+    else stripEls.deck.style.display = 'none';
   }
   // why: 'exit' (back to all games) or 'sleep' (bedtime)
   function closeGame(why) {
@@ -2683,14 +2716,25 @@
     if (modal) drawModal();
   }
   function drawSleepCard() {
-    const size = L.title.size * 0.62;
-    ctx.font = `700 ${size}px ${FONT}`;
-    const w = Math.min(W - 40, ctx.measureText('Time to sleep!').width + size * 3), h = size * 2.4;
-    const x = W / 2 - w / 2;
+    let size = L.title.size * 0.62;
+    const G = barGeom(), barL = G.edgeL + G.COG, barR = G.capL - 4;
+    const fit = sz => { ctx.font = `700 ${sz}px ${FONT}`; return Math.min(W - 40, ctx.measureText('Time to sleep!').width + sz * 3); };
+    let w = fit(size), h = size * 2.4;
+    let x = W / 2 - w / 2;
     let y = L.title.y - h * 0.48;
     // keep it below the gear and the music / sound buttons when it reaches under them (narrow phones)
-    const G = barGeom(), barL = G.edgeL + G.COG, barR = G.capL - 4;
     if (x < barL || x + w > barR) y = Math.max(y, G.bottom + 20);
+    // upright: the sleeping train's station sits right under the title, so the card shrinks to stay
+    // above its roof (and the nightcap and z's)
+    if (!L.land) {
+      const m = L.places.mrt, roof = m.y - 240 * m.k;
+      if (y + h > roof - 6) {
+        const top = (x < barL || x + w > barR) ? G.bottom + 8 : SAFE.t + 8;
+        y = Math.max(top, roof - 6 - h);                // first move up as far as the bar allows
+        if (y + h > roof - 6) { size = clamp((roof - 6 - y) / 2.4, 18, size); w = fit(size); h = size * 2.4; x = W / 2 - w / 2; }
+      }
+    }
+    ctx.font = `700 ${size}px ${FONT}`;
     panel(x, y, w, h, Math.min(30, h * 0.3), P.cream, { depth: 7, rimColor: P.tan, edge: '#d9b57f' });
     // a big sleepy moon with a face
     const mr = h * 0.4, mx = x + mr * 1.25, my = y + h * 0.5 + Math.sin(time * 1.2) * 2;
