@@ -30,11 +30,13 @@
   #hub { position: fixed; left: 0; top: 0; width: 100%; height: 100%; display: block; z-index: 2; }
   #safe { position: fixed; visibility: hidden; pointer-events: none;
     top: var(--sat); right: var(--sar); bottom: var(--sab); left: var(--sal); }
-  /* the game sits inside the safe areas (WebKit doesn't pass them into frames), so nothing is under the
-     notch or the home indicator; the strips around it show the page's calm sky-and-grass background */
-  iframe.game { position: fixed; left: var(--sal); top: var(--sat); border: 0; margin: 0; padding: 0;
-    width: calc(100% - var(--sal) - var(--sar)); height: calc(100% - var(--sat) - var(--sab));
-    z-index: 1; background: transparent; display: block; }
+  iframe.game { position: fixed; left: 0; top: 0; width: 100%; height: 100%; border: 0; margin: 0; padding: 0;
+    z-index: 1; background: #2a2150; display: block; }
+  /* MRT is edge-to-edge DOM, and WebKit doesn't pass the safe areas into frames, so its frame sits inside
+     them (nothing under the notch or the home indicator); the strips show MRT's own colours (paintFrameBg).
+     Bus and Grizzly letterbox their own canvas, so they keep the whole screen. */
+  iframe.game.inset { left: var(--sal); top: var(--sat); background: transparent;
+    width: calc(100% - var(--sal) - var(--sar)); height: calc(100% - var(--sat) - var(--sab)); }
   body.playing #hub { display: none; }
   body.covering #hub { pointer-events: auto; }
   #fontwarm { position: absolute; left: -999px; top: -999px; font: 600 20px Fredoka; }
@@ -159,6 +161,7 @@
   // Runs on every real tap and key press. iPads and iPhones only let sound start inside a gesture
   // (a finger lifting counts), and treat the page as a media player with audioSession 'playback'.
   function initAudio(gestureEnd = false) {
+    if (gestureEnd) musicHold = false;
     try { if (navigator.audioSession && navigator.audioSession.type !== 'playback') navigator.audioSession.type = 'playback'; } catch (e) { /* ignore */ }
     if (!audio) { try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { audio = null; } }
     if (audio && audio.state !== 'running') {
@@ -227,6 +230,7 @@
       72, 0, 0, 0, 69, 0, 71, 0,       72, 0, 0, 0, 0, 0, 0, 0] },
   };
   const midi = n => 440 * Math.pow(2, (n - 69) / 12);
+  let musicHold = false;                             // music waits for the next real tap (after a quiet wake)
   let musicGain = null, musicNext = 0, musicStep = 0, musicLevel = -1, songKey = 'hub', playingKey = null;
   function musicNote(freq, t, dur, type, vol) {
     const o = audio.createOscillator(), g = audio.createGain();
@@ -241,7 +245,7 @@
     // ducked while a line is spoken; iOS can leave 'speaking' stuck on, so never for more than 15 s after one
     const speaking = !!(window.speechSynthesis && window.speechSynthesis.speaking) && performance.now() - lastSay < 15000;
     const away = state.screen === 'game' || state.screen === 'opening' || state.screen === 'closing' || document.hidden;
-    const level = muted || !musicOn || away ? 0 : speaking ? 0.3 : 1;
+    const level = muted || !musicOn || away || musicHold ? 0 : speaking ? 0.3 : 1;
     if (level !== musicLevel) { musicLevel = level; musicGain.gain.setTargetAtTime(level * 0.5, audio.currentTime, level ? 0.15 : 0.05); }
     if (level === 0) { musicNext = 0; return; }
     const now = audio.currentTime;
@@ -1944,8 +1948,11 @@
     state.screen = 'sleep'; state.key = null; songKey = 'sleep';
     say('Everyone is sleepy. Time to rest! See you tomorrow.', true);
   }
-  function wake() {
+  // quiet: a new day began while everyone slept (a tablet left on overnight). Switch to the launcher
+  // with no sound or speech, and keep the music off until the next real tap or key.
+  function wake(quiet) {
     state.screen = 'launcher'; songKey = 'hub';
+    if (quiet) { musicHold = true; return; }
     sfx.yay(); say('Good morning! Let\'s play!');
     ORDER.forEach(k => { placeAnim[k].party = 1.2; burst(k, 0, -120, 14, ['star', 'sparkle', 'confetti']); });
   }
@@ -1991,7 +1998,18 @@
   }
   // In iPad Split View or Stage Manager a window can be narrow even though the iPad is sideways, so on a
   // tablet-sized screen the card offers a small "Play anyway" (a phone can always be turned).
-  const isTablet = () => { try { return Math.min(screen.width, screen.height) >= 700; } catch (e) { return false; } };
+  // Shown only on a tablet-sized screen whose window clearly doesn't fill it (Split View, Slide Over,
+  // Stage Manager); a full-screen iPad held upright gets the card alone. Works without knowing which way
+  // the iPad is held: a full-screen window matches the screen one way round (allowing for Safari's bars).
+  function narrowTabletWindow() {
+    try {
+      const a = Math.max(screen.width, screen.height), b = Math.min(screen.width, screen.height);
+      if (b < 700) return false;
+      const w = window.innerWidth, h = window.innerHeight;
+      const full = (w >= b * 0.9 && h >= a * 0.8) || (w >= a * 0.9 && h >= b * 0.8);
+      return !full;
+    } catch (e) { return false; }
+  }
   function playAnyway() {
     const rc = rotateCard; if (!rc) return;
     rotateCard = null;
@@ -2039,7 +2057,7 @@
     removeFrame();
     const g = GAMES[key];
     frame = document.createElement('iframe');
-    frame.className = 'game';
+    frame.className = key === 'mrt' ? 'game inset' : 'game';
     frame.setAttribute('allow', 'autoplay; fullscreen');
     frame.setAttribute('title', g.say);
     frameLoaded = false; state.hello = null; frameBorn = performance.now(); frameLoadedAt = 0;
@@ -2052,6 +2070,7 @@
     try { frame.contentWindow && frame.contentWindow.postMessage({ hub: 'pause' }, '*'); } catch (e) { /* ignore */ }
     try { frame.remove(); } catch (e) { /* ignore */ }
     frame = null; frameLoaded = false; state.hello = null;
+    frameBg = ''; document.body.style.background = '';
   }
   function sendTime() {
     if (!frame || !frame.contentWindow) return;
@@ -2059,17 +2078,24 @@
     lastSent = performance.now();
     paintFrameBg();
   }
-  // The calm strips around the game (the safe areas): its sky colour above, grass below, following the
-  // sky clock; MRT's own pale page colour.
+  // The strips around MRT's inset frame (the safe areas) in MRT's own colours: on its start screen the
+  // sky at the top and the viaduct deck at the bottom, its night sky on the sleepy end screen, and its
+  // pale page colour otherwise. The screen is read from the frame when it is same-origin (https); from
+  // file:// it can't be, and the start-screen colours are used.
   let frameBg = '';
   function paintFrameBg() {
-    let bg;
-    if (state.key === 'mrt') bg = '#f1f8ff';
-    else {
-      const sh = playTime.share(), top = skyAt(sh)[0], night = clamp01((sh - 0.8) / 0.2);
-      const grass = mixColor('#6cc271', '#2f5a5e', night);
-      bg = `linear-gradient(${top} 0%, ${top} 55%, ${grass} 82%)`;
-    }
+    if (state.key !== 'mrt' || !frame) return;
+    let mode = 'home';
+    try {
+      const b = frame.contentDocument && frame.contentDocument.body;
+      if (b) mode = b.classList.contains('night') ? 'night' : (b.dataset.screen || 'home') === 'home' ? 'home' : 'page';
+    } catch (e) { /* another origin: keep the start-screen colours */ }
+    // MRT's own page backgrounds (its body[data-screen="home"], body.night and --bg), plus its viaduct deck under the dock
+    const bg = {
+      home: 'linear-gradient(to top, #a8a297 0 var(--sab), transparent var(--sab)), linear-gradient(#6ec1ff, #bfe6ff 55%, #e6f6ff)',
+      night: 'linear-gradient(#0c1734, #2a3a63)',
+      page: '#f1f8ff',
+    }[mode];
     if (bg === frameBg) return;
     frameBg = bg;
     document.body.style.background = bg;
@@ -2286,7 +2312,7 @@
       ctx.fillStyle = col; ctx.fillRect(0, 0, W, H);
       for (let i = 0; i < 18; i++) drawSparkle(hash(i + 3) * W, hash(i + 13) * H, (4 + Math.sin(time * 3 + i) * 2) * L.bs, 'rgba(255,255,255,.45)');
     } else { ctx.fillStyle = 'rgba(28,20,52,.55)'; ctx.fillRect(0, 0, W, H); }
-    const anyway = isTablet(), room = anyway ? 70 : 0;
+    const anyway = narrowTabletWindow(), room = anyway ? 70 : 0;
     const s = clamp(Math.min((W - 24) / 340, (H - 24 - 90 * L.bs - room) / 470), 0.6, 1.7);
     const cw = 340 * s, ch = 470 * s, cx = W / 2, cy = H / 2 + 30 * L.bs - room / 2;
     panel(cx - cw / 2, cy - ch / 2, cw, ch, 34 * s, P.cream, { depth: 8 * s, rimColor: P.tan, edge: '#d9b57f' });
@@ -2518,9 +2544,28 @@
       for (const w of on) g.fillRect(w.x, w.y, w.w, w.h);
     });
   }
-  function warmLayers() {                             // build the painted layers ahead of the first frame that needs them
-    if (!L || !canvas.width) return;
-    peaksLayer(); L.bands.forEach((b, i) => bandLayer(i)); townLights();
+  function busLights(asleep) {
+    const bk = L.places.bus.k;
+    return glowSprite(asleep ? 'busWinZ' : 'busWin', -112 - 36, -77 - 36, 254 + 72, 26 + 72, bk * DPR, g => {
+      g.shadowColor = 'rgba(255,196,90,.95)'; g.shadowBlur = 14 * DPR * bk;
+      g.fillStyle = `rgba(255,215,106,${asleep ? 0.35 : 0.82})`;
+      BUS_WINS.forEach(([a, b], i) => { if (!(asleep && i === 0)) g.fill(rr(a, -77, b - a, 26, 4)); });
+    });
+  }
+  function trainLights(asleep) {
+    const mk = L.places.mrt.k;
+    return glowSprite(asleep ? 'trainWinZ' : 'trainWin', -123 - 32, -45 - 32, 246 + 64, 19 + 64, mk * DPR, g => {
+      g.shadowColor = 'rgba(255,196,90,.95)'; g.shadowBlur = 12 * DPR * mk;
+      g.fillStyle = `rgba(255,215,106,${asleep ? 0.3 : 0.8})`;
+      [[-123, -11], [11, 123]].forEach(([a, b]) => g.fill(rr(a, -45, b - a, 19, 4)));
+    });
+  }
+  // Build the painted layers and the glow sprites ahead of the first frame that needs them (after a
+  // layout, and behind the closed iris when a game closes), so an evening sky never builds them mid-frame.
+  function warmLayers() {
+    if (!L || !canvas.width || canvas.width < 2) return;
+    peaksLayer(); L.bands.forEach((b, i) => bandLayer(i));
+    townLights(); busLights(false); busLights(true); trainLights(false); trainLights(true);
   }
   function drawLights(lit, asleep) {
     if (lit <= 0.01) return;
@@ -2536,12 +2581,7 @@
       glow(-150, -130, 90, 0.55 * lit);
       circle(-150, -130, 7, `rgba(255,246,200,${lit})`);
       ctx.save(); ctx.translate(14, 6 - busHop()); ctx.translate(0, busBob(asleep) + bus.kneel);
-      const bk = L.places.bus.k;
-      blitSprite(glowSprite(asleep ? 'busWinZ' : 'busWin', -112 - 36, -77 - 36, 254 + 72, 26 + 72, bk * DPR, g => {
-        g.shadowColor = 'rgba(255,196,90,.95)'; g.shadowBlur = 14 * DPR * bk;
-        g.fillStyle = `rgba(255,215,106,${asleep ? 0.35 : 0.82})`;
-        BUS_WINS.forEach(([a, b], i) => { if (!(asleep && i === 0)) g.fill(rr(a, -77, b - a, 26, 4)); });
-      }), 0, 0, lit);
+      blitSprite(busLights(asleep), 0, 0, lit);
       if (!asleep) {
         const g = ctx.createRadialGradient(-150, -26, 2, -150, -26, 70);
         g.addColorStop(0, `rgba(255,240,170,${0.7 * lit})`); g.addColorStop(1, 'rgba(255,240,170,0)');
@@ -2561,12 +2601,7 @@
       if (train.x < 900) {
         ctx.save(); ctx.beginPath(); ctx.rect(-190, -260, 380, 300); ctx.clip();
         ctx.translate(train.x, -123);
-        const mk = L.places.mrt.k;
-        blitSprite(glowSprite(asleep ? 'trainWinZ' : 'trainWin', -123 - 32, -45 - 32, 246 + 64, 19 + 64, mk * DPR, g => {
-          g.shadowColor = 'rgba(255,196,90,.95)'; g.shadowBlur = 12 * DPR * mk;
-          g.fillStyle = `rgba(255,215,106,${asleep ? 0.3 : 0.8})`;
-          [[-123, -11], [11, 123]].forEach(([a, b]) => g.fill(rr(a, -45, b - a, 19, 4)));
-        }), 0, 0, lit);
+        blitSprite(trainLights(asleep), 0, 0, lit);
         ctx.restore();
       }
     });
@@ -2777,15 +2812,16 @@
     }
     if (frame && now - lastSent > 1000) sendTime();
     // a new day began while the sleep scene stayed on screen (a tablet left on overnight): wake up
-    if (state.screen === 'sleep' && !trans && !modal && playTime.left() > 0) wake();
+    if (state.screen === 'sleep' && !trans && !modal && playTime.left() > 0) wake(true);
   }
   setInterval(countTick, 250);
+  setInterval(paintFrameBg, 400);                   // follows MRT's screen changes (cheap: a class check)
   // another tab (or the same device later) may have changed the settings
   function reloadPlayTime() {
     playTime.reload();
     if (!trans && !modal) {
       if (state.screen === 'launcher' && playTime.left() <= 0) goSleep();
-      else if (state.screen === 'sleep' && playTime.left() > 0) wake();
+      else if (state.screen === 'sleep' && playTime.left() > 0) wake(true);   // quietly: it may be the middle of the night
     }
     sendTime();
   }
@@ -2893,7 +2929,7 @@
     const key = [W, H, DPR, SAFE.t, SAFE.r, SAFE.b, SAFE.l].join(',');
     if (key !== sizeKey) {
       sizeKey = key;
-      if (loopRunning) { sizeCanvas(); freeLayers(); layout(); }
+      if (loopRunning) { sizeCanvas(); freeLayers(); layout(); warmLayers(); }
       else layoutDirty = true;                        // a game fills the screen: lay out when the hub shows again
     }
     checkRotate();

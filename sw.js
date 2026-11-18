@@ -33,8 +33,14 @@ const EXTRA = [
 
 self.addEventListener('install', event => {
   event.waitUntil((async () => {
+    const existed = await caches.has(VERSION);
     const cache = await caches.open(VERSION);
-    await cache.addAll(CORE.map(u => new Request(u, { cache: 'reload' })));
+    try {
+      await cache.addAll(CORE.map(u => new Request(u, { cache: 'reload' })));
+    } catch (e) {
+      if (!existed) await caches.delete(VERSION);       // don't leave an empty cache behind a failed install
+      throw e;
+    }
     await Promise.all(EXTRA.map(u => cache.add(new Request(u, { cache: 'reload' })).catch(() => {})));
     await self.skipWaiting();
   })());
@@ -57,10 +63,10 @@ const NET_WAIT = 4000;
 
 // A request that hangs (a captive Wi-Fi page, a blocked host) is given up after a while, so it can't
 // keep this worker busy and hold back the next version.
-function fetchWithin(req, ms) {
+function fetchWithin(req, ms, init = {}) {
   const ctl = typeof AbortController === 'function' ? new AbortController() : null;
   const t = ctl ? setTimeout(() => ctl.abort(), ms) : 0;
-  return fetch(req, ctl ? { signal: ctl.signal } : undefined).finally(() => clearTimeout(t));
+  return fetch(req, ctl ? { ...init, signal: ctl.signal } : init).finally(() => clearTimeout(t));
 }
 async function fromCache(req) {
   return (await caches.match(req, { ignoreSearch: true })) ||        // games load as index.html?hub=1
@@ -68,6 +74,9 @@ async function fromCache(req) {
 }
 async function store(cacheName, req, res) {
   if (!res || !(res.ok || res.type === 'opaque')) return;
+  // never keep a page we were sent to instead (a Wi-Fi login page) under this file's name
+  if (res.redirected) return;
+  if (res.url) { const a = new URL(res.url), b = new URL(req.url); if (a.origin + a.pathname !== b.origin + b.pathname) return; }
   // an old worker still finishing a request must not bring back the cache a newer version deleted
   if (cacheName === VERSION && !(await caches.has(VERSION))) return;
   try {
@@ -79,8 +88,11 @@ async function store(cacheName, req, res) {
 
 async function networkFirst(event) {
   const req = event.request;
-  const net = fetchWithin(req, 30000);
-  event.waitUntil(net.then(res => store(VERSION, req, res.clone())).catch(() => {}));   // keep the fresh copy
+  // no-cache: check with the server every time (GitHub Pages sends max-age=600; an unchanged file is a cheap 304)
+  const raw = fetchWithin(req, 30000, { cache: 'no-cache' });
+  event.waitUntil(raw.then(res => store(VERSION, req, res.clone())).catch(() => {}));   // keep the fresh copy
+  // an error page (404, 503) counts as no answer when there is a good copy
+  const net = raw.then(res => (res.ok || res.type === 'opaqueredirect') ? res : Promise.reject(res));
   const cached = fromCache(req);
   let timer;
   const slow = new Promise(resolve => { timer = setTimeout(resolve, NET_WAIT); });
@@ -90,6 +102,7 @@ async function networkFirst(event) {
   } catch (e) {
     const hit = await cached;
     if (hit) return hit;
+    if (e instanceof Response) return e;               // no copy: show the server's own answer
     throw e;
   } finally { clearTimeout(timer); }
 }
