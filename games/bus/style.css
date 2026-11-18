@@ -28,10 +28,12 @@ button { font-family: inherit; cursor: pointer; border: none; color: inherit; }
 }
 #stars.bump { animation: bump .5s cubic-bezier(.2,1.8,.4,1); }
 #controls { position: absolute; right: 1.5%; top: 2.2%; display: flex; gap: calc(var(--u) * .8); z-index: 5; }
-/* at least 46px so small fingers can hit them on a phone */
+/* at least 46px so small fingers can hit them on a phone held sideways
+   (less only on a tiny upright scene, where 46px would cover the bus) */
 #controls button {
-  width: max(46px, calc(var(--u) * 5)); height: max(46px, calc(var(--u) * 5)); border-radius: 50%; padding: 0;
-  background: #fff; font-size: max(22px, calc(var(--u) * 2.4)); line-height: 1;
+  --b: max(min(46px, calc(var(--u) * 8)), calc(var(--u) * 5));
+  width: var(--b); height: var(--b); border-radius: 50%; padding: 0;
+  background: #fff; font-size: calc(var(--b) * .48); line-height: 1;
   box-shadow: 0 .18em 0 rgba(0,0,0,.18);
 }
 #controls button.off { opacity: .45; filter: grayscale(1); }
@@ -123,6 +125,8 @@ button { font-family: inherit; cursor: pointer; border: none; color: inherit; }
 .lv-medium { background: #4d96ff; }
 .lv-big { background: #ff6b6b; }
 .lv-play { background: #35c46a; width: calc(var(--u) * 20); }
+/* a gentle "tap me" every few seconds for children who can't read yet */
+.levels .lv-play { animation: popIn .6s cubic-bezier(.2,1.6,.4,1) both, tapMe 3.2s ease-in-out 2.5s infinite; }
 .lv-play .em { font-size: calc(var(--u) * 3.2); }
 
 /* ---------- End ---------- */
@@ -164,6 +168,7 @@ button { font-family: inherit; cursor: pointer; border: none; color: inherit; }
 @keyframes floaty { 0%, 100% { transform: translateY(0) rotate(-1.5deg); } 50% { transform: translateY(calc(var(--u) * -.6)) rotate(1.5deg); } }
 @keyframes bump { 0% { scale: 1; } 40% { scale: 1.45; } 100% { scale: 1; } }
 @keyframes shake { 0%,100% { translate: 0; } 20% { translate: -10px; } 40% { translate: 10px; } 60% { translate: -7px; } 80% { translate: 7px; } }
+@keyframes tapMe { 0%, 76%, 100% { scale: 1; } 82% { scale: 1.08; } 88% { scale: .97; } 94% { scale: 1.04; } }
 @keyframes bounce { 0% { scale: 1; } 30% { scale: 1.25; } 55% { scale: .92; } 80% { scale: 1.08; } 100% { scale: 1; } }
 
 /* ---------- Hub mode (inside the all-in-one app; only with ?hub=1) ---------- */
