@@ -1,7 +1,9 @@
 {
   "name": "Let's Play!",
   "short_name": "Let's Play",
+  "id": "./",
   "start_url": "./index.html",
+  "scope": "./",
   "display": "fullscreen",
   "background_color": "#4fb1ea",
   "theme_color": "#4fb1ea",

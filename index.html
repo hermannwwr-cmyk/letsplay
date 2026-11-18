@@ -30,8 +30,11 @@
   #hub { position: fixed; left: 0; top: 0; width: 100%; height: 100%; display: block; z-index: 2; }
   #safe { position: fixed; visibility: hidden; pointer-events: none;
     top: var(--sat); right: var(--sar); bottom: var(--sab); left: var(--sal); }
-  iframe.game { position: fixed; left: 0; top: 0; width: 100%; height: 100%; border: 0; margin: 0; padding: 0;
-    z-index: 1; background: #2a2150; display: block; }
+  /* the game sits inside the safe areas (WebKit doesn't pass them into frames), so nothing is under the
+     notch or the home indicator; the strips around it show the page's calm sky-and-grass background */
+  iframe.game { position: fixed; left: var(--sal); top: var(--sat); border: 0; margin: 0; padding: 0;
+    width: calc(100% - var(--sal) - var(--sar)); height: calc(100% - var(--sat) - var(--sab));
+    z-index: 1; background: transparent; display: block; }
   body.playing #hub { display: none; }
   body.covering #hub { pointer-events: auto; }
   #fontwarm { position: absolute; left: -999px; top: -999px; font: 600 20px Fredoka; }
@@ -173,9 +176,12 @@
       try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; window.speechSynthesis.speak(u); } catch (e) { /* ignore */ }
     }
   }
+  let lastSay = -1e9;                                // performance.now() of the last line we spoke
   function say(words, queue = false) {
     if (muted || !window.speechSynthesis) return;
+    lastSay = performance.now();
     try {
+      try { window.speechSynthesis.resume(); } catch (e) { /* ignore */ }   // iOS can leave speech paused after a call or a lock
       if (!queue) window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(words); u.rate = 0.95; u.pitch = 1.2;
       window.speechSynthesis.speak(u);
@@ -232,7 +238,8 @@
   function updateMusic() {
     if (!audio || audio.state !== 'running') return;
     if (!musicGain) { musicGain = audio.createGain(); musicGain.gain.value = 0; musicGain.connect(audio.destination); }
-    const speaking = !!(window.speechSynthesis && window.speechSynthesis.speaking);
+    // ducked while a line is spoken; iOS can leave 'speaking' stuck on, so never for more than 15 s after one
+    const speaking = !!(window.speechSynthesis && window.speechSynthesis.speaking) && performance.now() - lastSay < 15000;
     const away = state.screen === 'game' || state.screen === 'opening' || state.screen === 'closing' || document.hidden;
     const level = muted || !musicOn || away ? 0 : speaking ? 0.3 : 1;
     if (level !== musicLevel) { musicLevel = level; musicGain.gain.setTargetAtTime(level * 0.5, audio.currentTime, level ? 0.15 : 0.05); }
@@ -1123,17 +1130,23 @@
   //  Living things in the sky and meadow
   // =====================================================================
   let clouds = [], birds = [], balloon = null, fireflies = [], flowers = [], dew = [];
+  // Each cloud, bird and firefly keeps its own random numbers for good, so a resize or a turn of the
+  // device re-places them in the new sky instead of shuffling them; drifting ones keep their place across.
+  const skyRand = [];
+  const sr = (i, j) => { while (skyRand.length <= i) skyRand.push([Math.random(), Math.random(), Math.random(), Math.random()]); return skyRand[i][j]; };
+  let worldW = 0;
   function makeWorldThings() {
     const cs = clamp(Math.min(W, H) / 640, 0.55, 1.3), skyBottom = L.horizon;
-    const n = Math.ceil(W / 300) + 2;
-    clouds = [];
-    for (let i = 0; i < n; i++) clouds.push({ x: rand(-100, W + 100), y: rand(SAFE.t + 50 * cs, Math.max(SAFE.t + 80 * cs, skyBottom - 90 * cs)), s: cs * rand(0.6, 1.1), v: rand(5, 13) * cs });
-    birds = [];
-    for (let i = 0; i < 4; i++) birds.push({ x: rand(0, W), y: rand(SAFE.t + 70, skyBottom * 0.7), v: rand(28, 46) * cs, s: cs * rand(0.7, 1), seed: rand(0, 9) });
+    const n = Math.ceil(W / 300) + 2, sx = worldW ? W / worldW : 0;
+    const across = (old, i, u, a, b) => (old && sx ? old.x * sx : lerp(a, b, u));
+    clouds = Array.from({ length: n }, (_, i) => ({ x: across(clouds[i], i, sr(i, 0), -100, W + 100),
+      y: lerp(SAFE.t + 50 * cs, Math.max(SAFE.t + 80 * cs, skyBottom - 90 * cs), sr(i, 1)), s: cs * lerp(0.6, 1.1, sr(i, 2)), v: lerp(5, 13, sr(i, 3)) * cs }));
+    birds = Array.from({ length: 4 }, (_, i) => ({ x: across(birds[i], i, sr(40 + i, 0), 0, W),
+      y: lerp(SAFE.t + 70, skyBottom * 0.7, sr(40 + i, 1)), v: lerp(28, 46, sr(40 + i, 2)) * cs, s: cs * lerp(0.7, 1, sr(40 + i, 3)), seed: sr(40 + i, 0) * 9 }));
     const bMin = L.title.y + L.title.size * 0.7 + 70 * cs, bMax = L.peaksY - 150 * L.k;
-    balloon = { x: W * 0.25, y: (bMin + bMax) / 2, s: cs * 0.95, v: 7 * cs, hidden: bMax < bMin };
-    fireflies = [];
-    for (let i = 0; i < 16; i++) fireflies.push({ x: rand(0, W), y: rand(L.horizon, H), seed: rand(0, 99) });
+    balloon = { x: balloon && sx ? balloon.x * sx : W * 0.25, y: (bMin + bMax) / 2, s: cs * 0.95, v: 7 * cs, hidden: bMax < bMin };
+    fireflies = Array.from({ length: 16 }, (_, i) => ({ x: sr(50 + i, 0) * W, y: lerp(L.horizon, H, sr(50 + i, 1)), seed: sr(50 + i, 2) * 99 }));
+    worldW = W;
     dew = [];
     for (let i = 0; i < 36; i++) dew.push({ x: hash(i * 2.7 + 3) * W, y: L.horizon + 30 + hash(i * 4.1 + 1) * (H - L.horizon - 40), seed: hash(i + 77) * 20 });
     flowers = [];
@@ -1273,8 +1286,14 @@
     };
     fill('soft-light', '#ffc4cc', 0.18 * tod.morning);            // rosy morning light
     fill('soft-light', '#ff8a3a', 0.55 * tod.evening);           // golden evening
-    fill('multiply', '#ffdcb4', 0.3 * tod.evening);
-    fill('multiply', '#6a74c8', 0.88 * tod.night);               // night: deep blue, colours stay rich
+    // warm evening (#ffdcb4 at 0.3) and the deep blue night (#6a74c8 at 0.88) multiply the picture; two
+    // multiplies at alpha a, b equal one opaque multiply by (1 - a + a*A) * (1 - b + b*B), so it is one fill
+    const a = Math.min(1, 0.3 * tod.evening), b = Math.min(1, 0.88 * tod.night);
+    if (a > 0.004 || b > 0.004) {
+      const A = rgbOf('#ffdcb4'), B = rgbOf('#6a74c8');
+      const c = [0, 1, 2].map(i => Math.round(255 * (1 - a + a * A[i] / 255) * (1 - b + b * B[i] / 255)));
+      fill('multiply', `rgb(${c[0]},${c[1]},${c[2]})`, 1);
+    }
   }
 
   // =====================================================================
@@ -1656,9 +1675,19 @@
   const BAR_FILL = '#fff6e0', BAR_RIM = '#d9b57f', BAR_EDGE = '#e8d3a8', BAR_STRING = '#b08a5a';
   const NUM_WORDS = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen', 'Twenty', 'Twenty-one', 'Twenty-two', 'Twenty-three', 'Twenty-four', 'Twenty-five', 'Twenty-six', 'Twenty-seven', 'Twenty-eight', 'Twenty-nine', 'Thirty'];
   const numWord = n => NUM_WORDS[n] || String(n);
-  const pillTap = { at: -9, said: -9 };              // the pill's bounce, and when it last spoke
+  const pillTap = { at: -9, said: -1e9 };            // the pill's bounce (animation time), and when it last spoke (performance.now)
+  // Minutes left, the same everywhere: whole minutes rounded up, and "under 1 min" in the last minute.
+  const LAST_MINUTE = 60;
+  const fmtLeft = sec => sec <= LAST_MINUTE ? 'under 1 min' : `${Math.ceil(sec / 60)} min`;
+  const pillLabel = () => (playTime.limit ? fmtLeft(Math.max(0, playTime.left())) : '');
   // where the bar sits, in CSS px (also used by the sleep card and the clouds to keep clear of it)
+  let barCache = null, barKey = '';
   function barGeom() {
+    const k = `${W},${H},${SAFE.t},${SAFE.l},${SAFE.r},${playTime.limit},${state.screen === 'sleep'},${pillLabel()}`;
+    if (k !== barKey) { barKey = k; barCache = barGeomNow(); }
+    return barCache;
+  }
+  function barGeomNow() {
     const phone = Math.min(W, H) < 600, phoneLand = phone && W > H, strings = H >= 420;
     const edgeL = SAFE.l + (phoneLand ? 20 : 14), edgeR = SAFE.r + (phoneLand ? 20 : 12);
     const CH = 44, PH = 44, capTop = SAFE.t + (strings ? 18 : 12), cy = capTop + CH / 2;
@@ -1668,7 +1697,7 @@
     let pillW = 0;
     if (playTime.limit && state.screen !== 'sleep') {
       ctx.font = `700 ${phone ? 16 : 18}px ${FONT}`;
-      pillW = 12 + 2 * ((phone ? 7 : 8) + 6) + 8 + ctx.measureText(`${Math.ceil(Math.max(0, playTime.left()) / 60)} min`).width + 16;
+      pillW = 12 + 2 * ((phone ? 7 : 8) + 6) + 8 + ctx.measureText(pillLabel()).width + 16;
     }
     return { phone, strings, edgeL, edgeR, CH, PH, capTop, cy, HW, CW, COG, capL, capR, pillX, pillW,
       cogX: edgeL + COG / 2, bottom: capTop + CH, leftEnd: pillW ? pillX + pillW : edgeL + COG };
@@ -1719,14 +1748,15 @@
   }
   function tapPill() {
     pillTap.at = time;
-    if (time - pillTap.said < 3) return;               // no chattering on repeat taps
-    pillTap.said = time;
-    const m = Math.ceil(Math.max(0, playTime.left()) / 60);
-    say(m <= 1 ? 'One minute left! Almost bedtime.' : `${numWord(m)} minutes left!`);
+    const now = performance.now();                      // real time, so slow frames don't stretch the pause
+    if (now - pillTap.said < 3000) return;             // no chattering on repeat taps
+    pillTap.said = now;
+    const left = Math.max(0, playTime.left());
+    say(left <= LAST_MINUTE ? 'Less than one minute left! Almost bedtime.' : `${numWord(Math.ceil(left / 60))} minutes left!`);
   }
   function drawTimePill(G) {
-    const left = Math.max(0, playTime.left()), mins = Math.ceil(left / 60), last = left <= 60;
-    const label = `${mins} min`, fs = G.phone ? 16 : 18, ir = G.phone ? 7 : 8;
+    const left = Math.max(0, playTime.left()), last = left <= LAST_MINUTE;
+    const label = pillLabel(), fs = G.phone ? 16 : 18, ir = G.phone ? 7 : 8;
     const x = G.pillX, w = G.pillW, h = G.PH, y = G.cy - h / 2, iw = 2 * (ir + 6);
     const hitY = Math.min(y, G.cy - 26), hitH = Math.max(h, 52);
     const pressed = hot(x, hitY, w, hitH) && pointer.down, k = pillBounce() * (pressed ? 0.95 : 1);
@@ -1883,7 +1913,7 @@
       text(`Played today: ${fmtMinutes(playTime.used())}`, cx, 228, 24, INK, null);
       if (playTime.limit) {
         const left = Math.max(0, playTime.left());
-        text(left > 0 ? `Left today: ${fmtMinutes(left)}` : 'No time left today', cx, 260, 24, left > 0 ? '#2a7a2e' : '#c0392b', null);
+        text(left > 0 ? `Left today: ${fmtLeft(left)}` : 'No time left today', cx, 260, 24, left > 0 ? '#2a7a2e' : '#c0392b', null);
         button('+5 min today', cx, 318, 320, 52, '#ff9a2e', () => playTime.addMinutes(5));
       }
       button('Start today again', cx, 384, 320, 52, '#4f9df7', () => playTime.resetToday());
@@ -1929,6 +1959,7 @@
   function tapPlace(key) {
     if (trans || modal || rotateCard) return;
     const a = placeAnim[key];
+    if (state.screen === 'sleep' && playTime.left() > 0) { wake(); return; }   // a new day began while the screen stayed on
     if (state.screen === 'sleep') {
       sfx.shh(); say('Shh! Everyone is asleep. See you tomorrow!');
       a.sqV = -6;
@@ -1955,7 +1986,28 @@
     rotateCard = { key: state.key, mode: 'over' };
     holdGame(true);
     document.body.classList.remove('playing'); document.body.classList.add('covering');
+    wakeLoop();
     say('Turn your tablet sideways!');
+  }
+  // In iPad Split View or Stage Manager a window can be narrow even though the iPad is sideways, so on a
+  // tablet-sized screen the card offers a small "Play anyway" (a phone can always be turned).
+  const isTablet = () => { try { return Math.min(screen.width, screen.height) >= 700; } catch (e) { return false; } };
+  function playAnyway() {
+    const rc = rotateCard; if (!rc) return;
+    rotateCard = null;
+    if (rc.mode === 'before') {
+      if (state.screen === 'launcher' && !trans && !modal && playTime.left() > 0) { openGame(rc.key); state.anyway = true; }
+    } else if (state.screen === 'game') {
+      state.anyway = true;
+      holdGame(false);
+      document.body.classList.add('playing'); document.body.classList.remove('covering');
+      try { frame && frame.focus(); } catch (e) { /* ignore */ }
+    }
+  }
+  // Turned upright while a landscape game is loading or being revealed: skip the reveal and cover it at once.
+  function openToOver() {
+    trans = null; state.screen = 'game'; overTime = 0;
+    showOver();
   }
   // Called on every resize: a turned device opens the waiting game, or hides / shows the card over a game.
   function checkRotate() {
@@ -1969,7 +2021,10 @@
         document.body.classList.add('playing'); document.body.classList.remove('covering');
         try { frame && frame.focus(); } catch (e) { /* ignore */ }
       }
-    } else if (state.screen === 'game' && !trans && LANDSCAPE_ONLY[state.key] && isPortrait()) showOver();
+    } else if (state.anyway || !LANDSCAPE_ONLY[state.key] || !isPortrait()) {
+      /* nothing to cover */
+    } else if (state.screen === 'game' && !trans) showOver();
+    else if (state.screen === 'opening' && trans && trans.kind === 'open' && (trans.phase === 'wait' || trans.phase === 'reveal')) openToOver();
   }
 
   function openGame(key, viaHook) {
@@ -1977,7 +2032,7 @@
     a.sqV = 22; a.party = 1.6;
     sfx[key](); say(GAMES[key].say);
     burst(key, 0, -110, 26, ['confetti', 'star', 'confetti', key === 'grizzly' ? 'heart' : 'sparkle'], GAME_CONFETTI[key]);
-    state.key = key; state.screen = 'opening';
+    state.key = key; state.screen = 'opening'; state.anyway = false;
     trans = { kind: 'open', key, t: viaHook ? 0.3 : 0, phase: 'press' };
   }
   function makeFrame(key) {
@@ -1996,15 +2051,34 @@
     if (!frame) return;
     try { frame.contentWindow && frame.contentWindow.postMessage({ hub: 'pause' }, '*'); } catch (e) { /* ignore */ }
     try { frame.remove(); } catch (e) { /* ignore */ }
-    frame = null; frameLoaded = false;
+    frame = null; frameLoaded = false; state.hello = null;
   }
   function sendTime() {
     if (!frame || !frame.contentWindow) return;
     try { frame.contentWindow.postMessage(playTime.message(), '*'); } catch (e) { /* ignore */ }
     lastSent = performance.now();
+    paintFrameBg();
+  }
+  // The calm strips around the game (the safe areas): its sky colour above, grass below, following the
+  // sky clock; MRT's own pale page colour.
+  let frameBg = '';
+  function paintFrameBg() {
+    let bg;
+    if (state.key === 'mrt') bg = '#f1f8ff';
+    else {
+      const sh = playTime.share(), top = skyAt(sh)[0], night = clamp01((sh - 0.8) / 0.2);
+      const grass = mixColor('#6cc271', '#2f5a5e', night);
+      bg = `linear-gradient(${top} 0%, ${top} 55%, ${grass} 82%)`;
+    }
+    if (bg === frameBg) return;
+    frameBg = bg;
+    document.body.style.background = bg;
   }
   // why: 'exit' (back to all games) or 'sleep' (bedtime)
   function closeGame(why) {
+    // a goodnight that arrives after the child already chose to leave is ignored (the closing still
+    // goes to bed if the time is really up); a real bedtime goodnight ends the day
+    if (why === 'sleep' && trans && (trans.kind === 'close' || trans.kind === 'cancel')) return;
     if (why === 'sleep') endDay();
     if (trans && trans.kind === 'open') { cancelOpen(why); return; }
     if (!frame || state.screen !== 'game' || trans) return;
@@ -2014,6 +2088,7 @@
     state.screen = 'closing';
     document.body.classList.remove('playing'); document.body.classList.add('covering');
     trans = { kind: 'close', key: state.key, t: 0, phase: 'iris', why, r0: covered ? 0 : null };
+    wakeLoop();
   }
   // Leaving while the game is still opening: run the opening backwards from wherever it is.
   function cancelOpen(why) {
@@ -2039,7 +2114,10 @@
     const m = e.data;
     if (!m || typeof m !== 'object' || typeof m.hub !== 'string') return;
     if (!frame || e.source !== frame.contentWindow) return;
-    if (m.hub === 'hello') { state.hello = String(m.game || 'game'); sendTime(); }
+    if (m.hub === 'hello') {
+      state.hello = String(m.game || 'game'); sendTime();
+      if (rotateCard && rotateCard.mode === 'over') holdGame(true);   // the hold sent before the game was listening
+    }
     else if (m.hub === 'exit') closeGame('exit');
     else if (m.hub === 'sleep') closeGame('sleep');
     else if (m.hub === 'stars' && state.key && Number.isFinite(Number(m.count))) {
@@ -2053,7 +2131,7 @@
     const t = trans.t;
     if (trans.kind === 'open') {
       if (trans.phase === 'press' && t > 0.55) { trans.phase = 'zoom'; trans.t = 0; sfx.whoosh(); }
-      else if (trans.phase === 'zoom' && t > 0.85) { trans.phase = 'wait'; trans.t = 0; makeFrame(trans.key); sfx.magic(); }
+      else if (trans.phase === 'zoom' && t > 0.85) { trans.phase = 'wait'; trans.t = 0; makeFrame(trans.key); sfx.magic(); checkRotate(); }
       else if (trans.phase === 'wait' && ((frameLoaded && t > 0.6) || t > 4)) { trans.phase = 'reveal'; trans.t = 0; }
       else if (trans.phase === 'reveal' && t > 0.55) {
         trans = null; state.screen = 'game'; overTime = 0;
@@ -2069,7 +2147,8 @@
         trans.phase = 'hold'; trans.t = 0;
         if (toSleep) { state.screen = 'sleep'; songKey = 'sleep'; trans.sleep = true; }
         else { state.screen = 'launcher'; songKey = 'hub'; }
-        state.key = null;
+        state.key = null; state.anyway = false;
+        warmLayers();                                 // build the painted layers while the iris is shut
       } else if (trans.phase === 'hold' && t > 0.25) {
         trans.phase = 'open'; trans.t = 0;
         if (trans.sleep) say('Everyone is sleepy. Time to rest! See you tomorrow.', true);
@@ -2207,8 +2286,9 @@
       ctx.fillStyle = col; ctx.fillRect(0, 0, W, H);
       for (let i = 0; i < 18; i++) drawSparkle(hash(i + 3) * W, hash(i + 13) * H, (4 + Math.sin(time * 3 + i) * 2) * L.bs, 'rgba(255,255,255,.45)');
     } else { ctx.fillStyle = 'rgba(28,20,52,.55)'; ctx.fillRect(0, 0, W, H); }
-    const s = clamp(Math.min((W - 24) / 340, (H - 24 - 90 * L.bs) / 470), 0.6, 1.7);
-    const cw = 340 * s, ch = 470 * s, cx = W / 2, cy = H / 2 + 30 * L.bs;
+    const anyway = isTablet(), room = anyway ? 70 : 0;
+    const s = clamp(Math.min((W - 24) / 340, (H - 24 - 90 * L.bs - room) / 470), 0.6, 1.7);
+    const cw = 340 * s, ch = 470 * s, cx = W / 2, cy = H / 2 + 30 * L.bs - room / 2;
     panel(cx - cw / 2, cy - ch / 2, cw, ch, 34 * s, P.cream, { depth: 8 * s, rimColor: P.tan, edge: '#d9b57f' });
     rotateCard.box = { x: cx - cw / 2, y: cy - ch / 2, w: cw, h: ch };
     // the tablet turns a quarter round, over and over, with the game's hero riding inside
@@ -2269,6 +2349,7 @@
     roundButton(30, 30, over ? () => closeGame('exit') : closeRotate, drawBackGlyph);
     ctx.restore();
     UI = { ox: 0, oy: 0, s: 1 };
+    if (anyway) button('Play anyway', cx, Math.min(H - SAFE.b - 30, cy + ch / 2 + 44), 190, 46, '#9a8cae', playAnyway);
   }
 
   // =====================================================================
@@ -2407,18 +2488,44 @@
     }
   }
   // Warm lights, drawn after the evening and night tints so they really glow.
+  // Glowing windows are painted once, at full strength, into an offscreen canvas (shadow blurs are slow
+  // to draw every frame), then drawn with globalAlpha = lit. x0, y0, w, h: the area in drawing units;
+  // sc: device pixels per unit; paint draws the windows in drawing units.
+  function glowSprite(name, x0, y0, w, h, sc, paint) {
+    const key = name + '@' + sc.toFixed(3);
+    const hit = layerCache[key];
+    if (hit) return hit;
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.ceil(w * sc)); c.height = Math.max(1, Math.ceil(h * sc));
+    const g = c.getContext('2d');
+    g.setTransform(sc, 0, 0, sc, -x0 * sc, -y0 * sc);
+    paint(g);
+    const out = { canvas: c, x: x0, y: y0, w: c.width / sc, h: c.height / sc };
+    layerCache[key] = out;
+    return out;
+  }
+  function blitSprite(sp, dx, dy, alpha) {
+    ctx.save(); ctx.globalAlpha = alpha; ctx.drawImage(sp.canvas, sp.x + dx, sp.y + dy, sp.w, sp.h); ctx.restore();
+  }
+  function townLights() {
+    const on = L.townWin.filter(w => w.on), blur = 10 * L.k, m = blur * 2.5;
+    if (!on.length) return null;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const w of on) { x0 = Math.min(x0, w.x); y0 = Math.min(y0, w.y); x1 = Math.max(x1, w.x + w.w); y1 = Math.max(y1, w.y + w.h); }
+    return glowSprite('town', x0 - m, y0 - m, x1 - x0 + 2 * m, y1 - y0 + 2 * m, DPR, g => {
+      g.shadowColor = 'rgba(255,196,90,.9)'; g.shadowBlur = 10 * DPR * L.k;
+      g.fillStyle = 'rgba(255,215,106,0.9)';
+      for (const w of on) g.fillRect(w.x, w.y, w.w, w.h);
+    });
+  }
+  function warmLayers() {                             // build the painted layers ahead of the first frame that needs them
+    if (!L || !canvas.width) return;
+    peaksLayer(); L.bands.forEach((b, i) => bandLayer(i)); townLights();
+  }
   function drawLights(lit, asleep) {
     if (lit <= 0.01) return;
-    ctx.save();
-    ctx.shadowColor = 'rgba(255,196,90,.9)';
-    ctx.shadowBlur = 10 * DPR * L.k;
-    ctx.fillStyle = `rgba(255,215,106,${0.9 * lit})`;
-    for (const w of L.townWin) {
-      if (!w.on) continue;
-      const b = L.bands[w.band];
-      ctx.fillRect(w.x + parX * b.depth, w.y, w.w, w.h);
-    }
-    ctx.restore();
+    const town = townLights();
+    if (town) blitSprite(town, parX * L.bands[0].depth, 0, lit);
     const glow = (x, y, r, a) => {
       const g = ctx.createRadialGradient(x, y, 0, x, y, r);
       g.addColorStop(0, `rgba(255,224,140,${a})`); g.addColorStop(1, 'rgba(255,224,140,0)');
@@ -2429,11 +2536,12 @@
       glow(-150, -130, 90, 0.55 * lit);
       circle(-150, -130, 7, `rgba(255,246,200,${lit})`);
       ctx.save(); ctx.translate(14, 6 - busHop()); ctx.translate(0, busBob(asleep) + bus.kneel);
-      ctx.save();
-      ctx.shadowColor = 'rgba(255,196,90,.95)'; ctx.shadowBlur = 14 * DPR * L.places.bus.k;
-      ctx.fillStyle = `rgba(255,215,106,${(asleep ? 0.35 : 0.82) * lit})`;
-      BUS_WINS.forEach(([a, b], i) => { if (!(asleep && i === 0)) ctx.fill(rr(a, -77, b - a, 26, 4)); });
-      ctx.restore();
+      const bk = L.places.bus.k;
+      blitSprite(glowSprite(asleep ? 'busWinZ' : 'busWin', -112 - 36, -77 - 36, 254 + 72, 26 + 72, bk * DPR, g => {
+        g.shadowColor = 'rgba(255,196,90,.95)'; g.shadowBlur = 14 * DPR * bk;
+        g.fillStyle = `rgba(255,215,106,${asleep ? 0.35 : 0.82})`;
+        BUS_WINS.forEach(([a, b], i) => { if (!(asleep && i === 0)) g.fill(rr(a, -77, b - a, 26, 4)); });
+      }), 0, 0, lit);
       if (!asleep) {
         const g = ctx.createRadialGradient(-150, -26, 2, -150, -26, 70);
         g.addColorStop(0, `rgba(255,240,170,${0.7 * lit})`); g.addColorStop(1, 'rgba(255,240,170,0)');
@@ -2453,9 +2561,12 @@
       if (train.x < 900) {
         ctx.save(); ctx.beginPath(); ctx.rect(-190, -260, 380, 300); ctx.clip();
         ctx.translate(train.x, -123);
-        ctx.shadowColor = 'rgba(255,196,90,.95)'; ctx.shadowBlur = 12 * DPR * L.places.mrt.k;
-        ctx.fillStyle = `rgba(255,215,106,${(asleep ? 0.3 : 0.8) * lit})`;
-        [[-123, -11], [11, 123]].forEach(([a, b]) => ctx.fill(rr(a, -45, b - a, 19, 4)));
+        const mk = L.places.mrt.k;
+        blitSprite(glowSprite(asleep ? 'trainWinZ' : 'trainWin', -123 - 32, -45 - 32, 246 + 64, 19 + 64, mk * DPR, g => {
+          g.shadowColor = 'rgba(255,196,90,.95)'; g.shadowBlur = 12 * DPR * mk;
+          g.fillStyle = `rgba(255,215,106,${asleep ? 0.3 : 0.8})`;
+          [[-123, -11], [11, 123]].forEach(([a, b]) => g.fill(rr(a, -45, b - a, 19, 4)));
+        }), 0, 0, lit);
         ctx.restore();
       }
     });
@@ -2565,7 +2676,8 @@
   //  Main loop
   // =====================================================================
   let lastT = performance.now(), zT = 0, zI = 0;
-  function update(dt) {
+  // dt: animation time (capped, so a stall doesn't jump everything); realDt: wall-clock time for the transitions
+  function update(dt, realDt = dt) {
     time += dt;
     const asleep = state.screen === 'sleep';
     const target = asleep ? 1 : skyOverride !== null ? skyOverride : playTime.share();
@@ -2601,13 +2713,44 @@
       if (time - starCacheT > 2 || starCacheT < 0) { starCacheT = time; ORDER.forEach(k => { starCache[k] = starsFor(k); }); }
     }
     if (modal && modal.shake > 0) modal.shake -= dt;
-    updateTransition(dt);
+    updateTransition(realDt);
     updateMusic();
   }
+  // While a game fills the screen the hub draws nothing: its loop stops, music scheduling stops and the
+  // big canvas and painted layers are let go. wakeLoop() brings them back (closing, the sideways card).
+  let loopRunning = true, layoutDirty = false;
+  const gameShown = () => state.screen === 'game' && !trans && !rotateCard && !modal;
+  function freeLayers() {
+    for (const k in layerCache) { const c = layerCache[k] && layerCache[k].canvas; if (c) { c.width = 0; c.height = 0; } }
+    layerCache = {};
+  }
+  function sizeCanvas() {
+    const w = Math.round(W * DPR), h = Math.round(H * DPR);
+    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  }
+  function sleepLoop() {
+    loopRunning = false;
+    freeLayers();
+    canvas.width = 1; canvas.height = 1;            // hidden behind the game anyway (body.playing)
+  }
+  function wakeLoop() {
+    if (loopRunning) return;
+    loopRunning = true;
+    sizeCanvas();
+    if (layoutDirty) { layoutDirty = false; layout(); }
+    lastT = performance.now();
+    try { render(); } catch (e) { console.error(e); }   // paint now, so the canvas is never shown empty
+    requestAnimationFrame(frameLoop);
+  }
   function frameLoop(now) {
-    const dt = Math.min(0.05, (now - lastT) / 1000);
+    if (!loopRunning) return;
+    // the sleep scene moves slowly: about 30 frames a second is plenty
+    if (state.screen === 'sleep' && !trans && !modal && now - lastT < 30) { requestAnimationFrame(frameLoop); return; }
+    const real = Math.max(0, (now - lastT) / 1000);
     lastT = now;
-    try { update(dt); render(); } catch (e) { console.error(e); }
+    try { update(Math.min(0.1, real), Math.min(0.25, real)); render(); } catch (e) { console.error(e); }
+    if (gameShown()) { sleepLoop(); return; }
     requestAnimationFrame(frameLoop);
   }
 
@@ -2633,6 +2776,8 @@
       if (late) { state.lastError = 'no-hello'; closeGame('exit'); }
     }
     if (frame && now - lastSent > 1000) sendTime();
+    // a new day began while the sleep scene stayed on screen (a tablet left on overnight): wake up
+    if (state.screen === 'sleep' && !trans && !modal && playTime.left() > 0) wake();
   }
   setInterval(countTick, 250);
   // another tab (or the same device later) may have changed the settings
@@ -2645,9 +2790,15 @@
     sendTime();
   }
   window.addEventListener('storage', e => { if (!e.key || e.key === 'hub-limit' || e.key === 'hub-play') reloadPlayTime(); });
+  let hiddenAt = 0;
   document.addEventListener('visibilitychange', () => {
-    countLast = performance.now();
-    if (document.hidden) countAcc = Math.min(countAcc, 0.99); else reloadPlayTime();
+    const now = performance.now();
+    countLast = now;
+    if (document.hidden) { countAcc = Math.min(countAcc, 0.99); hiddenAt = now; return; }
+    // the no-hello watchdog doesn't run while the page is hidden: move its start times on
+    if (hiddenAt) { const away = now - hiddenAt; frameBorn += away; if (frameLoadedAt) frameLoadedAt += away; hiddenAt = 0; }
+    try { if (window.speechSynthesis) window.speechSynthesis.resume(); } catch (e) { /* ignore */ }
+    reloadPlayTime();
   });
 
   // =====================================================================
@@ -2731,22 +2882,25 @@
   // =====================================================================
   //  Setup
   // =====================================================================
+  let sizeKey = '';
   function resize() {
     W = Math.max(1, window.innerWidth); H = Math.max(1, window.innerHeight);
     DPR = Math.min(window.devicePixelRatio || 1, 2.5);
-    canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
-    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
     try {
       const r = document.getElementById('safe').getBoundingClientRect();
       SAFE.t = Math.max(0, r.top); SAFE.l = Math.max(0, r.left); SAFE.r = Math.max(0, W - r.right); SAFE.b = Math.max(0, H - r.bottom);
     } catch (e) { /* ignore */ }
-    layout();
+    const key = [W, H, DPR, SAFE.t, SAFE.r, SAFE.b, SAFE.l].join(',');
+    if (key !== sizeKey) {
+      sizeKey = key;
+      if (loopRunning) { sizeCanvas(); freeLayers(); layout(); }
+      else layoutDirty = true;                        // a game fills the screen: lay out when the hub shows again
+    }
     checkRotate();
   }
   window.addEventListener('resize', resize);
   window.addEventListener('orientationchange', () => setTimeout(resize, 200));
   resize();
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { layerCache = {}; });
   if (playTime.left() <= 0) { state.screen = 'sleep'; songKey = 'sleep'; skyPhase = 1; }
 
   // Test hook
@@ -2777,6 +2931,12 @@
     act(key) { doAct(key); },
   };
   requestAnimationFrame(frameLoop);
+
+  // Offline Home Screen app: a service worker keeps a copy of the hub and the games (sw.js).
+  // Only on https (GitHub Pages), never from file:// or inside another page.
+  if ('serviceWorker' in navigator && location.protocol === 'https:' && window.parent === window) {
+    window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => { /* not available here */ }); });
+  }
 })();
 </script>
 </body>

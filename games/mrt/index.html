@@ -613,6 +613,19 @@
 
   @media (min-width: 600px) and (min-height: 701px) { .scene { --sky: 104px; --floor: 104px; --paxh: 86px; --seat: 46px; } }
 
+  /* tall upright phones: a little less sky and space, so "Hear it again" fits on screen too */
+  @media (max-width: 520px) and (min-height: 701px) {
+    #game.screen.active { gap: 8px; }
+    .scene { --sky: 62px; }
+  }
+
+  /* narrow screens: the station sign, stars and map stay in one row; a long name goes onto two lines */
+  @media (max-width: 520px) {
+    .signrow { flex-wrap: nowrap; gap: 8px; }
+    .sign { flex: 0 1 auto; }
+    .sign-name { white-space: normal; font-size: 19px; line-height: 1.1; }
+  }
+
   /* the bedtime end screen is at night */
   body.night { background: linear-gradient(#0c1734, #2a3a63) fixed; color: #fff; }
   body.night #end .sub { color: #d6e2f5; }
@@ -644,13 +657,13 @@
     .x-opts { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
   }
   @media (orientation: landscape) and (min-width: 700px) and (min-aspect-ratio: 5/4) and (min-height: 701px) {
-    .scene { --sky: 116px; --floor: 116px; --paxh: 96px; --seat: 54px; }
+    .scene { --sky: 136px; --floor: 136px; --paxh: 104px; --seat: 60px; }
     .tally { font-size: 34px; }
   }
   /* phones held sideways: everything smaller and closer together */
   @media (orientation: landscape) and (min-width: 700px) and (min-aspect-ratio: 5/4) and (max-height: 500px) {
     #game.screen.active { padding: 8px 12px; gap: 8px 16px; }
-    #game .icon-btn { width: 44px; height: 44px; font-size: 22px; }
+    #game .topbar .icon-btn, #mapBtn { width: 44px; height: 44px; font-size: 22px; }
     #game .clock { padding: 6px 12px; font-size: 18px; }
     .g-left, .g-right { gap: 6px; }
     .scene { --sky: 38px; --floor: 56px; --paxh: 50px; --seat: 30px; border-radius: 20px; }
@@ -2482,6 +2495,7 @@
   if (HUB) {
     const hc = $("homeClock");
     hc.classList.add("hub-exit");
+    document.body.appendChild(hc); // out of #home, so it can show on the end screens too
     $("home").classList.add("hub-room");
     $("end").classList.add("hub-room");
     $("clock").classList.add("hub-clock");
