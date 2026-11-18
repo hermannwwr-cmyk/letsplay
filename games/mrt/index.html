@@ -2417,7 +2417,7 @@
     $("nightBtn").hidden = !sleepy;
     $("end").classList.toggle("sleepy", !!sleepy);
     $("end").querySelector(".big-emoji").textContent = sleepy ? "🌙" : "🏆";
-    $("endTime").textContent = `⏱️ Played today: ${Math.round(playTime.rec().used / 60)} min`;
+    $("endTime").textContent = `⏱️ Played today: ${Math.ceil(playTime.rec().used / 60)} min`;
     if (sleepy) { // play time is up: the train goes to the depot to sleep
       const r = playTime.rec(); r.used = Math.max(r.used, playTime.total()); playTime.save(r); // asleep for the rest of today
       $("endTitle").textContent = "Time for the train to rest! 😴";

@@ -5760,7 +5760,7 @@
   function hubSideStops(ph, canopy, rise) {
     const [skyTop, skyBottom] = skyAt(ph), sky = y => mixColor(skyTop, skyBottom, clamp01(y / GROUND));
     const st = canopy ? [[0, '#1b6f58'], [55, '#1f7a5e'], [115, '#2f9967'], [185, sky(185)]] : [[0, skyTop]];
-    st.push([275 + rise * 0.3, sky(275 + rise * 0.3)], [335 + rise * 0.3, mixColor(sky(335), '#cfe5f2', 0.75)],
+    st.push([275 + rise * 0.3, sky(275 + rise * 0.3)], [335 + rise * 0.3, mixColor(sky(335), '#cfe5f2', 0.75 * (1 - clamp01((ph - 0.55) / 0.3)))],   // the pale haze fades into the sky by evening
       [380 + rise * 0.5, '#8acd9f'], [425 + rise * 0.8, '#5cb36b'], [462 + rise * 0.8, '#63b96a'],
       [482 + rise, '#8bd870'], [500 + rise, P.grass]);
     return st;
@@ -5773,7 +5773,7 @@
       hubDim = document.createElement('div');
       [hubBg, hubDim].forEach((el, i) => {
         el.setAttribute('aria-hidden', 'true');
-        Object.assign(el.style, { position: 'fixed', left: '0', top: '0', width: '100vw', height: '100vh', pointerEvents: 'none', zIndex: String(i - 2) });
+        Object.assign(el.style, { position: 'fixed', left: '0', top: '0', width: '100vw', height: '100vh', pointerEvents: 'none', zIndex: String(i - 2), borderRadius: '0', boxShadow: 'none' });
         document.body.appendChild(el);                              // after the game's canvas in the page, but drawn behind it
       });
       hubDim.style.background = 'rgb(28,20,52)'; hubDim.style.opacity = '0';

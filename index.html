@@ -1989,7 +1989,7 @@
   function showRotate(key) {
     rotateCard = { key, mode: 'before' };
     placeAnim[key].sqV = 14; sfx[key]();
-    say('Turn your tablet sideways!');
+    say('Turn me sideways!');
   }
   function closeRotate() { rotateCard = null; }
   // Freeze / unfreeze the game under the card ({hub:'hold'}), so it doesn't play on unseen.
@@ -2001,7 +2001,7 @@
     holdGame(true);
     document.body.classList.remove('playing'); document.body.classList.add('covering');
     wakeLoop();
-    say('Turn your tablet sideways!');
+    say('Turn me sideways!');
   }
   // In iPad Split View or Stage Manager a window can be narrow even though the iPad is sideways, so on a
   // tablet-sized screen the card offers a small "Play anyway" (a phone can always be turned).
