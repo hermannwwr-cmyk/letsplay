@@ -615,6 +615,9 @@
     p.path = pts.map((q) => ({ x: toWorld(q.x), y: q.y }));
     return new Promise((res) => { p.done = res; });
   }
+  // Where the k-th of n people who got off stands: past the rear wheel (tyre to x 1035),
+  // from x 1068, spread up to 60 apart and staying on screen (staggered front/back by the callers).
+  const dropX = (k, n) => 1068 + k * Math.min(60, n > 1 ? (1250 - 1068) / (n - 1) : 0);
   function freeSlot() {
     const used = new Set(game.onboard.map((p) => p.slot));
     return SEAT_ORDER.find((i) => !used.has(i));
@@ -781,11 +784,10 @@
       if (stop.terminus) {
         const n = stop.off;
         // (all standing past the rear wheel, which is at x 990)
-        const span = n * 52;
-        for (let k = 0; k < n; k++) spots.push({ x: 1266 - span + (k + 0.5) * (span / n), y: PAVE_Y - 6 + (k % 2) * 14 });
+        for (let k = 0; k < n; k++) spots.push({ x: dropX(k, n), y: PAVE_Y - 6 + (k % 2) * 14 });
         spots.sort((a, b) => Math.abs(a.x - DOOR_OUT) - Math.abs(b.x - DOOR_OUT));
       } else {
-        for (let k = 0; k < stop.off; k++) spots.push({ x: DOOR_OUT + 175 + k * 75, y: PAVE_Y - 2 + (k % 2) * 10 });
+        for (let k = 0; k < stop.off; k++) spots.push({ x: dropX(k, stop.off), y: PAVE_Y - 2 + (k % 2) * 10 });
       }
       game.alighted = [];
       for (let k = 0; k < stop.off; k++) {
@@ -2502,7 +2504,7 @@
       setDoors(0, 0, 1);
       Sound.doorOpen();
       await sleep(800);
-      const home = [];
+      const home = [], n0 = game.onboard.length;
       for (let k = 0; game.onboard.length; k++) {
         const pas = lastSeated();
         pas.leaving = true;
@@ -2510,7 +2512,7 @@
         game.onboard.splice(game.onboard.indexOf(pas), 1);
         const p = newPerson(pas.look, DOOR_OUT, 600, false);
         p.alpha = 0; p.fadeIn = true;
-        walk(p, [{ x: DOOR_OUT, y: 650 }, { x: DOOR_OUT + 175 + k * 52, y: PAVE_Y - 4 + (k % 2) * 12 }], 200)
+        walk(p, [{ x: DOOR_OUT, y: 650 }, { x: dropX(k, n0), y: PAVE_Y - 4 + (k % 2) * 12 }], 200)
           .then(() => { if (p.path.length === 0) { p.front = true; p.wave = true; } });
         home.push(p);
         await sleep(450);
