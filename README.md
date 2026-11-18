@@ -29,5 +29,6 @@ Like any web page, this can be undone by clearing the browser's site data. For a
 | `games/bus/` | Bendy Bus Counting Fun |
 | `games/grizzly/index.html` | Grizzly and the Lemmings |
 | `games/mrt/index.html` | MRT Math Express |
+| `sw.js` | Keeps a copy of the app for the offline Home Screen app (bump its `VERSION` on every release) |
 
-No build step, no downloads: everything is drawn and synthesised in code, and it works offline from `file://`. Each game still works on its own when opened directly.
+No build step, no downloads: everything is drawn and synthesised in code, and it works offline from `file://`. Added to the Home Screen from the published page, it keeps a copy of itself (a service worker, `sw.js`), so after the first launch with a connection it opens without one too, and picks up a new version the next time it's opened online. Each game still works on its own when opened directly.

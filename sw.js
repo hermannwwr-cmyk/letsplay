@@ -55,6 +55,13 @@ self.addEventListener('activate', event => {
 const FRESH = /(\/|\.html|\.js|\.css|\.webmanifest)$/;
 const NET_WAIT = 4000;
 
+// A request that hangs (a captive Wi-Fi page, a blocked host) is given up after a while, so it can't
+// keep this worker busy and hold back the next version.
+function fetchWithin(req, ms) {
+  const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+  const t = ctl ? setTimeout(() => ctl.abort(), ms) : 0;
+  return fetch(req, ctl ? { signal: ctl.signal } : undefined).finally(() => clearTimeout(t));
+}
 async function fromCache(req) {
   return (await caches.match(req, { ignoreSearch: true })) ||        // games load as index.html?hub=1
     (req.mode === 'navigate' ? caches.match('./index.html') : undefined);
@@ -72,7 +79,7 @@ async function store(cacheName, req, res) {
 
 async function networkFirst(event) {
   const req = event.request;
-  const net = fetch(req);
+  const net = fetchWithin(req, 30000);
   event.waitUntil(net.then(res => store(VERSION, req, res.clone())).catch(() => {}));   // keep the fresh copy
   const cached = fromCache(req);
   let timer;
@@ -91,7 +98,7 @@ async function cacheFirst(event, cacheName) {
   const req = event.request;
   const hit = cacheName === FONTS ? await caches.match(req) : await fromCache(req);
   if (hit) return hit;
-  const res = fetch(req);
+  const res = fetchWithin(req, cacheName === FONTS ? 8000 : 30000);
   event.waitUntil(res.then(r => store(cacheName, req, r.clone())).catch(() => {}));
   return res;
 }
