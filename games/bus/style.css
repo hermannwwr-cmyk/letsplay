@@ -83,8 +83,21 @@ button { font-family: inherit; cursor: pointer; border: none; color: inherit; }
 .choice.c2 { background: #ffa62b; }
 .choice.wrong { background: #b8b8b8 !important; animation: shake .45s; box-shadow: none; }
 .choice.right { background: #35c46a !important; animation: bounce .7s; }
-/* while we count together the buttons rest (dimmed, not tappable) */
-#choices.helping .choice { opacity: .4; filter: saturate(.5); pointer-events: none; transition: opacity .3s, filter .3s; }
+/* while we count together the buttons rest: a solid pale fill of their own colour, not tappable */
+#choices.helping .choice { pointer-events: none; box-shadow: 0 calc(var(--u) * .4) 0 rgba(0,0,0,.08); text-shadow: none; transition: background .3s, color .3s; }
+#choices.helping .choice.c0:not(.wrong) { background: #ffe1e1; color: #f08a8a; }
+#choices.helping .choice.c1:not(.wrong) { background: #dde9ff; color: #7aa8f0; }
+#choices.helping .choice.c2:not(.wrong) { background: #ffecd2; color: #f0ad5a; }
+#choices.helping .choice:not(.wrong) .dots i { background: currentColor; opacity: .7; }
+/* the wrong one stays grey with a little cross, so it is clearly "not this one" */
+.choice { position: relative; }
+.choice.wrong { color: #fff; }
+.choice.wrong::after {
+  content: ""; position: absolute; right: calc(var(--u) * -.9); top: calc(var(--u) * -.9);
+  width: calc(var(--u) * 3.4); height: calc(var(--u) * 3.4); border-radius: 50%;
+  background: #f26b5b url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M6 6l8 8M14 6l-8 8' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E") center / 62% no-repeat;
+  box-shadow: 0 calc(var(--u) * .2) 0 rgba(0,0,0,.18);
+}
 
 /* ---------- Title ---------- */
 .screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; }

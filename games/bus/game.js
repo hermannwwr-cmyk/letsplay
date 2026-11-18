@@ -53,6 +53,7 @@
     // ('hello' is sent at the end of the setup, once everything is ready)
   }
 
+  let ctrlLeft = W;
   function resize() {
     const vw = window.innerWidth, vh = window.innerHeight;
     const s = Math.min(vw / W, vh / H);
@@ -65,6 +66,11 @@
     // small screens: bigger-than-scale buttons stand in a column (see style.css)
     document.documentElement.classList.toggle('small', sw < 920);
     stage.style.setProperty('--u', (sw / 100) + 'px');
+    // where the phone's button column starts, in game units (it matches style.css)
+    if (sw < 920) {
+      const u = sw / 100, b = Math.max(Math.min(46, u * 8), u * 5);
+      ctrlLeft = (sw * (1 - 0.012) - b - 6) * (W / sw);
+    } else ctrlLeft = W;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width = Math.round(sw * dpr);
     canvas.height = Math.round(sh * dpr);
@@ -586,7 +592,7 @@
       await sayWait(String(i + 1), false, 850);
     }
     await sleep(250);
-    await sayWait(`${targets.length}!`, false, 900);
+    await sayWait(targets.length === 1 ? 'Just 1!' : `${targets.length}!`, false, 900);
   }
   const busTargets = (list = game.onboard) => [...list].sort((a, b) => SLOTS[a.slot] - SLOTS[b.slot])
     .map((p) => () => ({ x: SLOTS[p.slot], y: 462 + game.kneel }));
@@ -774,11 +780,12 @@
       const wait = stop.terminus || game.level.oneWay;
       if (stop.terminus) {
         const n = stop.off;
-        const span = Math.min(940, n * 68);
-        for (let k = 0; k < n; k++) spots.push({ x: 1220 - span + (k + 0.5) * (span / n), y: PAVE_Y - 6 + (k % 2) * 14 });
+        // (all standing past the rear wheel, which is at x 990)
+        const span = n * 52;
+        for (let k = 0; k < n; k++) spots.push({ x: 1266 - span + (k + 0.5) * (span / n), y: PAVE_Y - 6 + (k % 2) * 14 });
         spots.sort((a, b) => Math.abs(a.x - DOOR_OUT) - Math.abs(b.x - DOOR_OUT));
       } else {
-        for (let k = 0; k < stop.off; k++) spots.push({ x: DOOR_OUT + 110 + k * 80, y: PAVE_Y - 2 + (k % 2) * 10 });
+        for (let k = 0; k < stop.off; k++) spots.push({ x: DOOR_OUT + 175 + k * 75, y: PAVE_Y - 2 + (k % 2) * 10 });
       }
       game.alighted = [];
       for (let k = 0; k < stop.off; k++) {
@@ -958,11 +965,23 @@
     welcome('Tap Play to drive the bus again!');
   }
   // A spoken hello on the title screen (only once the page may speak, so not before a first tap)
+  // If the page may not speak yet, the hello waits for the first tap inside the game,
+  // unless that tap is Play (or "all games"): then we just go.
+  let welcomed = false;
   function welcome(line) {
     let active = true;
     try { if (navigator.userActivation) active = navigator.userActivation.hasBeenActive; } catch (e) { /* ignore */ }
-    if (active) later(() => { if (game.mode === 'title' && !timeUp()) say(line); }, 700);
+    if (active) { welcomed = true; later(() => { if (game.mode === 'title' && !timeUp()) say(line); }, 700); }
   }
+  // (on click, which counts as a tap for speech on iPhone and iPad)
+  document.addEventListener('click', (e) => {
+    if (welcomed) return;
+    welcomed = true;
+    const t = e.target && e.target.closest ? e.target : null;
+    if (game.mode !== 'title' || timeUp() || (t && t.closest('.level, #hubExit'))) return;
+    // (in the hub, which has just said the game's name, it is short)
+    say(HUB ? 'Tap Play!' : 'Hello! Tap Play to drive the bus!');
+  }, true);
 
   // ====================================================================
   // Update
@@ -2126,6 +2145,14 @@
     ctx.save();
     ctx.globalAlpha = a;
     ctx.fillStyle = 'rgba(20,40,60,.45)'; ctx.fillRect(0, 0, W, H);
+    // phone: the buttons stand in a column on the right, so the card moves left
+    // (and shrinks a little if it must) to keep clear of them
+    if (ctrlLeft < MAP.x + MAP.w + 22) {
+      const need = MAP.x + MAP.w + 22 - ctrlLeft, shift = Math.min(need, MAP.x - 22);
+      const k = (MAP.w + 20 - (need - shift)) / (MAP.w + 20);
+      ctx.translate(-shift + (MAP.x - 10) * (1 - k), H / 2 * (1 - k));
+      ctx.scale(k, k);
+    }
     ctx.translate(W / 2, H / 2 + 20);
     ctx.scale(0.85 + 0.15 * e, 0.85 + 0.15 * e);
     ctx.translate(-W / 2, -H / 2 - 20);
@@ -2423,13 +2450,14 @@
     hub.held = on;
     setFrozen();
   }
-  let heldLine = '', heldEnd = null;
+  let heldLine = '', heldEnd = null, frozenAt = 0;
   function setFrozen() {
     const want = (hub.held || pageHidden) && !hub.paused;
     if (want === frozen) return;
     const now = performance.now();
     if (want) {
       frozen = true;
+      frozenAt = now;
       let talking = false;
       try { talking = Voice.ok && (speechSynthesis.speaking || speechSynthesis.pending); } catch (e) { /* ignore */ }
       heldLine = talking ? lastSaid : '';
@@ -2447,6 +2475,9 @@
       if (Sound.ac) { try { Sound.ac.resume().catch(() => {}); } catch (e) { /* ignore */ } Music.start(); }
       // the line that was cut off, or else the question on screen (not while counting together)
       const q = !ui.question.classList.contains('hidden') && !game.helping && game.askLine;
+      // A short hold (a quick wobble of the tablet) doesn't repeat anything: the cut line
+      // counts as said, so rapid turning can't make the bus say the same thing again and again.
+      if (now - frozenAt < 500) { const end = heldEnd; heldLine = ''; heldEnd = null; if (end) end(); return; }
       if (heldLine) say(heldLine, true, heldEnd); else if (q) say(q, true);
       heldLine = ''; heldEnd = null;
     }
@@ -2479,7 +2510,7 @@
         game.onboard.splice(game.onboard.indexOf(pas), 1);
         const p = newPerson(pas.look, DOOR_OUT, 600, false);
         p.alpha = 0; p.fadeIn = true;
-        walk(p, [{ x: DOOR_OUT, y: 650 }, { x: DOOR_OUT + 100 + k * 72, y: PAVE_Y - 4 + (k % 2) * 12 }], 200)
+        walk(p, [{ x: DOOR_OUT, y: 650 }, { x: DOOR_OUT + 175 + k * 52, y: PAVE_Y - 4 + (k % 2) * 12 }], 200)
           .then(() => { if (p.path.length === 0) { p.front = true; p.wave = true; } });
         home.push(p);
         await sleep(450);
