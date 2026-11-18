@@ -316,7 +316,7 @@
   .psign .plat.face svg { width: 100%; height: 100%; display: block; }
   .psign.picked { box-shadow: 0 5px 0 rgba(0,0,0,.3), inset 0 0 0 2px #3a4651, 0 0 0 5px #ffd84a; transform: scale(1.02); }
   .psign.picked .arrow { background: radial-gradient(circle at 40% 35%, #7dffa0, #2fbf55 60%); color: #fff; animation: goGlow 1.1s ease-in-out infinite alternate; }
-  .x-opts:has(.picked) .psign:not(.picked) { opacity: .8; }
+  .x-opts:has(.picked) .psign:not(.picked), .dir-row:has(.picked) .psign:not(.picked) { opacity: .5; }
 
   /* surprises during the ride */
   .sitem { position: absolute; z-index: 3; font-size: 30px; line-height: 1; pointer-events: none; animation: bob 1.4s ease-in-out infinite alternate; transition: transform .9s ease-in, opacity .9s; }
@@ -337,7 +337,7 @@
   .home-clock { position: fixed; z-index: 6; top: calc(8px + env(safe-area-inset-top, 0px)); right: calc(8px + env(safe-area-inset-right, 0px)); border: 0; background: rgba(255,255,255,.85); color: var(--ink); border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 15px; font-weight: 800; box-shadow: 0 2px 0 rgba(0,0,0,.1); }
   body:not([data-screen="home"]) .home-clock { display: none; }
   /* hub mode (inside the all-in-one app): the chip becomes a big "back to all games" button */
-  .home-clock.hub-exit { left: calc(8px + env(safe-area-inset-left, 0px)); right: auto; width: 64px; height: 64px; padding: 0; border-radius: 50%; background: none; box-shadow: none;
+  .home-clock.hub-exit { z-index: 12; left: calc(8px + env(safe-area-inset-left, 0px)); right: auto; width: 64px; height: 64px; padding: 0; border-radius: 50%; background: none; box-shadow: none;
     filter: drop-shadow(0 3px 3px rgba(80, 50, 20, .25)); animation: hubBob 2s ease-in-out infinite; }
   .home-clock.hub-exit svg { display: block; width: 64px; height: 64px; }
   @keyframes hubBob { 0%, 100% { transform: translateY(-2px); } 50% { transform: translateY(2px); } }
@@ -657,8 +657,28 @@
     .x-opts { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
   }
   @media (orientation: landscape) and (min-width: 700px) and (min-aspect-ratio: 5/4) and (min-height: 701px) {
-    .scene { --sky: 136px; --floor: 136px; --paxh: 104px; --seat: 60px; }
+    .scene { --sky: 136px; --floor: 136px; --paxh: 104px; --seat: 60px; } /* fitScene() then sizes it to fill the column */
+    .g-left { justify-content: flex-start; }
     .tally { font-size: 34px; }
+    #end h1 { font-size: 46px; }
+    #end .sub { font-size: 21px; }
+    .big-emoji { font-size: 110px; }
+    .end-stars { font-size: 40px; }
+    .mini-track { height: 130px; }
+    #end:not(.sleepy) .mini-track { background-size: 260px auto, 260px auto, auto; }
+    #end .go { font-size: 36px; padding: 22px; }
+    #end .pill { font-size: 26px; padding: 18px; }
+    #end .end-act { gap: 18px; }
+  }
+  /* tall upright tablets: a bigger station and answers, using the height */
+  @media (orientation: portrait) and (min-width: 600px) and (min-height: 1100px) {
+    .scene { --sky: 170px; --floor: 160px; --paxh: 120px; --seat: 62px; }
+    .tally { font-size: 34px; }
+    .story { font-size: 22px; }
+    .ans { padding: 18px 0; }
+    #end .go { font-size: 34px; padding: 20px; }
+    #end .pill { font-size: 24px; padding: 16px; }
+    .mini-track { height: 120px; }
   }
   /* phones held sideways: everything smaller and closer together */
   @media (orientation: landscape) and (min-width: 700px) and (min-aspect-ratio: 5/4) and (max-height: 500px) {
@@ -820,9 +840,9 @@
     <h1 id="endTitle">You made it!</h1>
     <p class="sub" id="endText"></p>
     <div class="end-stars" id="endStars"></div>
+    <div class="mini-track" aria-hidden="true"><div class="mini-train"><span></span><span></span><span></span></div></div>
   </div>
   <div class="end-act">
-    <div class="mini-track" aria-hidden="true"><div class="mini-train"><span></span><span></span><span></span></div></div>
     <button class="go" id="againBtn">Ride again 🔁</button>
     <button class="pill" id="otherBtn">🗺️ Choose another line</button>
     <button class="go" id="nightBtn" hidden>Good night, train 😴</button>
@@ -1205,7 +1225,24 @@
     document.body.dataset.screen = id;
     document.body.classList.toggle("night", id === "end" && $("end").classList.contains("sleepy"));
     document.querySelectorAll(".screen").forEach(s => s.classList.toggle("active", s.id === id));
+    if (id === "game") fitScene();
     window.scrollTo(0, 0);
+  }
+
+  // Sideways tablets: the station grows to fill the left half (bigger seats, people and platform, more sky),
+  // so there are no empty bands above and below it. Elsewhere the CSS sizes apply.
+  const tallSide = matchMedia("(orientation: landscape) and (min-width: 700px) and (min-aspect-ratio: 5/4) and (min-height: 701px)");
+  function fitScene() {
+    const sc = $("scene").style, vars = ["--sky", "--floor", "--paxh", "--seat"];
+    if (!tallSide.matches) { vars.forEach(v => sc.removeProperty(v)); return; }
+    if (!$("game").classList.contains("active") || S.riding) return;
+    const left = document.querySelector(".g-left"), H = left.clientHeight - document.querySelector(".signrow").offsetHeight - 12;
+    if (H < 200) return;
+    const seat = Math.max(46, Math.min(76, Math.floor((left.clientWidth - 200) / 5)));
+    const rest = Math.max(180, H - (2 * seat + 19 + 36)); // the train: two rows of seats in the window, plus its body
+    const floor = Math.round(Math.min(rest * .4, 180)), sky = rest - floor;
+    sc.setProperty("--seat", seat + "px"); sc.setProperty("--sky", sky + "px");
+    sc.setProperty("--floor", floor + "px"); sc.setProperty("--paxh", Math.round(Math.min(floor * .8, 140)) + "px");
   }
 
   // ---- questions ----
@@ -1253,6 +1290,7 @@
     S.trail = new Set([st[S.at]]);
     S.time = playTime.limit() ? skyTime() : clockTime(); S.weather = rollWeather();
     S.lastStops = null; $("stopsPill").hidden = true; S.weatherLeft = rand(...WEATHER_EVERY); S.envStops = 0;
+    if (playTime.limit() && playTime.left() <= LAST_CALL) lastCall(); // the last minute already: just the last stops (said as the doors close)
     document.documentElement.style.setProperty("--line", S.line.color);
     applyEnv(isUnderground(S.line, st[S.at]) ? "ug" : "open");
     $("starCount").textContent = "⭐ 0";
@@ -1962,14 +2000,18 @@
       return false;
     }
     if (playTime.left() <= 0 && S.asked > 1) return true;
-    if (playTime.left() <= LAST_CALL) {
-      const st = S.line.stations, ahead = !st[S.at + S.dir] ? 0 : !st[S.at + 2 * S.dir] ? 1 : 2;
-      // the end of the line, right here: the ride ends anyway, so it ends with the goodnight
-      // (unless it's an interchange, where the train can go on along another line)
-      if (!ahead && STOPS[st[S.at]].length < 2) return true;
-      S.lastStops = ahead === 1 ? 1 : 2; S.warnNow = true;
-      pill.textContent = S.lastStops === 1 ? "🌙 Last stop!" : "🌙 2 more stops"; pill.hidden = false;
-    }
+    if (playTime.left() <= LAST_CALL) return lastCall();
+    return false;
+  }
+  // Start the last stops: 2 more (1 if the line ends after the next one), or the goodnight right now at the end
+  // of a line that isn't an interchange. Returns true when it's time to stop now.
+  function lastCall() {
+    const pill = $("stopsPill"), st = S.line.stations, ahead = !st[S.at + S.dir] ? 0 : !st[S.at + 2 * S.dir] ? 1 : 2;
+    // the end of the line, right here: the ride ends anyway, so it ends with the goodnight
+    // (unless it's an interchange, where the train can go on along another line)
+    if (!ahead && STOPS[st[S.at]].length < 2) return true;
+    S.lastStops = ahead === 1 ? 1 : 2; S.warnNow = true;
+    pill.textContent = S.lastStops === 1 ? "🌙 Last stop!" : "🌙 2 more stops"; pill.hidden = false;
     return false;
   }
 
@@ -1984,17 +2026,8 @@
     box.innerHTML = "";
     let letter = 0;
     const add = (sign, words, onPick) => {
-      const b = platformSign({ ...sign, letter: "ABCDEFGH"[letter++], onPick: () => {
-        if (gen !== S.gen) return;
-        if (!b.classList.contains("picked")) { // first tap: hear it
-          box.querySelectorAll(".picked").forEach(x => x.classList.remove("picked"));
-          b.classList.add("picked"); sfx.tick();
-          say(`${words} Tap again to go!`);
-          return;
-        }
-        $("xchg").hidden = true; sfx.tick(); onPick();
-      } });
-      box.appendChild(b);
+      const hear = tapTwice(words, () => { $("xchg").hidden = true; sfx.tick(); onPick(); });
+      box.appendChild(platformSign({ ...sign, letter: "ABCDEFGH"[letter++], onPick: e => { if (gen === S.gen) hear(e); } }));
     };
     const to = (M, dir) => dir > 0 ? M.stations.at(-1) : M.stations[0];
     if (canStay) add({ L, i: S.at, dir: S.dir, kind: "stay" }, `Stay on ${lineWords(L)}, to ${to(L, S.dir)}.`, () => depart());
@@ -2010,7 +2043,20 @@
     say(`${here} is an interchange! Which train shall we take?`);
   }
   // a little train seen from the front, for the interchange signs
-  const trainFace = c => `<svg viewBox="0 0 40 40" aria-hidden="true"><rect x="7" y="4" width="26" height="28" rx="8" fill="#fbfaf5"/><rect x="11" y="8" width="18" height="11" rx="3" fill="#b9dcee"/><path d="M13 9h5l-4 9h-3z" fill="#fff" opacity=".5"/><rect x="7" y="22" width="26" height="4" fill="${c}"/><circle cx="13" cy="29" r="2" fill="#ffe27a"/><circle cx="27" cy="29" r="2" fill="#ffe27a"/><rect x="11" y="32" width="5" height="4" rx="1.5" fill="#5b6b7c"/><rect x="24" y="32" width="5" height="4" rx="1.5" fill="#5b6b7c"/></svg>`;
+  // a little train seen from the side, nose first, pointing the way it goes (dir < 0: flipped to face left)
+  const trainSide = (c, dir) => `<svg viewBox="0 0 40 40" aria-hidden="true"><g${dir < 0 ? ' transform="translate(40 0) scale(-1 1)"' : ""}><path d="M1 15h6M0 20h7M2 25h5" stroke="#fff" stroke-width="2.2" stroke-linecap="round" opacity=".85"/><path d="M9 11h17c7 0 12 6 12 13v6H9z" fill="#fbfaf5"/><path d="M28 13.5c4 .5 7 4 7.6 8.5H28z" fill="#b9dcee"/><rect x="11" y="15" width="6" height="6" rx="1.5" fill="#b9dcee"/><rect x="19" y="15" width="6" height="6" rx="1.5" fill="#b9dcee"/><rect x="9" y="24" width="29" height="3" fill="${c}"/><circle cx="15" cy="32" r="2.6" fill="#5b6b7c"/><circle cx="31" cy="32" r="2.6" fill="#5b6b7c"/><circle cx="36" cy="28.5" r="1.4" fill="#ffe27a"/></g></svg>`;
+  // Signs for children who can't read yet: the first tap lights a sign up and says where it goes; tapping the
+  // lit-up sign again goes. Used for the interchange signs and the start picker's direction signs.
+  const tapTwice = (words, go) => e => {
+    const b = e.currentTarget;
+    if (!b.classList.contains("picked")) {
+      b.parentNode.querySelectorAll(".picked").forEach(x => x.classList.remove("picked"));
+      b.classList.add("picked"); sfx.tick();
+      say(`${words} Tap again to go!`);
+      return;
+    }
+    go();
+  };
 
   // A platform sign button. kind: "dir" (start picker), "stay" or "change" (interchange), or "end".
   // The strip shows this station and the next stops in the direction of travel.
@@ -2027,7 +2073,7 @@
       const verb = kind === "stay" ? "Stay on · " : kind === "change" ? "Change to · " : "";
       b.dataset.line = L.id; b.dataset.to = dest;
       b.style.setProperty("--c", L.color);
-      const tile = kind === "dir" ? `<span class="plat">${letter}</span>` : `<span class="plat face">${trainFace(L.color)}</span>`;
+      const tile = `<span class="plat face">${trainSide(L.color, dir)}</span>`;
       b.innerHTML = `<span class="top">${tile}
           <span class="txt"><div class="to">${verb}<span class="lc" style="background:${L.color}">${L.id}</span><span class="ln">${L.name} · </span>towards</div><div class="dest">${dest}</div></span>
           <span class="arrow" aria-hidden="true">${dir > 0 ? "→" : "←"}</span></span>
@@ -2244,7 +2290,7 @@
       if (i === 0 || i === st.length - 1) { S.startDir = i === 0 ? 1 : -1; row.hidden = true; setTimeout(closePicker, 450); return; }
       row.innerHTML = "";
       [1, -1].forEach((d, k) => row.appendChild(platformSign({ letter: "AB"[k], L, i, dir: d, kind: "dir",
-        onPick: () => { S.startDir = d; sfx.tick(); closePicker(); } })));
+        onPick: tapTwice(`${d > 0 ? "This way" : "That way"}: ${lineWords(L)}, to ${d > 0 ? st.at(-1) : st[0]}.`, () => { S.startDir = d; sfx.tick(); closePicker(); }) })));
       row.hidden = false;
       say(`${st[i]}. Which way shall we go?`);
     }
@@ -2287,7 +2333,7 @@
     }
     $("endTitle").textContent = `You reached ${last}!`;
     const found = S.surprises ? ` You found ${S.surprises} surprise${S.surprises > 1 ? "s" : ""}! 🎁` : "";
-    $("endText").textContent = `You rode ${total} stop${total > 1 ? "s" : ""} and got ${S.stars} out of ${total} stars on the first try!${found}`;
+    $("endText").textContent = `You rode ${total} stop${total > 1 ? "s" : ""} and got ${S.stars} out of ${total} star${total === 1 ? "" : "s"} on the first try!${found}`;
     showEndStars(total);
     show("end");
     sfx.chime(); setTimeout(sfx.right, 900);
@@ -2410,7 +2456,7 @@
   };
   sideDock.addEventListener?.("change", fitDock);
   if ("ResizeObserver" in window) new ResizeObserver(fitDock).observe(dock); else addEventListener("resize", fitDock);
-  addEventListener("resize", () => { if (S.routeWin && $("game").classList.contains("active") && !S.riding) renderRoute(S.at); });
+  addEventListener("resize", () => { fitScene(); if (S.routeWin && $("game").classList.contains("active") && !S.riding) renderRoute(S.at); });
   fitDock();
   $("goSignal").onclick = go;
   paintLine();
