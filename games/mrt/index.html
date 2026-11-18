@@ -453,8 +453,8 @@
   .ug-clock::before { height: 28%; transform: rotate(-60deg); }
   .ug-clock::after { height: 38%; background: var(--line); transform: rotate(30deg); }
   .ug-map { height: 70%; max-height: 54px; aspect-ratio: 2.6; border-radius: 8px; background:
-      radial-gradient(circle, #fff 0 22%, var(--line) 24% 38%, transparent 40%) 8% 50% / 25% 60% repeat-x,
-      linear-gradient(var(--line), var(--line)) 50% 50% / 84% 5px no-repeat, #fbfaf5; box-shadow: inset -3px -3px 0 #e6ebf0; }
+      radial-gradient(circle, #fff 0 22%, var(--line) 24% 38%, transparent 40%) 0 50% / 25% 60% repeat-x,
+      linear-gradient(var(--line), var(--line)) 50% 50% / 75% 5px no-repeat, #fbfaf5; box-shadow: inset -3px -3px 0 #e6ebf0; }
   /* big sideways tablets and tall upright tablets have room for the clock and the map too */
   @media (orientation: landscape) and (min-width: 700px) and (min-height: 701px), (orientation: portrait) and (min-width: 600px) and (min-height: 1100px) {
     .ug-clock, .ug-map { display: block; }
@@ -689,6 +689,13 @@
     #end .go { font-size: 36px; padding: 22px; }
     #end .pill { font-size: 26px; padding: 18px; }
     #end .end-act { gap: 18px; }
+    /* end screen: the summary and the buttons side by side, centred on each other, with the little train
+       running along under both */
+    #end.screen.active { align-items: center; row-gap: 12px; }
+    #end .end-sum { display: contents; }
+    #end .end-sum > :not(.mini-track) { grid-column: 1; }
+    #end .end-act { grid-column: 2; grid-row: 1 / 5; }
+    #end .mini-track { grid-column: 1 / -1; grid-row: 5; margin-top: 18px; }
   }
   /* tall upright tablets: a bigger station and answers, using the height */
   @media (orientation: portrait) and (min-width: 600px) and (min-height: 1100px) {
@@ -1262,15 +1269,18 @@
     const ug = $("scene").dataset.place === "ug";
     const seat = Math.max(46, Math.min(ug ? 90 : 76, Math.floor((left.clientWidth - 200) / 5)));
     const rest = Math.max(180, H - (2 * seat + 19 + 36)); // the train: two rows of seats in the window, plus its body
-    let sky, floor, paxh, grow = 0;
-    if (ug) { // underground: a low wall with the station's name board, just room on the platform for the people,
-      // and the rest of the height goes to the train (a taller car). The scene keeps the same height either way.
-      paxh = Math.round(Math.min(140, seat * 1.5)); floor = paxh + 26;
+    // the platform below the train only needs room for the people waiting on it: about 1.1 × a person's height
+    const paxh = Math.round(Math.min(110, seat * 1.4)), floor = Math.max(paxh + 10, Math.round(paxh * 1.1));
+    let sky, grow;
+    if (ug) { // underground: a low wall with the station's name board, and the rest of the height goes to the
+      // train (a taller car). The scene keeps the same height either way.
       sky = Math.round(Math.min(rest - floor, Math.max(70, seat * 1.15)));
-      grow = Math.round(Math.min(Math.max(0, rest - floor - sky), seat * .7)); // a taller car, but not an empty one
+      grow = Math.round(Math.min(Math.max(0, rest - floor - sky), seat * .9)); // a taller car, but not an empty one
       sky = rest - floor - grow; // anything left over: more wall, with a bigger name board
-    } else {
-      floor = Math.round(Math.min(rest * .4, 180)); sky = rest - floor; paxh = Math.round(Math.min(floor * .8, 140));
+    } else { // outside: the sky and the flats get most of it, the train a little
+      const old = Math.round(Math.min(rest * .4, 180));
+      grow = Math.round(Math.min(Math.max(0, old - floor), seat * .5));
+      sky = rest - floor - grow;
     }
     sc.setProperty("--seat", seat + "px"); sc.setProperty("--sky", sky + "px");
     sc.setProperty("--floor", floor + "px"); sc.setProperty("--paxh", paxh + "px");
