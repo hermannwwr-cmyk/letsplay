@@ -1271,12 +1271,13 @@
   // Home asks first, with two big picture buttons. The game waits meanwhile.
   const ASK_BEFORE_HOME = ['catch', 'boop', 'leap', 'rafts', 'stack', 'bounce'];
   let confirmHome = null, readyT = 0;   // readyT: a moment to get ready again after PLAY
+  let readyTap = false;                  // a tap during "Ready!" in Leap: it jumps as soon as play carries on
   function homeTapped() {
     const key = Object.keys(S).find(k => S[k] === scene);
     if (!overlay && ASK_BEFORE_HOME.includes(key)) { confirmHome = { t0: time }; keys.left = keys.right = false; say('Keep playing, or go home?'); return; }
     go('menu');
   }
-  function keepPlaying() { confirmHome = null; readyT = 0.75; }
+  function keepPlaying() { confirmHome = null; readyT = 0.75; readyTap = false; }
   // "Ready!" for the moment after PLAY, while the game waits
   function drawReady() {
     const k = readyT / 0.75;
@@ -1715,11 +1716,11 @@
     const GOAL = 15;
     const holes = [];
     for (const y of [315, 455]) for (const x of [200, 480, 760]) holes.push({ x, y });
-    let count = 0, spawnT = 0, doneT = 0;
+    let count = 0, spawnT = 0, doneT = 0, held = Infinity;   // held: the count when time ran out (no harder after that)
 
     return {
       start() {
-        count = 0; spawnT = 1; doneT = 0;
+        count = 0; spawnT = 1; doneT = 0; held = Infinity;
         for (const h of holes) Object.assign(h, { who: null, up: 0, phase: 'up', stay: 0, booped: false, color: '#f2c27b', dir: 1 });
       },
       update(dt) {
@@ -1729,14 +1730,16 @@
           if (doneT <= 0) celebrate('boop', 'Boop-tastic!', 'You tickled all the lemmings!');
         } else {
           spawnT -= dt;
-          const maxUp = count < 5 ? 1 : count < 10 ? 2 : 3;
+          if (held === Infinity && timeUp()) held = count;
+          const lv = Math.min(count, held);
+          const maxUp = lv < 5 ? 1 : lv < 10 ? 2 : 3;
           const active = holes.filter(h => h.who).length;
           if (spawnT <= 0 && active < maxUp) {
             const empty = holes.filter(h => !h.who);
             const h = pick(empty);
-            h.who = count > 2 && Math.random() < 0.18 ? 'bear' : 'lem';
+            h.who = lv > 2 && Math.random() < 0.18 ? 'bear' : 'lem';
             h.phase = 'up'; h.up = 0; h.booped = false;
-            h.stay = Math.max(1.1, 2.3 - count * 0.06);
+            h.stay = Math.max(1.1, 2.3 - lv * 0.06);
             h.color = pick(LEMMING_COLORS); h.dir = pick([1, -1]); h.seed = rand(0, 10);
             spawnT = rand(0.4, 0.9);
             sfx.pop();
@@ -3146,12 +3149,13 @@
     let dist = 0, speed = 0, ly = 0, lv = 0, onGround = true, holdT = 0, jumpBuf = 0, land = 0;
     let tumbleT = 0, rot = 0, step = 0, obstacles = [], honeys = [], nextObs = 0, honeyCount = 0;
     let phase = 'run', doneT = 0, saidFinish = false, saidStump = false, tumbles = 0;
+    let heldAt = Infinity;           // where time ran out: the speed and the obstacle mix stay as they were there
 
     // 230 px/s at the start, rising to 430 px/s near the flag
-    const speedFor = d => 230 + Math.min(1, d / FINISH) * 200;
+    const speedFor = d => 230 + Math.min(1, Math.min(d, heldAt) / FINISH) * 200;
 
     function spawnObstacle() {
-      const f = dist / FINISH, x = W + 80;
+      const f = Math.min(dist, heldAt) / FINISH, x = W + 80;
       const types = ['log', 'rock'];
       if (f > 0.2) types.push('double');
       if (f > 0.45) types.push('stump', 'stump');
@@ -3162,7 +3166,7 @@
       else if (t === 'rock') obstacles.push({ x, w: 54, h: 44, type: 'rock' });
       else {
         obstacles.push({ x, w: 52, h: 112, type: 'stump' });
-        if (!saidStump) { saidStump = true; say('A big stump! Hold your finger down for a big jump!', true); }
+        if (!saidStump && !timeUp()) { saidStump = true; say('A big stump! Hold your finger down for a big jump!', true); }
       }
       // a honey pot floating up high, just for fun
       if (Math.random() < 0.55) honeys.push({ x: x + extra / 2 + rand(-30, 30), y: GROUND - rand(125, 175), got: false, seed: rand(0, 6) });
@@ -3174,7 +3178,7 @@
       start() {
         dist = 0; speed = speedFor(0); ly = 0; lv = 0; onGround = true; holdT = 0; jumpBuf = 0; land = 0;
         tumbleT = 0; rot = 0; obstacles = []; honeys = []; nextObs = 500; honeyCount = 0; tumbles = 0;
-        phase = 'run'; doneT = 0; saidFinish = false; saidStump = false;
+        phase = 'run'; doneT = 0; saidFinish = false; saidStump = false; heldAt = Infinity;
         say('Tap to jump over the logs!', true);
       },
       update(dt) {
@@ -3191,6 +3195,7 @@
         }
         if (phase !== 'run') return;
 
+        if (heldAt === Infinity && timeUp()) heldAt = dist;
         // speed eases back up after a tumble
         speed += (speedFor(dist) - speed) * Math.min(1, dt * 0.7);
         const dx = speed * dt;
@@ -3356,9 +3361,10 @@
     const GOAL = 15, BANK_L = 150, BANK_R = 810;   // the water runs between the banks
     const raft = { x: 480, y: 400, tx: 480, ty: 400, spin: 0 };
     let count = 0, floaters = [], obstacles = [], saved = [], lemT = 0, rockT = 0, flowY = 0, doneT = 0, cheerT = 0;
-    let saidRocks = false, finished = false;
+    let saidRocks = false, finished = false, held = Infinity;   // held: the count when time ran out (no harder after that)
+    const level = () => Math.min(count, held);
 
-    const flow = () => 90 + count * 9;           // current speed: 90 px/s up to about 225 px/s
+    const flow = () => 90 + level() * 9;           // current speed: 90 px/s up to about 225 px/s
     const clampX = x => Math.max(BANK_L + 85, Math.min(BANK_R - 85, x));
     const clampY = y => Math.max(230, Math.min(470, y));
     // Is a circle (x, y, r) touching the raft? The raft is treated as an ellipse.
@@ -3378,11 +3384,12 @@
     return {
       start() {
         count = 0; floaters = []; obstacles = []; saved = []; lemT = 0.8; rockT = 3; flowY = 0; doneT = 0; cheerT = 0;
-        saidRocks = false; finished = false;
+        saidRocks = false; finished = false; held = Infinity;
         Object.assign(raft, { x: 480, y: 400, tx: 480, ty: 400, spin: 0 });
         say('Steer the raft and rescue the lemmings!', true);
       },
       update(dt) {
+        if (held === Infinity && timeUp()) held = count;
         flowY = (flowY + flow() * dt) % 80;
         raft.spin = Math.max(0, raft.spin - dt);
         cheerT = Math.max(0, cheerT - dt);
@@ -3410,9 +3417,9 @@
           }
           rockT -= dt;
           if (rockT <= 0) {
-            if (count >= 4 && Math.random() < 0.4) obstacles.push({ kind: 'log', x: rand(BANK_L + 70, BANK_R - 70), y: -60, rot: rand(0, 3), spin: rand(-1.6, 1.6), len: 120 });
+            if (level() >= 4 && Math.random() < 0.4) obstacles.push({ kind: 'log', x: rand(BANK_L + 70, BANK_R - 70), y: -60, rot: rand(0, 3), spin: rand(-1.6, 1.6), len: 120 });
             else obstacles.push({ kind: 'rock', x: rand(BANK_L + 50, BANK_R - 50), y: -50, r: rand(24, 36), seed: rand(0, 6) });
-            rockT = Math.max(0.8, 2.8 - count * 0.13) * rand(0.8, 1.2);
+            rockT = Math.max(0.8, 2.8 - level() * 0.13) * rand(0.8, 1.2);
           }
         }
 
@@ -3442,7 +3449,7 @@
             raft.x = clampX(raft.x + away * 45); raft.tx = clampX(raft.tx + away * 45);
             raft.y = clampY(raft.y + 25); raft.ty = clampY(raft.ty + 25);
             sfx.boing(); splash((raft.x + o.x) / 2, raft.y);
-            if (!saidRocks) { saidRocks = true; say('Bonk! Steer around the rocks!', true); }
+            if (!saidRocks && !timeUp()) { saidRocks = true; say('Bonk! Steer around the rocks!', true); }
           }
         }
         obstacles = obstacles.filter(o => o.y < H + 80);
@@ -3555,6 +3562,7 @@
   //  tower can lean. A miss tumbles off with a giggle and the next pot comes
   //  along: no penalty. The swing gets faster and wider as the tower grows, and
   //  the camera rises with the tower. 8 pots wins.
+  let hubLandRise = 0;   // how far Stack's land has sunk (for the app's backdrop beside the picture)
   S.stack = (() => {
     const GOAL = 8, POT_S = 1.8;
     const HALF = 29, BELOW = 31, ABOVE = 36, GAP = 64;   // pot size at POT_S (half width, below/above center)
@@ -3564,10 +3572,11 @@
     let pots = [], falling = null, tumbling = [], phase = 'play', cam = 0, phi = 0, respawnT = 0, wobble = 0, doneT = 0, puzzledT = 0, cheerT = 0;
     // Help after misses: every 2 misses in a row the swing gets narrower and slower (help 0..2), and
     // the landing shadow turns gold when the pot is right over the tower. Each pot that stays takes a step back.
-    let misses = 0, help = 0, calm = 1;
+    let misses = 0, help = 0, calm = 1, held = Infinity;   // held: the tower height when time ran out (the swing grows no more)
+    const level = () => Math.min(pots.length, held);
 
-    const amp = () => (90 + pots.length * 16) * calm;
-    const omega = () => (1.4 + pots.length * 0.18) * (0.55 + 0.45 * calm);
+    const amp = () => (90 + level() * 16) * calm;
+    const omega = () => (1.4 + level() * 0.18) * (0.55 + 0.45 * calm);
     const overTower = x => !pots.length || Math.abs(x - pots[pots.length - 1].x) <= HALF + LEEWAY;
     const swingX = () => PIVOT_X + amp() * Math.sin(phi);
     const topSurface = () => pots.length ? pots[pots.length - 1].y - ABOVE + 4 : GROUND; // world y
@@ -3577,7 +3586,7 @@
       calm() { return !falling; },                                  // not while a pot is dropping
       start() {
         pots = []; falling = null; tumbling = []; phase = 'play'; cam = 0; phi = 0;
-        respawnT = 0; wobble = 0; doneT = 0; puzzledT = 0; cheerT = 0; misses = 0; help = 0; calm = 1;
+        respawnT = 0; wobble = 0; doneT = 0; puzzledT = 0; cheerT = 0; misses = 0; help = 0; calm = 1; held = Infinity;
         SQUAD.forEach(l => Object.assign(l, { jy: 0, jv: 0, land: 0, step: 0 }));
       },
       update(dt) {
@@ -3597,6 +3606,7 @@
           return;
         }
         if (phase !== 'play') return;
+        if (held === Infinity && timeUp()) held = pots.length;
         calm += (1 - help * 0.25 - calm) * Math.min(1, dt * 1.5);   // eases to 1, 0.75 or 0.5
         phi += omega() * dt;
         respawnT = Math.max(0, respawnT - dt);
@@ -3640,7 +3650,7 @@
         ctx.globalAlpha = 1 - tod.night * 0.65;
         for (const c of clouds) drawCloud(c.x, c.y - 30 + cam * 0.25, c.s);
         ctx.globalAlpha = 1;
-        drawLand(0, cam);
+        drawLand(0, cam); hubLandRise = cam;
         const gy = GROUND + cam;
         if (gy < H) drawFlowers(gy + 30, 36);
         drawTints(tod);
@@ -5131,7 +5141,7 @@
     const tramp = { x: DROP_X, tx: null, hitAt: -9 };
     const bear = { walk: 0, moving: false, puffT: 0 };
     let lems = [], count = 0, made = 0, clock = 0, cheerT = 0, puzzledT = 0, doneT = 0, rustle = 0;
-    let finished = false, saidQuick = false, bumps = 0;               // bumps only paces the spoken tips; it is never shown
+    let finished = false, saidQuick = false, bumps = 0, pair = false, quick = false; // pair/quick: the steps up, held once time is up               // bumps only paces the spoken tips; it is never shown
 
     const clampX = x => Math.max(170, Math.min(690, x));
     // one forward roll in the middle of an arc
@@ -5164,7 +5174,6 @@
       sfx.catch(); sfx.giggle();
       burst(HOME_X, HOME_Y - 34, P.rose, 8, 'heart'); floatText('+1', HOME_X, HOME_Y - 76, '#ffd93d');
       if (count >= GOAL) { finished = true; doneT = 1.5; sfx.yay(); }
-      else if (count === 3) say('Here come two!', true);
     }
     function drawLem(m, face, more) {
       drawLemmingAt(m.x, m.y, SIZE, Object.assign({ color: m.color, seed: m.seed, rot: m.rot, squash: m.squash, step: m.step, face }, more));
@@ -5175,7 +5184,7 @@
       calm() { return lems.every(m => m.state === 'wait' || m.state === 'peek' || m.state === 'home' || m.state === 'run' || m.state === 'climb'); },
       start() {
         lems = []; count = 0; made = 0; clock = 0; cheerT = 0; puzzledT = 0; doneT = 0; rustle = 0;
-        finished = false; saidQuick = false; bumps = 0;
+        finished = false; saidQuick = false; bumps = 0; pair = false; quick = false;
         Object.assign(tramp, { x: DROP_X, tx: null, hitAt: -9 });     // the very first bounce is a free one, to show how it works
         Object.assign(bear, { walk: 0, moving: false, puffT: 0 });
         say('Slide the trampoline under the lemming!', true);
@@ -5202,9 +5211,12 @@
         if (moving) bear.walk += dt * 12;
 
         // one lemming at a time at first; after 3 are home, two
+        // (once time is up, no step up: it stays as it is for the last go)
+        if (!pair && count >= 3 && !finished && !timeUp()) { pair = true; say('Here come two!', true); }
+        if (!quick && made >= 7 && !timeUp()) quick = true;
         const inPlay = lems.filter(m => m.state !== 'home').length;
-        if (!finished && inPlay < (count < 3 ? 1 : 2) && count + inPlay < GOAL) {
-          lems.push({ state: 'wait', t: 0, delay: made ? 0.5 : 0.9, peek: made ? 0.9 : 1.9, x: DROP_X, y: TOP_Y, hops: 0, due: [], sp: made < 7 ? SLOW : QUICK,
+        if (!finished && inPlay < (pair ? 2 : 1) && count + inPlay < GOAL) {
+          lems.push({ state: 'wait', t: 0, delay: made ? 0.5 : 0.9, peek: made ? 0.9 : 1.9, x: DROP_X, y: TOP_Y, hops: 0, due: [], sp: quick ? QUICK : SLOW,
             color: LEMMING_COLORS[made % LEMMING_COLORS.length], seed: rand(0, 10), step: 0, rot: 0, squash: 0, hop: 0, vx: 0, vy: 0 });
           made++;
         }
@@ -5217,7 +5229,7 @@
               Object.assign(m, { state: 'peek', t: 0, x: DROP_X, y: TOP_Y - 46, hops: 0, rot: 0, squash: 0, hop: 0 });
               m.due = [clock + m.peek + m.sp.fall, clock + m.peek + m.sp.fall + DWELL + m.sp.arc1];
               sfx.pop(); rustle = 0.5;
-              if (m.sp === QUICK && !saidQuick) { saidQuick = true; say('A little faster now!', true); }
+              if (m.sp === QUICK && !saidQuick && !timeUp()) { saidQuick = true; say('A little faster now!', true); }
             }
           } else if (m.state === 'peek') {
             m.y = TOP_Y - 46 * (1 - easeOutBack(m.t / 0.35));
@@ -5248,7 +5260,7 @@
               Object.assign(m, { state: 'bump', t: 0, y: FLOOR + 8, rot: 0, due: [] });
               puff(m.x, m.y, 7); sfx.plop(); sfx.giggle(); puzzledT = 0.9;
               // a spoken tip after the first bump, and now and then after that
-              if (bumps++ % 4 === 0) say(bumps === 1 ? 'Oopsie! Up it goes again!' : 'Put the trampoline on the white ring!', true);
+              if (bumps++ % 4 === 0 && !timeUp()) say(bumps === 1 ? 'Oopsie! Up it goes again!' : 'Put the trampoline on the white ring!', true);
             }
           } else if (m.state === 'bump') {
             // a little rebound, a dizzy moment, then off it scampers
@@ -5736,16 +5748,22 @@
   // seems to carry on. Cheap on purpose: a small canvas behind the picture, repainted at most twice
   // a second (and when the scene or screen size changes), with no pixel reads and no CSS filters.
   //   above: more of the leafy canopy (scenes on the main background), or the sky (Leap, Stack)
-  //   below: the meadow;  sides: the picture's own edge colours stretched out (sky, hills, grass)
-  //   Rafts: its own top and bottom edges stretched out (grass, sand, river)
-  // Evening and night tint them like the picture; a dim layer follows the picture's dimming.
-  let hubBg = null, hubBgCtx = null, hubDim = null, hubDimA = -1, hubBgT = 0, hubBgKey = '', hubEdges = null;
+  //   below: the meadow;  sides: a soft top-to-bottom wash of the scene's layers at the picture's
+  //   heights (canopy, sky, mountains, hills, meadow; in Stack they sink with its land), with no
+  //   hard bands, so nothing flickers when the picture scrolls
+  //   Rafts: its own top and bottom edges stretched out (grass, sand, river), grass at the sides
+  // Evening and night tint them like the picture (Rafts keeps daylight, like its picture); a dim
+  // layer follows the picture's dimming.
+  let hubBg = null, hubBgCtx = null, hubDim = null, hubDimA = -1, hubBgT = 0, hubBgKey = '';
   const HUB_BG_RES = 0.5;                                          // backdrop pixels per CSS px
-  function hubBgEdges() {
-    if (!hubEdges) hubEdges = [[1, 48], [1, 48]].map(([w, h]) => {
-      const c = document.createElement('canvas'); c.width = w; c.height = h; c.ctx = c.getContext('2d'); return c;
-    });
-    return hubEdges;
+  // The side wash: [logical y, colour] from the top of the picture down, averaged across its width.
+  function hubSideStops(ph, canopy, rise) {
+    const [skyTop, skyBottom] = skyAt(ph), sky = y => mixColor(skyTop, skyBottom, clamp01(y / GROUND));
+    const st = canopy ? [[0, '#1b6f58'], [55, '#1f7a5e'], [115, '#2f9967'], [185, sky(185)]] : [[0, skyTop]];
+    st.push([275 + rise * 0.3, sky(275 + rise * 0.3)], [335 + rise * 0.3, mixColor(sky(335), '#cfe5f2', 0.75)],
+      [380 + rise * 0.5, '#8acd9f'], [425 + rise * 0.8, '#5cb36b'], [462 + rise * 0.8, '#63b96a'],
+      [482 + rise, '#8bd870'], [500 + rise, P.grass]);
+    return st;
   }
   const hubDimNow = () => modal ? 0.55 : confirmHome ? 0.5 : overlay ? 0.5 : night ? 0.35 * clamp01(night.t / 0.5) : 0;
   function hubBackdrop(force) {
@@ -5782,21 +5800,30 @@
     const b = hubBgCtx, k = r.width / W * HUB_BG_RES;              // logical units -> backdrop pixels
     const x0 = r.left * HUB_BG_RES, y0 = r.top * HUB_BG_RES, x1 = x0 + W * k, y1 = y0 + H * k;
     const topH = r.top / (r.width / W), botH = (vh - r.bottom) / (r.width / W);   // bar heights in logical units
-    const ph = playTime.share(), nightK = clamp01((ph - 0.8) / 0.2), eveK = clamp01((ph - 0.55) / 0.25) * (1 - nightK);
+    const keyNow = sceneKey(), river = keyNow === 'rafts', skyTop = keyNow === 'leap' || keyNow === 'stack';
+    const ph = playTime.share(), nightK = river ? 0 : clamp01((ph - 0.8) / 0.2), eveK = river ? 0 : clamp01((ph - 0.55) / 0.25) * (1 - nightK);
     const tint = () => {                                             // the evening glow and night blue of drawTints()
       if (eveK > 0) { b.fillStyle = `rgba(255,140,60,${0.12 * eveK})`; b.fill(); }
       if (nightK > 0) { b.fillStyle = `rgba(16,22,64,${0.42 * nightK})`; b.fill(); }
     };
-    const E = hubBgEdges(), keyNow = sceneKey(), river = keyNow === 'rafts', skyTop = keyNow === 'leap' || keyNow === 'stack';
-    E.forEach(c => { c.ctx.imageSmoothingEnabled = true; c.ctx.imageSmoothingQuality = 'high'; });
     b.setTransform(1, 0, 0, 1, 0, 0);
-    b.imageSmoothingEnabled = true;
-    // sides: the picture's edge columns, squeezed to 48 soft bands and stretched outwards
+    // sides: a smooth vertical wash of the scene (grass beside Rafts' banks)
     if (x0 > 0.5) {
-      E[0].ctx.drawImage(canvas, 0, 0, Math.max(2, cw * 0.006), ch, 0, 0, 1, 48);
-      E[1].ctx.drawImage(canvas, cw - Math.max(2, cw * 0.006), 0, Math.max(2, cw * 0.006), ch, 0, 0, 1, 48);
-      b.drawImage(E[0], 0, 0, 1, 48, 0, y0, x0 + 1, y1 - y0);
-      b.drawImage(E[1], 0, 0, 1, 48, x1 - 1, y0, bw - x1 + 1, y1 - y0);
+      let fill = P.grass;
+      if (!river) {
+        const st = hubSideStops(ph, !skyTop, keyNow === 'stack' ? hubLandRise : 0);
+        const at = y => {                                            // the wash's colour at logical y
+          if (y <= st[0][0]) return st[0][1];
+          for (let i = 1; i < st.length; i++) if (y <= st[i][0]) return mixColor(st[i - 1][1], st[i][1], (y - st[i - 1][0]) / (st[i][0] - st[i - 1][0]));
+          return st[st.length - 1][1];
+        };
+        fill = b.createLinearGradient(0, y0, 0, y1);
+        fill.addColorStop(0, at(0));
+        for (const [y, c] of st) if (y > 0 && y < H) fill.addColorStop(y / H, c);
+        fill.addColorStop(1, at(H));
+      }
+      b.beginPath(); b.rect(0, y0, x0 + 1, y1 - y0); b.rect(x1 - 1, y0, bw - x1 + 1, y1 - y0);
+      b.fillStyle = fill; b.fill(); tint();
     }
     if (topH < 1 && botH < 1) return;
     if (river) {
@@ -5870,6 +5897,9 @@
   // stars: how many round stars the finished round brings, so its star still lights up.
   let night = null; // { t, spoken, posted, stars }: the goodnight is under way
   const sleepyNow = () => !!night && ctx === MAIN_CTX && inGame();   // everyone looks sleepy while it's said
+  // Once time is up the action games hold their difficulty where it is: no speed-ups, no new
+  // obstacle types and no first-time tips during the last go.
+  function timeUp() { return playTime.left() <= 0; }
   function lastTurn(stars) {
     if (playTime.left() > 0) return false;
     goodnight(stars);
@@ -6113,6 +6143,7 @@
     pressedButton = !!hitButton(p);
     if (pressedButton) return;
     if (!overlay && !modal && !night && !confirmHome && readyT <= 0 && scene.pointer) scene.pointer(p);
+    else if (readyT > 0 && scene === S.leap && !overlay && !modal && !night && !confirmHome) readyTap = true;
   });
   window.addEventListener('pointermove', e => {
     const p = toGame(e); pointer.x = p.x; pointer.y = p.y;
@@ -6198,7 +6229,11 @@
         color: pick(['#ff5c8a', '#ffd93d', '#6bcb77', '#4d96ff', '#c77dff']), kind: 'confetti', size: rand(6, 11) });
     }
     // the action games stand still while asked "Leave the game?", for a moment after PLAY, and at goodnight
-    if (readyT > 0) readyT = Math.max(0, readyT - dt);
+    if (readyT > 0) {
+      readyT = Math.max(0, readyT - dt);
+      if (readyT <= 0 && readyTap && scene === S.leap && !overlay && !modal && !night && !confirmHome) scene.pointer({ x: pointer.x, y: pointer.y });
+      if (readyT <= 0) readyTap = false;
+    }
     if (!confirmHome && readyT <= 0 && !(night && isContinuous())) scene.update(dt);
     updatePlayTime(dt);
     if (modal && modal.shake > 0) modal.shake -= dt;
