@@ -12,7 +12,7 @@ Play it at **https://hermannwwr-cmyk.github.io/letsplay/** (on an iPad: Safari �
 
 ## One play-time limit for all three
 
-A grown-up sets a single daily limit that covers all three games together (20 minutes a day unless changed).
+A grown-up sets a single daily limit that covers all three games together (15 minutes a day unless changed).
 
 - **Settings:** tap the ⚙️ gear on the home screen. A times-table question keeps children out. Then choose Off, 10, 15, 20 or 30 minutes, give "+5 minutes today", or "Start today again".
 - **What counts:** time only counts while a game is open, not on the home screen.

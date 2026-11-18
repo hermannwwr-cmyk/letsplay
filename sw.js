@@ -3,7 +3,7 @@
 //
 // Bump VERSION on every release (any change to index.html, games/ or icons/), so the new files are
 // fetched and the old copy is dropped.
-const VERSION = 'lets-play-v2';
+const VERSION = 'lets-play-v3';
 const FONTS = 'lets-play-fonts';            // the bus game's Google Font, cached the first time it loads
 
 // Must all exist: if one is missing the install fails and the old copy stays in use.
