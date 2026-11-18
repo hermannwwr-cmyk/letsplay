@@ -14,7 +14,7 @@
   const EMOJI = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
   const $ = (id) => document.getElementById(id);
   const canvas = $('game');
-  const ctx = canvas.getContext('2d');
+  let ctx = canvas.getContext('2d');   // (swapped briefly while hub mode paints the letterbox)
   const stage = $('stage');
 
   const rand = (a, b) => a + Math.random() * (b - a);
@@ -1082,11 +1082,13 @@
   const HDB = [['#f6d6a8', '#e07a5f'], ['#c9e4f2', '#3d85c6'], ['#f4c2c2', '#d1495b'], ['#d4ecc5', '#5aa469'],
     ['#fbe7a1', '#e09f3e'], ['#e2d4f0', '#7e57c2'], ['#f9d0b0', '#ef8354'], ['#d9f2ef', '#2a9d8f']];
 
+  // VX0..VX1: the stretch of street drawn (the stage, or a letterbox side band in hub mode)
+  let VX0 = 0, VX1 = W;
   function drawSky() {
     if (HUB) { const p = skyPhase(); if (p > 0) { drawDuskSky(p); return; } }
     const g = ctx.createLinearGradient(0, 0, 0, 440);
     g.addColorStop(0, '#5db7f0'); g.addColorStop(1, '#d4f0ff');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, W, 440);
+    ctx.fillStyle = g; ctx.fillRect(VX0, 0, VX1 - VX0, 440);
     // happy sun
     const sx = 168, sy = 150;
     ctx.save(); ctx.translate(sx, sy); ctx.rotate(game.time * 0.25);
@@ -1108,7 +1110,7 @@
 
   function drawBlocks() {
     const off = game.dist * 0.25, sp = 250, base = 436;
-    const i0 = Math.floor((-260 - off) / sp), i1 = Math.ceil((W + 40 - off) / sp);
+    const i0 = Math.floor((VX0 - 260 - off) / sp), i1 = Math.ceil((VX1 + 40 - off) / sp);
     for (let i = i0; i <= i1; i++) {
       const h1 = hash(i), h2 = hash(i + 77), h3 = hash(i + 191);
       const bw = 150 + h2 * 50, bh = 170 + h1 * 160;
@@ -1145,9 +1147,9 @@
   }
 
   function drawVerge() {
-    ctx.fillStyle = '#7cc56a'; ctx.fillRect(0, 422, W, 24);
+    ctx.fillStyle = '#7cc56a'; ctx.fillRect(VX0, 422, VX1 - VX0, 24);
     const off = game.dist * 0.55, sp = 190;
-    const i0 = Math.floor((-150 - off) / sp), i1 = Math.ceil((W + 150 - off) / sp);
+    const i0 = Math.floor((VX0 - 150 - off) / sp), i1 = Math.ceil((VX1 + 150 - off) / sp);
     for (let i = i0; i <= i1; i++) {
       const x = i * sp + off + hash(i + 40) * 60, s = 0.8 + hash(i + 50) * 0.4;
       ctx.fillStyle = '#7b5233'; ctx.fillRect(x - 5 * s, 400 - 20 * s, 10 * s, 46 * s);
@@ -1159,31 +1161,32 @@
   }
 
   function drawRoad() {
-    ctx.fillStyle = '#666b73'; ctx.fillRect(0, 444, W, 174);
-    ctx.fillStyle = '#5c6168'; ctx.fillRect(0, 444, W, 6);
+    const x0 = VX0, xw = VX1 - VX0;
+    ctx.fillStyle = '#666b73'; ctx.fillRect(x0, 444, xw, 174);
+    ctx.fillStyle = '#5c6168'; ctx.fillRect(x0, 444, xw, 6);
     ctx.fillStyle = '#f5f5f5';
-    for (let x = mod(game.dist, 130) - 130; x < W; x += 130) ctx.fillRect(x, 462, 66, 6);
-    ctx.fillStyle = '#ffd23f'; ctx.fillRect(0, 606, W, 4);
+    for (let x = x0 + mod(game.dist - x0, 130) - 130; x < VX1; x += 130) ctx.fillRect(x, 462, 66, 6);
+    ctx.fillStyle = '#ffd23f'; ctx.fillRect(x0, 606, xw, 4);
     // kerb
-    ctx.fillStyle = '#c7c7c7'; ctx.fillRect(0, 616, W, 12);
-    ctx.fillStyle = '#e4e4e4'; ctx.fillRect(0, 616, W, 4);
+    ctx.fillStyle = '#c7c7c7'; ctx.fillRect(x0, 616, xw, 12);
+    ctx.fillStyle = '#e4e4e4'; ctx.fillRect(x0, 616, xw, 4);
     // pavement
-    ctx.fillStyle = '#e8dcc8'; ctx.fillRect(0, 628, W, 92);
+    ctx.fillStyle = '#e8dcc8'; ctx.fillRect(x0, 628, xw, 92);
     ctx.strokeStyle = 'rgba(0,0,0,.08)'; ctx.lineWidth = 2;
     ctx.beginPath();
-    for (let x = mod(game.dist, 72) - 72; x < W; x += 72) { ctx.moveTo(x, 628); ctx.lineTo(x - 18, 708); }
-    ctx.moveTo(0, 668); ctx.lineTo(W, 668);
+    for (let x = x0 + mod(game.dist - x0, 72) - 72; x < VX1 + 18; x += 72) { ctx.moveTo(x, 628); ctx.lineTo(x - 18, 708); }
+    ctx.moveTo(x0, 668); ctx.lineTo(VX1, 668);
     ctx.stroke();
     // grass edge with flowers
-    ctx.fillStyle = '#7cc56a'; ctx.fillRect(0, 708, W, 12);
-    for (let x = mod(game.dist, 90) - 90; x < W; x += 90) {
+    ctx.fillStyle = '#7cc56a'; ctx.fillRect(x0, 708, xw, 12);
+    for (let x = x0 + mod(game.dist - x0, 90) - 90; x < VX1; x += 90) {
       circle(x + 20, 712, 4, '#ff70a6'); circle(x + 52, 714, 4, '#ffd93d');
     }
   }
 
   function drawSign(sg) {
     const x = sg.wx + game.dist;
-    if (x < -120 || x > W + 120) return;
+    if (x < VX0 - 120 || x > VX1 + 120) return;
     ellipse(x, 704, 18, 5, 'rgba(0,0,0,.18)');
     ctx.fillStyle = '#8a939c'; ctx.fillRect(x - 4, 520, 8, 184);
     rr(x - 74, 444, 148, 86, 12, '#ffffff');
@@ -2058,7 +2061,7 @@
     const fn = LANDMARKS[sg.key];
     if (!fn) return;
     const lx = sg.wx + game.dist + 545;
-    if (lx < -800 || lx > W + 800) return;
+    if (lx < VX0 - 800 || lx > VX1 + 800) return;
     ctx.save();
     ctx.translate(lx, 444);
     fn(game.time);
@@ -2420,6 +2423,7 @@
     const g = (c) => dimmed(dark > 0.003 ? mixHex(c, '#121848', dark) : c);
     const r = stage.getBoundingClientRect();
     const y = (v) => (r.top + (v / H) * r.height).toFixed(1) + 'px';
+    hubSideBands(r, dim);
     const key = [top, bot, Math.round(dark * 100), dim, y(0), y(H)].join();
     if (key === lbKey) return;
     lbKey = key;
@@ -2429,6 +2433,45 @@
       + ` ${g('#e8dcc8')} ${y(628)}, ${g('#e8dcc8')} ${y(708)}, ${grass} ${y(708)}, ${g('#5fae4f')} 100%)`;
     document.documentElement.style.background = bg;
     document.body.style.background = 'transparent';
+  }
+
+  // Side bands (a phone held sideways is wider than 16:9): the street itself carries on
+  // past the stage's edges, drawn by the same scene code into two small canvases (just
+  // the bands, a few rectangles a frame), with the same sky, night tint and dimming.
+  const bands = HUB ? ['left', 'right'].map((side) => {
+    const c = document.createElement('canvas');
+    c.className = 'hubBand';
+    c.style.cssText = `position:fixed;top:0;${side}:0;width:0;height:0;pointer-events:none;display:none`;
+    document.body.insertBefore(c, stage);
+    return { side, c, x: c.getContext('2d'), w: 0, h: 0 };
+  }) : [];
+  function hubSideBands(r, dim) {
+    const vw = window.innerWidth, vh = window.innerHeight, sc = r.width / W;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    for (const b of bands) {
+      const bw = Math.ceil(b.side === 'left' ? r.left : vw - r.right);
+      if (bw < 1 || sc <= 0) { if (b.w) { b.c.style.display = 'none'; b.w = 0; } continue; }
+      if (bw !== b.w || vh !== b.h) {
+        b.w = bw; b.h = vh;
+        b.c.width = Math.round(bw * dpr); b.c.height = Math.round(vh * dpr);
+        b.c.style.width = bw + 'px'; b.c.style.height = vh + 'px'; b.c.style.display = 'block';
+      }
+      // game units -> this band's pixels; the band covers street x from VX0 to VX1
+      const ox = b.side === 'left' ? r.left : r.left - r.right;
+      const saved = ctx;
+      ctx = b.x;
+      try {
+        ctx.setTransform(sc * dpr, 0, 0, sc * dpr, ox * dpr, r.top * dpr);
+        ctx.clearRect(-ox / sc - 1, -r.top / sc - 1, bw / sc + 2, vh / sc + 2);
+        VX0 = Math.floor(-ox / sc) - 1; VX1 = Math.ceil((bw - ox) / sc) + 1;
+        drawSky(); drawBlocks(); drawVerge();
+        for (const s of game.signs) drawLandmark(s);
+        drawRoad();
+        for (const s of game.signs) drawSign(s);
+        drawNight();
+        if (dim > 0) { ctx.fillStyle = `rgba(20,40,60,${dim})`; ctx.fillRect(VX0, 0, VX1 - VX0, H); }
+      } finally { ctx = saved; VX0 = 0; VX1 = W; }
+    }
   }
 
   function hubSleep() {
@@ -2568,14 +2611,15 @@
     const [top, bot] = skyAt(p);
     const g = ctx.createLinearGradient(0, 0, 0, 440);
     g.addColorStop(0, top); g.addColorStop(1, bot);
-    ctx.fillStyle = g; ctx.fillRect(0, 0, W, 440);
-    // stars come out
+    ctx.fillStyle = g; ctx.fillRect(VX0, 0, VX1 - VX0, 440);
+    // stars come out (in a letterbox band: a few more, one per 32 px of street)
     const st = smooth(0.84, 1, p);
     if (st > 0) {
-      for (let i = 0; i < 40; i++) {
-        const x = hash(i + 300) * W, y = 12 + hash(i + 400) * 300;
-        ctx.globalAlpha = st * (0.55 + 0.45 * Math.sin(game.time * 2 + i * 1.7));
-        if (i % 6 === 0) drawStar(x, y, 6, '#fff3b0'); else circle(x, y, 1.6 + hash(i + 500) * 1.4, '#fffbe6');
+      const band = VX0 < 0 || VX1 > W, j0 = band ? Math.floor(VX0 / 32) : 0, n = band ? Math.ceil(VX1 / 32) - j0 : 40;
+      for (let i = 0; i < n; i++) {
+        const k = band ? j0 + i + 1000 : i, x = band ? (k - 1000 + hash(k + 700)) * 32 : hash(i + 300) * W, y = 12 + hash(k + 400) * 300;
+        ctx.globalAlpha = st * (0.55 + 0.45 * Math.sin(game.time * 2 + k * 1.7));
+        if (k % 6 === 0) drawStar(x, y, 6, '#fff3b0'); else circle(x, y, 1.6 + hash(k + 500) * 1.4, '#fffbe6');
       }
       ctx.globalAlpha = 1;
     }
@@ -2625,14 +2669,15 @@
     if (warm > 0.003) {
       const g = ctx.createLinearGradient(0, 80, 0, 360);
       g.addColorStop(0, 'rgba(255,150,70,0)'); g.addColorStop(1, `rgba(255,150,70,${warm})`);
-      ctx.fillStyle = g; ctx.fillRect(0, 80, W, H - 80);
+      ctx.fillStyle = g; ctx.fillRect(VX0, 80, VX1 - VX0, H - 80);
     }
     if (dark > 0.003) {
       // fainter up in the (already dark) sky, full over the flats and street
       const g = ctx.createLinearGradient(0, 0, 0, 260);
       g.addColorStop(0, `rgba(18,24,72,${dark * 0.25})`); g.addColorStop(1, `rgba(18,24,72,${dark})`);
-      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = g; ctx.fillRect(VX0, 0, VX1 - VX0, H);
     }
+    if (VX0 < 0 || VX1 > W) return;   // (a letterbox band only needs the tints)
     // headlights: on as it gets dark, dimmed when the bus goes to sleep
     const lit = smooth(0.74, 0.9, p) * (nightT >= 0 ? 1 - clamp((nightT - 3) / 0.8, 0, 1) : 1);
     const hx = BUS.front + 8, hy = 546 + game.kneel;
