@@ -123,7 +123,7 @@
     resetToday() { this.rec = { day: dayKey(), used: 0, extra: 0 }; this.save(); },
     message() {
       const left = this.left();
-      return { hub: 'time', limit: this.limit, left: this.limit ? Math.max(0, left) : null, used: this.used(), share: this.share() };
+      return { hub: 'time', limit: this.limit, left: this.limit ? Math.max(0, left) : null, used: this.used(), share: this.share(), mute: muted, music: musicOn };
     },
   };
   playTime.init();
@@ -150,6 +150,15 @@
   //  Sound, music and voice (all synthesised; nothing to download)
   // =====================================================================
   let audio = null, muted = !!load('hub-mute', false), musicOn = load('hub-music', true) !== false;
+  // The one shared sound setting: mute = all sound off, music = music on. The games' own buttons change
+  // it too ({hub:'sound'}); every change is saved and sent to the open game straight away.
+  function setSound(m, mu, fromGame) {
+    m = !!m; mu = !!mu;
+    const changed = m !== muted || mu !== musicOn;
+    if (m !== muted) { muted = m; save('hub-mute', muted); if (muted) hush(); }
+    if (mu !== musicOn) { musicOn = mu; save('hub-music', musicOn); }
+    if (changed || fromGame) sendTime();
+  }
   function silentWavURL() {
     const n = 800, buf = new Uint8Array(44 + n), dv = new DataView(buf.buffer);
     const put = (o, s) => { for (let i = 0; i < s.length; i++) buf[o + i] = s.charCodeAt(i); };
@@ -226,7 +235,7 @@
       69, 72, 77, 0, 81, 0, 79, 77,    76, 0, 72, 0, 79, 0, 76, 0,
       74, 0, 77, 0, 76, 74, 72, 70,    69, 0, 67, 0, 65, 0, 0, 0] },
     // a slow lullaby for bedtime. C G Am F | C G F C
-    sleep: { bpm: 64, lead: 'sine', vol: 0.1, len: 3.4, bassEvery: 4, bass: [48, 55, 57, 53, 48, 55, 53, 48], melody: [
+    sleep: { bpm: 64, lead: 'sine', vol: 0.09, len: 3.4, bassEvery: 4, bass: [48, 55, 57, 53, 48, 55, 53, 48], melody: [
       76, 0, 0, 0, 72, 0, 74, 0,       71, 0, 0, 0, 67, 0, 0, 0,
       72, 0, 0, 0, 69, 0, 72, 0,       77, 0, 0, 0, 76, 0, 74, 0,
       76, 0, 0, 0, 79, 0, 76, 0,       74, 0, 0, 0, 71, 0, 74, 0,
@@ -260,7 +269,9 @@
       if (note) musicNote(midi(note), musicNext, step * song.len, song.lead, song.vol);
       if (beat % song.bassEvery === 0) {
         const fifth = song.bassEvery === 2 ? beat % 4 === 2 : beat === 4;
-        musicNote(midi(song.bass[bar] + (fifth ? 7 : 0)), musicNext, step * song.bassEvery * 0.9, 'sine', 0.13);
+        let bn = song.bass[bar] + (fifth ? 7 : 0);
+        if (midi(bn) < 130) bn += 12;               // phone speakers don't play below ~130 Hz
+        musicNote(midi(bn), musicNext, step * song.bassEvery * 0.9, 'sine', 0.12);
       }
       musicNext += step; musicStep++;
     }
@@ -1828,8 +1839,8 @@
       if (muted) { ctx.strokeStyle = P.coral; ctx.lineWidth = 3.8; ctx.beginPath(); ctx.moveTo(7, -6); ctx.lineTo(15, 6); ctx.moveTo(15, -6); ctx.lineTo(7, 6); ctx.stroke(); }
       else { ctx.strokeStyle = GLYPH; ctx.lineWidth = 3.2; ctx.beginPath(); ctx.arc(3, 0, 7, -0.8, 0.8); ctx.stroke(); ctx.beginPath(); ctx.arc(3, 0, 12.5, -0.7, 0.7); ctx.stroke(); }
       ctx.restore();
-      pushButton(capL, hitY, HW, hitH, () => { musicOn = !musicOn; save('hub-music', musicOn); });
-      pushButton(mid, hitY, HW, hitH, () => { muted = !muted; save('hub-mute', muted); if (muted) hush(); });
+      pushButton(capL, hitY, HW, hitH, () => setSound(muted, !musicOn));
+      pushButton(mid, hitY, HW, hitH, () => setSound(!muted, musicOn));
     }
     UI = { ox: 0, oy: 0, s: 1 };
   }
@@ -2001,8 +2012,11 @@
     holdGame(true);
     document.body.classList.remove('playing'); document.body.classList.add('covering');
     wakeLoop();
-    say('Turn me sideways!');
+    // a moment after the hold, so the game's own hush on hold can't cut this line off (one speech queue on iOS)
+    clearTimeout(overSayTimer);
+    overSayTimer = setTimeout(() => { if (rotateCard && rotateCard.mode === 'over') say('Turn me sideways!'); }, 350);
   }
+  let overSayTimer = 0;
   // In iPad Split View or Stage Manager a window can be narrow even though the iPad is sideways, so on a
   // tablet-sized screen the card offers a small "Play anyway" (a phone can always be turned).
   // Shown only on a tablet-sized screen whose window clearly doesn't fill it (Split View, Slide Over,
@@ -2177,6 +2191,7 @@
       state.hello = String(m.game || 'game'); sendTime();
       if (rotateCard && rotateCard.mode === 'over') holdGame(true);   // the hold sent before the game was listening
     }
+    else if (m.hub === 'sound' && typeof m.mute === 'boolean' && typeof m.music === 'boolean') setSound(m.mute, m.music, true);
     else if (m.hub === 'exit') closeGame('exit');
     else if (m.hub === 'sleep') closeGame('sleep');
     else if (m.hub === 'stars' && state.key && Number.isFinite(Number(m.count))) {
@@ -2871,7 +2886,10 @@
     }
     sendTime();
   }
-  window.addEventListener('storage', e => { if (!e.key || e.key === 'hub-limit' || e.key === 'hub-play') reloadPlayTime(); });
+  window.addEventListener('storage', e => {
+    if (!e.key || e.key === 'hub-mute' || e.key === 'hub-music') setSound(!!load('hub-mute', muted), load('hub-music', musicOn) !== false);
+    if (!e.key || e.key === 'hub-limit' || e.key === 'hub-play') reloadPlayTime();
+  });
   let hiddenAt = 0;
   document.addEventListener('visibilitychange', () => {
     const now = performance.now();
@@ -2958,7 +2976,7 @@
     else if (k === 'ArrowRight' || k === 'ArrowDown') { spotlight = (spotlight + 1) % 3; spotT = 0; sfx.pop(); }
     else if (k === 'Enter' || k === ' ') { e.preventDefault(); tapPlace(ORDER[spotlight]); }
     else if (k === '1' || k === '2' || k === '3') tapPlace(ORDER[Number(k) - 1]);
-    else if (k === 'm' || k === 'M') { musicOn = !musicOn; save('hub-music', musicOn); }
+    else if (k === 'm' || k === 'M') setSound(muted, !musicOn);
   });
 
   // =====================================================================
