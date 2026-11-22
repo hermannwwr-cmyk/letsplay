@@ -67,8 +67,23 @@
   // =====================================================================
   //  Sound + voice
   // =====================================================================
+  // Hub mode (inside the all-in-one app); see "Hub mode" further down.
+  const HUB = /[?&]hub=1\b/.test(location.search) && window.parent !== window;
   let audio = null, muted = false;
   let hubHeld = false; // hub mode: the app's "turn me sideways" card covers the game, so it stands still
+  let hubPaused = false; // hub mode: the app is closing the frame, so everything stays silent
+  let hubSoundAt = -1e9; // hub mode: when the child last changed the sound here (the app echoes it back)
+  // The speaker button: all sound off (music, effects and voice). In hub mode it is the app's
+  // shared setting, so the change is also sent to the app.
+  function setMuted(on) {
+    muted = on;
+    if (muted && window.speechSynthesis) try { window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
+    if (HUB) hubSoundChanged();
+  }
+  function hubSoundChanged() {
+    hubSoundAt = performance.now();
+    try { window.parent.postMessage({ hub: 'sound', mute: muted, music: musicOn }, '*'); } catch (e) { /* ignore */ }
+  }
   // A short silent WAV, built here so no file is needed.
   function silentWavURL() {
     const n = 800, buf = new Uint8Array(44 + n), dv = new DataView(buf.buffer);
@@ -85,7 +100,7 @@
   // real user gesture (a finger lifting off counts, a finger touching down may not),
   // and by default they mute web sound when the silent switch / Silent Mode is on.
   function initAudio(gestureEnd = false) {
-    if (hubHeld) return;
+    if (hubHeld || hubPaused) return;
     // iOS 17+: treat this page like a media player so Silent Mode doesn't mute it.
     try { if (navigator.audioSession && navigator.audioSession.type !== 'playback') navigator.audioSession.type = 'playback'; } catch (e) { /* ignore */ }
     if (!audio) {
@@ -112,15 +127,28 @@
       try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; window.speechSynthesis.speak(u); } catch (e) { /* ignore */ }
     }
   }
-  function tone(freq, dur, type = 'sine', vol = 0.15, slide = 0, delay = 0) {
+  // A hidden page (another app, a locked screen) stops talking and suspends its sound;
+  // it comes back when the page is shown again.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      keepUntil = 0;
+      if (window.speechSynthesis) try { window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
+      if (audio) try { const r = audio.suspend(); if (r) r.catch(() => {}); } catch (e) { /* ignore */ }
+    } else if (!hubHeld && !hubPaused) {
+      if (audio) try { const r = audio.resume(); if (r) r.catch(() => {}); } catch (e) { /* ignore */ }
+      if (window.speechSynthesis) try { window.speechSynthesis.resume(); } catch (e) { /* ignore */ }
+    }
+  });
+  function tone(freq, dur, type = 'sine', vol = 0.14, slide = 0, delay = 0) {
     if (!audio || muted) return;
     const t = audio.currentTime + delay;
     const o = audio.createOscillator(), g = audio.createGain();
     o.type = type;
     o.frequency.setValueAtTime(freq, t);
     if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(40, freq + slide), t + dur);
-    g.gain.setValueAtTime(vol, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.007);              // a short attack, so notes don't click
+    g.gain.exponentialRampToValueAtTime(0.001, t + Math.max(dur, 0.02));
     o.connect(g).connect(audio.destination);
     o.start(t); o.stop(t + dur + 0.02);
   }
@@ -144,10 +172,12 @@
   //  synthesized and looped. Notes are scheduled a little ahead from the
   //  main loop (updateMusic), and the tune switches when the scene changes.
   // ---------------------------------------------------------------------
+  // In hub mode the app's shared setting (from its time messages) replaces the saved switch.
   let musicOn = true;
-  try { musicOn = localStorage.getItem('grizzly-music') !== 'off'; } catch (e) { /* ignore */ }
+  if (!HUB) try { musicOn = localStorage.getItem('grizzly-music') !== 'off'; } catch (e) { /* ignore */ }
   function setMusic(on) {
     musicOn = on;
+    if (HUB) { hubSoundChanged(); return; }
     try { localStorage.setItem('grizzly-music', on ? 'on' : 'off'); } catch (e) { /* ignore */ }
   }
   const midi = n => 440 * Math.pow(2, (n - 69) / 12);
@@ -162,7 +192,7 @@
       76, 79, 84, 79, 76, 0, 79, 0,    77, 81, 84, 81, 77, 0, 76, 74,
       74, 76, 77, 74, 71, 0, 74, 0,    72, 0, 67, 0, 72, 0, 0, 0] },
     // Catch: fast and bouncy. G D Em C | G C D G
-    catch: { bpm: 132, lead: 'square', vol: 0.045, len: 1.2, bassEvery: 2, bass: [43, 38, 40, 36, 43, 36, 38, 43], melody: [
+    catch: { bpm: 132, lead: 'square', vol: 0.08, len: 1.2, bassEvery: 2, bass: [43, 38, 40, 36, 43, 36, 38, 43], melody: [
       67, 71, 74, 71, 79, 0, 74, 0,    74, 78, 81, 78, 74, 0, 69, 0,
       76, 79, 83, 79, 76, 0, 71, 0,    72, 76, 79, 76, 72, 74, 76, 0,
       79, 0, 78, 0, 76, 0, 74, 0,      72, 0, 76, 0, 79, 0, 76, 0,
@@ -213,7 +243,8 @@
     if (!audio || audio.state !== 'running') return;
     if (!musicGain) { musicGain = audio.createGain(); musicGain.gain.value = 0; musicGain.connect(audio.destination); }
     // Quieter while the game is talking, so instructions stay easy to hear.
-    const speaking = !!(window.speechSynthesis && window.speechSynthesis.speaking);
+    // (only for up to 15 s after the game last spoke, in case "speaking" gets stuck)
+    const speaking = !!(window.speechSynthesis && window.speechSynthesis.speaking) && performance.now() - lastSpoke < 15000;
     const level = muted || !musicOn ? 0 : speaking ? 0.3 : 1;
     if (level !== musicLevel) { musicLevel = level; musicGain.gain.setTargetAtTime(level * 0.5, audio.currentTime, 0.12); }
     if (level === 0) { musicNext = 0; return; }
@@ -229,7 +260,9 @@
       if (beat % song.bassEvery === 0) {
         // alternate the chord root and its fifth (root-fifth-root-fifth, or root-fifth)
         const fifth = song.bassEvery === 2 ? beat % 4 === 2 : beat === 4;
-        musicNote(midi(song.bass[bar] + (fifth ? 7 : 0)), musicNext, step * song.bassEvery * 0.9, 'sine', 0.16);
+        let bn = song.bass[bar] + (fifth ? 7 : 0);
+        if (bn < 48) bn += 12;                                     // below ~130 Hz phone speakers can't play it
+        musicNote(midi(bn), musicNext, step * song.bassEvery * 0.9, 'sine', 0.16);
       }
       musicNext += step; musicStep++;
     }
@@ -240,10 +273,12 @@
   // Returns the utterance (or null when nothing is said), so a caller can wait for it to end.
   // keep = true protects an important line (the one-minute warning, the goodnight): until it has
   // been said, later lines queue up behind it instead of cutting it off.
-  let keepUntil = 0;
+  let keepUntil = 0, lastSpoke = -1e9;
   function say(words, queue = false, keep = false) {
-    if (muted || hubHeld || !window.speechSynthesis) return null;
+    if (muted || hubHeld || hubPaused || !window.speechSynthesis) return null;
     try {
+      try { window.speechSynthesis.resume(); } catch (e) { /* ignore */ }   // iOS can leave speech paused
+      lastSpoke = performance.now();
       if (!queue && performance.now() > keepUntil) window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(words);
       u.rate = 0.95; u.pitch = 1.2;
@@ -1207,7 +1242,7 @@
     buttons.push({ x: x - h, y: y - h, w: 2 * h, h: 2 * h, action });
   }
   function drawMute() {
-    roundButton(W - 40, 30, () => { muted = !muted; if (muted && window.speechSynthesis) window.speechSynthesis.cancel(); }, () => {
+    roundButton(W - 40, 30, () => setMuted(!muted), () => {
       ctx.fillStyle = INK; ctx.lineJoin = 'round';
       ctx.beginPath(); ctx.moveTo(-13, -5); ctx.lineTo(-6, -5); ctx.lineTo(2, -12); ctx.lineTo(2, 12); ctx.lineTo(-6, 5); ctx.lineTo(-13, 5); ctx.closePath(); ctx.fill();
       ctx.lineCap = 'round';
@@ -1350,7 +1385,7 @@
   //  Scenes
   // =====================================================================
   const S = {};
-  let scene = null, sleepQuiet = false;
+  let scene = null, sleepQuiet = false, firstGo = true;
   const keys = { left: false, right: false };
   // intro: words to say before the scene starts (scenes may queue more after it)
   function go(name, intro) {
@@ -1369,7 +1404,9 @@
     overlay = null; confirmHome = null; readyT = 0;
     particles = [];
     keys.left = keys.right = false;
-    if (window.speechSynthesis && performance.now() > keepUntil) try { window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
+    // (in hub mode not on the very first scene: the app may still be saying the game's name)
+    if (window.speechSynthesis && performance.now() > keepUntil && !(HUB && firstGo)) try { window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
+    firstGo = false;
     if (intro) say(intro);
     scene.start();
   }
@@ -2003,7 +2040,7 @@
         }
         puzzledT = Math.max(0, puzzledT - dt);
         if (overlay) return;
-        if (phase === 'walk' && lems.every(l => l.x <= l.tx)) { phase = 'ask'; say('How many lemmings?'); }
+        if (phase === 'walk' && lems.every(l => l.x <= l.tx)) { phase = 'ask'; say('How many lemmings?', true); }
         if (phase === 'right') {
           if (Math.random() < 0.15) jump(pick(lems));
           timer -= dt;
@@ -2565,7 +2602,7 @@
     }
     function hit(i) {
       lit[i] = 0.42; sq[i] = 0.16;
-      tone(PITCH[i], 0.42, 'triangle', 0.2);
+      tone(PITCH[i], 0.42, 'triangle', 0.14);
       tone(PITCH[i] / 2, 0.2, 'sine', 0.12);
       burst(DX[i], HEAD_Y - 10, SIMON_COLORS[i], 5);
     }
@@ -2591,7 +2628,7 @@
         if (phase === 'intro' && timer <= 0) { phase = 'show'; showIdx = 0; timer = 0.3; }
         else if (phase === 'show' && timer <= 0) {
           if (showIdx < seq.length) { hit(seq[showIdx]); bearHit = 0.3; showIdx++; timer = gap(); }
-          else { phase = 'input'; pos = 0; say('Your turn!'); }
+          else { phase = 'input'; pos = 0; say('Your turn!', true); }
         } else if (phase === 'good') {
           if (!cheered && timer < 1.3) {
             cheered = true; sfx.yay();
@@ -5669,7 +5706,7 @@
   //  messages (no limit until the first one). The gear becomes a "back to all games" house that
   //  posts {hub:'exit'}, and where the gentle bedtime ending would go to sleep it posts
   //  {hub:'sleep'} once. Without ?hub=1 none of this does anything.
-  const HUB = /[?&]hub=1\b/.test(location.search) && window.parent !== window;
+  //  (HUB itself is set at the top, with the sound code.)
   const hubTime = { limit: 0, left: Infinity, used: 0, share: 0 };
   let hubSlept = false;
   function hubPost(msg) { if (HUB) try { window.parent.postMessage(msg, '*'); } catch (e) { /* ignore */ } }
@@ -5693,12 +5730,23 @@
         hubTime.left = hubTime.limit ? left : Infinity;
         hubTime.used = Math.max(0, Number(m.used) || 0);
         hubTime.share = Number(m.share) || 0;
+        // the app's shared sound setting (a moment after the child changed it here, the app's
+        // echo may still be on its way, so an older value doesn't flick the buttons back)
+        if (!hubPaused && performance.now() - hubSoundAt > 1500) {
+          if (typeof m.mute === 'boolean' && m.mute !== muted) {
+            muted = m.mute;
+            if (muted && window.speechSynthesis) try { window.speechSynthesis.cancel(); } catch (err) { /* ignore */ }
+          }
+          if (typeof m.music === 'boolean') musicOn = m.music;
+        }
         // more time was given before the app closed the frame: Grizzly wakes up
         if ((hubSlept || night) && playTime.left() > 0) { hubSlept = false; night = null; go('menu'); }
         hubBackdrop();
       } else if (m.hub === 'pause') {
-        muted = true;
+        // the app is closing the frame: everything goes quiet at once
+        hubPaused = true; muted = true;
         if (window.speechSynthesis) try { window.speechSynthesis.cancel(); } catch (err) { /* ignore */ }
+        if (audio) try { const r = audio.suspend(); if (r) r.catch(() => {}); } catch (err) { /* ignore */ }
       } else if (m.hub === 'hold') hubHold(!!m.on);
     });
     hubPost({ hub: 'hello', game: 'grizzly' });
@@ -5715,7 +5763,7 @@
       if (audio) try { const r = audio.suspend(); if (r) r.catch(() => {}); } catch (err) { /* ignore */ }
     } else {
       last = performance.now();                                    // no jump in the clock
-      if (audio && document.visibilityState === 'visible') try { const r = audio.resume(); if (r) r.catch(() => {}); } catch (err) { /* ignore */ }
+      if (audio && document.visibilityState === 'visible' && !hubPaused) try { const r = audio.resume(); if (r) r.catch(() => {}); } catch (err) { /* ignore */ }
       if (night && !hubSlept) { night = null; goodnight(); }        // the goodnight was cut off: say it again
       else if (!overlay && scene.resume) scene.resume();           // e.g. Simon replays the pattern
     }
@@ -6208,7 +6256,7 @@
     if ((k === 'Enter' || k === ' ') && overlay) { e.preventDefault(); sfx.click(); overlay.buttons[0].action(); }
     if (k === 'Escape' && inGame()) go('menu');
     if (scene === S.menu && (k === 'ArrowLeft' || k === 'ArrowRight')) flipPage(k === 'ArrowLeft' ? -1 : 1);
-    if (k === 'm' || k === 'M') muted = !muted;
+    if (k === 'm' || k === 'M') setMuted(!muted);
   });
   window.addEventListener('keyup', e => {
     const k = e.key;

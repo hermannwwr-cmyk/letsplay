@@ -1030,7 +1030,12 @@
     total() { return hubT.limit ? Math.max(1, hubT.used + Math.max(0, hubT.left)) : Infinity; },
     left() { return hubT.limit ? hubT.left : Infinity; },
   });
-  let soundOn = store.get("mrtSound", true);
+  // Sound: one switch for everything (🔊). In hub mode the hub owns the shared setting (its time messages carry
+  // mute and music); the game never reads or writes its own saved switch there.
+  let soundOn = HUB ? true : store.get("mrtSound", true);
+  let musicOn = true; // hub mode only: the hub's music switch (standalone the music follows 🔊 alone)
+  let hubPaused = false; // hub mode: the frame is about to be removed
+  const quiet = () => HUB && (hubPaused || document.visibilityState === "hidden"); // hub mode: no sound now
 
   // ---- state ----
   const S = {
@@ -1046,8 +1051,8 @@
     if (ac.state !== "running") ac.resume().catch(() => {}); // "suspended", or "interrupted" on iPhone/iPad
     return ac;
   }
-  function tone(freq, start, dur, type = "sine", vol = 0.18) {
-    if (!soundOn) return;
+  function tone(freq, start, dur, type = "sine", vol = 0.14) {
+    if (!soundOn || quiet()) return;
     try {
       audio();
       const o = ac.createOscillator(), g = ac.createGain();
@@ -1064,13 +1069,13 @@
     right() { [523, 659, 784, 1047].forEach((f, i) => tone(f, i * .09, .25, "triangle")); },
     wrong() { tone(220, 0, .3, "sine", .12); },
     tick() { tone(880, 0, .08, "square", .05); },
-    toot() { tone(392, 0, .28, "triangle", .2); tone(494, 0, .28, "triangle", .14); tone(392, .36, .5, "triangle", .2); tone(494, .36, .5, "triangle", .14); },
+    toot() { tone(392, 0, .28, "triangle", .14); tone(494, 0, .28, "triangle", .1); tone(392, .36, .5, "triangle", .14); tone(494, .36, .5, "triangle", .1); },
     ready() { if (ac && ac.state === "running") { tone(880, 0, .18, "sine", .12); tone(1319, .12, .3, "sine", .12); } },
     doorsClosing() { [0, .22, .44, .66].forEach(t => tone(1175, t, .12, "square", .05)); },
   };
   // Low train rumble whose loudness follows the train's speed (0..1).
   function rumble() {
-    if (!soundOn) return { set() {}, stop() {} };
+    if (!soundOn || quiet()) return { set() {}, stop() {} };
     try {
       audio();
       const len = ac.sampleRate * 2, buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
@@ -1079,7 +1084,7 @@
       src.buffer = buf; src.loop = true; f.type = "lowpass"; f.frequency.value = 220; g.gain.value = 0;
       src.connect(f).connect(g).connect(ac.destination); src.start();
       return {
-        set(v) { g.gain.setTargetAtTime(v * 0.22, ac.currentTime, 0.05); f.frequency.setTargetAtTime(160 + v * 260, ac.currentTime, 0.05); },
+        set(v) { g.gain.setTargetAtTime(v * 0.2, ac.currentTime, 0.05); f.frequency.setTargetAtTime(160 + v * 260, ac.currentTime, 0.05); },
         stop() { g.gain.setTargetAtTime(0, ac.currentTime, 0.1); src.stop(ac.currentTime + 0.5); },
       };
     } catch { return { set() {}, stop() {} }; }
@@ -1105,15 +1110,15 @@
       if (next < ac.currentTime - 0.2) next = ac.currentTime + 0.05; // sound was paused: pick up from now
       while (next < ac.currentTime + 0.5) {
         const m = MELODY[step], bar = Math.floor(step / 4), beat = step % 4;
-        if (m) note(m, next, BEAT * 0.9, "triangle", 0.5);
-        if (beat === 0 || beat === 2) note(BASS[bar] + (beat === 2 ? 24 : 12), next, BEAT * 1.6, "triangle", 0.45); // high enough for phone speakers
+        if (m) note(m, next, BEAT * 0.9, "triangle", 0.32); // peak ≈ 0.045 after MUSIC_VOL
+        if (beat === 0 || beat === 2) note(BASS[bar] + (beat === 2 ? 24 : 12), next, BEAT * 1.6, "triangle", 0.43); // high enough for phone speakers
         if (beat === 1 || beat === 3) note(BASS[bar] + 28, next, 0.12, "sine", 0.15); // soft "tick" like train wheels
         next += BEAT; step = (step + 1) % MELODY.length;
       }
     }
     return {
       start() {
-        if (!soundOn || timer) return;
+        if (!soundOn || !musicOn || timer || quiet()) return;
         try {
           audio();
           if (!bus) { bus = ac.createGain(); bus.connect(ac.destination); }
@@ -1140,13 +1145,18 @@
 
   function say(text) {
     const pause = Math.max(1200, text.length * 55);
-    if (!soundOn || !("speechSynthesis" in window)) return sleep(pause);
+    if (!soundOn || quiet() || !("speechSynthesis" in window)) return sleep(pause);
     return new Promise(resolve => {
-      const end = () => { clearTimeout(guard); music.duck(false); resolve(); };
+      let done = false;
+      const end = () => { if (done) return; done = true; ownSpeech.delete(u); clearTimeout(guard); music.duck(false); resolve(); };
       const guard = setTimeout(end, pause + 2500); // some browsers never fire onend
+      let u = null;
       try {
-        if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
-        const u = window.__mrtUtterance = new SpeechSynthesisUtterance(text);
+        // In hub mode the page may share one speech queue with the hub: only cut off the game's own lines,
+        // so the hub's spoken game name isn't cut (a new line waits behind it instead).
+        if (HUB ? ownSpeech.size : (speechSynthesis.speaking || speechSynthesis.pending)) speechSynthesis.cancel();
+        u = window.__mrtUtterance = new SpeechSynthesisUtterance(text);
+        ownSpeech.add(u);
         u.rate = 0.9; u.pitch = 1.1;
         const v = speechSynthesis.getVoices().find(v => /en[-_](SG|GB|AU)/i.test(v.lang)) || speechSynthesis.getVoices().find(v => /^en/i.test(v.lang));
         if (v) u.voice = v;
@@ -1157,6 +1167,12 @@
     });
   }
   const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const ownSpeech = new Set(); // the game's own utterances still queued or speaking
+  // Stop the game's speech (in hub mode only its own, so the hub's voice isn't cut).
+  function hush() {
+    if (HUB && !ownSpeech.size) return;
+    try { speechSynthesis.cancel(); } catch {}
+  }
 
   // ---- unlocking sound on phones and tablets ----
   let silentEl = null, speechUnlocked = false;
@@ -1172,6 +1188,7 @@
     return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
   }
   function unlockAudio() {
+    if (quiet()) return;
     if (ac?.state === "running" && silentEl && !silentEl.paused && speechUnlocked) { music.start(); return; } // all fine already
     try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch {}
     try {
@@ -1507,14 +1524,15 @@
     $("feedback").textContent = ""; $("feedback").className = "feedback";
     $("train").classList.remove("open");
     sfx.doorsClosing();
-    say(`${pre}${warn}Doors closing. Next station, ${next}.`);
-    setTimeout(() => {
+    const said = say(`${pre}${warn}Doors closing. Next station, ${next}.`);
+    // with the bedtime warning, ride only once it has been said, so the next station's story doesn't cut it off
+    (warn ? Promise.all([said, sleep(reduceMotion ? 200 : 900)]) : sleep(reduceMotion ? 200 : 900)).then(() => {
       if (gen !== S.gen) return;
       setSign("Next stop", next);
       stepEnv();
       const place = isUnderground(S.line, next) ? "ug" : "open";
       ride(() => { fillScene(S.q); setBoard(next); applyEnv(place); }, arrive);
-    }, reduceMotion ? 200 : 900);
+    });
   }
 
   // Between stations. The train speeds out of the 3D station to the right, then we ride in the driver's cab
@@ -2658,6 +2676,7 @@
         hubT.left = d.left == null || !isFinite(+d.left) ? Infinity : +d.left;
         hubT.used = +d.used || 0;
         showClocks();
+        if (typeof d.mute === "boolean" || typeof d.music === "boolean") hubSound(d);
         // time used up with no ride to finish: on the start screen the train says goodnight now; on a normal
         // end screen, once its "Hooray!" has been said (the bedtime end screen has its own goodnight)
         const scr = document.body.dataset.screen;
@@ -2665,13 +2684,17 @@
           if (scr === "home") goodnight();
           else if (scr === "end") { S.nightSoon = true; Promise.resolve(S.endSay).then(() => sleep(1200)).then(() => { S.nightSoon = false; if (document.body.dataset.screen === "end") goodnight(); }); }
         }
-      } else if (d.hub === "pause") {
-        music.stop(); try { speechSynthesis.cancel(); } catch {}
+      } else if (d.hub === "pause") { // the frame is about to go: silence everything and stop all timers
+        hubPaused = true;
+        S.gen++;
+        music.stop(); hush();
+        try { silentEl?.pause(); } catch {}
+        try { ac?.suspend(); } catch {}
       }
     });
   }
   $("otherBtn").onclick = () => { if (hubOut()) return goodnight(); restoreHome(); renderLines(); show("home"); pullInStartTrain(); };
-  $("homeBtn").onclick = () => { S.gen++; try { speechSynthesis.cancel(); } catch {} restoreHome(); renderLines(); show("home"); pullInStartTrain(); };
+  $("homeBtn").onclick = () => { S.gen++; hush(); restoreHome(); renderLines(); show("home"); pullInStartTrain(); };
   $("sayBtn").onclick = speakQ;
   $("startPick").onclick = openPicker;
   $("pickClose").onclick = closePicker;
@@ -2689,12 +2712,15 @@
   // lock screen; the music starts again when the game is shown.
   let musicWas = false;
   document.addEventListener("visibilitychange", () => {
+    if (HUB && document.visibilityState !== "visible") hush(); // in the hub: nothing talks while hidden
     if (!ac) return;
     if (document.visibilityState !== "visible") {
       musicWas = music.playing(); music.stop();
       try { silentEl?.pause(); } catch {}
+      if (HUB) try { ac.suspend(); } catch {} // and no effects pile up to play on return
       return;
     }
+    if (hubPaused) return;
     if (ac.state !== "running") ac.resume().catch(() => {});
     if (silentEl?.paused) silentEl.play().catch(() => {});
     try { speechSynthesis.resume(); } catch {} // iOS can leave speech stuck after an interruption
@@ -2704,11 +2730,26 @@
   function syncSoundBtn() { $("soundBtn").textContent = soundOn ? "🔊" : "🔇"; $("soundBtn").classList.toggle("off", !soundOn); }
   syncSoundBtn();
   $("soundBtn").onclick = () => {
-    soundOn = !soundOn; store.set("mrtSound", soundOn);
+    soundOn = !soundOn;
+    if (HUB) { soundSent = performance.now(); toHub({ hub: "sound", mute: !soundOn, music: musicOn }); } // the shared setting
+    else store.set("mrtSound", soundOn);
     syncSoundBtn();
     if (soundOn) music.start();
-    else { music.stop(); try { speechSynthesis.cancel(); } catch {} }
+    else { music.stop(); hush(); }
   };
+  // Hub mode: the shared sound setting from the hub's time messages (mute = all sound off, music = music only).
+  // Just after the child's own tap, a message the hub sent before it heard about the tap is skipped.
+  let soundSent = -1e9;
+  function hubSound(d) {
+    const s = typeof d.mute === "boolean" ? !d.mute : soundOn, m = typeof d.music === "boolean" ? d.music : musicOn;
+    if (s === soundOn && m === musicOn) return;
+    if (performance.now() - soundSent < 1500) return;
+    soundOn = s; musicOn = m;
+    syncSoundBtn();
+    if (!soundOn) { music.stop(); hush(); }
+    else if (!musicOn) music.stop();
+    else if (ac && ac.state === "running") music.start(); // only once sound has been unlocked by a tap
+  }
 
   renderLines();
   // last, once everything is set up and listening: tell the hub the game is here

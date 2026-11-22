@@ -115,25 +115,27 @@
 
   const Sound = {
     ac: null, master: null, sfx: null, mus: null, noiseBuf: null, eng: null,
-    sfxOn: store.get('sound', true),
-    musicOn: store.get('music', true),
+    // In hub mode the hub owns the sound setting (see setHubSound()): the game starts with
+    // everything on and never reads or writes its own saved switches.
+    sfxOn: HUB ? true : store.get('sound', true),
+    musicOn: HUB ? true : store.get('music', true),
     lastEngine: 0,
     init() {
       if (hub.paused || frozen) return;
+      this.unlockMediaElement();   // (retried on every tap until it really plays)
       // (iPhone/iPad can leave the context 'interrupted' after a call or a locked screen)
       if (this.ac) { if (this.ac.state !== 'running' && this.ac.state !== 'closed') this.ac.resume().catch(() => {}); return; }
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return;
       // iPhone/iPad: play sound even when the silent switch is on
       try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) { /* ignore */ }
-      this.unlockMediaElement();
       const ac = this.ac = new AC();
       // Some browsers only start audio after a buffer is played inside a tap
       try { const sb = ac.createBufferSource(); sb.buffer = ac.createBuffer(1, 1, 22050); sb.connect(ac.destination); sb.start(0); } catch (e) { /* ignore */ }
       if (ac.state === 'suspended') ac.resume();
       this.master = ac.createGain(); this.master.gain.value = 0.9; this.master.connect(ac.destination);
       this.sfx = ac.createGain(); this.sfx.gain.value = this.sfxOn ? 1 : 0; this.sfx.connect(this.master);
-      this.mus = ac.createGain(); this.mus.gain.value = this.musicOn ? 0.55 : 0; this.mus.connect(this.master);
+      this.mus = ac.createGain(); this.mus.gain.value = this.musicLevel(); this.mus.connect(this.master);
       const len = ac.sampleRate * 2;
       const buf = ac.createBuffer(1, len, ac.sampleRate);
       const d = buf.getChannelData(0);
@@ -144,8 +146,9 @@
     },
     // Older iOS: a looping silent <audio> element switches the page to "playback"
     // audio, so Web Audio is heard even with the ringer switch on silent.
+    // play() is tried again on each tap until it has really started (it can be refused).
     unlockMediaElement() {
-      if (this.silentEl) return;
+      if (this.silentEl) { this.playSilent(); return; }
       try {
         const n = 4410, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
         const w = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
@@ -155,12 +158,33 @@
         w(36, 'data'); v.setUint32(40, n * 2, true);
         const el = new Audio(URL.createObjectURL(new Blob([buf], { type: 'audio/wav' })));
         el.loop = true; el.setAttribute('playsinline', '');
-        const pr = el.play(); if (pr && pr.catch) pr.catch(() => {});
         this.silentEl = el;
+        this.playSilent();
       } catch (e) { /* ignore */ }
     },
-    setSfx(on) { this.sfxOn = on; store.set('sound', on); if (this.sfx) this.sfx.gain.setTargetAtTime(on ? 1 : 0, this.ac.currentTime, 0.05); if (!on) Voice.stop(); },
-    setMusic(on) { this.musicOn = on; store.set('music', on); if (this.mus) this.mus.gain.setTargetAtTime(on ? 0.55 : 0, this.ac.currentTime, 0.1); },
+    silentOn: false, silentTrying: false,
+    playSilent() {
+      const el = this.silentEl;
+      if (!el || this.silentOn || this.silentTrying || hub.paused || frozen) return;
+      this.silentTrying = true;
+      const ok = () => { this.silentTrying = false; if (hub.paused || frozen) { try { el.pause(); } catch (e) { /* ignore */ } } else this.silentOn = true; };
+      const no = () => { this.silentTrying = false; };
+      try { const pr = el.play(); if (pr && pr.then) pr.then(ok, no); else ok(); } catch (e) { no(); }
+    },
+    pauseSilent() {
+      this.silentOn = false;
+      if (this.silentEl) { try { this.silentEl.pause(); } catch (e) { /* ignore */ } }
+    },
+    // the music's level: off with the music switch, at bedtime, and (in hub mode) with 🔊 off
+    musicLevel() { return this.musicOn && !(HUB && !this.sfxOn) && game.mode !== 'night' ? MUSIC_GAIN : 0; },
+    applyLevels() {
+      if (!this.ac) return;
+      const t = this.ac.currentTime;
+      this.sfx.gain.setTargetAtTime(this.sfxOn ? 1 : 0, t, 0.05);
+      this.mus.gain.setTargetAtTime(this.musicLevel(), t, game.mode === 'night' ? 0.6 : 0.1);
+    },
+    setSfx(on) { this.sfxOn = on; if (!HUB) store.set('sound', on); this.applyLevels(); if (!on) Voice.stop(); },
+    setMusic(on) { this.musicOn = on; if (!HUB) store.set('music', on); this.applyLevels(); },
     tone(freq, dur, o = {}) {
       const ac = this.ac; if (!ac) return;
       const t = ac.currentTime + (o.when || 0);
@@ -261,7 +285,9 @@
     },
   };
 
-  // Cheerful looping background tune (pentatonic, very quiet)
+  // Cheerful looping background tune (pentatonic, quiet). Peaks: lead 0.05 x 1 x 0.9 = 0.045,
+  // bass 0.067 x 1 x 0.9 = 0.06 (the hub's level).
+  const MUSIC_GAIN = 1;
   const Music = {
     timer: null, next: 0, step: 0, bpm: 116,
     melody: [72, 0, 76, 0, 79, 0, 76, 74, 72, 0, 74, 76, 74, 0, 0, 0,
@@ -286,7 +312,7 @@
           if (m) Sound.tone(midi(m), spb * 1.7, { type: 'triangle', vol: 0.05, when, dest: Sound.mus });
           if (i % 4 === 0) {
             const b = this.bass[(i / 4) % this.bass.length];
-            Sound.tone(midi(b), spb * 3.2, { type: 'sine', vol: 0.08, when, dest: Sound.mus });
+            Sound.tone(midi(b), spb * 3.2, { type: 'sine', vol: 0.067, when, dest: Sound.mus });
           }
           if (i % 4 === 2) Sound.noise(0.05, { freq: 7000, q: 1, vol: 0.012, when, dest: Sound.mus });
         }
@@ -317,6 +343,7 @@
       try {
         if (!this.voice) this.pick();
         if (interrupt) speechSynthesis.cancel();
+        try { speechSynthesis.resume(); } catch (e) { /* ignore */ }   // (iOS can leave speech paused)
         const u = new SpeechSynthesisUtterance(text);
         if (this.voice) { u.voice = this.voice; u.lang = this.voice.lang; }
         u.rate = 0.95; u.pitch = 1.15; u.volume = 1;
@@ -359,11 +386,15 @@
     return Promise.all([spoken, pause]).then(() => { if (r && r.aborted) throw new Abort(); });
   }
 
-  ['pointerdown', 'touchend', 'keydown'].forEach((t) => document.addEventListener(t, () => Sound.init(), { passive: true }));
+  ['pointerdown', 'pointerup', 'click', 'touchend', 'keydown'].forEach((t) => document.addEventListener(t, () => Sound.init(), { passive: true }));
 
   // A hidden page stands still too (the timers of a stop in progress, speech and sound),
   // and carries on where it was when it is shown again.
-  document.addEventListener('visibilitychange', () => { pageHidden = !!document.hidden; setFrozen(); });
+  document.addEventListener('visibilitychange', () => {
+    pageHidden = !!document.hidden;
+    if (!pageHidden && Voice.ok) { try { speechSynthesis.resume(); } catch (e) { /* ignore */ } }
+    setFrozen();
+  });
 
   // ====================================================================
   // Layout of the bus and the street
@@ -496,8 +527,9 @@
     ui.btnMusic.classList.toggle('off', !Sound.musicOn);
   }
   refreshToggles();
-  ui.btnSound.addEventListener('click', () => { Sound.init(); Sound.setSfx(!Sound.sfxOn); refreshToggles(); if (Sound.sfxOn) Sound.pop(3); });
-  ui.btnMusic.addEventListener('click', () => { Sound.init(); Sound.setMusic(!Sound.musicOn); refreshToggles(); });
+  // (in hub mode these change the shared setting: 🔊 off = all sound off; see setHubSound())
+  ui.btnSound.addEventListener('click', () => { Sound.init(); Sound.setSfx(!Sound.sfxOn); refreshToggles(); hubSoundTapped(); if (Sound.sfxOn) Sound.pop(3); });
+  ui.btnMusic.addEventListener('click', () => { Sound.init(); Sound.setMusic(!Sound.musicOn); refreshToggles(); hubSoundTapped(); });
   ui.btnHome.addEventListener('click', () => { Sound.pop(1); toTitle(); });
   ui.btnMap.addEventListener('click', () => {
     Sound.init();
@@ -2372,9 +2404,31 @@
       hub.limit = Math.max(0, +d.limit || 0);
       hub.left = hub.limit > 0 && d.left != null && isFinite(+d.left) ? Math.max(0, Math.floor(+d.left)) : null;
       hub.share = hub.limit > 0 ? clamp(+d.share || 0, 0, 1) : 0;
+      if (typeof d.mute === 'boolean' && typeof d.music === 'boolean') setHubSound(d.mute, d.music);
       hubTick();
     } else if (d.hub === 'pause') hubPause();
     else if (d.hub === 'hold') hubHold(!!d.on);
+  }
+
+  // The shared sound setting: mute = all sound off, music = music on. The hub sends it with
+  // every time message; a tap on our own buttons applies at once and tells the hub. For a
+  // moment after a tap, an older value still on its way from the hub doesn't undo it.
+  let soundSent = null;
+  function hubSoundTapped() {
+    if (!HUB) return;
+    soundSent = { mute: !Sound.sfxOn, music: Sound.musicOn, until: performance.now() + 2000 };
+    hubPost({ hub: 'sound', mute: soundSent.mute, music: soundSent.music });
+  }
+  function setHubSound(mute, music) {
+    if (soundSent) {
+      if (soundSent.mute === mute && soundSent.music === music) soundSent = null;
+      else if (performance.now() < soundSent.until) return;
+      else soundSent = null;
+    }
+    if (Sound.sfxOn === !mute && Sound.musicOn === music) return;
+    Sound.musicOn = music;
+    Sound.setSfx(!mute);   // (applies both, and stops the voice when muted)
+    refreshToggles();
   }
 
   function hubTick() {
@@ -2483,6 +2537,7 @@
   function hubPause() {
     hub.paused = true;
     Voice.stop();
+    Sound.pauseSilent();
     clearInterval(Music.timer); Music.timer = null;
     if (Sound.ac) { try { Sound.ac.suspend(); } catch (e) { /* ignore */ } }
   }
@@ -2511,6 +2566,7 @@
       for (const t of holdTimers) { clearTimeout(t.id); t.ms = Math.max(0, t.ms - (now - t.start)); }
       clearInterval(Music.timer); Music.timer = null;
       if (Sound.ac) { try { Sound.ac.suspend(); } catch (e) { /* ignore */ } }
+      Sound.pauseSilent();
       document.documentElement.classList.add('held');
     } else {
       frozen = false;
@@ -2518,6 +2574,7 @@
       last = now;                                       // no jump in the update clock
       for (const t of holdTimers) { t.start = now; t.id = setTimeout(t.fire, t.ms); }
       if (Sound.ac) { try { Sound.ac.resume().catch(() => {}); } catch (e) { /* ignore */ } Music.start(); }
+      Sound.playSilent();   // (if refused, the next tap tries again)
       // the line that was cut off, or else the question on screen (not while counting together)
       const q = !ui.question.classList.contains('hidden') && !game.helping && game.askLine;
       // A short hold (a quick wobble of the tablet) doesn't repeat anything: the cut line
@@ -2541,7 +2598,7 @@
     ui.btnMap.classList.add('hidden');
     game.glow = null; game.labels = [];
     game.cruise = 0;
-    if (Sound.mus) Sound.mus.gain.setTargetAtTime(0, Sound.ac.currentTime, 0.6);
+    Sound.applyLevels();   // (night: the music fades out)
     // the last passengers get off, turn round and wave goodbye, then walk home
     if (game.onboard.length) {
       setDoors(0, 0, 1);
@@ -2719,7 +2776,8 @@
 
   // a few friendly passengers on the title-screen bus
   fillTitleBus();
-  welcome('Hello! Tap Play to drive the bus!');
+  // (in the hub, which has just said the game's name, it is short)
+  welcome(HUB ? 'Tap Play!' : 'Hello! Tap Play to drive the bus!');
 
   // test/debug hook
   window.__bendyBus = { game, startRoute, toTitle, Sound };
