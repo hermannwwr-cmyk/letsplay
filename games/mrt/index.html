@@ -2713,6 +2713,9 @@
   let musicWas = false;
   document.addEventListener("visibilitychange", () => {
     if (HUB && document.visibilityState !== "visible") hush(); // in the hub: nothing talks while hidden
+    // in the hub, a question that came up while hidden was never read: read it once on coming back
+    if (HUB && document.visibilityState === "visible" && !hubPaused && document.body.dataset.screen === "game" &&
+        document.querySelector("#answers .ans:not(.sans):not([disabled])")) setTimeout(() => { if (!quiet()) speakQ(); }, 300);
     if (!ac) return;
     if (document.visibilityState !== "visible") {
       musicWas = music.playing(); music.stop();
