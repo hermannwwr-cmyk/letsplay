@@ -129,14 +129,17 @@
   }
   // A hidden page (another app, a locked screen) stops talking and suspends its sound;
   // it comes back when the page is shown again.
+  let repeatLine = null;
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
+      repeatLine = lastLine && !lastLine.done && window.speechSynthesis && window.speechSynthesis.speaking ? lastLine.words : null;
       keepUntil = 0;
       if (window.speechSynthesis) try { window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
       if (audio) try { const r = audio.suspend(); if (r) r.catch(() => {}); } catch (e) { /* ignore */ }
     } else if (!hubHeld && !hubPaused) {
       if (audio) try { const r = audio.resume(); if (r) r.catch(() => {}); } catch (e) { /* ignore */ }
       if (window.speechSynthesis) try { window.speechSynthesis.resume(); } catch (e) { /* ignore */ }
+      if (repeatLine) { const w = repeatLine; repeatLine = null; say(w, true); }
     }
   });
   function tone(freq, dur, type = 'sine', vol = 0.14, slide = 0, delay = 0) {
@@ -262,7 +265,7 @@
         const fifth = song.bassEvery === 2 ? beat % 4 === 2 : beat === 4;
         let bn = song.bass[bar] + (fifth ? 7 : 0);
         if (bn < 48) bn += 12;                                     // below ~130 Hz phone speakers can't play it
-        musicNote(midi(bn), musicNext, step * song.bassEvery * 0.9, 'sine', 0.16);
+        musicNote(midi(bn), musicNext, step * song.bassEvery * 0.9, 'sine', 0.12);
       }
       musicNext += step; musicStep++;
     }
@@ -274,6 +277,7 @@
   // keep = true protects an important line (the one-minute warning, the goodnight): until it has
   // been said, later lines queue up behind it instead of cutting it off.
   let keepUntil = 0, lastSpoke = -1e9;
+  let lastLine = null;   // { words, done }: a line cut off by hiding the page is said again on return
   function say(words, queue = false, keep = false) {
     if (muted || hubHeld || hubPaused || !window.speechSynthesis) return null;
     try {
@@ -282,6 +286,9 @@
       if (!queue && performance.now() > keepUntil) window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(words);
       u.rate = 0.95; u.pitch = 1.2;
+      const line = lastLine = { words, done: false };
+      u.addEventListener('end', () => { line.done = true; });
+      u.addEventListener('error', () => { line.done = true; });
       if (keep) {
         keepUntil = performance.now() + 1000 + words.length * 90;   // a generous guess, ended early by onend
         u.onend = u.onerror = () => { keepUntil = 0; };

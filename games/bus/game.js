@@ -50,6 +50,8 @@
   if (HUB) {
     document.documentElement.classList.add('hub');
     window.addEventListener('message', (e) => { if (e.source === window.parent) onHubMessage(e.data); });
+    // the 🔊/🎵 buttons stay hidden until the hub's first time message says what they show
+    document.documentElement.classList.add('hub-sound-wait');
     // ('hello' is sent at the end of the setup, once everything is ready)
   }
 
@@ -113,6 +115,9 @@
     setNum(k, n) { try { localStorage.setItem('bendybus.' + k, String(n)); } catch (e) { /* ignore */ } },
   };
 
+  // Effects (not the music, which passes its own dest) play at 70% of their written volume,
+  // so with the master at 0.9 none peaks above about 0.14.
+  const fxVol = (o, d) => { const v = o.vol ?? d; return o.dest ? v : Math.min(v * 0.7, 0.155); };
   const Sound = {
     ac: null, master: null, sfx: null, mus: null, noiseBuf: null, eng: null,
     // In hub mode the hub owns the sound setting (see setHubSound()): the game starts with
@@ -193,7 +198,7 @@
       osc.frequency.setValueAtTime(freq, t);
       if (o.slide) osc.frequency.exponentialRampToValueAtTime(o.slide, t + dur);
       const g = ac.createGain();
-      const v = o.vol ?? 0.25, a = o.attack ?? 0.01;
+      const v = fxVol(o, 0.25), a = o.attack ?? 0.01;
       g.gain.setValueAtTime(0.0001, t);
       g.gain.exponentialRampToValueAtTime(v, t + a);
       g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
@@ -208,7 +213,7 @@
       f.frequency.setValueAtTime(o.freq || 1000, t);
       if (o.freqTo) f.frequency.exponentialRampToValueAtTime(o.freqTo, t + dur);
       f.Q.value = o.q ?? 1;
-      const g = ac.createGain(); const v = o.vol ?? 0.2;
+      const g = ac.createGain(); const v = fxVol(o, 0.2);
       g.gain.setValueAtTime(0.0001, t);
       g.gain.exponentialRampToValueAtTime(v, t + (o.attack ?? 0.01));
       g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
@@ -2405,6 +2410,7 @@
       hub.left = hub.limit > 0 && d.left != null && isFinite(+d.left) ? Math.max(0, Math.floor(+d.left)) : null;
       hub.share = hub.limit > 0 ? clamp(+d.share || 0, 0, 1) : 0;
       if (typeof d.mute === 'boolean' && typeof d.music === 'boolean') setHubSound(d.mute, d.music);
+      document.documentElement.classList.remove('hub-sound-wait');
       hubTick();
     } else if (d.hub === 'pause') hubPause();
     else if (d.hub === 'hold') hubHold(!!d.on);
