@@ -806,7 +806,7 @@
   function buildStreetTrees(b) {
     for (const e of W.roads.edges) {
       if (e.points.length > 2) continue;           // not along the loop's curves (they'd crowd the kerb lane there)
-      for (let s = 12; s < e.length - 10; s += 11) {
+      for (let s = 18; s < e.length - 15; s += 11) {   // (not right at the junctions: a turning bendy's rear cuts in there)
         const p = W.pointAt(e, s);
         for (const side of [1, -1]) {
           const x = p.x + p.dz * side * (RH + 1.3), z = p.z - p.dx * side * (RH + 1.3);
@@ -969,9 +969,12 @@
   const ESTATES = [];        // footprints of the outer blocks (for keeping trees off them)
   function buildHDBs(b) {
     // corner blocks inside the loop's curves
-    hdb(b, -45 * K, -45 * K, -Math.PI / 4, 20, 8, 9, 0, { people: 3, roof: 'flat' });
+    // (the two long blocks run along their curve, facing out to it, and stand back from it, so a bendy bus cutting
+    // the inside of the curve never meets a corner)
+    const cIn = 25.4;                              // 35.9 from the curve's centre, along the diagonal
+    hdb(b, g(1) - cIn, g(1) - cIn, -3 * Math.PI / 4, 20, 8, 9, 0, { people: 3, roof: 'flat' });
     tower(b, 43 * K, -43 * K, 0, 11, 12, 1);
-    bayBlock(b, -45 * K, 45 * K, Math.PI / 4, 20, 8, 10, 2);
+    bayBlock(b, g(1) - cIn, g(2) + cIn, -Math.PI / 4, 20, 8, 10, 2);
     // outside the loop: a ring of estates in a mix of block types and colour schemes
     const spots = [];
     for (const side of [-1, 1]) {
@@ -1019,7 +1022,7 @@
       if (nearBuilding(x, z)) continue;
       tree(green, x, z, 0, rnd() < 0.15 ? 'palm' : null, rr(0.9, 1.3));
     }
-    for (const [x, z] of [[-34, -56], [-56, -32], [56, -32], [34, -58], [-56, 32], [-34, 56], [56, 34]]) tree(green, x * K, z * K, 0.27, null, 1);
+    for (const [x, z] of [[-34, -56], [-56, -32], [56, -32], [34, -58], [-56, 32], [-34, 56], [56, 34]]) if (clearOfRoads(x * K, z * K, RH + 3)) tree(green, x * K, z * K, 0.27, null, 1);
   }
   function nearBuilding(x, z) {
     for (const [bx0, bz0] of ESTATES) if (Math.abs(x - bx0) < 19 && Math.abs(z - bz0) < 19) return true;
@@ -1451,7 +1454,7 @@
     };
     for (const e of W.roads.edges) {
       if (e.points.length > 2) continue;           // none on the loop's curves (they'd stand in the inside lane's way)
-      for (let s = 16, k = 0; s < e.length - 12; s += 24, k++) {
+      for (let s = 20, k = 0; s < e.length - 15; s += 24, k++) {
         const p = W.pointAt(e, s), side = k % 2 ? 1 : -1;
         const x = p.x + p.dz * side * (RH + 0.7), z = p.z - p.dx * side * (RH + 0.7);
         if (inDepotYard(x, z)) continue;

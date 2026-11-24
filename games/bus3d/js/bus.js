@@ -803,7 +803,7 @@
     // Dijkstra over directed states (an edge driven one way, ending at its far junction). Turning round costs extra
     // (at the start if the bus faces the other way, and as a U-turn at a junction), so the ribbon prefers to carry
     // on the way the bus faces unless going round would be much longer.
-    const f = fwdOf(h), facing = f.x * here.dx + f.z * here.dz, TURN = 300, UTURN = 400;   // turning round is hard in a bendy bus: go round the block instead
+    const f = fwdOf(h), facing = f.x * here.dx + f.z * here.dz, TURN = 300, UTURN = 1500;   // turning round is hard in a bendy bus: go round the block instead
     const key = (ed, d) => ed.id + (d > 0 ? '+' : '-'), endOf = (ed, d) => d > 0 ? ed.b : ed.a;
     const dist = {}, prev = {}, open = [];
     const seed = (d, c) => { const k = key(e, d); dist[k] = c; prev[k] = null; open.push({ ed: e, d, k }); };
@@ -853,28 +853,35 @@
         return A.concat(arc, Bq);
       }
     }
-    // junction corners (a sharp bend at one point) are rounded over a stretch of the line measured ALONG it, wide
-    // enough that the inside (left-turn) lane line doesn't fold over, even next to the loop's short arc segments
+    // junction corners (a sharp bend at one point) are rounded with a circular fillet about 12.7 round on the centre
+    // line, so the kerb lane of a left turn is about 6 round (a bendy bus can follow it) and the line never folds
     const cum = [0];
     for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z));
-    const at = (s) => { let i = 1; while (i < pts.length - 1 && cum[i] < s) i++; const l = (cum[i] - cum[i - 1]) || 1, u = BB.clamp((s - cum[i - 1]) / l, 0, 1); return { x: pts[i - 1].x + (pts[i].x - pts[i - 1].x) * u, z: pts[i - 1].z + (pts[i].z - pts[i - 1].z) * u }; };
     const corners = [];
     for (let i = 1; i < pts.length - 1; i++) {
       const a = pts[i - 1], p = pts[i], c = pts[i + 1];
       const ix = p.x - a.x, iz = p.z - a.z, ox = c.x - p.x, oz = c.z - p.z, li = Math.hypot(ix, iz), lo = Math.hypot(ox, oz);
       if (li < 1e-3 || lo < 1e-3) continue;
-      if ((ix * ox + iz * oz) / (li * lo) > 0.9) continue;                         // gentle (an arc's own bends)
-      const r = Math.min(C.lane + 3.5, cum[i] / 2, (cum[cum.length - 1] - cum[i]) / 2);
-      if (corners.length && cum[i] - r < corners[corners.length - 1].s1) continue;
-      corners.push({ i, s0: cum[i] - r, s1: cum[i] + r });
+      const cs = (ix * ox + iz * oz) / (li * lo);
+      if (cs > 0.9) continue;                                                      // gentle (an arc's own bends)
+      const half = Math.tan(Math.acos(BB.clamp(cs, -1, 1)) / 2);
+      const t = Math.min((C.lane + 6) * half, cum[i] / 2, (cum[cum.length - 1] - cum[i]) / 2);
+      if (corners.length && cum[i] - t < corners[corners.length - 1].s1) continue;
+      corners.push({ i, s0: cum[i] - t, s1: cum[i] + t, t, ux: ix / li, uz: iz / li, vx: ox / lo, vz: oz / lo });
     }
     const out = [];
     let ci = 0;
     for (let i = 0; i < pts.length; i++) {
       const c = corners[ci];
       if (c && cum[i] >= c.s0) {
-        const A = at(c.s0), Bp = at(c.s1), p = pts[c.i];
-        for (let k = 0; k <= 8; k++) { const tt = k / 8, m = 1 - tt; out.push({ x: m * m * A.x + 2 * m * tt * p.x + tt * tt * Bp.x, z: m * m * A.z + 2 * m * tt * p.z + tt * tt * Bp.z }); }
+        const p = pts[c.i], A = { x: p.x - c.ux * c.t, z: p.z - c.uz * c.t }, Bp = { x: p.x + c.vx * c.t, z: p.z + c.vz * c.t };
+        // the fillet's centre: from A at right angles to the way in, toward the inside of the turn
+        let nx = c.uz, nz = -c.ux; if ((Bp.x - A.x) * nx + (Bp.z - A.z) * nz < 0) { nx = -nx; nz = -nz; }
+        const sw = (c.ux * c.vz - c.uz * c.vx), R = c.t / Math.max(1e-3, Math.tan(Math.acos(BB.clamp(c.ux * c.vx + c.uz * c.vz, -1, 1)) / 2));
+        const cx = A.x + nx * R, cz = A.z + nz * R, a0 = Math.atan2(A.z - cz, A.x - cx);
+        let da = Math.atan2(Bp.z - cz, Bp.x - cx) - a0; while (da > Math.PI) da -= 2 * Math.PI; while (da < -Math.PI) da += 2 * Math.PI;
+        if (!isFinite(R) || R > 1e3 || !sw) { out.push(A, Bp); }
+        else for (let k = 0; k <= 8; k++) { const an = a0 + da * k / 8; out.push({ x: cx + Math.cos(an) * R, z: cz + Math.sin(an) * R }); }
         while (i < pts.length - 1 && cum[i + 1] <= c.s1) i++;
         ci++; continue;
       }
@@ -903,18 +910,19 @@
   // sideways (500 px tall or less) a column on the left; the coins/fuel HUD runs along the top.
   function stopFrameRect() {
     const w = innerWidth, hh = innerHeight;
-    if (hh <= 520) return { x0: Math.min(352, w * 0.56) + 6, y0: 60, x1: w - 10, y1: hh - 10 };
+    if (hh <= 520) return { x0: Math.min(346, w * 0.53), y0: 66, x1: w - 10, y1: hh - 8 };
     return { x0: 14, y0: 80, x1: w - 14, y1: hh - Math.min(250, hh * 0.34) - 10 };
   }
   const fitCam = new THREE.PerspectiveCamera(50, 1, 0.5, 900), _p = new THREE.Vector3(), _q = new THREE.Vector3();
   // Plan the stop view for stop st: the points that must show (every seat with its head and number bubble, both doors),
-  // the ones that should (the pavement by the exit door where people wave, the first person in the queue), a true
-  // side-on view first; where a building blocks it, a steeper look from higher up, then a little along the kerb.
+  // the ones that should (the pavement by the exit door where people wave, then the whole bus), fitted into the free
+  // space beside the card with the heads well apart. A true side-on view first; where a building blocks it, closer,
+  // then a little along the kerb, then from higher up looking down over the building.
   function planStopCam(st, key) {
     const P0 = settle && settle.stop === st ? settle.to : { fx, fz, h };
     const c = Math.cos(P0.h), s = Math.sin(P0.h), kx = c, kz = -s, f = fwdOf(P0.h), g0 = W().groundY(P0.fx, P0.fz);
     const lw = (lx, ly, lz) => new THREE.Vector3(P0.fx + c * lx + s * lz, ly + g0, P0.fz - s * lx + c * lz);
-    const heads = [], req = [], wave = [], queue = [];
+    const heads = [], req = [], wave = [];
     for (let i = 0; i < 10; i++) {
       const q = B.seats[i];
       heads.push(lw(q.x, q.y + 1.0, q.z)); req.push(lw(q.x, q.y + 2.25, q.z), lw(q.x, q.y - 0.4, q.z));
@@ -934,10 +942,6 @@
     }
     req.push(lw(ex.x, 0, ex.z), lw(ex.x, 2.5, ex.z));
     for (const al of [1.2, -1.6]) wave.push(lw(ex.x + 2.6, 0, ex.z + al), lw(ex.x + 2.6, 2.3, ex.z + al));
-    if (st.pos) {                                   // the first one in the queue at the shelter (jobs.js puts it there)
-      const qx = st.pos.x + st.fwd.x * 3.4 - st.side.x, qz = st.pos.z + st.fwd.z * 3.4 - st.side.z;
-      queue.push(new THREE.Vector3(qx, g0, qz), new THREE.Vector3(qx, g0 + 2.1, qz));
-    }
     const cam = BB.camera, R = stopFrameRect(), Wd = innerWidth, Hd = innerHeight;
     fitCam.fov = cam.fov; fitCam.aspect = cam.aspect; fitCam.updateProjectionMatrix();
     const aw = Math.max(80, R.x1 - R.x0), ah = Math.max(80, R.y1 - R.y0), rx = (R.x0 + R.x1) / 2, ry = (R.y0 + R.y1) / 2;
@@ -965,42 +969,68 @@
       }
       return look;
     }
-    // the distance at which pts fill the free space (to 88%), and at which neighbouring heads are 36 px apart
+    // the distance at which pts fill the free space (to about 90%), and at which neighbouring heads are 36 px apart
     function fitD(yaw, pitch, pts) {
       let d = 14;
-      for (let it = 0; it < 4; it++) { place(yaw, pitch, d, pts); const bx = box(pts); d = BB.clamp(d * Math.max(bx.w / (aw * 0.88), bx.h / (ah * 0.88)), 4, 60); }
+      for (let it = 0; it < 4; it++) { place(yaw, pitch, d, pts); const bx = box(pts); d = BB.clamp(d * Math.max(bx.w / (aw * 0.93), bx.h / (ah * 0.9)), 4, 60); }
       return d;
     }
     function spacingD(yaw, pitch) {
       const d = 14; place(yaw, pitch, d, req);
-      const hp = heads.map(proj); let mn = 1e9;
-      for (let i = 0; i < 10; i++) for (let j = i + 1; j < 10; j++) mn = Math.min(mn, Math.hypot(hp[i][0] - hp[j][0], hp[i][1] - hp[j][1]));
-      return d * mn / 36;
+      return d * headGap() / 36;
     }
-    const minD = Hd <= 520 ? 9 : 12;
-    function plan(yaw, pitch) {
-      const dReq = fitD(yaw, pitch, req), dSp = spacingD(yaw, pitch), lim = Math.max(dReq, dSp);
+    // the whole bus (nose to tail, wheels to roof), shown when it fits with the heads still well apart
+    const Hb = M ? M.height : 3.2, tail = ART ? -(HITCH + R_CTR + LR / 2) : -LF / 2, whole = [];
+    for (const z of [LF / 2 + 0.3, tail - 0.3]) whole.push(lw(1.3, 0, z), lw(1.3, Hb + 0.2, z));
+    const reqWave = req.concat(wave), all = reqWave.concat(whole);
+    function plan(yaw, pitch, minD, withWave) {
+      const dReq = fitD(yaw, pitch, req);
       let pts = req, d = dReq;
-      for (const more of [req.concat(wave), req.concat(wave, queue)]) { const dm = fitD(yaw, pitch, more); if (dm <= lim) { pts = more; d = dm; } else break; }
+      if (withWave) {                          // the waving spot (and the whole bus) too, if the heads stay 36 px apart
+        const lim = Math.max(dReq * 1.08, spacingD(yaw, pitch));
+        for (const more of [all, reqWave]) { const dm = fitD(yaw, pitch, more); if (dm <= lim) { pts = more; d = dm; break; } }
+      }
       d = Math.max(d, minD);
       const look = place(yaw, pitch, d, pts);
-      return { pos: fitCam.position.clone(), look, d };
+      return { pos: fitCam.position.clone(), look, d, gap: headGap() };
+    }
+    // the smallest on-screen gap between neighbouring heads (in a row, and across the two rows) for fitCam as it is
+    function headGap() {
+      const hp = heads.map(proj); let mn = 1e9;
+      for (let i = 0; i < 10; i++) for (let j = i + 1; j < 10; j++) {
+        if ((i < 5) === (j < 5) ? j - i !== 1 : Math.abs((i % 5) - (j % 5)) > 1) continue;
+        mn = Math.min(mn, Math.hypot(hp[i][0] - hp[j][0], hp[i][1] - hp[j][1]));
+      }
+      return mn;
     }
     const mid = lw(0, 2.2, -frontOff());
     const checks = [heads[0], heads[4], heads[9], req[20], req[21], req[22], req[23], mid];
     const clear = (p) => {
-      if (W().insideTall(p.pos.x, p.pos.y, p.pos.z) || W().pushOut(p.pos.x, p.pos.z, 1.4).hit > 0.01) return false;
+      if (W().insideTall(p.pos.x, p.pos.y, p.pos.z)) return false;
       for (const v of checks) if (W().blocksSight(p.pos.x, p.pos.y, p.pos.z, v.x, v.y, v.z)) return false;
       if (underViaduct(p.pos.x, p.pos.z) && p.pos.y > 10.2) return false;
       return true;
     };
     const D2R = Math.PI / 180;
-    const cands = [];
-    for (const pitch of [15, 22, 30, 38]) cands.push([0, pitch]);
-    for (const yaw of [10, -10, 18, -18]) for (const pitch of [15, 24, 34]) cands.push([yaw, pitch]);
-    let pick = null;
-    for (const [yaw, pitch] of cands) { const p = plan(yaw * D2R, pitch * D2R); if (clear(p)) { pick = p; break; } }
-    if (!pick) pick = plan(0, 40 * D2R);
+    // [yaw, pitch, nearest distance]: not too close first (people on the pavement would loom large), then closer;
+    // then a little along the kerb; then higher up, looking down over the building in the way
+    const far = Hd <= 520 ? 9 : 12, near = Hd <= 520 ? 7.5 : 9.5, cands = [];
+    for (const pitch of [15, 22, 30, 38]) cands.push([0, pitch, far, true]);
+    for (const pitch of [15, 22, 30, 38]) cands.push([0, pitch, near, true]);
+    for (const pitch of [15, 22, 30, 38]) cands.push([0, pitch, near, false]);
+    for (const yaw of [10, -10]) for (const pitch of [15, 24]) cands.push([yaw, pitch, near, false]);
+    for (const pitch of [38, 46, 54, 62]) cands.push([0, pitch, near, true]);
+    for (const yaw of [18, -18]) for (const pitch of [24, 40]) cands.push([yaw, pitch, near, false]);
+    // the first clear one whose neighbouring heads are well apart; on a small screen where none is, the clear one
+    // with the most room between the heads (a steeper look lifts the far row above the near one)
+    let pick = null, best = null;
+    for (const [yaw, pitch, md, wv] of cands) {
+      const p = plan(yaw * D2R, pitch * D2R, md, wv);
+      if (!clear(p)) continue;
+      if (p.gap >= 34) { pick = p; break; }
+      if (!best || p.gap > best.gap + 2) best = p;
+    }
+    pick = pick || best || plan(0, 62 * D2R, near, true);
     return { key, pos: pick.pos, look: pick.look };
   }
   function desiredCamera(dt) {
@@ -1071,7 +1101,7 @@
     }
     if (underViaduct(camPos.x, camPos.z) || underViaduct(mx, mz)) maxUp = 10.2;
     camPos.y = Math.min(camPos.y, maxUp);
-    clearSight(m, maxUp);
+    if (!((B.atStop || settle) && mode === 'chase')) clearSight(m, maxUp);
   }
   function snapCamera() { camH = h; desiredCamera(0); BB.camera.position.copy(camPos); curLook.copy(camLook); BB.camera.lookAt(curLook); }
   const curLook = new THREE.Vector3();
@@ -1093,9 +1123,11 @@
     let px = m.x + Math.sin(a) * r, pz = m.z + Math.cos(a) * r;
     // while swinging: never inside a pillar, a trunk or a building, and go over anything in the way
     const capY = underViaduct(px, pz) || underViaduct(m.x, m.z) ? 10.2 : 30;
-    const q = W().pushOut(px, pz, 1.4);
-    if (q.hit > 0.01) { px = q.x; pz = q.z; }
-    for (let k = 0; k < 6 && W().blocksSight(px, ny, pz, m.x, 2.2, m.z); k++) {
+    // (the stop view was planned clear of buildings: once nearly there it is used as it is, and holds still)
+    const settled = stopView && stopCam && Math.hypot(px - camPos.x, ny - camPos.y, pz - camPos.z) < 2.5;
+    const q = stopView && stopCam ? null : W().pushOut(px, pz, 1.4);
+    if (q && q.hit > 0.01) { px = q.x; pz = q.z; }
+    for (let k = 0; k < 6 && !settled && W().blocksSight(px, ny, pz, m.x, 2.2, m.z); k++) {
       if (ny < capY - 0.5) ny = Math.min(capY, ny + 1.6);
       else { px = m.x + (px - m.x) * 0.85; pz = m.z + (pz - m.z) * 0.85; }
     }
@@ -1164,13 +1196,16 @@
     // the middle of a junction); plan afresh when the target changes or the bus has left the route
     let pts = null;
     if (routePts && routeFor === B.target && routePts.length > 2) {
-      let bi = -1, bd = 1e9;
+      // (the distance to the line's segments, not just its corner points: a long straight has none in between)
+      let bi = -1, bd = 1e9, bq = null;
       for (let i = 0, acc = 0; i < routePts.length - 1 && acc < 30; i++) {
-        if (i) acc += Math.hypot(routePts[i].x - routePts[i - 1].x, routePts[i].z - routePts[i - 1].z);
-        const d = Math.hypot(routePts[i].x - fx, routePts[i].z - fz); if (d < bd) { bd = d; bi = i; }
+        const a = routePts[i], b = routePts[i + 1], dx = b.x - a.x, dz = b.z - a.z, l2 = dx * dx + dz * dz || 1;
+        const tt = BB.clamp(((fx - a.x) * dx + (fz - a.z) * dz) / l2, 0, 1), d = Math.hypot(a.x + dx * tt - fx, a.z + dz * tt - fz);
+        if (d < bd) { bd = d; bi = i; bq = { x: a.x + dx * tt, z: a.z + dz * tt }; }
+        acc += Math.sqrt(l2);
       }
       const f = fwdOf(h), nx = routePts[Math.min(routePts.length - 1, bi + 1)], dirOk = (nx.x - routePts[bi].x) * f.x + (nx.z - routePts[bi].z) * f.z > -0.2;
-      if (bd < 5 && dirOk) pts = routePts.slice(Math.max(0, bi - 1));
+      if (bd < 5 && dirOk) pts = [bq].concat(routePts.slice(bi + 1));
     }
     if (!pts) {
       const c = routeTo(B.target);
@@ -1292,6 +1327,8 @@
     if (ART && v < 0) hr += wrapA(h - hr) * Math.min(1, -ds * 0.25 + dt * 0.9);  // reversing: a helping hand straightens it
     const bend = wrapA(hr - h);
     if (Math.abs(bend) > MAX_BEND) hr = wrapA(h + Math.sign(bend) * MAX_BEND);
+    // a soft kerb: wheels running up onto the pavement (a long bus cutting a corner) are eased back onto the road
+    if (v > 0.8) kerbGuide(dt);
     // never crash: slide along walls, trees and posts
     const push = collide();
     if (push.d > 0.01) {
@@ -1309,19 +1346,36 @@
         const lx0 = f1.z, lz0 = -f1.x, lean = push.d > 0.01 ? (push.x * lx0 + push.z * lz0) / push.d : 0;
         jamSide = Math.abs(B.steer) > 0.1 ? Math.sign(B.steer) * Math.sign(v || 1) : Math.abs(lean) > 0.15 ? Math.sign(lean) : 1;
       }
-      if (jamT > 0.35) {
+      if (jamT > 0.3) {
         const lx = f1.z, lz = -f1.x;
         fx += lx * jamSide * 1.6 * dt; fz += lz * jamSide * 1.6 * dt;
         collide();
       }
-      if (jamT > 2.4 && !jamFlipped) { jamFlipped = true; jamSide = -jamSide; }   // that way is blocked: try the other
-      if (jamT > 5) { jamT = 0; jamSide = 0; jamFlipped = false; hopFree(); }   // still hemmed in: a happy hop onto the road
+      if (jamT > 1.6 && !jamFlipped) { jamFlipped = true; jamSide = -jamSide; }   // that way is blocked: try the other
+      if (jamT > 3.4) { jamT = 0; jamSide = 0; jamFlipped = false; hopFree(); }   // still hemmed in: a happy hop onto the road
     } else if (got > wantD * 0.6 || wantD <= 0.004) { jamT = 0; jamSide = 0; jamFlipped = false; }
     // speed, fuel and wheels follow how far the bus really moved (not how hard it pushes)
     const moved = (fx - sx0) * f1.x + (fz - sz0) * f1.z, real = Math.abs(moved) / Math.max(dt, 1e-4);
     if (Math.abs(B.speed) > real + 0.6) B.speed = Math.sign(B.speed) * (real + 0.6);
     realMove = moved;
     return Math.abs(moved);
+  }
+  // The soft kerb: each of the bus's circles that hangs over the kerb (by up to 3.5: further out, on purpose, it is
+  // left alone) is pushed gently back toward the road; on a bendy the rear carriage swings back about the hitch.
+  function kerbGuide(dt) {
+    const cs = busCircles(), RH = C.roadHalf, f = fwdOf(h), hx = fx - f.x * HITCH, hz = fz - f.z * HITCH;
+    let px = 0, pz = 0, n = 0, swing = 0;
+    for (let i = 0; i < cs.length; i++) {
+      const c = cs[i], near = nearestRoad(c[0], c[1]);
+      if (!near || near.d < 1e-3) continue;
+      const over = near.d + c[2] * 0.6 - RH;
+      if (over <= 0 || over > 3.5) continue;
+      const k = Math.min(over, 1.2) * 1.6 * dt, dx = (near.x - c[0]) / near.d * k, dz = (near.z - c[1]) / near.d * k;
+      if (ART && i >= nFront) { const vx = c[0] - hx, vz = c[1] - hz, l2 = vx * vx + vz * vz || 1; swing += (dx * vz - dz * vx) / l2; }
+      else { px += dx; pz += dz; n++; }
+    }
+    if (n) { fx += px / n; fz += pz / n; }
+    if (swing) { const nb = wrapA(hr + swing - h); if (Math.abs(nb) <= MAX_BEND) hr = wrapA(hr + swing); }
   }
   // Assist's steering: pure pursuit of a point ahead on the ribbon (with a target) or on the kerb lane of the road
   // the bus is on, in the way it is going. Returns a steer angle, or null when off the roads.
@@ -1360,8 +1414,9 @@
     const e = (ax - qx) * Math.cos(th) + (az - qz) * -Math.sin(th);          // + = the bus is left of the path
     const steer = wrapA(th - h) - Math.atan2(1.6 * e, Math.abs(B.speed) + 2);
     // how much the path turns in the next ~12 (for easing off before bends)
-    let j = bi + 1, acc = 0; while (j < r.length - 1 && acc < 12) { acc += Math.hypot(r[j + 1].x - r[j].x, r[j + 1].z - r[j].z); j++; }
-    const thA = Math.atan2(r[j].x - r[Math.max(0, j - 1)].x, r[j].z - r[Math.max(0, j - 1)].z);
+    // (measured from the bus's own point on the path: a long straight ahead counts as straight)
+    let j = bi + 1, acc = Math.hypot(r[bi + 1].x - qx, r[bi + 1].z - qz), thA = th;
+    while (j < r.length - 1 && acc < 12) { acc += Math.hypot(r[j + 1].x - r[j].x, r[j + 1].z - r[j].z); j++; thA = Math.atan2(r[j].x - r[j - 1].x, r[j].z - r[j - 1].z); }
     return { steer: BB.clamp(steer, -ms, ms), alpha: Math.max(Math.abs(wrapA(thA - th)) * 0.7, Math.abs(wrapA(th - h)), Math.min(1, Math.abs(e) / 4)) };
   }
   // Assist's parking: within ~34 behind the target bay (mid point), close to its line and heading roughly its way,
