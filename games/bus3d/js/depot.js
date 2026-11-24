@@ -2,12 +2,13 @@
    Cash (bus3d.cash, never taken away except when the child buys something), the saved progress (BB.save, stored as
    bus3d.save by core.js) and the garage screen, opened when the bus pulls in at the depot:
    - the bus rises on a striped turntable lift that sways gently, a 3D fuel pump in front of it, a striped awning;
-   - a paper panel with big picture tabs: Fuel, Paint, Stickers, Hats, Extras (spoken on tap);
+   - a paper panel with big picture tabs: Fuel, Paint, Stickers, Lights, Bumpers, Wheels & rims, Extras (spoken on tap);
    - the first tap on something new previews it live on the bus and says its price, a second tap buys it
      (coin jingle, coins fly from the counter); too few coins -> "Let's do more jobs!" and a coin goal to aim for;
-   - fuel is never refused: short of coins, the rest is free.
-   Stickers and hats are built here and hung on BB.bus.stickerAnchors / BB.bus.hatMount when bus.js provides them
-   (otherwise on fallback spots on the carriages).
+   - fuel is free: every visit fills the tank (with the pump's gurgle), and the bus never leaves hungry.
+   Stickers are built here and hung on BB.bus.stickerAnchors (or fallback spots on the carriages); parts (lights,
+   bumpers, wheels, rims) are drawn by bus.js (B.setPart / applyCustom with save.parts) and only sold here.
+   Saved: bus3d.save.parts {kind: id} and partsOwned ['kind:id'].
    Exposes BB.depot = { open(), close(), cash, add(n), spend(n), save, applyLooks(), update(dt) };
    emits cash:changed, depot:open, depot:closed. */
 (function () {
@@ -35,25 +36,42 @@
     { id: 'flower', say: 'A flower sticker!', price: 4, name: 'flower' }, { id: 'rainbow', say: 'A rainbow sticker!', price: 5, name: 'rainbow' },
     { id: 'cat', say: 'A cat sticker!', price: 5, name: 'cat' }, { id: 'otter', say: 'An otter sticker!', price: 5, name: 'otter' },
   ];
-  const HATS = [
-    { id: 'party', say: 'A party hat!', price: 5, love: 'I love my party hat!' }, { id: 'flowers', say: 'A flower crown!', price: 6, love: 'I love my flower crown!' },
-    { id: 'bunny', say: 'Bunny ears!', price: 8, love: 'I love my bunny ears!' }, { id: 'crown', say: 'A golden crown!', price: 10, love: 'I love my golden crown!' },
-  ];
+  // Real vehicle parts (the owner's choice): lights, bumpers, wheels and rims. bus.js draws them (B.PARTS, B.setPart);
+  // the first item of each kind is the bus's own part (free, owned). Names and ids come from B.PARTS when it exists.
+  const PART_KINDS = ['lights', 'bumpers', 'wheels', 'rims'];
+  const MY_PARTS = {
+    lights: [{ id: 'std', name: 'Round lamps' }, { id: 'fog', name: 'Fog lamps' }, { id: 'led', name: 'Light strip' }, { id: 'roof', name: 'Roof lamps' }],
+    bumpers: [{ id: 'std', name: 'Bus bumper' }, { id: 'chrome', name: 'Shiny bumper' }, { id: 'sport', name: 'Sport bumper' }, { id: 'bull', name: 'Big bumper' }],
+    wheels: [{ id: 'std', name: 'Bus wheels' }, { id: 'big', name: 'Big wheels' }, { id: 'chunky', name: 'Chunky tyres' }, { id: 'white', name: 'White-wall tyres' }],
+    rims: [{ id: 'std', name: 'Silver rims' }, { id: 'gold', name: 'Gold rims' }, { id: 'red', name: 'Red rims' }, { id: 'blue', name: 'Blue rims' }, { id: 'star', name: 'Star rims' }],
+  };
+  const KIND_PRICE = { lights: [4, 6, 8, 10, 12], bumpers: [5, 7, 9, 11, 12], wheels: [6, 8, 10, 12, 12], rims: [4, 6, 8, 10, 12] };
+  function partsOf(kind) {
+    const theirs = BB.bus && BB.bus.PARTS && Array.isArray(BB.bus.PARTS[kind]) && BB.bus.PARTS[kind].length ? BB.bus.PARTS[kind] : null;
+    return (theirs || MY_PARTS[kind]).map((it, i) => ({ kind, id: String(it.id), name: it.name || String(it.id), price: i === 0 ? 0 : KIND_PRICE[kind][Math.min(i - 1, 4)] }));
+  }
+  const partKey = (kind, id) => kind + ':' + id;
+  const partOn = (kind, id) => (S.parts[kind] || partsOf(kind)[0].id) === id;
+  const partOwned = (kind, id, i) => i === 0 || S.partsOwned.includes(partKey(kind, id));
+  const partSay = (pt) => pt.name + '!';
+  const partLove = (pt) => `I love my ${pt.name.toLowerCase()}!`;
   // Upgrades are fun, never needed.
   const UPGRADES = [
     { id: 'horn', say: 'A horn that plays a tune!', price: 12, love: 'I love my new horn! Toot toot!' },
-    { id: 'lights', say: 'Super bright headlights!', price: 15, love: 'I love my bright lights!' },
     { id: 'sticker3', say: 'A super sticker spot! Now the bus can wear three stickers.', price: 20, love: 'I love my super sticker spot!' },
   ];
   const PAINT_SAY = { green: 'Green!', red: 'Red!', blue: 'Blue!', yellow: 'Yellow!', purple: 'Purple!', pink: 'Pink!' };
   const TABS = [
     { id: 'fuel', say: 'Fuel!' }, { id: 'paint', say: 'Paint!' }, { id: 'sticker', say: 'Stickers!' },
-    { id: 'hat', say: 'Hats!' }, { id: 'upgrade', say: 'Super extras!' },
+    { id: 'lights', say: 'Lights!' }, { id: 'bumpers', say: 'Bumpers!' }, { id: 'wheels', say: 'Wheels and rims!' }, { id: 'upgrade', say: 'Super extras!' },
   ];
   const slots = () => (S.upgrades.sticker3 ? 3 : 2);
   if (!S.paints.includes('green')) S.paints.unshift('green');
   S.stickers = S.stickers.filter((id) => STICKERS.some((s) => s.id === id)).slice(0, slots());
-  if (S.hat && !HATS.some((h) => h.id === S.hat)) S.hat = null;
+  // Old saves: hats are gone from the shop (their coins come back quietly); "bright lights" became roof lamps.
+  if (BB.saveMigrate && BB.saveMigrate.hatRefund) { D.cash += BB.saveMigrate.hatRefund; BB.store.set('cash', D.cash); }
+  if (S.upgrades.lights) { delete S.upgrades.lights; if (!S.partsOwned.includes('lights:roof')) S.partsOwned.push('lights:roof'); }
+  BB.saveNow();
 
   // ---------- pictures (paper-cut look: flat shapes, a darker crescent lower right, die-cut white edge) ----------
   const cache = {};
@@ -135,40 +153,59 @@
       x.strokeStyle = '#3a2a3c'; x.lineWidth = 2.4; x.beginPath(); x.moveTo(50, 63); x.quadraticCurveTo(45, 70, 41, 66); x.moveTo(50, 63); x.quadraticCurveTo(55, 70, 59, 66); x.stroke();
     },
   };
-  const HAT_ART = {
-    party: (x) => {
-      shaded(x, (p) => { p.moveTo(50, 8); p.lineTo(80, 84); p.lineTo(20, 84); p.closePath(); }, P.berry);
-      x.save(); const cl = new Path2D(); cl.moveTo(50, 8); cl.lineTo(80, 84); cl.lineTo(20, 84); cl.closePath(); x.clip(cl);
-      x.fillStyle = P.honeyLight; for (let i = 0; i < 4; i++) { x.save(); x.translate(50, 30 + i * 17); x.rotate(-0.35); x.fillRect(-40, -3.5, 80, 7); x.restore(); }
-      x.restore();
-      circ(x, 50, 9, 9, P.coral); circ(x, 47, 6, 3, '#ffb3a9');
-      shaded(x, (p) => p.ellipse(50, 85, 33, 8, 0, 0, Math.PI * 2), P.coral);
+  // Parts pictures. Known ids get their own picture; unknown ones (from B.PARTS) get the kind's picture in a colour.
+  const hashCol = (str) => { const cols = [P.coral, P.honey, P.teal, P.berry, P.plum, P.leaf, P.rose]; let h = 0; for (const c of str) h = (h * 31 + c.charCodeAt(0)) | 0; return cols[Math.abs(h) % cols.length]; };
+  function tyre(x, R, tread, wall) {
+    shaded(x, (p) => p.arc(50, 52, R, 0, Math.PI * 2), '#3a343f');
+    if (tread) { x.fillStyle = '#3a343f'; for (let i = 0; i < 12; i++) { x.save(); x.translate(50, 52); x.rotate(i * Math.PI / 6); x.fillRect(-5, -R - 5, 10, 8); x.restore(); } }
+    if (wall) { x.strokeStyle = '#fff6e0'; x.lineWidth = 6; x.beginPath(); x.arc(50, 52, R * 0.72, 0, Math.PI * 2); x.stroke(); }
+  }
+  function rim(x, R, col, star) {
+    shaded(x, (p) => p.arc(50, 52, R, 0, Math.PI * 2), col);
+    if (star) { shaded(x, (p) => starPath(p, 50, 52, R * 0.85, R * 0.4), light(col)); }
+    else { x.fillStyle = dark(col, 0.25); for (let i = 0; i < 5; i++) { const a = i * Math.PI * 0.4 - Math.PI / 2; circ(x, 50 + Math.cos(a) * R * 0.55, 52 + Math.sin(a) * R * 0.55, R * 0.17, dark(col, 0.25)); } }
+    circ(x, 50, 52, R * 0.22, dark(col, 0.35)); ell(x, 42, 44, R * 0.25, R * 0.15, 'rgba(255,255,255,.5)', -0.6);
+  }
+  const light = (hex) => mixHex(hex, '#ffffff', 0.35);
+  function mixHex(a, b, t) { const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16); const m = (sh) => Math.round(((pa >> sh) & 255) * (1 - t) + ((pb >> sh) & 255) * t); return '#' + [16, 8, 0].map((sh) => m(sh).toString(16).padStart(2, '0')).join(''); }
+  function lamp(x, cx, cy, r, glow) {
+    if (glow) { const g = x.createRadialGradient(cx, cy, r * 0.5, cx, cy, r * 2.2); g.addColorStop(0, 'rgba(255,240,170,.8)'); g.addColorStop(1, 'rgba(255,240,170,0)'); x.fillStyle = g; x.fillRect(cx - r * 2.2, cy - r * 2.2, r * 4.4, r * 4.4); }
+    shaded(x, (p) => p.arc(cx, cy, r, 0, Math.PI * 2), '#9aa4b0'); circ(x, cx - 1, cy - 1, r * 0.72, '#fffbe0'); ell(x, cx - r * 0.3, cy - r * 0.3, r * 0.25, r * 0.16, '#ffffff', -0.6);
+  }
+  const PART_ART = {
+    lights: {
+      std: (x) => { lamp(x, 50, 52, 30, true); },
+      fog: (x) => { shaded(x, (p) => p.rect(10, 62, 80, 10), '#6c6470'); lamp(x, 28, 50, 15, true); lamp(x, 72, 50, 15, true); for (const cx of [28, 72]) circ(x, cx - 1, 49, 9, P.honeyLight); },
+      led: (x) => { shaded(x, (p) => p.roundRect ? p.roundRect(8, 40, 84, 22, 11) : p.rect(8, 40, 84, 22), '#6c6470'); for (let i = 0; i < 7; i++) lamp(x, 18 + i * 11, 51, 5, true); },
+      roof: (x) => { shaded(x, (p) => p.rect(8, 58, 84, 9), '#6c6470'); shaded(x, (p) => p.rect(14, 66, 6, 18), '#6c6470'); shaded(x, (p) => p.rect(80, 66, 6, 18), '#6c6470'); for (let i = 0; i < 4; i++) lamp(x, 21 + i * 19.5, 46, 9, true); },
     },
-    flowers: (x) => {
-      shaded(x, (p) => p.ellipse(50, 66, 42, 13, 0, 0, Math.PI * 2), P.leaf);
-      const cols = [P.rose, P.honeyLight, P.coral, '#c9a7f0', P.rose];
-      cols.forEach((c, i) => {
-        const cx = 16 + i * 17, cy = 58 - Math.sin((i / 4) * Math.PI) * 14;
-        for (let k = 0; k < 5; k++) { const a = k * Math.PI * 0.4; circ(x, cx + Math.cos(a) * 7, cy + Math.sin(a) * 7, 6, c); }
-        circ(x, cx, cy, 4.5, P.honey);
-      });
+    bumpers: {
+      std: (x) => { shaded(x, (p) => p.roundRect ? p.roundRect(8, 40, 84, 24, 8) : p.rect(8, 40, 84, 24), '#6c6470'); },
+      chrome: (x) => { shaded(x, (p) => p.roundRect ? p.roundRect(8, 38, 84, 26, 13) : p.rect(8, 38, 84, 26), '#c9d2db'); x.fillStyle = 'rgba(255,255,255,.85)'; x.fillRect(16, 43, 60, 5); ell(x, 82, 45, 4, 2.5, '#fff'); },
+      sport: (x) => { shaded(x, (p) => { p.moveTo(6, 40); p.lineTo(94, 40); p.lineTo(86, 68); p.lineTo(14, 68); p.closePath(); }, P.coral); x.fillStyle = '#3a2a3c'; for (const vx of [22, 42, 62]) x.fillRect(vx, 52, 16, 6); },
+      bull: (x) => { x.strokeStyle = '#4a4250'; x.lineWidth = 9; x.lineCap = 'round'; x.beginPath(); x.moveTo(14, 74); x.lineTo(14, 34); x.quadraticCurveTo(50, 22, 86, 34); x.lineTo(86, 74); x.moveTo(14, 54); x.lineTo(86, 54); x.moveTo(38, 30); x.lineTo(38, 74); x.moveTo(62, 30); x.lineTo(62, 74); x.stroke(); },
     },
-    bunny: (x) => {
-      for (const s of [-1, 1]) {
-        x.save(); x.translate(50 + s * 16, 50); x.rotate(s * 0.18);
-        shaded(x, (p) => p.ellipse(0, -10, 12, 36, 0, 0, Math.PI * 2), '#fbf3f6');
-        ell(x, 0, -8, 6, 26, '#ffb7c9');
-        x.restore();
-      }
-      shaded(x, (p) => p.ellipse(50, 86, 36, 8, 0, 0, Math.PI * 2), '#f2e6ec');
+    wheels: {
+      std: (x) => { tyre(x, 38); rim(x, 20, '#c9d2db'); },
+      big: (x) => { tyre(x, 45); rim(x, 24, '#c9d2db'); },
+      chunky: (x) => { tyre(x, 36, true); rim(x, 18, '#c9d2db'); },
+      white: (x) => { tyre(x, 40, false, true); rim(x, 20, '#c9d2db'); },
     },
-    crown: (x) => {
-      shaded(x, (p) => { p.moveTo(14, 82); p.lineTo(14, 34); p.lineTo(32, 54); p.lineTo(50, 22); p.lineTo(68, 54); p.lineTo(86, 34); p.lineTo(86, 82); p.closePath(); }, P.honey);
-      x.fillStyle = P.honeyDark; x.fillRect(14, 70, 72, 6);
-      circ(x, 50, 60, 6, P.coral); circ(x, 30, 64, 4.5, '#4fa3e0'); circ(x, 70, 64, 4.5, P.leaf);
-      for (const [cx, cy] of [[14, 32], [50, 20], [86, 32]]) circ(x, cx, cy, 5, P.honeyLight);
+    rims: {
+      std: (x) => { tyre(x, 42); rim(x, 28, '#c9d2db'); },
+      gold: (x) => { tyre(x, 42); rim(x, 28, '#f5b83d'); },
+      red: (x) => { tyre(x, 42); rim(x, 28, P.coral); },
+      blue: (x) => { tyre(x, 42); rim(x, 28, '#4fa3e0'); },
+      star: (x) => { tyre(x, 42); rim(x, 28, P.honeyLight, true); },
     },
   };
+  const GENERIC_PART = {
+    lights: (c) => (x) => { lamp(x, 50, 52, 30, true); circ(x, 50, 52, 12, c); },
+    bumpers: (c) => (x) => { shaded(x, (p) => p.rect(8, 40, 84, 24), c); },
+    wheels: (c) => (x) => { tyre(x, 40); rim(x, 20, c); },
+    rims: (c) => (x) => { tyre(x, 42); rim(x, 28, c); },
+  };
+  const partPic = (kind, id, size = 128) => art('pt-' + kind + '-' + id, size, (PART_ART[kind] && PART_ART[kind][id]) || GENERIC_PART[kind](hashCol(id)));
   const ICON_ART = {
     fuel: (x) => { x.drawImage(BB.pic('pump', 100), 0, 0); },
     paint: (x) => {   // a paint pot with a drip
@@ -180,7 +217,9 @@
       shaded(x, (p) => { p.moveTo(58, 34); p.lineTo(70, 40); p.lineTo(66, 50); p.lineTo(54, 44); p.closePath(); }, P.teal);
     },
     sticker: (x) => { x.drawImage(art('st-star', 100, STICKER_ART.star, 7), 0, 0); },
-    hat: (x) => { x.drawImage(art('hat-party', 100, HAT_ART.party), 0, 0); },
+    lights: (x) => { x.drawImage(art('pt-lights-fog', 100, PART_ART.lights.fog), 0, 0); },
+    bumpers: (x) => { x.drawImage(art('pt-bumpers-chrome', 100, PART_ART.bumpers.chrome), 0, 0); },
+    wheels: (x) => { x.drawImage(art('pt-rims-gold', 100, PART_ART.rims.gold), 0, 0); },
     upgrade: (x) => {   // a spanner
       x.save(); x.translate(50, 50); x.rotate(-0.75);
       shaded(x, (p) => { p.rect(-8, -6, 16, 46); }, '#9aa4b0');
@@ -208,7 +247,6 @@
     },
   };
   const stickerPic = (id, size = 128) => art('st-' + id, size, STICKER_ART[id], 7);
-  const hatPic = (id, size = 128) => art('hat-' + id, size, HAT_ART[id]);
   const iconPic = (id, size = 128) => art('ic-' + id, size, ICON_ART[id]);
   function paintPic(color, size = 128) {
     return art('pt-' + color, size, (x) => {
@@ -216,11 +254,11 @@
       ell(x, 36, 36, 10, 6, 'rgba(255,255,255,.55)', -0.6);
     });
   }
-  D.pics = { sticker: stickerPic, hat: hatPic, icon: iconPic };
+  D.pics = { sticker: stickerPic, part: partPic, icon: iconPic };
   D.stickerPic = (id) => (STICKER_ART[id] ? stickerPic(id, 128) : null);
   const cv = (src, css) => { const c = mkCanvas(src.width); c.getContext('2d').drawImage(src, 0, 0); if (css) c.style.cssText = css; return c; };
 
-  // ---------- 3D: stickers and hats on the bus ----------
+  // ---------- 3D: stickers on the bus ----------
   const stickerMat = {}, stickerGeo = new THREE.PlaneGeometry(1.35, 1.35);
   function stickerMesh(id) {
     if (!stickerMat[id]) {
@@ -230,66 +268,28 @@
     const m = new THREE.Mesh(stickerGeo, stickerMat[id]); m.name = 'sticker'; m.renderOrder = 2;
     return m;
   }
-  const hatGeo = {};
-  function hatMesh(id) {
-    if (!hatGeo[id]) {
-      const b = BB.mk.builder();
-      if (id === 'party') {
-        b.cyl(0.02, 0.62, 1.5, 10, P.berry, 0, 0.05, 0);
-        for (let i = 0; i < 3; i++) { const y = 0.3 + i * 0.38, r = 0.62 * (1 - (y + 0.05) / 1.55); b.cyl(r + 0.03, r + 0.06, 0.12, 10, P.honeyLight, 0, y, 0); }
-        b.ball(0.2, P.coral, 0, 1.6, 0, 1);
-        b.cyl(0.7, 0.7, 0.1, 12, P.coral, 0, 0, 0);
-      } else if (id === 'flowers') {
-        b.add(new THREE.TorusGeometry(0.72, 0.12, 6, 16), P.leaf, 0, 0.12, 0, 0, Math.PI / 2);
-        const cols = [P.rose, P.honeyLight, P.coral, '#c9a7f0', P.rose, P.honeyLight, P.coral, '#c9a7f0'];
-        cols.forEach((c, i) => {
-          const a = i / cols.length * Math.PI * 2, cx = Math.cos(a) * 0.72, cz = Math.sin(a) * 0.72;
-          for (let k = 0; k < 5; k++) { const t = k / 5 * Math.PI * 2; b.ball(0.13, c, cx + Math.cos(t) * 0.14, 0.32, cz + Math.sin(t) * 0.14, 0, 1, 0.6, 1); }
-          b.ball(0.09, P.honey, cx, 0.38, cz);
-        });
-      } else if (id === 'bunny') {
-        b.cyl(0.5, 0.55, 0.16, 10, '#f2e6ec', 0, 0, 0);
-        for (const s of [-1, 1]) {
-          b.add(new THREE.SphereGeometry(0.22, 8, 6), '#fbf3f6', s * 0.3, 0.95, 0, 0, 0, -s * 0.18, 1, 4, 0.55);
-          b.add(new THREE.SphereGeometry(0.12, 8, 6), '#ffb7c9', s * 0.3 - s * 0.01, 0.95, 0.1, 0, 0, -s * 0.18, 1, 6, 0.4);
-        }
-      } else if (id === 'crown') {
-        b.cyl(0.62, 0.62, 0.42, 10, P.honey, 0, 0, 0);
-        for (let i = 0; i < 6; i++) {
-          const a = i / 6 * Math.PI * 2;
-          b.add(new THREE.ConeGeometry(0.17, 0.5, 4), P.honey, Math.cos(a) * 0.55, 0.62, Math.sin(a) * 0.55, a);
-          b.ball(0.08, P.honeyLight, Math.cos(a) * 0.55, 0.9, Math.sin(a) * 0.55);
-          b.ball(0.08, i % 2 ? P.coral : '#4fa3e0', Math.cos(a + 0.52) * 0.63, 0.2, Math.sin(a + 0.52) * 0.63);
-        }
-      }
-      hatGeo[id] = b.geometry();
-    }
-    const m = new THREE.Mesh(hatGeo[id], BB.mk.mat); m.name = 'hat'; m.scale.setScalar(1.45);
-    return m;
-  }
   let fallback = null;
   function mounts() {
     const B = BB.bus;
     if (!fallback && B.front && B.rear) {
       // spots on the lower body panels, both sides (+x = kerb side, -x = road side), clear of doors and wheels
       const spot = (car, z, side) => { const o = new THREE.Object3D(); o.position.set(side * 1.275, 1.25, z); o.rotation.y = side * Math.PI / 2; car.add(o); return o; };
-      const hat = new THREE.Object3D(); hat.position.set(0, 3.16, 1.9); B.front.add(hat);
       fallback = {
-        hat,
         stickers: [[spot(B.front, 0.75, 1), spot(B.front, 0.75, -1)], [spot(B.rear, -0.2, 1), spot(B.rear, -0.2, -1)], [spot(B.front, -0.75, 1), spot(B.front, -0.75, -1)]],
       };
     }
-    const hat = B.hatMount || (fallback && fallback.hat);
     const raw = (Array.isArray(B.stickerAnchors) && B.stickerAnchors.length) ? B.stickerAnchors : (fallback ? fallback.stickers : []);
-    return { hat, stickers: raw.map((a) => (Array.isArray(a) ? a : [a])) };
+    return { stickers: raw.map((a) => (Array.isArray(a) ? a : [a])) };
   }
   const placed = [];
-  // Show a look on the bus: {paint, stickers:[ids], hat, lights}. Missing fields come from the saved choices.
+  // Show a look on the bus: {paint, stickers:[ids], parts:{kind:id}}. Missing fields come from the saved choices.
   D.applyLooks = function (look) {
     const B = BB.bus; if (!B || !B.front) return;
-    look = Object.assign({ paint: S.paint, stickers: S.stickers, hat: S.hat, lights: !!S.upgrades.lights }, look || {});
-    // bus.js applies paint and lights; stickers and hats are ours (so it is given none of its own to show)
-    try { B.applyCustom(Object.assign({}, S, { paint: look.paint, stickers: [], hat: null, upgrades: Object.assign({}, S.upgrades, { lights: look.lights }) })); } catch (e) { console.error(e); }
+    look = Object.assign({ paint: S.paint, stickers: S.stickers }, look || {});
+    const parts = Object.assign({}, S.parts, look.parts || {});
+    // bus.js applies paint and parts; stickers are ours (so it is given none of its own to show)
+    try { B.applyCustom(Object.assign({}, S, { paint: look.paint, stickers: [], parts })); } catch (e) { console.error(e); }
+    if (B.setPart) for (const k of PART_KINDS) { try { B.setPart(k, parts[k] || partsOf(k)[0].id); } catch (e) { console.error(e); } }
     for (const m of placed) if (m.parent) m.parent.remove(m);
     placed.length = 0;
     const mt = mounts();
@@ -297,7 +297,6 @@
       if (!STICKER_ART[id] || !mt.stickers[i]) return;
       for (const a of mt.stickers[i]) { const m = stickerMesh(id); m.position.z = 0.012; if (a.userData && a.userData.size) m.scale.setScalar(a.userData.size / 1.35); a.add(m); placed.push(m); }
     });
-    if (look.hat && HAT_ART[look.hat] && mt.hat) { const h = hatMesh(look.hat); if (B.hatMount) h.scale.setScalar(1.25); mt.hat.add(h); placed.push(h); }
   };
   D.afterBus = function () { D.applyLooks(); build3D(); };
 
@@ -364,7 +363,7 @@
 
   // ---------- the garage screen (DOM) ----------
   BB.css(`
-  .bbd { position: absolute; top: 0; right: 0; bottom: 0; width: min(440px, 52vw); pointer-events: auto; z-index: 10;
+  .bbd { position: absolute; top: 0; right: 0; bottom: 0; width: min(480px, 56vw); pointer-events: auto; z-index: 10;
     background: linear-gradient(#fff6e0, #fdebc8); border-left: 5px solid #d9b57f; box-shadow: -8px 0 0 rgba(120,80,40,.12);
     padding: var(--st) var(--sr) var(--sb) 14px; box-sizing: border-box;
     display: flex; flex-direction: column; gap: 10px; font-family: 'Baloo 2', 'Fredoka', system-ui, sans-serif;
@@ -381,8 +380,10 @@
   .bbd-goal .bar { width: 70px; height: 14px; border-radius: 8px; background: #eadfca; overflow: hidden; }
   .bbd-goal .bar i { display: block; height: 100%; background: #ffb81f; }
   .bbd-head .bbu-clock { margin-left: auto; }
-  .bbd-tabs { display: flex; gap: 6px; flex: none; }
-  .bbd-tab { flex: 1; height: 64px; min-width: 56px; border-radius: 20px 20px 12px 12px; border: 3px solid #ecd3a8; background: #fffaf0;
+  .bbd-tabs { display: flex; gap: 4px; flex: none; overflow-x: auto; overflow-y: hidden; touch-action: pan-x; scrollbar-width: none; padding: 2px 3px 6px; margin: -2px -3px -6px; }
+  .bbd-tabs::-webkit-scrollbar { display: none; }
+  .bbd-break { flex-basis: 100%; height: 0; }
+  .bbd-tab { flex: 1 0 56px; height: 64px; min-width: 56px; border-radius: 20px 20px 12px 12px; border: 3px solid #ecd3a8; background: #fffaf0;
     display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; touch-action: manipulation;
     box-shadow: 0 4px 0 rgba(120,80,40,.12); }
   .bbd-tab canvas { width: 48px; height: 48px; }
@@ -429,7 +430,7 @@
   .bbd-go.pressed { transform: translateY(4px); box-shadow: 0 2px 0 #2f7fbc; }
   .bbd .shake { animation: bbd-shake .4s; }
   @keyframes bbd-shake { 25% { transform: translateX(-7px); } 75% { transform: translateX(7px); } }
-  .bbd-awning { position: absolute; left: 0; top: 0; right: min(440px, 52vw); height: 46px; pointer-events: none; z-index: 5;
+  .bbd-awning { position: absolute; left: 0; top: 0; right: min(480px, 56vw); height: 46px; pointer-events: none; z-index: 5;
     background: repeating-linear-gradient(90deg, #19a79b 0 44px, #fff6e0 44px 88px);
     -webkit-mask: radial-gradient(circle at 22px 24px, #000 22px, transparent 22.5px) 0 22px / 44px 100% repeat-x, linear-gradient(#000, #000) 0 0 / 100% 24px no-repeat;
             mask: radial-gradient(circle at 22px 24px, #000 22px, transparent 22.5px) 0 22px / 44px 100% repeat-x, linear-gradient(#000, #000) 0 0 / 100% 24px no-repeat;
@@ -472,8 +473,9 @@
       try {
         if (BB.bus.showOff) BB.bus.showOff(kind, id);
         else if (D.isOpen && kind !== 'upgrade') {      // a close look at the new thing, then back to the garage view
-          BB.bus.setCamera('depotClose'); D.hop();
-          BB.later(3200, () => { if (D.isOpen && BB.bus.camMode === 'depotClose') BB.bus.setCamera('depot'); });
+          // (wheels and rims: the garage view already shows the bus side on; lights, bumpers, paint, stickers: close up)
+          BB.bus.setCamera((kind === 'wheels' || kind === 'rims') && BB.bus.hasCamera && BB.bus.hasCamera('depotSide') ? 'depotSide' : (kind === 'wheels' || kind === 'rims') ? 'depot' : 'depotClose'); D.hop();
+          BB.later(3200, () => { if (D.isOpen && BB.bus.camMode !== 'depot') BB.bus.setCamera('depot'); });
         }
       } catch (e) { console.error(e); }
       BB.emit('depot:showOff', { kind, id });
@@ -484,9 +486,8 @@
     const look = {};
     if (preview) {
       if (preview.kind === 'paint') look.paint = preview.id;
-      if (preview.kind === 'hat') look.hat = preview.id;
+      if (PART_KINDS.includes(preview.kind)) look.parts = { [preview.kind]: preview.id };
       if (preview.kind === 'sticker') look.stickers = nextStickers(preview.id);
-      if (preview.kind === 'upgrade' && preview.id === 'lights') look.lights = true;
     }
     D.applyLooks(look);
   }
@@ -629,24 +630,29 @@
           BB.later(700, renderBody);
         } });
       });
-    } else if (tab === 'hat') {
-      HATS.forEach((h, i) => {
-        const own = S.hatsOwned.includes(h.id), on = S.hat === h.id;
-        tile(bodyEl, hatPic(h.id), { i, on: on && !preview, preview: isPrev('hat', h.id), price: own ? 0 : h.price, tap: (el) => {
-          if (own) {
-            setPreview(null);
-            if (on) { S.hat = null; BB.sfx.pop(); BB.say('Hat off!'); } else { S.hat = h.id; BB.sfx.pop(); D.hop(); BB.say(h.say); }
-            BB.saveNow(); D.applyLooks(); renderBody(); return;
-          }
-          if (!isPrev('hat', h.id)) { setPreview({ kind: 'hat', id: h.id }); BB.sfx.whoosh(); speakPrice(h.say, h.price); renderBody(); return; }
-          if (tooSoon()) return;
-          if (!buy(el, h.price)) return;
-          S.hatsOwned.push(h.id); S.hat = h.id; BB.saveNow(); preview = null; D.applyLooks();
-          BB.say('What a smart bus!');
-          showOff('hat', h.id, h.love);
-          BB.later(700, renderBody);
-        } });
-      });
+    } else if (tab === 'lights' || tab === 'bumpers' || tab === 'wheels') {
+      const kinds = tab === 'wheels' ? ['wheels', 'rims'] : [tab];
+      let n = 0;
+      for (const kind of kinds) {
+        if (kinds.length > 1) BB.el('div', 'bbd-break', bodyEl);        // wheels on one row, rims on the next
+        partsOf(kind).forEach((pt, i) => {
+          const own = partOwned(kind, pt.id, i), on = partOn(kind, pt.id);
+          tile(bodyEl, partPic(kind, pt.id), { i: n++, on: on && !preview, preview: isPrev(kind, pt.id), price: own ? 0 : pt.price, tap: (el) => {
+            if (own) {
+              setPreview(null);
+              if (!on) { S.parts[kind] = pt.id; BB.saveNow(); D.applyLooks(); BB.sfx.pop(); D.hop(); }
+              BB.say(partSay(pt)); renderBody(); return;
+            }
+            if (!isPrev(kind, pt.id)) { setPreview({ kind, id: pt.id }); BB.sfx.whoosh(); speakPrice(partSay(pt), pt.price); renderBody(); return; }
+            if (tooSoon()) return;
+            if (!buy(el, pt.price)) return;
+            S.partsOwned.push(partKey(kind, pt.id)); S.parts[kind] = pt.id; BB.saveNow(); preview = null; D.applyLooks();
+            BB.say(['Brilliant!', 'Super cool!', 'Wow!'][Math.floor(Math.random() * 3)]);
+            showOff(kind, pt.id, partLove(pt));
+            BB.later(700, renderBody);
+          } });
+        });
+      }
     } else if (tab === 'upgrade') {
       UPGRADES.forEach((u, i) => {
         const own = !!S.upgrades[u.id];

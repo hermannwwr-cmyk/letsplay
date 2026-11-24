@@ -57,17 +57,21 @@
     set(key, val) { try { localStorage.setItem('bus3d.' + key, JSON.stringify(val)); } catch (e) { /* no storage */ } },
   };
   const DEFAULT_SAVE = () => ({
-    paint: 'green', upgrades: {}, stickers: [], hat: null, fuel: 1, jobsDone: 0, questions: 0, seen: {},
-    paints: ['green'], stickersOwned: [], hatsOwned: [],
+    paint: 'green', upgrades: {}, stickers: [], fuel: 1, jobsDone: 0, questions: 0, seen: {},
+    paints: ['green'], stickersOwned: [], parts: {}, partsOwned: [],
   });
+  // Hats were sold in an earlier build; they're gone from the shop, and depot.js gives their coins back.
+  const HAT_PRICES = { party: 5, flowers: 6, bunny: 8, crown: 10 };
+  BB.saveMigrate = { hatRefund: 0 };
   BB.save = (function () {
     const s = DEFAULT_SAVE(), got = BB.store.get('save', null);
     if (got && typeof got === 'object') {
       for (const k in s) if (k in got && got[k] != null) s[k] = got[k];
       if (typeof s.upgrades !== 'object') s.upgrades = {};
       if (typeof s.seen !== 'object') s.seen = {};
-      for (const k of ['stickers', 'paints', 'stickersOwned', 'hatsOwned']) if (!Array.isArray(s[k])) s[k] = k === 'paints' ? ['green'] : [];
-      if (s.hat != null && typeof s.hat !== 'string') s.hat = null;
+      for (const k of ['stickers', 'paints', 'stickersOwned', 'partsOwned']) if (!Array.isArray(s[k])) s[k] = k === 'paints' ? ['green'] : [];
+      if (!s.parts || typeof s.parts !== 'object' || Array.isArray(s.parts)) s.parts = {};
+      if (Array.isArray(got.hatsOwned)) BB.saveMigrate.hatRefund = got.hatsOwned.reduce((n, id) => n + (HAT_PRICES[id] || 0), 0);
       s.fuel = Math.max(0, Math.min(1, +s.fuel || 0));
     }
     return s;
