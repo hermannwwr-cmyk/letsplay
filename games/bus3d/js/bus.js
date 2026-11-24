@@ -849,19 +849,33 @@
         return A.concat(arc, Bq);
       }
     }
-    const out = [pts[0]];
+    // junction corners (a sharp bend at one point) are rounded over a stretch of the line measured ALONG it, wide
+    // enough that the inside (left-turn) lane line doesn't fold over, even next to the loop's short arc segments
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z));
+    const at = (s) => { let i = 1; while (i < pts.length - 1 && cum[i] < s) i++; const l = (cum[i] - cum[i - 1]) || 1, u = BB.clamp((s - cum[i - 1]) / l, 0, 1); return { x: pts[i - 1].x + (pts[i].x - pts[i - 1].x) * u, z: pts[i - 1].z + (pts[i].z - pts[i - 1].z) * u }; };
+    const corners = [];
     for (let i = 1; i < pts.length - 1; i++) {
       const a = pts[i - 1], p = pts[i], c = pts[i + 1];
-      let ix = p.x - a.x, iz = p.z - a.z, ox = c.x - p.x, oz = c.z - p.z;
-      const li = Math.hypot(ix, iz), lo = Math.hypot(ox, oz);
+      const ix = p.x - a.x, iz = p.z - a.z, ox = c.x - p.x, oz = c.z - p.z, li = Math.hypot(ix, iz), lo = Math.hypot(ox, oz);
       if (li < 1e-3 || lo < 1e-3) continue;
-      ix /= li; iz /= li; ox /= lo; oz /= lo;
-      if (ix * ox + iz * oz > 0.97) { out.push(p); continue; }
-      const r = Math.min(C.lane + 3.5, li / 2, lo / 2);      // wide enough that the left-turn lane line doesn't fold over
-      const A = { x: p.x - ix * r, z: p.z - iz * r }, Bp = { x: p.x + ox * r, z: p.z + oz * r };
-      for (let k = 0; k <= 6; k++) { const t = k / 6, m = 1 - t; out.push({ x: m * m * A.x + 2 * m * t * p.x + t * t * Bp.x, z: m * m * A.z + 2 * m * t * p.z + t * t * Bp.z }); }
+      if ((ix * ox + iz * oz) / (li * lo) > 0.9) continue;                         // gentle (an arc's own bends)
+      const r = Math.min(C.lane + 3.5, cum[i] / 2, (cum[cum.length - 1] - cum[i]) / 2);
+      if (corners.length && cum[i] - r < corners[corners.length - 1].s1) continue;
+      corners.push({ i, s0: cum[i] - r, s1: cum[i] + r });
     }
-    out.push(pts[pts.length - 1]);
+    const out = [];
+    let ci = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const c = corners[ci];
+      if (c && cum[i] >= c.s0) {
+        const A = at(c.s0), Bp = at(c.s1), p = pts[c.i];
+        for (let k = 0; k <= 8; k++) { const tt = k / 8, m = 1 - tt; out.push({ x: m * m * A.x + 2 * m * tt * p.x + tt * tt * Bp.x, z: m * m * A.z + 2 * m * tt * p.z + tt * tt * Bp.z }); }
+        while (i < pts.length - 1 && cum[i + 1] <= c.s1) i++;
+        ci++; continue;
+      }
+      out.push(pts[i]);
+    }
     return W().offsetLine(out, C.lane);                   // the kerb (left) lane
   }
 
@@ -1223,6 +1237,8 @@
   }
   // Assist's steering: pure pursuit of a point ahead on the ribbon (with a target) or on the kerb lane of the road
   // the bus is on, in the way it is going. Returns a steer angle, or null when off the roads.
+  let laneR = null;
+  function laneAssist(ms) { const keep = routePts; routePts = null; try { return assistSteer(ms); } finally { routePts = keep; } }
   function assistSteer(ms) {
     // the path to keep to: the ribbon (with a target, plus a little past the bay) or the kerb lane of this road
     const f = fwdOf(h);
@@ -1250,7 +1266,7 @@
       if (d < bd) { bd = d; bi = i; bt = tt; }
       acc += Math.sqrt(l2);
     }
-    if (bi < 0 || bd > 12) return null;
+    if (bi < 0 || bd > 12) { if (routePts && B.target && r !== laneR) { laneR = null; return laneAssist(ms); } return null; }
     const a = r[bi], b = r[bi + 1], th = Math.atan2(b.x - a.x, b.z - a.z);
     const qx = a.x + (b.x - a.x) * bt, qz = a.z + (b.z - a.z) * bt;
     const e = (ax - qx) * Math.cos(th) + (az - qz) * -Math.sin(th);          // + = the bus is left of the path

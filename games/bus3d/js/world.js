@@ -1444,6 +1444,7 @@
       pts.push({ x: x + ax * 2.2, z: z + az * 2.2 });
     };
     for (const e of W.roads.edges) {
+      if (e.points.length > 2) continue;           // none on the loop's curves (they'd stand in the inside lane's way)
       for (let s = 16, k = 0; s < e.length - 12; s += 24, k++) {
         const p = W.pointAt(e, s), side = k % 2 ? 1 : -1;
         const x = p.x + p.dz * side * (RH + 0.7), z = p.z - p.dx * side * (RH + 0.7);
