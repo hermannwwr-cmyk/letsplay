@@ -352,6 +352,17 @@
     rainbow = buildRainbow(); scene.add(rainbow);
     W.built = true;
     W.setDayTime(W.day.t);
+    W.prewarm();
+  };
+  // Compile every shader up front, including the ones only weather and night use (rain, puddles, rainbow, lamp
+  // pools...), so the first shower doesn't stutter while they compile: hidden objects are shown for one compile.
+  W.prewarm = function () {
+    const R = BB.renderer, cam = BB.camera;
+    if (!R || !cam || !W.scene || typeof R.compile !== 'function') return;
+    const hidden = [];
+    W.scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
+    try { R.compile(W.scene, cam); } catch (e) { console.error(e); }
+    for (const o of hidden) o.visible = false;
   };
   const tag = (m, name) => { m.name = name; m.matrixAutoUpdate = false; m.updateMatrix(); return m; };
   const light = (c, t = 0.35) => '#' + new THREE.Color(c).lerp(new THREE.Color('#ffffff'), t).getHexString();

@@ -842,6 +842,8 @@
   }
   // Round sharp corners (junction turns) with a short curve, then move the line into the LEFT lane. A U-turn splits
   // the line: each piece goes into its own left lane and a half circle joins them.
+  // The kerb lane's radius on a left turn: at least 6, and roomy enough for this bus's tightest turn.
+  const turnIn = () => Math.max(6, WB / Math.tan(MAX_STEER + 0.22 * (1 - 3.2 / 4)) + 1.5);   // (at the helper's turning speed)
   function leftLane(pts) {
     for (let i = 1; i < pts.length - 1; i++) {
       const a = pts[i - 1], p = pts[i], c = pts[i + 1];
@@ -853,8 +855,8 @@
         return A.concat(arc, Bq);
       }
     }
-    // junction corners (a sharp bend at one point) are rounded with a circular fillet about 12.7 round on the centre
-    // line, so the kerb lane of a left turn is about 6 round (a bendy bus can follow it) and the line never folds
+    // junction corners (a sharp bend at one point) are rounded with a circular fillet, so the kerb lane of a left turn
+    // is about 6 round or more (turnIn(): each bus can follow it) and the line never folds
     const cum = [0];
     for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z));
     const corners = [];
@@ -865,7 +867,7 @@
       const cs = (ix * ox + iz * oz) / (li * lo);
       if (cs > 0.9) continue;                                                      // gentle (an arc's own bends)
       const half = Math.tan(Math.acos(BB.clamp(cs, -1, 1)) / 2);
-      const t = Math.min((C.lane + 6) * half, cum[i] / 2, (cum[cum.length - 1] - cum[i]) / 2);
+      const t = Math.min((C.lane + turnIn()) * half, cum[i] * 0.95, (cum[cum.length - 1] - cum[i]) / 2);
       if (corners.length && cum[i] - t < corners[corners.length - 1].s1) continue;
       corners.push({ i, s0: cum[i] - t, s1: cum[i] + t, t, ux: ix / li, uz: iz / li, vx: ox / lo, vz: oz / lo });
     }
@@ -1028,7 +1030,7 @@
       const p = plan(yaw * D2R, pitch * D2R, md, wv);
       if (!clear(p)) continue;
       if (p.gap >= 34) { pick = p; break; }
-      if (!best || p.gap > best.gap + 2) best = p;
+      if (!best || (p.gap > best.gap * 1.2 && pitch <= 38)) best = p;   // (not steeper than that for a little more room)
     }
     pick = pick || best || plan(0, 62 * D2R, near, true);
     return { key, pos: pick.pos, look: pick.look };
@@ -1274,6 +1276,12 @@
     }
     return { x: tx, z: tz, d: Math.hypot(tx, tz) };
   }
+  // How far the rear carriage's circles still overlap anything (after collide()).
+  function rearOverlap() {
+    const cs = busCircles(); let m = 0;
+    for (let i = nFront; i < cs.length; i++) m = Math.max(m, W().pushOut(cs[i][0], cs[i][1], cs[i][2]).hit);
+    return m;
+  }
   function drive(dt) {
     const inp = B.input, canDrive = !B.atStop && !B.doorsOpen && !B.noFuel && !B.locked && B.camMode === 'chase' && !settle;
     // input: the one-thumb joystick (analog: throttle -1..1, steer -1..1, + = right) or the buttons/keys (booleans)
@@ -1331,6 +1339,7 @@
     if (v > 0.8) kerbGuide(dt);
     // never crash: slide along walls, trees and posts
     const push = collide();
+    if (ART && rearOverlap() > 0.2) { const p2 = collide(true); push.x += p2.x; push.z += p2.z; push.d = Math.hypot(push.x, push.z); }   // the rear carriage at its bend limit: move the whole bus
     if (push.d > 0.01) {
       const nx = push.x / push.d, nz = push.z / push.d, mv = Math.sign(v) || 1;
       const head = -(nx * f1.x + nz * f1.z) * mv;          // > 0 when driving into it
@@ -1361,12 +1370,19 @@
     return Math.abs(moved);
   }
   // The soft kerb: each of the bus's circles that hangs over the kerb (by up to 3.5: further out, on purpose, it is
-  // left alone) is pushed gently back toward the road; on a bendy the rear carriage swings back about the hitch.
+  // left alone; and not at junctions) is pushed gently back toward the road, sideways only; on a bendy the rear
+  // carriage swings back about the hitch.
+  function nearJunction(x, z) {
+    for (const n of W().roads.nodes) if (n.edges.length > 2 && Math.abs(x - n.x) < C.roadHalf + 9 && Math.abs(z - n.z) < C.roadHalf + 9) return true;
+    return false;
+  }
   function kerbGuide(dt) {
     const cs = busCircles(), RH = C.roadHalf, f = fwdOf(h), hx = fx - f.x * HITCH, hz = fz - f.z * HITCH;
     let px = 0, pz = 0, n = 0, swing = 0;
     for (let i = 0; i < cs.length; i++) {
-      const c = cs[i], near = nearestRoad(c[0], c[1]);
+      const c = cs[i];
+      if (nearJunction(c[0], c[1])) continue;         // (turning at a junction: the corners are the bus's own business)
+      const near = nearestRoad(c[0], c[1]);
       if (!near || near.d < 1e-3) continue;
       const over = near.d + c[2] * 0.6 - RH;
       if (over <= 0 || over > 3.5) continue;
@@ -1374,7 +1390,7 @@
       if (ART && i >= nFront) { const vx = c[0] - hx, vz = c[1] - hz, l2 = vx * vx + vz * vz || 1; swing += (dx * vz - dz * vx) / l2; }
       else { px += dx; pz += dz; n++; }
     }
-    if (n) { fx += px / n; fz += pz / n; }
+    if (n) { const sx = f.z, sz = -f.x, l = (px * sx + pz * sz) / n; fx += sx * l; fz += sz * l; }   // sideways only: it never holds the bus back
     if (swing) { const nb = wrapA(hr + swing - h); if (Math.abs(nb) <= MAX_BEND) hr = wrapA(hr + swing); }
   }
   // Assist's steering: pure pursuit of a point ahead on the ribbon (with a target) or on the kerb lane of the road
@@ -1413,10 +1429,11 @@
     const qx = a.x + (b.x - a.x) * bt, qz = a.z + (b.z - a.z) * bt;
     const e = (ax - qx) * Math.cos(th) + (az - qz) * -Math.sin(th);          // + = the bus is left of the path
     const steer = wrapA(th - h) - Math.atan2(1.6 * e, Math.abs(B.speed) + 2);
-    // how much the path turns in the next ~12 (for easing off before bends)
+    // how much the path turns in the next ~12 or more (further at speed), for easing off before bends
     // (measured from the bus's own point on the path: a long straight ahead counts as straight)
     let j = bi + 1, acc = Math.hypot(r[bi + 1].x - qx, r[bi + 1].z - qz), thA = th;
-    while (j < r.length - 1 && acc < 12) { acc += Math.hypot(r[j + 1].x - r[j].x, r[j + 1].z - r[j].z); j++; thA = Math.atan2(r[j].x - r[j - 1].x, r[j].z - r[j - 1].z); }
+    const look = 12 + Math.max(0, B.speed) * 0.9;
+    while (j < r.length - 1 && acc < look) { acc += Math.hypot(r[j + 1].x - r[j].x, r[j + 1].z - r[j].z); j++; thA = Math.atan2(r[j].x - r[j - 1].x, r[j].z - r[j - 1].z); }
     return { steer: BB.clamp(steer, -ms, ms), alpha: Math.max(Math.abs(wrapA(thA - th)) * 0.7, Math.abs(wrapA(th - h)), Math.min(1, Math.abs(e) / 4)) };
   }
   // Assist's parking: within ~34 behind the target bay (mid point), close to its line and heading roughly its way,
@@ -1631,5 +1648,6 @@
     // usual "I'm getting hungry" trip to the depot happens instead of a stuck bus
     if (!(B.fuel > 0.02)) { B.fuel = 0.12; BB.save.fuel = B.fuel; BB.saveNow(); }
     B.noFuel = false; lowWarned = false;
+    if (W().prewarm) W().prewarm();          // (the bus's own hidden parts too: headlight beams, glows)
   };
 })();
