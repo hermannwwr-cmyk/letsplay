@@ -256,6 +256,31 @@
     } finally { if (cb) cb(); }
   };
 
+  // ---------- the double-decker's upper deck: a few riders (decoration, never counted) ----------
+  // The question is only about the ten seats downstairs; upstairs a few people sit by the upper windows so the
+  // double-decker doesn't look empty. They ride with the bus (children of its front carriage) and are rebuilt when the
+  // bus type changes.
+  const UPPER_FLOOR = 3.2;                 // fleet.js: the upper deck's floor height (deck2) above the road
+  let upstairs = [];
+  function buildUpstairs() {
+    for (const m of upstairs) if (m.parent) m.parent.remove(m);
+    upstairs = [];
+    const B = BB.bus;
+    if (B.type !== 'double' || !B.front || !B.seats || !LOOKS.length) return;
+    const zs = B.seats.slice(0, 5).map((p) => p.z), picks = BB.shuffle([0, 1, 2, 3, 4]).slice(0, 3);
+    picks.forEach((zi, n) => {
+      const m = new THREE.Mesh(LOOKS[(n * 3 + 1) % LOOKS.length], BB.mk.mat);
+      m.name = 'upstairs';
+      m.scale.setScalar(0.72);
+      const side = n % 2 ? -0.62 : 0.62;
+      m.position.set(side, UPPER_FLOOR - 0.5, zs[zi] + 0.2);   // seated: legs below the floor line, head in the window
+      m.rotation.y = 0;                                        // facing forward like everyone on a bus
+      B.front.add(m);
+      upstairs.push(m);
+    });
+  }
+  BB.on('bus:type', () => { try { buildUpstairs(); } catch (e) { console.error(e); } });
+
   // ---------- glowing numbers above the bus's seats (3D) ----------
   // Little sprites over each seat, so counting on the card lights up the real bus too.
   const markTex = {};
@@ -338,8 +363,10 @@
   .bbs { position: absolute; inset: 0; pointer-events: none; overflow: hidden; --hs: 58px; --bub: 64px; --bf: 44px; }
   .bbs-at { position: absolute; left: 0; top: 0; will-change: transform; }
   .bbs-halo { position: absolute; width: var(--hs); height: var(--hs); left: calc(var(--hs) / -2); top: calc(var(--hs) / -2); border-radius: 50%;
-    background: radial-gradient(circle, rgba(255,236,150,.45) 40%, rgba(255,200,60,.0) 72%); box-shadow: 0 0 0 4px rgba(255,190,40,.9), 0 0 20px 6px rgba(255,190,40,.55);
+    box-sizing: border-box; border: 4px solid #ffd45c; background: none;              /* a ring only: the face stays visible */
+    box-shadow: 0 0 10px 3px rgba(255,190,40,.85), inset 0 0 8px 1px rgba(255,214,92,.6);
     animation: bbs-in .25s cubic-bezier(.2,1.6,.5,1); }
+  .bbs.night .bbs-halo { background: radial-gradient(circle, rgba(255,236,190,.26) 0 40%, rgba(255,236,190,0) 68%); mix-blend-mode: screen; }   /* lifts the face a little, never covers it */
   .bbs-bub { position: absolute; min-width: var(--bub); height: var(--bub); left: calc(var(--bub) / -2); top: calc(var(--hs) / -2 - var(--bub) - 6px);
     box-sizing: border-box; padding: 0 8px; border-radius: calc(var(--bub) / 2); background: #fff6e0; border: 4px solid #ffb81f; color: #d98700;
     font: 700 var(--bf)/1 'Fredoka', 'Baloo 2', system-ui, sans-serif; display: flex; align-items: center; justify-content: center;
@@ -414,6 +441,20 @@
       reset() { this.clear(); this.unwave(); this.bird(null); this.setHits(0); },
       update(dt) {
         if (!layer || typeof BB.bus.seatWorld !== 'function') return;
+        // rings and bubbles follow the on-screen distance between neighbouring heads, so close heads never blob
+        const a = toScreen(headOf(1).clone()), b = toScreen(headOf(2).clone());
+        if (a && b) {
+          const gap = Math.hypot(a[0] - b[0], a[1] - b[1]), phone = innerHeight <= 520;
+          const hs = Math.round(BB.clamp(gap * 0.92, 22, phone ? 40 : 58));
+          const bub = Math.round(BB.clamp(hs * 1.15, phone ? 38 : 46, phone ? 46 : 64));
+          if (hs !== this._hs) {
+            this._hs = hs;
+            layer.style.setProperty('--hs', hs + 'px'); layer.style.setProperty('--bub', bub + 'px');
+            layer.style.setProperty('--bf', Math.round(bub * 0.68) + 'px');
+          }
+        }
+        const night = !!(BB.world && typeof BB.world.night === 'function' && +BB.world.night() > 0.5);   // lights 0..1
+        if (night !== this._night) { this._night = night; layer.classList.toggle('night', night); }
         for (const [i, h] of halos) at(h.a, headOf(i));
         for (const b of bubbles) at(b.a, headOf(b.i));
         for (const [i, h] of hits) at(h.a, headOf(i));
@@ -767,6 +808,12 @@
       BB.bus.passengers = q.n;
       buildSum(q);
       await wait(400);
+      if (!alive()) return;
+    }
+    // the first time on a double-decker: only the people downstairs count
+    if (BB.bus.type === 'double' && !BB.save.seen.downstairs) {
+      BB.save.seen.downstairs = true; BB.saveNow();
+      await say('We count the people downstairs!');
       if (!alive()) return;
     }
     // the story, told while it happens
@@ -1322,5 +1369,5 @@
     }
   };
 
-  J.init = function () { buildLooks(); };
+  J.init = function () { buildLooks(); BB.later(0, () => { try { buildUpstairs(); } catch (e) { console.error(e); } }); };
 })();

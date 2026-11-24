@@ -765,15 +765,19 @@
 
   // ---------- roads: nearest point, route along the graph, left-lane polyline ----------
   // Nearest point on the road graph to (x,z): {edge, s (from the edge's a end), x, z, dx, dz (a->b), d}.
-  function nearestRoad(x, z) {
-    let best = null;
+  // With a heading hh, roads running across the bus count as further away (so a bus in a junction, lined up with
+  // one of its roads, is taken to be on that road and not on the cross street).
+  function nearestRoad(x, z, hh) {
+    let best = null, bestS = Infinity;
+    const f = hh == null ? null : fwdOf(hh);
     for (const e of W().roads.edges) {
       const p = e.points;
       for (let i = 1; i < p.length; i++) {
         const a = p[i - 1], c = p[i], dx = c.x - a.x, dz = c.z - a.z, l2 = dx * dx + dz * dz || 1;
         const t = BB.clamp(((x - a.x) * dx + (z - a.z) * dz) / l2, 0, 1);
         const qx = a.x + dx * t, qz = a.z + dz * t, d = Math.hypot(qx - x, qz - z);
-        if (!best || d < best.d) { const l = Math.sqrt(l2); best = { edge: e, s: e.cum[i - 1] + t * l, x: qx, z: qz, dx: dx / l, dz: dz / l, d }; }
+        const l = Math.sqrt(l2), sc = f ? d + 8 * (1 - Math.abs(f.x * dx + f.z * dz) / l) : d;
+        if (sc < bestS) { bestS = sc; best = { edge: e, s: e.cum[i - 1] + t * l, x: qx, z: qz, dx: dx / l, dz: dz / l, d }; }
       }
     }
     return best;
@@ -782,7 +786,7 @@
   // Centre-line polyline from the road point nearest the bus to the target's parking spot, approaching in the stop's
   // travel direction. Returns {pts, sign} or null.
   function routeTo(stop) {
-    const here = nearestRoad(fx, fz);
+    const here = nearestRoad(fx, fz, h);
     if (!here) return null;
     const te = W().edge(stop.edge), entry = stop.dir > 0 ? te.a : te.b;
     const tAlong = stop.dir > 0 ? stop.s + 3 : te.length - stop.s + 3;   // distance from the entry node to the nose spot
@@ -1168,8 +1172,10 @@
     // speed: ease toward the wanted speed; braking when the pedal points the other way
     let want = thr > 0 ? thr * MAX_FWD : thr * MAX_BACK;
     // assist also eases off for bends and turns (like a careful driver), unless the child is steering
-    const asst = B.assist && canDrive && thr > 0 ? assistSteer(MAX_STEER + 0.22) : null;
-    if (asst && Math.abs(kidSteer) < 0.3) want = Math.min(want, Math.max(3.2, MAX_FWD * (1 - 1.6 * Math.abs(asst.alpha))));
+    // In the last stretch before the target bay (lined up with it) the parking logic takes over: steer along the
+    // bay's own line and let approachCap() slow the bus to a stop in it, so a throttle-only drive always parks.
+    const asst = B.assist && canDrive && thr > 0 ? (bayAssist(MAX_STEER + 0.22) || assistSteer(MAX_STEER + 0.22)) : null;
+    if (asst && !asst.bay && Math.abs(kidSteer) < 0.3) want = Math.min(want, Math.max(3.2, MAX_FWD * (1 - 1.6 * Math.abs(asst.alpha))));
     let cap = approachCap();
     if (cap < Infinity) want = BB.clamp(want, -cap, cap); else cap = 0;   // ease off coming into the target bay so it can settle
     const slowing = Math.abs(want) < Math.abs(B.speed) || (Math.sign(want) !== Math.sign(B.speed) && Math.abs(B.speed) > 0.2);
@@ -1275,6 +1281,20 @@
     let j = bi + 1, acc = 0; while (j < r.length - 1 && acc < 12) { acc += Math.hypot(r[j + 1].x - r[j].x, r[j + 1].z - r[j].z); j++; }
     const thA = Math.atan2(r[j].x - r[Math.max(0, j - 1)].x, r[j].z - r[Math.max(0, j - 1)].z);
     return { steer: BB.clamp(steer, -ms, ms), alpha: Math.max(Math.abs(wrapA(thA - th)) * 0.7, Math.abs(wrapA(th - h)), Math.min(1, Math.abs(e) / 4)) };
+  }
+  // Assist's parking: within ~34 behind the target bay (mid point), close to its line and heading roughly its way,
+  // Stanley steering onto the bay's centre line. Null when not in that stretch.
+  function bayAssist(ms) {
+    const t = B.target;
+    if (!t || B.atStop) return null;
+    const bay = W().bayOf(t), m = midPoint(), dx = m.x - bay.x, dz = m.z - bay.z;
+    const prog = dx * bay.fwd.x + dz * bay.fwd.z, lat = dx * bay.side.x + dz * bay.side.z;
+    const dh = wrapA(bay.heading - h);
+    if (prog < -34 || prog > 6 || Math.abs(lat) > 7 || Math.abs(dh) > 1.0) return null;
+    const f = fwdOf(h), ax = fx + f.x * (LF / 2 - FRONT_AXLE), az = fz + f.z * (LF / 2 - FRONT_AXLE);
+    const e = (ax - bay.x) * bay.side.x + (az - bay.z) * bay.side.z;      // + = toward the kerb
+    const steer = dh - Math.atan2(1.4 * e, Math.abs(B.speed) + 2.5);
+    return { steer: BB.clamp(steer, -ms, ms), alpha: 0, bay: true };
   }
   // Coming into the target bay (lined up within 45 degrees, either way round): a speed limit that eases to a crawl
   // by the middle of the bay, so the bus can't overshoot it.

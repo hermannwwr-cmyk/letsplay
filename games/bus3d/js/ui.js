@@ -64,7 +64,7 @@
     text-shadow: 0 3px 0 rgba(0,0,0,.25); animation: bbu-zzz 3s ease-out infinite 1.5s; }
   @keyframes bbu-zzz { 0% { opacity: 0; transform: translate(0, 10px) scale(.6); } 30% { opacity: 1; } 100% { opacity: 0; transform: translate(40px, -60px) scale(1.2); } }
   /* driving controls: hold-buttons, several at once (steer + GO). Steering bottom-left, pedals bottom-right. */
-  /* one-thumb joystick (bottom-right; .lefty puts it bottom-left), horn on the other side, lane-helper toggle beside it */
+  /* one-thumb joystick (bottom-right; .lefty puts it bottom-left), horn on the other side with the lane-helper toggle above it */
   .bbu-joy { position: absolute; bottom: var(--sb); right: calc(var(--sr) + 6px); width: 176px; height: 176px; border-radius: 50%;
     pointer-events: auto; touch-action: none; box-sizing: border-box; border: 4px solid #d9b57f;
     background: radial-gradient(circle at 45% 40%, #fffdf6, #fff6e0 55%, #f1dfb8);
@@ -78,12 +78,12 @@
   .bbu-joy.nudge { animation: bbu-nudge 1.4s ease-in-out infinite; }
   @keyframes bbu-nudge { 50% { box-shadow: inset -6px -8px 0 rgba(217,181,127,.4), 0 6px 0 rgba(120,80,40,.2), 0 0 0 14px rgba(255,212,92,.55); } }
   .bbu-horn { position: absolute; left: calc(var(--sl) + 6px); bottom: var(--sb); width: 72px; height: 72px; font-size: 34px; }
-  .bbu-assist { position: absolute; right: calc(var(--sr) + 6px + 176px + 14px); bottom: var(--sb); width: 64px; height: 64px; padding: 0; }
+  .bbu-assist { position: absolute; left: calc(var(--sl) + 10px); bottom: calc(var(--sb) + 72px + 24px); width: 64px; height: 64px; padding: 0; }
   .bbu-assist svg { width: 48px; height: 48px; } .bbu-assist .spk { opacity: 0; }
   .bbu-assist.on { background: #c9f2e4; border-color: #19a79b; } .bbu-assist.on .spk { opacity: 1; }
   .lefty .bbu-joy { right: auto; left: calc(var(--sl) + 6px); }
   .lefty .bbu-horn { left: auto; right: calc(var(--sr) + 6px); }
-  .lefty .bbu-assist { right: auto; left: calc(var(--sl) + 6px + 176px + 14px); }
+  .lefty .bbu-assist { left: auto; right: calc(var(--sr) + 10px); }
   .bbu-wobble { animation: bbu-wobble .35s ease-out; }
   @keyframes bbu-wobble { 25% { transform: translate(-5px, 2px); } 50% { transform: translate(4px, -2px); } 75% { transform: translate(-2px, 1px); } }
   @keyframes bbu-pop { from { transform: scale(.3); opacity: 0; } }
@@ -139,8 +139,8 @@
     .bbu-fuel { height: 56px; padding: 0 6px; } .bbu-fuel canvas { width: 100px; height: 50px; }
     .bbu-joy { width: 132px; height: 132px; }
     .bbu-horn { width: 56px; height: 56px; font-size: 28px; }
-    .bbu-assist { width: 56px; height: 56px; right: calc(var(--sr) + 6px + 132px + 12px); } .bbu-assist svg { width: 42px; height: 42px; }
-    .lefty .bbu-assist { left: calc(var(--sl) + 6px + 132px + 12px); }
+    .bbu-assist { width: 56px; height: 56px; left: calc(var(--sl) + 6px); bottom: calc(var(--sb) + 56px + 24px); } .bbu-assist svg { width: 42px; height: 42px; }
+    .lefty .bbu-assist { left: auto; right: calc(var(--sr) + 6px); }
     .bbu-uturn { width: 64px; height: 64px; border-radius: 20px; right: calc(var(--sr) + 6px + 34px); bottom: calc(var(--sb) + 132px + 12px); }
     .lefty .bbu-uturn { left: calc(var(--sl) + 6px + 34px); }
     .bbu-uturn svg { width: 48px; height: 48px; }
@@ -446,8 +446,9 @@
     x.strokeStyle = '#b9a98a'; x.lineWidth = 2.5;
     for (let i = 0; i <= 4; i++) { const a = at(i / 4); x.beginPath(); x.moveTo(cx + Math.cos(a) * (R - 9), cy + Math.sin(a) * (R - 9)); x.lineTo(cx + Math.cos(a) * (R - 14), cy + Math.sin(a) * (R - 14)); x.stroke(); }
     x.font = '800 15px "Baloo 2", "Fredoka", system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
-    x.fillStyle = '#d0473a'; x.fillText('E', cx + Math.cos(at(0)) * (R - 20) + 2, cy + Math.sin(at(0)) * (R - 20) + 2);
-    x.fillStyle = '#3f913f'; x.fillText('F', cx + Math.cos(at(1)) * (R - 20) - 2, cy + Math.sin(at(1)) * (R - 20) + 2);
+    // (just inside the ends, so the needle never covers them)
+    x.fillStyle = '#d0473a'; x.fillText('E', cx + Math.cos(at(0.13)) * (R - 21), cy + Math.sin(at(0.13)) * (R - 21));
+    x.fillStyle = '#3f913f'; x.fillText('F', cx + Math.cos(at(0.87)) * (R - 21), cy + Math.sin(at(0.87)) * (R - 21));
     // the pump icon is the warning lamp: it blinks orange when the tank is low
     const lamp = low && blink;
     if (lamp) { x.fillStyle = 'rgba(255,154,46,.35)'; x.beginPath(); x.arc(cx, 37, 12, 0, Math.PI * 2); x.fill(); }

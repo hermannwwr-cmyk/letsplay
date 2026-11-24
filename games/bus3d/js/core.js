@@ -467,6 +467,8 @@
   let lastSay = null;
   const heard = new Set();                // lines that really started speaking (iOS blocks speech before a tap)
   BB.heard = (text) => heard.has(String(text));
+  // still waiting to be spoken (queued, or cut off by a hold): don't say it again
+  BB.pending = (text) => { text = String(text); for (const it of active) if (it.text === text) return true; return heldItems.some((it) => it.text === text) || waiting.some((it) => it.text === text); };
   const active = new Set();              // items being spoken (or queued in speechSynthesis)
   let heldItems = [], waiting = [];      // cut off by a hold / asked for during a hold
   const sayLen = (t) => String(t).length;
@@ -486,7 +488,10 @@
       speechSynthesis.resume();
       const u = new SpeechSynthesisUtterance(item.text);
       u.rate = 0.95; u.pitch = 1.15; u.lang = 'en-GB';
-      u.onend = done; u.onerror = done;
+      // heard: it really started, or it ran a normal length and ended without an error (some engines skip onstart)
+      const t0 = performance.now();
+      u.onend = () => { if (performance.now() - t0 > 700 && !item.held) heard.add(item.text); done(); };
+      u.onerror = done;
       u.onstart = () => { heard.add(item.text); };
       lastSay = item.text;
       active.add(item);

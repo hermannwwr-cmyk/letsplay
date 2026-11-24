@@ -59,7 +59,11 @@
     // The welcome is said as the garage opens; iOS blocks speech before a first tap, so if it wasn't heard it is
     // said (queued) after the first tap while the start garage is still open.
     const welcome = BB.depot.welcome();
-    BB.on('audio:unlocked', () => BB.later(0, () => { if (BB.depot.isOpen && BB.depot.isStart && !BB.heard(welcome)) BB.say(welcome, { queue: true }); }));
+    let welcomeAgain = false;            // at most once, and only if it never started and isn't still queued
+    BB.on('audio:unlocked', () => BB.later(0, () => {
+      if (welcomeAgain || !BB.depot.isOpen || !BB.depot.isStart || BB.heard(welcome) || BB.pending(welcome)) return;
+      welcomeAgain = true; BB.say(welcome, { queue: true });
+    }));
     let started = false;                 // once, however many taps arrive
     BB.on('depot:closed', (d) => {
       if (!d || !d.start || started || BB.bedtime) return;

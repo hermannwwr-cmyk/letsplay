@@ -471,8 +471,24 @@
   .bbd-sec canvas { width: 34px; height: 34px; opacity: .8; }
   .bbd-sec::after { content: ''; flex: 1; height: 3px; border-radius: 2px; background: #ecd3a8; }
   .bbd-tile.wide { width: 128px; } .bbd-tile.wide canvas { width: 84px; height: 84px; }
-  .bbd-go.start { animation: bbd-gopulse 1.3s ease-in-out infinite; }
-  @keyframes bbd-gopulse { 50% { box-shadow: 0 6px 0 #2f7fbc, 0 0 0 10px rgba(79,163,224,.35); transform: scale(1.02); } }
+  .bbd-body.bustab { gap: 10px; } .bbd-body.bustab .bbd-sec { height: 24px; margin-top: 0; } .bbd-body.bustab .bbd-sec canvas { width: 26px; height: 26px; }
+  @media (min-height: 700px) and (min-width: 1000px) {
+    .bbd-body.bustab .bbd-tile { width: 84px; height: 84px; border-radius: 24px; } .bbd-body.bustab .bbd-tile canvas { width: 64px; height: 64px; }
+    .bbd-body.bustab .bbd-tile.wide { width: 124px; } .bbd-body.bustab .bbd-tile.wide canvas { width: 84px; height: 84px; }
+  }
+  /* the start screen's hero: a bigger Drive button that glows and nudges, with a shine sweeping across it */
+  .bbd-go.start { height: 88px; background: linear-gradient(#5db4f0, #3d93d6); box-shadow: 0 7px 0 #2370ad; position: relative; overflow: hidden;
+    animation: bbd-gopulse 1.3s ease-in-out infinite; }
+  .bbd-go.start svg { height: 58px; }
+  .bbd-go.start::after { content: ''; position: absolute; top: 0; bottom: 0; width: 60px; left: -80px; background: linear-gradient(100deg, transparent, rgba(255,255,255,.55), transparent);
+    animation: bbd-shine 2.6s ease-in-out infinite; }
+  @keyframes bbd-shine { 60%, 100% { left: 110%; } }
+  @keyframes bbd-gopulse { 50% { box-shadow: 0 7px 0 #2370ad, 0 0 0 12px rgba(79,163,224,.35); transform: scale(1.025); } }
+  .bbd-go.start.call { animation: bbd-gopulse 1.3s ease-in-out infinite, bbd-wiggle .9s ease-in-out 2; }
+  @keyframes bbd-wiggle { 20% { rotate: -2deg; } 40% { rotate: 2deg; } 60% { rotate: -1.5deg; } 80% { rotate: 1deg; } }
+  /* the tab content scrolls above the Drive button; a soft fade shows there is more below */
+  .bbd-body.more { -webkit-mask-image: linear-gradient(#000 calc(100% - 34px), transparent); mask-image: linear-gradient(#000 calc(100% - 34px), transparent); }
+  .bbd-body::after { content: ''; flex-basis: 100%; height: 6px; }
   .bbd-padwrap { position: absolute; inset: 0; z-index: 55; background: rgba(40,30,50,.35); display: flex; align-items: center; justify-content: center;
     pointer-events: auto; animation: bbd-fade .2s; font-family: 'Baloo 2', 'Fredoka', system-ui, sans-serif; }
   @keyframes bbd-fade { from { opacity: 0; } }
@@ -534,7 +550,7 @@
   .bbd-fill canvas { width: 30px; height: 30px; }
   .bbd-fill.pressed { transform: translateY(4px); box-shadow: 0 2px 0 #3f913f; }
   .bbd-fill.full { background: #d6efd2; box-shadow: none; }
-  .bbd-go { flex: none; height: 72px; border-radius: 26px; border: none; background: #4fa3e0; box-shadow: 0 6px 0 #2f7fbc; cursor: pointer;
+  .bbd-go { flex: none; height: 72px; margin-top: 4px; border-radius: 26px; border: none; background: #4fa3e0; box-shadow: 0 6px 0 #2f7fbc; cursor: pointer;
     display: flex; align-items: center; justify-content: center; gap: 10px; touch-action: manipulation; }
   .bbd-go svg { height: 46px; width: auto; }
   .bbd-go.pressed { transform: translateY(4px); box-shadow: 0 2px 0 #2f7fbc; }
@@ -558,6 +574,7 @@
     .bbd-tile { width: 72px; height: 72px; border-radius: 20px; } .bbd-tile canvas { width: 54px; height: 54px; }
     .bbd-body { gap: 9px; }
     .bbd-go { height: 60px; } .bbd-go svg { height: 38px; }
+    .bbd-go.start { height: 64px; } .bbd-go.start svg { height: 42px; }
     .bbd-fuel { padding: 6px 10px; } .bbd-fuel > canvas { width: 56px; height: 56px; } .bbd-fill { height: 62px; }
     .bbd-awning { height: 34px; }
     .bbd-head .bbu-clock { height: 56px; font-size: 24px; padding: 0 12px 0 8px; } .bbd-head .bbu-clock svg { width: 30px; height: 30px; }
@@ -728,12 +745,32 @@
   }
   function closePad() { if (padEl) padEl.remove(); padEl = null; }
 
+  // the fade at the bottom of the tab content only while there is more to scroll to
+  function syncMore() { if (bodyEl) bodyEl.classList.toggle('more', bodyEl.scrollHeight - bodyEl.scrollTop - bodyEl.clientHeight > 8); }
+  // Start screen, nothing tapped for a while: "Tap the blue bus to drive!" (after ~10 s, once more after ~25 s).
+  let lastTap = 0, calls = 0, idleT = null;
+  addEventListener('pointerup', () => { lastTap = performance.now(); }, { passive: true });
+  function idleCheck() {
+    idleT = null;
+    if (!D.isOpen || !D.isStart || BB.bedtime) return;
+    const idle = (performance.now() - lastTap) / 1000;
+    if (((calls === 0 && idle >= 10) || (calls === 1 && idle >= 15)) && !BB.speaking()) {
+      calls++; lastTap = performance.now();
+      const go = panel && panel.querySelector('.bbd-go');
+      if (go) { go.classList.remove('call'); void go.offsetWidth; go.classList.add('call'); }
+      BB.say('Tap the blue bus to drive!');
+    }
+    if (calls < 2) idleT = BB.later(1000, idleCheck);
+  }
+
   let autoFill = null;
   function renderBody(animate) {
     if (!bodyEl) return;
     autoFill = null;
     bodyEl.innerHTML = '';
     bodyEl.classList.toggle('anim', !!animate);
+    bodyEl.classList.toggle('bustab', tab === 'bus');
+    BB.later(0, syncMore);
     const isPrev = (kind, id) => preview && preview.kind === kind && preview.id === id;
     if (tab === 'fuel') {
       const row = BB.el('div', 'bbd-fuel', bodyEl);
@@ -876,6 +913,7 @@
       BB.tap(b, () => setTab(t.id));
     }
     bodyEl = BB.el('div', 'bbd-body', panel);
+    bodyEl.addEventListener('scroll', syncMore, { passive: true });
     const go = BB.el('button', 'bbd-go', panel, BUS_SVG);
     BB.tap(go, () => { BB.sfx.pop(); D.close(); });
     setTab(tab, true);
@@ -901,6 +939,7 @@
       if (BB.bus.fuel < 0.98) BB.bus.refuel(1);
       panel.querySelector('.bbd-go').classList.add('start');
       BB.say(D.welcome());
+      lastTap = performance.now(); calls = 0; if (!idleT) idleT = BB.later(1000, idleCheck);
       return;
     }
     // fuel is free: every visit fills the tank, with the pump's gurgle as a little show
@@ -924,6 +963,7 @@
   D.welcome = () => (BB.HUB ? 'Make your bus, then tap the blue button to drive!' : 'Welcome to the bus garage! Make your bus, then tap the blue button to drive!');
   D.render = () => { if (panel) renderBody(); };
   D.tab = () => tab;
+  BB.on('resize', () => BB.later(50, syncMore));
   BB.on('cash:changed', () => { if (cashSpan) cashSpan.textContent = String(D.cash); });
   D.init = function () { /* the 3D props are built once the bus exists (D.afterBus) */ };
 })();
