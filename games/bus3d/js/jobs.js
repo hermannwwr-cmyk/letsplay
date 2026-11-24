@@ -121,8 +121,9 @@
   // Points around the door, from BB.bus.doorWorld() and seatWorld() only, so every bus type works (bendy,
   // double-decker, single-decker): 'out' is the direction from the bus's middle through the door, onto the pavement.
   const _v = new THREE.Vector3();
-  function doorFrame() {
-    const B = BB.bus, d = B.doorWorld(new THREE.Vector3());
+  // exit: the rear door for getting off (B.exitDoorWorld() when the bus has one), else the front door.
+  function doorFrame(exit) {
+    const B = BB.bus, d = exit && typeof B.exitDoorWorld === 'function' ? B.exitDoorWorld(new THREE.Vector3()) : B.doorWorld(new THREE.Vector3());
     const h = B.heading || 0, fx = Math.sin(h), fz = Math.cos(h);
     const c = B.pos || d;                                    // a point on the bus's middle line
     const along = (d.x - c.x) * fx + (d.z - c.z) * fz;
@@ -131,10 +132,11 @@
     if (ol < 0.2) { ox = fz; oz = -fx; } else { ox /= ol; oz /= ol; }   // fallback: left of travel (the kerb side)
     return { d, ox, oz, fx, fz };
   }
-  const doorOut = () => { const f = doorFrame(); return new THREE.Vector3(f.d.x + f.ox * 0.5, GROUND, f.d.z + f.oz * 0.5); };
-  const doorIn = () => { const f = doorFrame(); return new THREE.Vector3(f.d.x - f.ox * 1.1, 0.55, f.d.z - f.oz * 1.1); };
-  // a spot on the pavement beside the bus: 'out' units from the door, 'along' units along the bus
-  const kerbSpot = (out, along) => { const f = doorFrame(); return new THREE.Vector3(f.d.x + f.ox * out + f.fx * along, GROUND, f.d.z + f.oz * out + f.fz * along); };
+  const doorOut = (exit) => { const f = doorFrame(exit); return new THREE.Vector3(f.d.x + f.ox * 0.5, GROUND, f.d.z + f.oz * 0.5); };
+  const doorIn = (exit) => { const f = doorFrame(exit); return new THREE.Vector3(f.d.x - f.ox * 1.1, 0.55, f.d.z - f.oz * 1.1); };
+  // a spot on the pavement beside the bus (between the bus and the stop camera): 'out' units from the door,
+  // 'along' units along the bus
+  const kerbSpot = (out, along, exit) => { const f = doorFrame(exit); return new THREE.Vector3(f.d.x + f.ox * out + f.fx * along, GROUND, f.d.z + f.oz * out + f.fz * along); };
 
   // Put the people for the next question at the stop's shelter, in a little queue facing the road.
   function setWaiting(stop, q) {
@@ -144,7 +146,7 @@
     for (let i = 0; i < total; i++) {
       const m = person(BB.randInt(0, 7));
       // one clear line along the pavement just past the shelter, nearest first, so every person can be counted
-      const along = 3.4 + i * 0.95, off = 0.3;
+      const along = 3.4 + i * 0.95, off = -1.0;     // negative = toward the road, in front of the shelter
       m.position.set(stop.pos.x + stop.fwd.x * along + stop.side.x * off, GROUND, stop.pos.z + stop.fwd.z * along + stop.side.z * off);
       m.rotation.y = Math.atan2(-stop.side.x, -stop.side.z);
       m.userData.pre = i < pre;
@@ -180,17 +182,17 @@
     BB.bus.passengers = seat;
     if (onLeave) onLeave(seat);
     const m = person(BB.randInt(0, 7));
-    m.position.copy(doorIn());
+    m.position.copy(doorIn(true));
     BB.sfx.pop();
-    await walkTo(m, doorOut(), 2.8);
-    // stand on the pavement in a little row, turn to the bus and wave (two happy hops), then walk off
-    const k = J.extras.length, spot = kerbSpot(1.9 + (k % 2) * 0.6, -1.2 - k * 0.9);
+    await walkTo(m, doorOut(true), 2.8);
+    // stand on the pavement in a little row in front of the camera, turn to the bus and wave, then walk off
+    const k = J.extras.length, spot = kerbSpot(1.7 + (k % 2) * 0.5, -0.8 - k * 0.9, true);
     walkTo(m, spot, 3).then(async () => {
       J.extras.push(m);
       m.userData.jump = 1; m.userData.jumpDelay = 0;
       await wait(1300);
       J.extras = J.extras.filter((x) => x !== m);
-      const away = kerbSpot(4 + Math.random(), -8 - Math.random() * 4);
+      const away = kerbSpot(1.8 + Math.random() * 0.6, -9 - Math.random() * 4, true);   // along the pavement
       await walkTo(m, away, 3.2, { shrink: true });
       removePerson(m);
     });
