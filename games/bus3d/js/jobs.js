@@ -185,8 +185,9 @@
     m.position.copy(doorIn(true));
     BB.sfx.pop();
     await walkTo(m, doorOut(true), 2.8);
-    // stand on the pavement in a little row in front of the camera, turn to the bus and wave, then walk off
-    const k = J.extras.length, spot = kerbSpot(1.7 + (k % 2) * 0.5, -0.8 - k * 0.9, true);
+    // stand on the pavement where the stop camera sees them (not over the seats or the card), wave, then walk off
+    const k = J.extras.length, spot = waveSpot(k);
+    m.userData.spot = spot;
     J.extras.push(m);
     walkTo(m, spot, 3).then(async () => {
       m.userData.jump = 1; m.userData.jumpDelay = 0;
@@ -194,6 +195,44 @@
       if (stay && !m.userData.released) return;          // stays in view until the question is answered
       walkAway(m);
     });
+  }
+  // A spot on the pavement for the k-th person who got off: in view of the stop camera, clear of the seats (so the
+  // count on the bus stays readable) and of the question card, nearest the exit door first. Works for every bus
+  // type and screen size because it is worked out on screen; falls back to a spot next to the exit door.
+  function waveSpot(k) {
+    const fallback = kerbSpot(1.7 + (k % 2) * 0.5, -0.8 - k * 0.9, true);
+    try {
+      const W = innerWidth, H = innerHeight, cam = BB.camera;
+      const proj = (p) => { const q = p.clone().project(cam); return q.z > 1 ? null : [(q.x + 1) / 2 * W, (1 - q.y) / 2 * H]; };
+      // the seats' box on screen (with a margin)
+      let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+      for (let i = 0; i < 10; i++) {
+        const a = BB.bus.seatWorld(i, new THREE.Vector3());
+        for (const dy of [0, 1.5]) { const s2 = proj(new THREE.Vector3(a.x, a.y + dy, a.z)); if (s2) { x0 = Math.min(x0, s2[0]); x1 = Math.max(x1, s2[0]); y0 = Math.min(y0, s2[1]); y1 = Math.max(y1, s2[1]); } }
+      }
+      const seatBox = [x0 - 30, y0 - 40, x1 + 30, y1 + 20];
+      const c = document.querySelector('.bbq'), cr = c ? c.getBoundingClientRect() : null;
+      const hit = (r, b) => b && r[0] < b[2] && r[2] > b[0] && r[1] < b[3] && r[3] > b[1];
+      const exit = doorFrame(true), front = doorFrame(false);
+      const span = (exit.d.x - front.d.x) * front.fx + (exit.d.z - front.d.z) * front.fz;   // exit door along the bus
+      const taken = J.extras.map((m) => m.userData.spot).filter(Boolean);
+      const cands = [];
+      for (const out of [2.4, 3.4, 1.6]) {
+        for (let along = span + 4; along >= span - 14; along -= 0.9) {
+          const p = kerbSpot(out, along, false);
+          const foot = proj(p), head = proj(new THREE.Vector3(p.x, p.y + 2.3, p.z));
+          if (!foot || !head) continue;
+          const r = [Math.min(foot[0], head[0]) - 18, head[1] - 50, Math.max(foot[0], head[0]) + 18, foot[1]];
+          if (r[0] < 10 || r[2] > W - 10 || r[1] < 60 || r[3] > H - 4) continue;
+          if (hit(r, seatBox) || (cr && hit(r, [cr.left, cr.top, cr.right, cr.bottom]))) continue;
+          if (taken.some((t) => t.distanceTo(p) < 0.85)) continue;
+          cands.push({ p, d: Math.abs(along - span) + (out - 2.4) * (out - 2.4) });
+        }
+      }
+      if (!cands.length) return fallback;
+      cands.sort((a, b) => a.d - b.d);
+      return cands[0].p;
+    } catch (e) { return fallback; }
   }
   function walkAway(m) {
     if (m.userData.gone) return;
@@ -1019,6 +1058,7 @@
   }
   J.nextStop = nextStop;
   J.setWaiting = setWaiting;
+  J._kerbSpot = kerbSpot;
   // Drive to the current stop again (after the depot or a tow), keeping its question and the people waiting.
   function resumeJob(quiet) {
     const job = J.current;

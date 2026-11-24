@@ -867,7 +867,7 @@
 
   // ---------- camera ----------
   const camPos = new THREE.Vector3(), camLook = new THREE.Vector3();
-  let orbit = 0.6, camH = 0;
+  let orbit = 0.6, camH = 0, stopCam = null;
   function midPoint() { if (!ART) return { x: fx, z: fz }; const r = B.rear.position; return { x: (fx + r.x) / 2, z: (fz + r.z) / 2 }; }
   const _w1 = new THREE.Vector3(), _w2 = new THREE.Vector3();
   // Move the wanted camera toward the bus (and a little up) until no building stands in the way.
@@ -930,14 +930,28 @@
       // The shelter, trees and lamps in the way are hidden by the world; buildings pull the camera in.
       const kx = Math.cos(h), kz = -Math.sin(h), f = fwdOf(h), H = M ? M.height : 3.3;
       const D = (LF > 9 ? 16 : 14.5) + (H > 4 ? 1.5 : 0), cy = H * 0.45, sx = fx + f.x * 0.3, sz = fz + f.z * 0.3;
-      camPos.set(sx + kx * D, cy + D * Math.tan(17 * Math.PI / 180), sz + kz * D);
+      // try side-on first; where a building stands on the pavement side, from ahead or behind along the pavement
+      if (!stopCam || stopCam.stop !== (B.atStop || (settle && settle.stop))) {
+        // [along, out from the kerb side, degrees down]: further and flatter first; closer and steeper where a building
+        // stands on the pavement; ahead/behind diagonals last
+        const cands = [[0.3, D, 17], [0.3, D * 0.8, 17], [0.3, D * 0.62, 20], [D * 0.5, D * 0.8, 17], [-D * 0.45, D * 0.82, 17], [0.3, 7.5, 27], [D * 0.95, 5, 18], [-D * 0.95, 5, 18], [0.3, 6, 35]];
+        let pick = cands[cands.length - 1];
+        for (const c of cands) {
+          const [al, sd, deg] = c, cx = sx + f.x * al + kx * sd, cz = sz + f.z * al + kz * sd, y = cy + Math.hypot(al, sd) * Math.tan(deg * Math.PI / 180);
+          if (W().insideTall(cx, y, cz) || W().blocksSight(cx, y, cz, sx, 1.6, sz) || W().blocksSight(cx, y, cz, sx + f.x * 3, 1.6, sz + f.z * 3)) continue;
+          pick = c; break;
+        }
+        stopCam = { stop: B.atStop || (settle && settle.stop), al: pick[0], sd: pick[1], tan: Math.tan(pick[2] * Math.PI / 180) };
+      }
+      const dd = Math.hypot(stopCam.al, stopCam.sd);
+      camPos.set(sx + f.x * stopCam.al + kx * stopCam.sd, cy + dd * stopCam.tan, sz + f.z * stopCam.al + kz * stopCam.sd);
       camLook.set(sx + kx * 0.4, cy, sz + kz * 0.4);
       // tablets: the question card is a strip along the bottom, so look a little lower (the bus sits higher)
       if (innerHeight > 500) camLook.y -= 1.6;
       // phones held sideways: the question card is a column on the left, so frame the bus toward the right
       if (innerHeight <= 500) {                         // (always at a stop, so the view stays put when the card comes)
         let dx = camLook.x - camPos.x, dz = camLook.z - camPos.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
-        const sh = innerWidth <= 700 ? 9 : 6.5;           // move the camera to its left: the scene slides right
+        const sh = Math.hypot(camLook.x - camPos.x, camLook.z - camPos.z) * (innerWidth <= 700 ? 0.55 : 0.42);   // move the camera to its left: the scene slides right
         camPos.x += dz * sh; camPos.z -= dx * sh; camLook.x += dz * sh; camLook.z -= dx * sh;
       }
     } else {

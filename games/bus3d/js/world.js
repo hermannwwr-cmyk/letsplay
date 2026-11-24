@@ -280,6 +280,16 @@
     }
     return false;
   };
+  W.insideTall = function (x, y, z) {
+    const list = grid.get(ckey(Math.floor(x / CELL), Math.floor(z / CELL)));
+    if (!list) return false;
+    for (const c of list) {
+      if (c.r != null || y > c.top) continue;
+      const dx = x - c.x, dz = z - c.z;
+      if (Math.abs(dx * c.cos - dz * c.sin) < c.hw + 0.8 && Math.abs(dx * c.sin + dz * c.cos) < c.hd + 0.8) return true;
+    }
+    return false;
+  };
   W.viaduct = { z: VIADUCT_Z, deckY: DECK_Y, halfW: 4, x0: -210, x1: 210 };
   // Where the bus parks at a stop (or the depot): its nose 3 past the shelter, 1 toward the kerb from its lane.
   W.bayOf = function (st) {
@@ -437,7 +447,8 @@
   // it eases into the night and stays there (the bedtime cue); setSky(1) at goodnight does the same at once.
   W.day = { t: 0.12, speed: 1 / 360, bed: false, rising: false, auto: true };
   function phaseOf(t) {
-    if (t < 0.08) return 0.86 * (1 - t / 0.08);                  // dawn: pink sky to morning
+    if (t < 0.05) return 0.86 - 0.14 * t / 0.05;                 // dawn: pink, then orange...
+    if (t < 0.08) return 0.72 * (1 - (t - 0.05) / 0.03);         // ...then morning
     if (t < 0.5) return 0.62 * (t - 0.08) / 0.42;                 // day
     if (t < 0.62) return 0.62 + 0.18 * (t - 0.5) / 0.12;          // sunset
     if (t < 0.7) return 0.8 + 0.2 * (t - 0.62) / 0.08;            // dusk
@@ -1012,9 +1023,10 @@
   // and a louvred clerestory, a row of stalls with bright signboards, round tables with stools and people, and
   // umbrella tables on the plaza by the road. A bowl picture board stands on the roof.
   function hawkerCentre(b, green) {
-    W.addBox(0, -45.5, 16, 12.6, 0, 3.5);   // (low for sight lines: the pavilion is open-sided)
+    W.addBox(0, -45.5, 18, 12.6, 0, 1);      // the plaza (low: it doesn't block the cameras' view)
+    W.addBox(0, -46, 14.6, 9.4, 0, 11);      // the pavilion
     A(b, 0, 0.25, -46, Math.PI, (q) => {            // local +z = toward the road (north)
-      bx(q, 32, 0.12, 25, '#f1e2c6', 0, 0, -0.5);
+      bx(q, 36, 0.12, 25, '#f1e2c6', 0, 0, -0.5);
       for (let x = -14; x <= 14; x += 2) bx(q, 0.9, 0.02, 25, '#e6d2b0', x, 0.12, -0.5);    // floor tiles
       for (let x = -12; x <= 12; x += 6) for (const z of [-7.5, 7.5]) {
         q.cyl(0.42, 0.42, 5.2, 8, P.cream, x, 0.12, z); q.cyl(0.55, 0.55, 0.8, 8, P.teal, x, 0.12, z);
@@ -1046,10 +1058,10 @@
         if ((x + z * 3) % 2 === 0 || rnd() < 0.4) figure(q, x + 1.45, 0.12, z, -Math.PI / 2, true, 0.95);
         if (rnd() < 0.45) figure(q, x - 1.45, 0.12, z, Math.PI / 2, true, 0.95);
       }
-      // umbrella tables on the plaza by the road
+      // umbrella tables on the plaza, at the sides of the pavilion (the road side stays open for the stop's view)
       const um = [P.coral, P.honey, P.teal, P.rose];
       for (let i = 0; i < 4; i++) {
-        const x = -10.5 + i * 7, z = 10.6;
+        const x = i < 2 ? -16 : 16, z = i % 2 ? 5 : -3.5;
         q.cyl(0.8, 0.8, 0.1, 8, '#fbf7ee', x, 0.95, z); q.cyl(0.1, 0.1, 3.0, 5, '#7f8a96', x, 0.12, z);
         q.add(new THREE.ConeGeometry(2.3, 0.9, 8), um[i], x, 3.3, z);
         q.add(new THREE.ConeGeometry(2.32, 0.3, 8), light(um[i], 0.5), x, 2.95, z);
@@ -1462,8 +1474,8 @@
   // ---------- bus stops: a shelter with a curved roof, glass back, bench, bin, side panel, a pole with a picture sign ----------
   function buildStops(b) {
     for (const st of W.stops) {
-      addBoxAt(st.pos.x, st.pos.z, st.heading, 0.3, 0, 1.1, 4.1, 3.6);
-      addBoxAt(st.pos.x, st.pos.z, st.heading, -0.9, 4.6, 0.2, 0.2, 4);
+      addBoxAt(st.pos.x, st.pos.z, st.heading, 0.3, 0, 1.1, 4.1, 0.2);    // (top 0.2: the shelter hides from the cameras,
+      addBoxAt(st.pos.x, st.pos.z, st.heading, -0.9, 4.6, 0.2, 0.2, 0.2); //  so it never blocks their sight lines)
       const p0 = propStart(b);
       b.at(st.pos.x, 0.25, st.pos.z, st.heading, (q) => {
         // local: +z forward (travel), +x toward the kerb side (away from the road)
@@ -1490,7 +1502,7 @@
   function buildSigns() {
     const list = W.stops.map((st) => {
       const cx = st.pos.x - st.side.x * 0.9 + st.fwd.x * 4.6, cz = st.pos.z - st.side.z * 0.9 + st.fwd.z * 4.6;
-      return { pic: st.pic, x: cx, y: 0.25 + 3.55, z: cz, nx: -st.fwd.x, nz: -st.fwd.z, size: 2.2, ring: P.honey };
+      return { pic: st.pic, x: cx, y: 0.25 + 3.55, z: cz, nx: -st.fwd.x, nz: -st.fwd.z, size: 2.2, ring: P.honey, stop: true };
     });
     list.push({ pic: 'depot', x: DEPOT_X - 7.5, y: 0.25 + 6.95, z: W.depot.pos.z, nx: -1, nz: 0, size: 2.9, ring: P.teal });
     for (const s of SIGNS) list.push(s);
@@ -1507,9 +1519,10 @@
     });
     const tex = new THREE.CanvasTexture(cv);
     tex.anisotropy = 4;
-    const pos = [], uv = [];
+    const pos = [], uv = [], cen = [];
     list.forEach((st, i) => {
       const { x: cx, y: cy, z: cz, nx, nz, size } = st;
+      for (let k = 0; k < 12; k++) cen.push(st.stop ? cx : 1e5, cz, 1.1);   // stop signs hide when they block the stop view
       const rx = nz, rz = -nx;          // right along the board as seen from its front
       const u0 = (i + 0.004) / list.length, u1 = (i + 0.996) / list.length, h = size / 2;
       const quad = (sgn) => {
@@ -1525,7 +1538,8 @@
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     geo.computeVertexNormals();
-    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: tex, alphaTest: 0.5, side: THREE.FrontSide }));
+    geo.setAttribute('aCenter', new THREE.Float32BufferAttribute(cen, 3));
+    const m = new THREE.Mesh(geo, fadeMat(new THREE.MeshBasicMaterial({ map: tex, alphaTest: 0.5, side: THREE.FrontSide })));
     m.name = 'signs';
     return m;
   }
