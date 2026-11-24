@@ -105,6 +105,14 @@
   B.seatWorld = function (i, v) { v = v || new THREE.Vector3(); const s = B.seats[i]; v.set(s.x, s.y, s.z); return B.front.localToWorld(v); };
   B.doorWorld = function (v) { v = v || new THREE.Vector3(); const d = M ? M.doorLocal : { x: 1.6, y: 0, z: LF / 2 - 1 }; v.set(d.x, 0, d.z); return B.front.localToWorld(v); };
   B.pathAhead = () => 0;
+  // The exit door on the kerb side (where people get off): the second door of the seated carriage, or the rear
+  // carriage's door on a bendy; the front door if the bus has only one.
+  B.exitDoorWorld = function (v) {
+    v = v || new THREE.Vector3();
+    const d = doors[1] || doors[0];
+    if (!d || !d.parent) return B.doorWorld(v);
+    v.set(Math.abs(d.userData.x) + 0.35, 0, d.userData.z); return d.parent.localToWorld(v);
+  };
   B.isSettling = () => !!settle;
   B.isFacingAway = () => facingAway;
   // Lights (the headlights and tail lights; off for the goodnight moment).
@@ -921,13 +929,13 @@
       // wall fades (dollhouse), so both rows of seats, the door, the path and the queue at the shelter are in view.
       // The shelter, trees and lamps in the way are hidden by the world; buildings pull the camera in.
       const kx = Math.cos(h), kz = -Math.sin(h), f = fwdOf(h), H = M ? M.height : 3.3;
-      const D = (LF > 9 ? 12.5 : 11) + (H > 4 ? 1.2 : 0), cy = H * 0.45, sx = fx + f.x * 0.3, sz = fz + f.z * 0.3;
+      const D = (LF > 9 ? 16 : 14.5) + (H > 4 ? 1.5 : 0), cy = H * 0.45, sx = fx + f.x * 0.3, sz = fz + f.z * 0.3;
       camPos.set(sx + kx * D, cy + D * Math.tan(17 * Math.PI / 180), sz + kz * D);
       camLook.set(sx + kx * 0.4, cy, sz + kz * 0.4);
       // tablets: the question card is a strip along the bottom, so look a little lower (the bus sits higher)
       if (innerHeight > 500) camLook.y -= 1.6;
       // phones held sideways: the question card is a column on the left, so frame the bus toward the right
-      if (innerHeight <= 500 && BB.jobs && BB.jobs.phase === 'question') {
+      if (innerHeight <= 500) {                         // (always at a stop, so the view stays put when the card comes)
         let dx = camLook.x - camPos.x, dz = camLook.z - camPos.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
         const sh = innerWidth <= 700 ? 9 : 6.5;           // move the camera to its left: the scene slides right
         camPos.x += dz * sh; camPos.z -= dx * sh; camLook.x += dz * sh; camLook.z -= dx * sh;
@@ -958,7 +966,8 @@
   function updateCamera(dt) {
     desiredCamera(dt);
     const chase = B.camMode === 'chase' && !B.atStop && !settle;
-    const k = 1 - Math.exp(-(chase ? 3.0 : 1.6) * dt);
+    const stopView = (B.atStop || settle) && B.camMode === 'chase';
+    const k = 1 - Math.exp(-(chase ? 3.0 : stopView ? 2.6 : 1.6) * dt);
     const m = midPoint(), cp = BB.camera.position;
     const a0 = Math.atan2(cp.x - m.x, cp.z - m.z), a1 = Math.atan2(camPos.x - m.x, camPos.z - m.z);
     const r0 = Math.hypot(cp.x - m.x, cp.z - m.z), r1 = Math.hypot(camPos.x - m.x, camPos.z - m.z);

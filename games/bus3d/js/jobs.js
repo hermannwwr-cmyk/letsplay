@@ -176,7 +176,7 @@
   }
   // One person gets off: the last seated leaves first (seat n-1), steps out of the door and walks away along the
   // pavement, waving goodbye with a little hop.
-  async function alightOne(onLeave) {
+  async function alightOne(onLeave, stay) {
     const seat = (BB.bus.passengers | 0) - 1;
     if (seat < 0) return;
     BB.bus.passengers = seat;
@@ -187,20 +187,27 @@
     await walkTo(m, doorOut(true), 2.8);
     // stand on the pavement in a little row in front of the camera, turn to the bus and wave, then walk off
     const k = J.extras.length, spot = kerbSpot(1.7 + (k % 2) * 0.5, -0.8 - k * 0.9, true);
+    J.extras.push(m);
     walkTo(m, spot, 3).then(async () => {
-      J.extras.push(m);
       m.userData.jump = 1; m.userData.jumpDelay = 0;
       await wait(1300);
-      J.extras = J.extras.filter((x) => x !== m);
-      const away = kerbSpot(1.8 + Math.random() * 0.6, -9 - Math.random() * 4, true);   // along the pavement
-      await walkTo(m, away, 3.2, { shrink: true });
-      removePerson(m);
+      if (stay && !m.userData.released) return;          // stays in view until the question is answered
+      walkAway(m);
     });
   }
+  function walkAway(m) {
+    if (m.userData.gone) return;
+    m.userData.gone = true;
+    J.extras = J.extras.filter((x) => x !== m);
+    const away = kerbSpot(1.8 + Math.random() * 0.6, -9 - Math.random() * 4, true);   // along the pavement
+    walkTo(m, away, 3.2, { shrink: true }).then(() => removePerson(m));
+  }
+  // the people who got off for the question walk away (after the answer, or when the stop ends)
+  function releaseExtras() { for (const m of J.extras.slice()) { m.userData.released = true; walkAway(m); } scene.unwave(); }
   // several people get off one after another, overlapping (a new one every 0.45 s), so 4 take about 3 s
-  async function alightPeople(count, onLeave) {
+  async function alightPeople(count, onLeave, stay) {
     const all = [];
-    for (let i = 0; i < count; i++) { all.push(alightOne(onLeave)); if (i < count - 1) await wait(450); }
+    for (let i = 0; i < count; i++) { all.push(alightOne(onLeave, stay)); if (i < count - 1) await wait(450); }
     await Promise.all(all);
   }
   // Everybody gets off and walks away (e.g. for a goodnight moment). cb when the bus is empty.
@@ -271,6 +278,8 @@
   }
   // Only the seat being counted shows its number above the bus (several would pile up at the stop camera angle).
   function mark(i, label, pulse) {
+    return;                                    // replaced by the seat bubbles (scene.bubble); kept for reference
+    // eslint-disable-next-line no-unreachable
     if (!ensureMarks() || i < 0 || i > 9) return;
     clearMarks();
     const sp = marks[i];
@@ -280,6 +289,104 @@
   }
   function unmark(i) { if (marks[i]) marks[i].visible = false; }
   function clearMarks() { for (const sp of marks) sp.visible = false; }
+
+  // ---------- teaching on the real bus: a DOM layer anchored to the seats ----------
+  // Each seat (BB.bus.seatWorld(i), any bus type) gets, when asked: a soft glow halo round the passenger's head, a big
+  // number bubble above it (only the current and the previous count stay, so nothing piles up), and, while a question
+  // is up, an invisible tap target so the child can count the real passengers. Mina flies from head to head. People
+  // who got off get a little wave bubble on the pavement. Positions are projected from the 3D scene every frame.
+  BB.css(`
+  .bbs { position: absolute; inset: 0; pointer-events: none; overflow: hidden; --hs: 58px; --bub: 64px; --bf: 44px; }
+  .bbs-at { position: absolute; left: 0; top: 0; will-change: transform; }
+  .bbs-halo { position: absolute; width: var(--hs); height: var(--hs); left: calc(var(--hs) / -2); top: calc(var(--hs) / -2); border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,236,150,.45) 40%, rgba(255,200,60,.0) 72%); box-shadow: 0 0 0 4px rgba(255,190,40,.9), 0 0 20px 6px rgba(255,190,40,.55);
+    animation: bbs-in .25s cubic-bezier(.2,1.6,.5,1); }
+  .bbs-bub { position: absolute; min-width: var(--bub); height: var(--bub); left: calc(var(--bub) / -2); top: calc(var(--hs) / -2 - var(--bub) - 6px);
+    box-sizing: border-box; padding: 0 8px; border-radius: calc(var(--bub) / 2); background: #fff6e0; border: 4px solid #ffb81f; color: #d98700;
+    font: 700 var(--bf)/1 'Fredoka', 'Baloo 2', system-ui, sans-serif; display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 5px 0 rgba(120,80,40,.2); animation: bbs-in .35s cubic-bezier(.2,1.6,.5,1); transform-origin: 50% 120%; transition: opacity .3s, transform .3s; }
+  .bbs-bub::after { content: ''; position: absolute; left: 50%; bottom: -12px; margin-left: -8px; border: 8px solid transparent; border-top-color: #ffb81f; border-bottom: 0; }
+  .bbs-bub.big { background: #19a79b; border-color: #127a71; color: #fff; } .bbs-bub.big::after { border-top-color: #127a71; }
+  .bbs-bub.q { background: #fff; color: #d98700; animation: bbs-in .35s cubic-bezier(.2,1.6,.5,1), bbq-ask 1.1s .35s ease-in-out infinite alternate; }
+  .bbs-bub.old { opacity: .5; transform: scale(.72); }
+  .bbs-bub.wave { border-color: #ff6b5c; font-size: calc(var(--bf) * .75); } .bbs-bub.wave::after { border-top-color: #ff6b5c; }
+  @keyframes bbs-in { from { transform: scale(.2); opacity: 0; } }
+  .bbs-hit { position: absolute; width: var(--hs); height: var(--hs); left: calc(var(--hs) / -2); top: calc(var(--hs) / -2); border-radius: 50%; pointer-events: auto; cursor: pointer; }
+  .bbs-bird { position: absolute; width: 74px; height: 74px; left: calc(var(--hs) / 2 - 4px); top: calc(var(--hs) / -2 - 62px); transition: opacity .3s; transform: scaleX(-1); }   /* beside the bubble, beak toward it */
+  .bbs-bird svg { width: 100%; height: 100%; display: block; transform-origin: 50% 90%; }
+  .bbs-bird.hop svg { animation: bbq-hop .42s ease-out; }
+  @media (max-height: 520px) { .bbs { --hs: 40px; --bub: 46px; --bf: 32px; } .bbs-bird { width: 54px; height: 54px; top: calc(var(--hs) / -2 - 46px); } }
+  `);
+  const scene = (function () {
+    let layer = null, bird = null, birdAt = null, birdPos = null;
+    const halos = new Map(), bubbles = [], waves = [], hits = new Map();
+    const v = new THREE.Vector3();
+    function root() {
+      if (!layer || !layer.isConnected) {
+        const ui = (BB.ui && BB.ui.root) || document.getElementById('ui');
+        layer = document.createElement('div'); layer.className = 'bbs';
+        ui.insertBefore(layer, ui.firstChild);         // under the HUD and the card
+      }
+      return layer;
+    }
+    function headOf(i) { BB.bus.seatWorld(i, v); v.y += 1.0; return v; }
+    function toScreen(p) {
+      const q = p.clone().project(BB.camera);
+      if (q.z > 1) return null;
+      return [(q.x + 1) / 2 * innerWidth, (1 - q.y) / 2 * innerHeight];
+    }
+    function at(el, p) { const s = p && toScreen(p); if (!s) { el.style.display = 'none'; return; } el.style.display = ''; el.style.transform = `translate(${s[0].toFixed(1)}px, ${s[1].toFixed(1)}px)`; }
+    function holder(cls, inner) { const a = BB.el('div', 'bbs-at', root()); const e = BB.el('div', cls, a, inner); return { a, e }; }
+    return {
+      halo(i, on) {
+        if (typeof BB.bus.seatWorld !== 'function') return;
+        if (on && !halos.has(i)) halos.set(i, holder('bbs-halo'));
+        else if (!on && halos.has(i)) { halos.get(i).a.remove(); halos.delete(i); }
+      },
+      bubble(i, label, cls) {
+        if (typeof BB.bus.seatWorld !== 'function') return;
+        for (let j = bubbles.length - 1; j >= 0; j--) if (bubbles[j].i === i) { bubbles[j].a.remove(); bubbles.splice(j, 1); }
+        bubbles.forEach((b) => b.e.classList.add('old'));
+        while (bubbles.length > 1) bubbles.shift().a.remove();   // only the previous count stays (faded)
+        const h = holder('bbs-bub' + (cls ? ' ' + cls : ''), String(label)); h.i = i;
+        bubbles.push(h);
+      },
+      wave(meshes) {
+        this.unwave();
+        for (const m of meshes) { const h = holder('bbs-bub wave', '\u{1F44B}'); h.m = m; waves.push(h); }
+      },
+      unwave() { while (waves.length) waves.pop().a.remove(); },
+      clear() { for (const h of halos.values()) h.a.remove(); halos.clear(); while (bubbles.length) bubbles.pop().a.remove(); },
+      bird(i) {
+        if (i == null) { if (bird) bird.a.style.opacity = '0'; birdAt = null; return; }
+        if (!bird) { bird = holder('bbs-bird', BIRD); }
+        bird.a.style.opacity = '1';
+        if (birdAt !== i) { bird.e.classList.remove('hop'); void bird.e.offsetWidth; bird.e.classList.add('hop'); }
+        birdAt = i;
+      },
+      // tap targets over the seated passengers while a question is up
+      setHits(n, onTap) {
+        for (const [i, h] of hits) if (i >= n) { h.a.remove(); hits.delete(i); }
+        for (let i = 0; i < n; i++) if (!hits.has(i)) {
+          const h = holder('bbs-hit'); hits.set(i, h);
+          h.e.addEventListener('pointerup', (e) => { e.stopPropagation(); if (BB.audio && BB.audio.unlock) BB.audio.unlock(); onTap(i); });
+        }
+      },
+      reset() { this.clear(); this.unwave(); this.bird(null); this.setHits(0); },
+      update(dt) {
+        if (!layer || typeof BB.bus.seatWorld !== 'function') return;
+        for (const [i, h] of halos) at(h.a, headOf(i));
+        for (const b of bubbles) at(b.a, headOf(b.i));
+        for (const [i, h] of hits) at(h.a, headOf(i));
+        for (const w of waves) { const p = w.m.position.clone(); p.y += 1.9; at(w.a, w.m.parent ? p : null); }
+        if (bird && birdAt != null) {
+          const t = headOf(birdAt).clone();
+          birdPos = birdPos ? birdPos.lerp(t, Math.min(1, dt * 7)) : t;
+          at(bird.a, birdPos);
+        }
+      },
+    };
+  })();
 
   // ---------- the question card (DOM) ----------
   BB.css(`
@@ -493,9 +600,11 @@
     if (!b) b = BB.el('b', 'num', el);
     else { b.style.animation = 'none'; void b.offsetWidth; b.style.animation = ''; }
     b.textContent = String(num); b.classList.toggle('big', !!big);
+    scene.bubble(i, num, num === '?' ? 'q' : big ? 'big' : '');
   }
-  function light(i, on) { if (seatEls[i]) seatEls[i].classList.toggle('lit', on); }
+  function light(i, on) { if (seatEls[i]) seatEls[i].classList.toggle('lit', on); scene.halo(i, on); }
   function clearCounting() {
+    scene.clear();
     tapped = [];
     seatEls.forEach((el) => { el.classList.remove('lit', 'bye'); const b = el.querySelector('.num'); if (b) b.remove(); });
     clearMarks();
@@ -504,7 +613,10 @@
   // Mina hops to a seat (perching on its top-right corner) or back to her spot on the frame's top-right corner.
   // Mina never sits on a face: she flies along the top edge of the frame to the column of the seat being counted
   // and leans over it (the seat itself glows), or rests on the frame's top-right corner.
+  // Mina points on the real bus (scene); on the card she stays at her spot on the frame.
   function birdTo(i, beside) {
+    scene.bird(i == null ? null : i);
+    if (i != null) i = null;
     if (!bird || !frame) return;
     const bw = bird.offsetWidth, bh = bird.offsetHeight;
     const el = i == null ? null : seatEls[i];
@@ -573,8 +685,9 @@
   }
 
   function hideQuestion(now, keepSeq) {
-    if (!keepSeq) { seq++; stopGen++; }
+    if (!keepSeq) { seq++; stopGen++; releaseExtras(); }
     hideCount();
+    scene.reset();
     J.teaching = false;
     if (card) {
       const c = card;
@@ -612,6 +725,7 @@
       await J.teach(demoFor(q), 'demo');
       if (!alive() || !card) return;
       showGroup(q.n);
+      BB.bus.passengers = q.n;
       buildSum(q);
       await wait(400);
       if (!alive()) return;
@@ -629,11 +743,12 @@
       const list = J.waiting; J.waiting = [];
       await Promise.all([say(kPhrase(q)), boardPeople(list, (seat) => { if (card) setSeat(seat, 'new'); })]);
     } else {
-      await Promise.all([say(kPhrase(q)), alightPeople(q.k, (seat) => { if (card) { setSeat(seat, 'gone'); seatEls[seat].classList.add('bye'); } })]);
+      await Promise.all([say(kPhrase(q)), alightPeople(q.k, (seat) => { if (card) { setSeat(seat, 'gone'); seatEls[seat].classList.add('bye'); } }, true)]);
     }
     litSum(null);
     if (!alive() || !card) return;
     for (let i = 0; i < 10; i++) seatEls[i].classList.remove('bye');
+    if (q.kind === 'sub') scene.wave(J.extras);
     BB.bus.passengers = q.answer;
     setPhase('question');
     q.onRight = onRight;
@@ -769,7 +884,9 @@
       if (q.kind === 'add') { for (let i = 0; i < n; i++) setSeat(i, 'full'); for (let i = n; i < a; i++) setSeat(i, 'new'); }
       else { for (let i = 0; i < n; i++) setSeat(i, 'full'); for (let i = a; i < n; i++) setSeat(i, 'gone'); }
       buildSum(q); showSum('n1', 'n2', 'ask');          // the example's own sentence, filled in at the end
+      BB.bus.passengers = n;                            // the real bus shows the example too (restored afterwards)
     }
+    const demoSeat = (count) => { if (q.demo && card) { BB.bus.passengers = count; BB.sfx.pop(); } };
     const done = () => { litSum(null); fillSum(a); };
     const run = async () => {
       const intro = mode === 'demo' ? (q.kind === 'add' ? 'Let me show you how to count on!' : 'Let me show you how to take away!') : "Let's count together!";
@@ -782,8 +899,15 @@
         litSum('n2');
         if (!await step(`${k} more got on. Let's count on!`, 300)) return;
         const last = full ? a : a - 1;
-        for (let i = n; i < last; i++) if (!await countSeat(i, i + 1)) return;
-        if (full) { done(); if (!await step(`${n} and ${k} more make ${a}!`, 400)) return; }
+        for (let i = n; i < last; i++) { demoSeat(i + 1); if (!await countSeat(i, i + 1)) return; }
+        if (full) {
+          done();
+          if (!await step(`${n} and ${k} more make ${a}!`, 400)) return;
+          if (a > 5 && a < 10) {                      // ten-frame language: the rows on the bus
+            for (let i = 0; i < 5; i++) light(i, true);
+            if (!await step(`A full row of 5, and ${a - 5} more!`, 300)) return;
+          }
+        }
         else { quiz(a - 1); litSum('ask'); }
       } else {
         for (let i = 0; i < n; i++) light(i, true);
@@ -794,6 +918,8 @@
         for (let i = a; i < n; i++) { seatEls[i].classList.add('bye'); }
         birdTo(a < 10 ? a : null);
         litSum('n2');
+        if (q.demo) demoSeat(a);
+        else { scene.wave(J.extras); J.extras.forEach((m) => { m.userData.jump = 1; m.userData.jumpDelay = Math.random() * 0.3; }); }
         if (!await step(`${k} got off. Bye bye!`, 600)) return;
         litSum('ask');
         if (a === 0) { if (full && !await step('Nobody is left!', 300)) return; }
@@ -804,7 +930,7 @@
           if (last >= 5 && a > 5) {
             for (let i = 0; i < 5; i++) light(i, true);
             badge(4, 5, true); mark(4, 5); birdTo(4);
-            if (!await step('A full row, 5!', 400)) return;
+            if (!await step(full ? `A full row of 5, and ${a - 5} more!` : 'A full row of 5!', 400)) return;
             from = 5;
           }
           for (let i = from; i < last; i++) if (!await countSeat(i, i + 1)) return;
@@ -1143,6 +1269,9 @@
     }
     // the glowing numbers above the seats pop in and the hint ones pulse
     marks.forEach((sp, i) => { if (sp.visible) placeMark(i); });
+    const qq = J.question, canTap = card && J.phase === 'question' && qq && !qq.done;
+    scene.setHits(canTap ? BB.clamp(BB.bus.passengers | 0, 0, 10) : 0, (i) => { if (!card) return; if (J.teaching) skipTeach(); else if (J.phase === 'question') countTap(i); });
+    scene.update(dt);
     if (countTag && countTag.visible) placeCount();
     for (const sp of (countTag ? marks.concat(countTag) : marks)) {
       if (!sp.visible) continue;
