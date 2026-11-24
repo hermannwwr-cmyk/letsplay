@@ -217,7 +217,7 @@
     // title
     titleEl = BB.el('div', 'bbu-title', U.root, '<div class="bbu-logo">Bendy <span>Bus</span></div><div class="bbu-tap">Tap to drive!</div>');
     titleEl.style.display = 'none';
-    BB.tap(titleEl, () => { if (BB.bedtime) return; U.hideTitle(); BB.emit('title:start'); });
+    BB.tap(titleEl, () => { if (BB.bedtime || !U.titleShown()) return; U.hideTitle(); BB.emit('title:start'); });
     // standalone portrait hint (the hub shows its own card in hub mode)
     BB.el('div', 'bbu-turn' + (BB.HUB ? '' : ' standalone'), U.root, '<svg class="phone" viewBox="0 0 120 120" aria-hidden="true">'
       + '<path class="arc" d="M100 48 A44 44 0 0 0 60 16" stroke="#19a79b" stroke-width="8" fill="none" stroke-linecap="round"/><path class="arc" d="M50 6 L64 16 L50 27Z" fill="#19a79b"/>'

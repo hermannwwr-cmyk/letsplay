@@ -59,7 +59,10 @@
     const welcome = BB.HUB ? 'Tap to drive!' : 'Hello! Tap to drive the bendy bus!';
     BB.say(welcome);
     BB.on('audio:unlocked', () => { if (BB.ui.titleShown() && !BB.heard(welcome)) BB.say(welcome); });
+    let started = false;                 // once per title visit, however many taps arrive
     BB.on('title:start', () => {
+      if (started) return;
+      started = true;
       BB.bus.setCamera('chase');
       BB.music.start();
       BB.say('Hold the green button to go!');

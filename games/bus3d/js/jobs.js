@@ -290,10 +290,13 @@
     background: #ffd45c; clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
     animation: bbq-spark .7s ease-out forwards; }
   @keyframes bbq-spark { from { transform: translate(0, 0) scale(.4); opacity: 1; } to { transform: translate(var(--dx), var(--dy)) scale(1.2) rotate(90deg); opacity: 0; } }
-  .bbq-dots { display: grid; grid-template-columns: repeat(5, 11px); gap: 3px; justify-content: center; }
-  .bbq-dots i { width: 11px; height: 11px; border-radius: 50%; background: #3fae49; box-shadow: inset -2px -2px 0 rgba(0,0,0,.15); }
-  .bbq-term.n2.add .bbq-dots i { background: #19a79b; }
-  .bbq-term.n2.sub .bbq-dots i { background: transparent; border: 2px dashed #ff6b5c; box-sizing: border-box; box-shadow: none; }
+  /* little people: a round head over rounded shoulders, in the group's colour */
+  .bbq-dots { display: grid; grid-template-columns: repeat(5, 13px); gap: 3px 3px; justify-content: center; --pc: #3fae49; }
+  .bbq-dots i { width: 13px; height: 16px; background:
+    radial-gradient(circle at 50% 27%, var(--pc) 0 26%, transparent 28%),
+    radial-gradient(ellipse 50% 42% at 50% 100%, var(--pc) 0 98%, transparent 100%); }
+  .bbq-term.n2.add .bbq-dots { --pc: #19a79b; }
+  .bbq-term.n2.sub .bbq-dots { --pc: #ff6b5c; } .bbq-term.n2.sub .bbq-dots i { opacity: .45; }
   .bbq-btn { width: 88px; height: 88px; border-radius: 26px; border: none; font: 700 50px/1 'Fredoka', 'Baloo 2', system-ui, sans-serif;
     color: #fff; background: #4fa3e0; box-shadow: inset -5px -6px 0 rgba(0,0,0,.12), 0 6px 0 #2f7fbc; cursor: pointer;
     touch-action: manipulation; padding: 0; transition: opacity .3s, transform .15s; }
@@ -338,9 +341,8 @@
     .bbq-term.n2.sub b { line-height: 34px; }
     .bbq-term.ans b { min-width: 46px; line-height: 32px; border-width: 3px; }
     .bbq-spark { top: 19px; }
-    .bbq-dots { grid-template-columns: repeat(5, 7px); gap: 2px; }
-    .bbq-dots i { width: 7px; height: 7px; }
-    .bbq-term.n2.sub .bbq-dots i { border-width: 1.5px; }
+    .bbq-dots { grid-template-columns: repeat(5, 8px); gap: 1px 2px; }
+    .bbq-dots i { width: 8px; height: 10px; }
     .bbq-btn { width: 64px; height: 64px; font-size: 38px; border-radius: 20px; }
     .bbq-say { width: 56px; height: 56px; }
     .bbj { font-size: 36px; padding: 8px 20px; top: 20%; } .bbj svg { width: 42px; height: 42px; } .bbj canvas { width: 40px; height: 40px; }
