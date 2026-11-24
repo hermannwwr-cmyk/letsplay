@@ -167,7 +167,7 @@
     lightCones = new THREE.Mesh(lb.geometry(), new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.22, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
     lightCones.visible = false; B.front.add(lightCones);
     // hat mount on the front roof, sticker anchors on the sides (and a super sticker spot on the rear roof)
-    B.hatMount = new THREE.Group(); B.hatMount.name = 'hatMount'; B.hatMount.position.set(0, 3.1, LF / 2 - 1.7); B.front.add(B.hatMount);
+    B.hatMount = new THREE.Group(); B.hatMount.name = 'hatMount'; B.hatMount.position.set(0, 3.1, LF / 2 - 1.7); B.front.add(B.hatMount);   // empty (no hats now)
     const anchor = (car, x, y, z, ry, rx, size) => { const o = new THREE.Object3D(); o.position.set(x, y, z); o.rotation.set(rx || 0, ry, 0, 'YXZ'); o.userData.size = size; car.add(o); return o; };
     B.stickerAnchors = [
       [anchor(B.front, 1.27, 1.0, 0.45, Math.PI / 2, 0, 1.15), anchor(B.front, -1.27, 1.0, 0.45, -Math.PI / 2, 0, 1.15)],
@@ -229,8 +229,6 @@
         lamps.box(0.16, 0.18, 0.05, '#ffae3a', s * 0.66, 0.64, FZ + 0.04);
         lamps.box(0.08, 0.1, 0.3, '#ffae3a', s * 1.26, 0.72, zf - 0.25);              // side indicator
       }
-      det.add(slab(2.6, 0.18, 0.5, 0.1, 0.1, 0.4, 0.06), '#46404e', 0, 0, zf + 0.04);   // bumper
-      det.box(0.7, 0.18, 0.04, '#fbf7ee', 0, 0.26, zf + 0.25); det.box(0.5, 0.06, 0.02, '#3a3440', 0, 0.32, zf + 0.27);
       // wing mirrors on arms, hanging forward of the windscreen
       for (const s of [1, -1]) {
         det.box(0.06, 0.06, 0.55, '#33303a', s * 1.3, 2.25, zf + 0.15, s * 0.25);
@@ -256,8 +254,6 @@
         lamps.box(0.26, 0.16, 0.05, '#ffae3a', s * 1.0, 0.8, BZ - 0.03);
         lamps.box(0.26, 0.14, 0.05, '#fbf3e0', s * 1.0, 0.63, BZ - 0.03);
       }
-      det.add(slab(2.6, 0.18, 0.5, 0.1, 0.1, 0.4, 0.06), '#46404e', 0, 0, zb - 0.04);
-      det.box(0.7, 0.18, 0.04, '#fbf7ee', 0, 0.26, zb - 0.25); det.box(0.5, 0.06, 0.02, '#3a3440', 0, 0.32, zb - 0.27);
     }
     const pm = paint.mesh(paintMat), dm = det.mesh(), gm = glass.mesh(glassMat), lm = lamps.mesh(lampMat);
     gm.renderOrder = 3;
@@ -272,18 +268,19 @@
     if (isFront) doorF = door; else doorR = door;
     // wheels: one mesh per axle (both wheels), spinning about x; the front axle also steers
     for (const z of axles) {
-      const wb = BB.mk.builder();
-      for (const x of [-1.08, 1.08]) {
-        wb.add(new THREE.CylinderGeometry(0.52, 0.52, 0.36, 12), '#2f2a33', x, 0, 0, 0, 0, Math.PI / 2);
-        wb.add(new THREE.CylinderGeometry(0.27, 0.27, 0.38, 8), P.honeyLight, x, 0, 0, 0, 0, Math.PI / 2);
-        wb.box(0.4, 0.42, 0.1, '#f4ecdc', x, -0.21, 0);
-      }
-      const wm = wb.mesh(); wm.position.set(0, 0.52, z); wm.rotation.order = 'YXZ';
+      const wm = new THREE.Mesh(wheelGeometry(), BB.mk.mat); wm.position.set(0, tyreR(), z); wm.rotation.order = 'YXZ';
       g.add(wm);
       (isFront ? wheelsF : wheelsR).push(wm);
       if (isFront && z === zf - FRONT_AXLE) steerWheels.push(wm);
     }
     const blob = BB.mk.blob(3.6, L + 1.6); blob.position.y = 0.08; g.add(blob);
+    // the swappable parts' meshes (rebuilt by setPart): bumpers on both carriages, extra lights on the front,
+    // an underglow plane under each carriage
+    const bm = new THREE.Mesh(bumperGeometry(B.parts.bumpers, isFront), BB.mk.mat); bm.name = 'bumper'; g.add(bm);
+    if (isFront) bumperF = bm; else bumperR = bm;
+    const glow = new THREE.Mesh(new THREE.PlaneGeometry(3.6, L + 1.0), glowMat()); glow.rotation.x = -Math.PI / 2; glow.position.y = 0.06; glow.renderOrder = 1; glow.visible = false; g.add(glow);
+    glows.push(glow);
+    if (isFront) { lightPart = new THREE.Mesh(new THREE.BufferGeometry(), lampMat); lightPart.name = 'lightPart'; g.add(lightPart); }
     return g;
   }
   // The accordion: soft rounded rings, half on each carriage's side of the hitch, so it bends without gaps.
@@ -369,6 +366,7 @@
     return c;
   };
   const stickerMeshes = [[], [], []];
+  let partsApplied = false;
   // Put a sticker on slot 0 (front carriage sides), 1 (rear carriage sides) or 2 (the super spot on the rear roof).
   // src: a sticker id, any BB.pic name, a canvas, or null to remove it.
   B.setSticker = function (slot, src) {
@@ -383,53 +381,96 @@
       a.add(m); stickerMeshes[slot].push(m);
     }
   };
-  // Hats for the roof. Ids: party, crown, cap, flower, bow, chef.
-  B.HATS = ['party', 'crown', 'cap', 'flower', 'bow', 'chef'];
-  B.makeHat = function (id) {
-    const b = BB.mk.builder();
-    switch (id) {
-      case 'party':
-        b.add(new THREE.ConeGeometry(0.75, 1.8, 8), P.berry, 0, 0.9, 0);
-        for (let k = 0; k < 6; k++) { const a = k * 1.1, y = 0.35 + k * 0.22, r = 0.68 - y * 0.37; b.ball(0.11, [P.honey, P.coral, '#ffffff'][k % 3], Math.sin(a) * r, y, Math.cos(a) * r); }
-        b.ball(0.24, P.honeyLight, 0, 1.85, 0, 1);
-        break;
-      case 'crown':
-        b.cyl(0.85, 0.85, 0.5, 10, P.honey, 0, 0, 0);
-        for (let k = 0; k < 5; k++) { const a = k / 5 * Math.PI * 2; b.add(new THREE.ConeGeometry(0.25, 0.6, 4), P.honey, Math.sin(a) * 0.7, 0.8, Math.cos(a) * 0.7); b.ball(0.12, [P.coral, '#4fa3e0', P.leaf][k % 3], Math.sin(a) * 0.86, 0.25, Math.cos(a) * 0.86); }
-        break;
-      case 'cap':
-        b.add(new THREE.SphereGeometry(0.85, 10, 5, 0, Math.PI * 2, 0, Math.PI / 2), P.coral, 0, 0, 0);
-        b.box(1.3, 0.08, 1.0, P.coral, 0, 0, 0.95); b.ball(0.13, '#ffffff', 0, 0.85, 0);
-        break;
-      case 'flower':
-        b.cyl(0.08, 0.1, 0.9, 5, P.leaf, 0, 0, 0);
-        for (let k = 0; k < 6; k++) { const a = k / 6 * Math.PI * 2; b.ball(0.32, P.rose, Math.sin(a) * 0.45, 1.05, Math.cos(a) * 0.45, 1, 1, 0.5, 1); }
-        b.ball(0.3, P.honeyLight, 0, 1.12, 0, 1, 1, 0.6, 1);
-        b.box(0.5, 0.06, 0.25, P.leaf, 0.3, 0.45, 0, 0, 0, 0.5);
-        break;
-      case 'bow':
-        b.ball(0.5, P.coral, -0.55, 0.45, 0, 1, 1.2, 0.8, 0.5); b.ball(0.5, P.coral, 0.55, 0.45, 0, 1, 1.2, 0.8, 0.5);
-        b.ball(0.25, '#e8473b', 0, 0.45, 0, 1);
-        break;
-      case 'chef':
-        b.cyl(0.6, 0.6, 0.6, 10, '#ffffff', 0, 0, 0);
-        for (let k = 0; k < 5; k++) { const a = k / 5 * Math.PI * 2; b.ball(0.42, '#ffffff', Math.sin(a) * 0.38, 0.85, Math.cos(a) * 0.38, 1); }
-        b.ball(0.45, '#fffaf0', 0, 1.05, 0, 1);
-        break;
-      default: return null;
-    }
-    const m = b.mesh(); m.name = 'hat:' + id; return m;
+  // ---------- parts: lights, bumpers, wheels, rims (the garage sells them; depot.js sets the prices) ----------
+  B.PARTS = {
+    lights: [{ id: 'standard', name: 'Headlights' }, { id: 'led', name: 'LED strip' }, { id: 'fog', name: 'Fog lamps' },
+      { id: 'lightbar', name: 'Roof light bar' }, { id: 'underglow', name: 'Underglow' }],
+    bumpers: [{ id: 'standard', name: 'Standard' }, { id: 'chrome', name: 'Chrome' }, { id: 'sporty', name: 'Sporty' }, { id: 'tough', name: 'Tough' }],
+    wheels: [{ id: 'standard', name: 'Standard' }, { id: 'chunky', name: 'Big chunky' }, { id: 'whitewall', name: 'Whitewall' }],
+    rims: [{ id: 'standard', name: 'Honey hub' }, { id: 'silver', name: 'Silver star' }, { id: 'gold', name: 'Gold' }, { id: 'red', name: 'Red sporty' }, { id: 'blue', name: 'Blue chrome' }],
   };
-  // Put a hat on the roof: an id from B.HATS, any Object3D (the depot can make its own), or null.
-  let myHat = null;
-  B.setHat = function (hat) {
-    if (!B.hatMount) return;
-    if (myHat) B.hatMount.remove(myHat);                  // only our own hat: the depot may hang its own here too
-    myHat = typeof hat === 'string' ? B.makeHat(hat) : hat || null;
-    if (myHat) B.hatMount.add(myHat);
+  B.GLOW_COLORS = ['#5fd0ff', '#ff5fd0', '#7dff8a', '#ffd45c', '#b58cff'];
+  B.parts = { lights: 'standard', bumpers: 'standard', wheels: 'standard', rims: 'standard', glow: '#5fd0ff' };
+  let bumperF = null, bumperR = null, lightPart = null;
+  const glows = [];
+  const tyreR = () => B.parts.wheels === 'chunky' ? 0.57 : 0.52;
+  // One axle's two wheels (tyres + rims), merged; the wheel spins about x.
+  function wheelGeometry() {
+    const w = B.parts.wheels, rim = B.parts.rims, b = BB.mk.builder(), R = tyreR(), Wd = w === 'chunky' ? 0.46 : 0.36;
+    const RIM = { standard: [P.honeyLight, '#f4ecdc', 1], silver: ['#dfe3ea', '#aab2bf', 5], gold: ['#ffd45c', '#d99a1c', 6], red: ['#3a3440', '#ff4a3a', 8], blue: ['#7fb2ff', '#e6f0ff', 6] }[rim] || [P.honeyLight, '#f4ecdc', 1];
+    for (const s of [-1, 1]) {
+      const x = s * 1.08, face = x + s * (Wd / 2 + 0.01);
+      b.add(new THREE.CylinderGeometry(R, R, Wd, 14), '#2f2a33', x, 0, 0, 0, 0, Math.PI / 2);
+      if (w === 'chunky') for (let k = 0; k < 12; k++) { const a = k / 12 * Math.PI * 2; b.add(new THREE.BoxGeometry(Wd + 0.02, 0.1, 0.16), '#3a3440', x, Math.cos(a) * R, Math.sin(a) * R, 0, a, 0); }
+      if (w === 'whitewall') b.add(new THREE.CylinderGeometry(R * 0.82, R * 0.82, Wd + 0.02, 14), '#fbf7ee', x, 0, 0, 0, 0, Math.PI / 2);
+      const rr = R * (w === 'whitewall' ? 0.6 : 0.55);
+      b.add(new THREE.CylinderGeometry(rr, rr, Wd + 0.04, 10), RIM[0], x, 0, 0, 0, 0, Math.PI / 2);
+      if (RIM[2] === 1) b.add(new THREE.BoxGeometry(0.05, rr * 1.6, 0.12), RIM[1], face, 0, 0);
+      else for (let k = 0; k < RIM[2]; k++) { const a = k / RIM[2] * Math.PI * 2; b.add(new THREE.BoxGeometry(0.05, rr * 0.9, rim === 'red' ? 0.05 : 0.09), RIM[1], face + s * 0.01, Math.cos(a) * rr * 0.45, Math.sin(a) * rr * 0.45, 0, a, 0); }
+      b.add(new THREE.CylinderGeometry(0.08, 0.08, Wd + 0.08, 6), rim === 'blue' ? '#ffffff' : '#5a5260', x, 0, 0, 0, 0, Math.PI / 2);
+    }
+    return b.geometry();
+  }
+  // Front or rear bumper with a generic number plate.
+  function bumperGeometry(kind, isFront) {
+    const b = BB.mk.builder(), L = isFront ? LF : LR, z = isFront ? L / 2 + 0.04 : -L / 2 - 0.04, s = isFront ? 1 : -1;
+    const col = { standard: '#46404e', chrome: '#dfe3ea', sporty: '#2b2830', tough: '#3a3440' }[kind] || '#46404e';
+    b.add(slab(2.6, 0.18, 0.5, 0.1, 0.1, 0.4, 0.06), col, 0, 0, z);
+    if (kind === 'chrome') { b.box(2.5, 0.08, 0.06, '#ffffff', 0, 0.4, z + s * 0.2); b.box(2.5, 0.05, 0.06, '#aab2bf', 0, 0.22, z + s * 0.2); }
+    if (kind === 'sporty') {
+      b.add(new THREE.BoxGeometry(2.62, 0.08, 0.5), P.coral, 0, 0.16, z + s * 0.12);          // lip spoiler
+      for (const x of [-0.9, 0.9]) b.box(0.4, 0.12, 0.06, '#1c1a20', x, 0.28, z + s * 0.21);   // vents
+    }
+    if (kind === 'tough') {
+      for (const x of [-1.0, -0.35, 0.35, 1.0]) b.box(0.12, 0.85, 0.12, '#55505e', x, 0.2, z + s * 0.38);
+      b.box(2.3, 0.12, 0.12, '#55505e', 0, 0.95, z + s * 0.38); b.box(2.4, 0.14, 0.14, '#55505e', 0, 0.55, z + s * 0.38);
+      for (const x of [-1.0, 1.0]) b.box(0.12, 0.12, 0.4, '#55505e', x, 0.55, z + s * 0.2);
+    }
+    b.box(0.7, 0.18, 0.04, '#fbf7ee', 0, 0.26, z + s * 0.22); b.box(0.5, 0.06, 0.02, '#3a3440', 0, 0.32, z + s * 0.24);
+    return b.geometry();
+  }
+  // Extra lights on the front carriage (MeshBasic: they always look lit and glow at night).
+  function lightGeometry(kind) {
+    const b = BB.mk.builder(), zf = LF / 2 + 0.06;
+    if (kind === 'led') { b.box(2.2, 0.07, 0.04, '#ffffff', 0, 1.14, zf); b.box(2.24, 0.03, 0.04, '#cfeaff', 0, 1.1, zf); }
+    else if (kind === 'fog') for (const x of [-0.7, 0.7]) { b.add(new THREE.CylinderGeometry(0.12, 0.12, 0.06, 10), '#33303a', x, 0.34, LF / 2 + 0.25, 0, Math.PI / 2); b.add(new THREE.CylinderGeometry(0.09, 0.09, 0.07, 10), '#ffc23a', x, 0.34, LF / 2 + 0.27, 0, Math.PI / 2); }
+    else if (kind === 'lightbar') {
+      b.box(2.0, 0.12, 0.3, '#33303a', 0, 3.1, LF / 2 - 0.35);
+      for (let k = 0; k < 6; k++) b.box(0.26, 0.14, 0.06, k % 2 ? '#fff6c8' : '#ffffff', -0.85 + k * 0.34, 3.1, LF / 2 - 0.18);
+    }
+    if (!b.parts.length) return new THREE.BufferGeometry();
+    return b.geometry();
+  }
+  let glowTex = null;
+  function glowMat() {
+    if (!glowTex) {
+      const c = document.createElement('canvas'); c.width = 64; c.height = 128;
+      const x = c.getContext('2d'), gr = x.createRadialGradient(32, 64, 6, 32, 64, 62);
+      gr.addColorStop(0, 'rgba(255,255,255,0.95)'); gr.addColorStop(0.6, 'rgba(255,255,255,0.45)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+      x.fillStyle = gr; x.fillRect(0, 0, 64, 128); glowTex = new THREE.CanvasTexture(c);
+    }
+    return new THREE.MeshBasicMaterial({ map: glowTex, color: B.parts.glow, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -2 });
+  }
+  // Fit a part: kind 'lights' | 'bumpers' | 'wheels' | 'rims', id from B.PARTS[kind]. For the underglow, opt = a
+  // colour ('#rrggbb', or pick from B.GLOW_COLORS). Rebuilds only that part's small mesh(es).
+  B.setPart = function (kind, id, opt) {
+    if (!B.PARTS[kind]) return false;
+    if (!B.PARTS[kind].some((p) => p.id === id)) id = 'standard';
+    B.parts[kind] = id;
+    if (kind === 'lights' && typeof opt === 'string') B.parts.glow = opt;
+    if (!B.front) return true;
+    if (kind === 'bumpers') for (const [m, f] of [[bumperF, true], [bumperR, false]]) { m.geometry.dispose(); m.geometry = bumperGeometry(id, f); }
+    if (kind === 'wheels' || kind === 'rims') {
+      for (const w of wheelsF.concat(wheelsR)) { w.geometry.dispose(); w.geometry = wheelGeometry(); w.position.y = tyreR(); }
+    }
+    if (kind === 'lights') {
+      lightPart.geometry.dispose(); lightPart.geometry = lightGeometry(id);
+      for (const gl of glows) { gl.visible = id === 'underglow'; gl.material.color.set(B.parts.glow); }
+    }
+    return true;
   };
   // Apply the saved customisation: paint, headlights upgrade, stickers (save.stickers[0..2]; slot 2 needs the
-  // super sticker upgrade) and the hat (save.hat).
+  // super sticker upgrade) and the parts (save.parts = {lights, bumpers, wheels, rims, glow}).
   B.applyCustom = function (save) {
     save = save || BB.save;
     B.setPaint(save.paint);
@@ -438,7 +479,12 @@
       const want = i === 2 && !(save.upgrades && save.upgrades.sticker3) ? null : st[i] || null;
       if (stickerMeshes[i].want !== want) { B.setSticker(i, want); stickerMeshes[i].want = want; }
     }
-    if (B.hatMount && B.hatMount.userData.id !== (save.hat || null)) { B.setHat(save.hat || null); B.hatMount.userData.id = save.hat || null; }
+    const ps = save.parts || {};
+    for (const k of ['lights', 'bumpers', 'wheels', 'rims']) {
+      const want = ps[k] || 'standard', glow = k === 'lights' ? ps.glow || B.parts.glow : undefined;
+      if (B.parts[k] !== want || (k === 'lights' && glow !== B.parts.glow) || !partsApplied) B.setPart(k, want, glow);
+    }
+    partsApplied = true;
   };
 
   // ---------- tow truck (the jobs builder animates it) ----------
@@ -650,8 +696,8 @@
       const wx = (_w1.x + _w2.x) / 2, wz = (_w1.z + _w2.z) / 2;
       if (mode === 'depot') {
         // from the road side, looking at the bus's door side, with the whole bus left of the depot panel
-        const hh = h + wrapA(hr - h) / 2, kx = Math.cos(hh), kz = -Math.sin(hh);
-        const d = 21, cam = BB.camera, vis = 2 * d * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2) * cam.aspect;
+        const hh = Math.atan2(_w1.x - _w2.x, _w1.z - _w2.z), kx = Math.cos(hh), kz = -Math.sin(hh);
+        const d = 24, cam = BB.camera, vis = 2 * d * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2) * cam.aspect;
         const panel = Math.min(440, innerWidth * 0.52) / Math.max(1, innerWidth);
         const sh = vis * panel / 2;
         camPos.set(wx - kx * d - kz * sh, 8, wz - kz * d + kx * sh);
@@ -672,6 +718,8 @@
       const kx = Math.cos(h), kz = -Math.sin(h), f = fwdOf(h);
       camPos.set(fx + f.x * 6 - kx * 15, 11, fz + f.z * 6 - kz * 15);
       camLook.set(fx - f.x * 2 + kx * 1.2, 1.0, fz - f.z * 2 + kz * 1.2);
+      // tablets: the question card is a strip along the bottom, so keep the whole bus in the upper part
+      if (innerHeight > 500) { camLook.x += (camPos.x - camLook.x) * 0.16; camLook.z += (camPos.z - camLook.z) * 0.16; camLook.y = -0.5; }
       // phones held sideways: the question card is a column on the left, so frame the bus toward the right
       if (innerHeight <= 500 && BB.jobs && BB.jobs.phase === 'question') {
         let dx = camLook.x - camPos.x, dz = camLook.z - camPos.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;

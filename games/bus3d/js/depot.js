@@ -170,7 +170,7 @@
   function mixHex(a, b, t) { const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16); const m = (sh) => Math.round(((pa >> sh) & 255) * (1 - t) + ((pb >> sh) & 255) * t); return '#' + [16, 8, 0].map((sh) => m(sh).toString(16).padStart(2, '0')).join(''); }
   function lamp(x, cx, cy, r, glow) {
     if (glow) { const g = x.createRadialGradient(cx, cy, r * 0.5, cx, cy, r * 2.2); g.addColorStop(0, 'rgba(255,240,170,.8)'); g.addColorStop(1, 'rgba(255,240,170,0)'); x.fillStyle = g; x.fillRect(cx - r * 2.2, cy - r * 2.2, r * 4.4, r * 4.4); }
-    shaded(x, (p) => p.arc(cx, cy, r, 0, Math.PI * 2), '#9aa4b0'); circ(x, cx - 1, cy - 1, r * 0.72, '#fffbe0'); ell(x, cx - r * 0.3, cy - r * 0.3, r * 0.25, r * 0.16, '#ffffff', -0.6);
+    shaded(x, (p) => p.arc(cx, cy, r, 0, Math.PI * 2), '#9aa4b0'); circ(x, cx - 1, cy - 1, r * 0.72, '#fff1a8'); ell(x, cx - r * 0.3, cy - r * 0.3, r * 0.25, r * 0.16, '#ffffff', -0.6);
   }
   const PART_ART = {
     lights: {
