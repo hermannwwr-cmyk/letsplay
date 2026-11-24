@@ -206,7 +206,12 @@
     uturnBtn = BB.el('button', 'bbu-uturn', hud, '<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M18 56 V28 a14 14 0 0 1 28 0 V34" stroke="#19a79b" stroke-width="9" fill="none" stroke-linecap="round"/>'
       + '<path d="M33 32 L46 48 L59 32 Z" fill="#19a79b"/></svg>');
     uturnBtn.setAttribute('aria-label', 'turn around');
-    BB.tap(uturnBtn, () => { if (BB.bus.turnAround) { BB.sfx.whoosh(); BB.bus.turnAround(); facing = false; syncUturn(); } });
+    BB.tap(uturnBtn, () => {
+      if (!BB.bus.turnAround) return;
+      if (BB.bus.turnAround() === false) { BB.sfx.wrong(); return; }   // not allowed right now: stays offered
+      BB.sfx.whoosh(); facing = false; syncUturn();
+    });
+    BB.on('bus:turnAround', () => { facing = false; syncUturn(); });
     BB.on('bus:facingAway', (d) => { facing = !!(d && d.on); syncUturn(); });
 
     // title

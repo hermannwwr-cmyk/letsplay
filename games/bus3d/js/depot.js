@@ -469,7 +469,13 @@
   // after buying: the bus shows off its new thing and says how much it loves it
   function showOff(kind, id, line) {
     BB.later(900, () => {
-      try { if (BB.bus.showOff) BB.bus.showOff(kind, id); } catch (e) { console.error(e); }
+      try {
+        if (BB.bus.showOff) BB.bus.showOff(kind, id);
+        else if (D.isOpen && kind !== 'upgrade') {      // a close look at the new thing, then back to the garage view
+          BB.bus.setCamera('depotClose'); D.hop();
+          BB.later(3200, () => { if (D.isOpen && BB.bus.camMode === 'depotClose') BB.bus.setCamera('depot'); });
+        }
+      } catch (e) { console.error(e); }
       BB.emit('depot:showOff', { kind, id });
       BB.say(line, { queue: true });
     });
