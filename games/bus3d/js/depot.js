@@ -390,7 +390,8 @@
     padding: 6px 2px 10px; -webkit-overflow-scrolling: touch; touch-action: pan-y; }
   .bbd-tile { position: relative; width: 84px; height: 84px; border-radius: 24px; border: 3px solid #ecd3a8; background: #fff;
     display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; touch-action: manipulation; flex: none;
-    box-shadow: 0 4px 0 rgba(120,80,40,.12); animation: bbd-pop .3s cubic-bezier(.2,1.5,.5,1) both; }
+    box-shadow: 0 4px 0 rgba(120,80,40,.12); }
+  .bbd-body.anim .bbd-tile { animation: bbd-pop .3s cubic-bezier(.2,1.5,.5,1) both; }
   .bbd-tile canvas { width: 66px; height: 66px; }
   .bbd-tile.on { border-color: #19a79b; box-shadow: 0 0 0 4px #8fe0c4; }
   .bbd-tile.on::after { content: ''; position: absolute; top: -8px; right: -8px; width: 26px; height: 26px; border-radius: 50%;
@@ -537,9 +538,10 @@
     return t;
   }
 
-  function renderBody() {
+  function renderBody(animate) {
     if (!bodyEl) return;
     bodyEl.innerHTML = '';
+    bodyEl.classList.toggle('anim', !!animate);
     const isPrev = (kind, id) => preview && preview.kind === kind && preview.id === id;
     if (tab === 'fuel') {
       const row = BB.el('div', 'bbd-fuel', bodyEl);
@@ -631,7 +633,7 @@
     if (goalEl) { goalEl.remove(); goalEl = null; }
     panel.querySelectorAll('.bbd-tab').forEach((b) => b.classList.toggle('on', b.dataset.tab === id));
     bodyEl.scrollTop = 0;
-    renderBody();
+    renderBody(true);
     if (!quiet) { BB.sfx.click(); BB.say((TABS.find((t) => t.id === id) || {}).say || ''); }
   }
 

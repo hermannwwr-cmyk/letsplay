@@ -955,7 +955,7 @@
       q.box(16, 0.12, 9, '#efe4d0', 0, 0, 0.5);
       q.box(14, 4.2, 6, P.cream, 0, 0, -0.5);
       q.box(15, 0.5, 7.4, P.teal, 0, 4.2, -0.2);
-      q.add(new THREE.CylinderGeometry(3.7, 3.7, 15, 8, 1, false, -Math.PI / 2, Math.PI), '#16928a', 0, 4.7, -0.2, 0, 0, Math.PI / 2, 1, 1, 0.35);
+      q.add(new THREE.CylinderGeometry(3.7, 3.7, 15, 8, 1, false, 0, Math.PI), '#16928a', 0, 4.7, -0.2, 0, 0, Math.PI / 2, 0.35, 1, 1);
       q.box(6, 3, 0.2, P.glassDark, 0, 0.12, 2.55);
       for (const x of [-2.2, 0, 2.2]) q.box(0.15, 3, 0.25, '#e9e2d6', x, 0.12, 2.6);
       q.box(2.2, DECK_Y - 4, 2.2, '#e0d6c8', -6.2, 4.2, -2); q.box(2.2, DECK_Y - 4, 2.2, '#e0d6c8', 6.2, 4.2, -2);   // lift shafts
@@ -981,7 +981,7 @@
       bx(q, 20, 7, 14, P.cream, 0, 0.15, 0);
       bx(q, 20.4, 0.5, 14.4, P.teal, 0, 7.1, 0);
       const arch = new THREE.CylinderGeometry(10.2, 10.2, 14.6, 12, 1, false, -Math.PI / 2, Math.PI);
-      q.add(arch, P.teal, 0, 7.6, 0, Math.PI / 2, 0, Math.PI / 2, 1, 1, 0.42);
+      q.add(arch, P.teal, 0, 7.6, 0, 0, -Math.PI / 2, 0, 1, 1, 0.42);
       const front = new THREE.CircleGeometry(10, 12, 0, Math.PI);
       for (const z of [7.31, -7.31]) q.add(front, P.cream, 0, 7.6, z, z > 0 ? 0 : Math.PI, 0, 0, 1, 0.4, 1);
       bx(q, 20.6, 0.35, 0.3, P.teal, 0, 7.45, 7.2);
@@ -1046,9 +1046,9 @@
       b.box(32, 1.2, 0.2, light(P.teal, 0.55), 46, DECK_Y + 2.0, zz);
       for (let x = 31; x <= 61; x += 5) b.box(0.4, 5.4, 0.4, '#e9e2d6', x, DECK_Y + 2, zz);
     }
-    const roof = new THREE.CylinderGeometry(7.6, 7.6, 34, 10, 1, true, -Math.PI / 2, Math.PI);
-    b.add(roof, P.teal, 46, DECK_Y + 7.2, z, 0, 0, Math.PI / 2, 1, 0.42, 1);
-    b.add(roof, '#16928a', 46, DECK_Y + 7.2, z, 0, 0, Math.PI / 2, -1, 0.42, 1);           // its inside (seen from below)
+    const roof = new THREE.CylinderGeometry(7.6, 7.6, 34, 10, 1, true, 0, Math.PI);
+    b.add(roof, P.teal, 46, DECK_Y + 7.2, z, 0, 0, Math.PI / 2, 0.42, 1, 1);
+    b.add(roof, '#16928a', 46, DECK_Y + 7.2, z, 0, 0, Math.PI / 2, 0.42, 1, -1);           // its inside (seen from below)
     b.box(34, 0.4, 0.4, '#e9e2d6', 46, DECK_Y + 7.0, z - 7.4); b.box(34, 0.4, 0.4, '#e9e2d6', 46, DECK_Y + 7.0, z + 7.4);
     SIGNS.push({ pic: 'train', x: 46, y: DECK_Y + 5.2, z: z + 6.45, nx: 0, nz: 1, size: 2.4, ring: P.teal });
     SIGNS.push({ pic: 'train', x: 46, y: DECK_Y + 5.2, z: z - 6.45, nx: 0, nz: -1, size: 2.4, ring: P.teal });
@@ -1221,7 +1221,7 @@
         q.box(0.12, 2.2, 6.4, '#cfeaf3', 1.1, 0.5, 0);                // back panel (glass)
         q.box(0.2, 0.3, 6.6, P.teal, 1.1, 2.75, 0);
         const roof = new THREE.CylinderGeometry(3.4, 3.4, 8.0, 8, 1, false, -0.5, 1.0);
-        q.add(roof, P.teal, 0.25, 0.0, 0, 0, Math.PI / 2, 0, 1, 1, 1);
+        q.add(roof, P.teal, 0.25, 0.0, 0, 0, -Math.PI / 2, 0, 1, 1, 1);
         q.box(0.7, 0.12, 5, P.wood, 0.6, 0.85, 0); q.box(0.12, 0.5, 5, P.wood, 0.95, 0.95, 0);   // bench
         q.box(0.2, 1.3, 2.4, P.honeyLight, 1.12, 0.9, -2.0);           // a colourful side panel
         q.box(0.22, 0.6, 1.0, P.coral, 1.14, 1.2, -2.3); q.box(0.22, 0.4, 0.6, P.teal, 1.14, 1.5, -1.6);
