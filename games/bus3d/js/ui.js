@@ -13,8 +13,7 @@
   #ui button { font-family: inherit; }
   .bbu-hud { position: absolute; inset: 0; pointer-events: none; transition: opacity .3s; }
   .bbu-hud.off { opacity: 0; } .bbu-hud.off * { pointer-events: none !important; }
-  .bbu-top { position: absolute; top: max(10px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left));
-    right: max(12px, env(safe-area-inset-right)); display: flex; align-items: flex-start; gap: 10px; }
+  .bbu-top { position: absolute; top: var(--st); left: var(--sl); right: var(--sr); display: flex; align-items: flex-start; gap: 10px; }
   .bbu-pill { pointer-events: auto; display: flex; align-items: center; gap: 6px; background: #fff6e0; border: 3px solid #d9b57f;
     border-radius: 32px; padding: 4px 14px 4px 6px; height: 56px; box-sizing: border-box; box-shadow: 0 4px 0 rgba(120,80,40,.15); }
   .bbu-pill canvas { width: 40px; height: 40px; }
@@ -38,10 +37,34 @@
   .bbu-round canvas { width: 40px; height: 40px; }
   .bbu-round.pressed, .bbu-pill.pressed { transform: translateY(3px); box-shadow: none; }
   .bbu-round.offx { opacity: .5; }
-  .bbu-exit { width: 64px; height: 64px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 12px; box-sizing: border-box;
-    animation: bbu-bob 2.4s ease-in-out infinite; }
-  .bbu-exit i { border-radius: 5px; } @keyframes bbu-bob { 50% { transform: translateY(-3px); } }
-  .bbu-go { position: absolute; right: max(18px, env(safe-area-inset-right)); bottom: max(18px, env(safe-area-inset-bottom));
+  /* the shared "all games" button (hub mode, title and garage screens) */
+  .bbu-exit { position: absolute; z-index: 30; left: var(--sl); top: var(--st); width: 64px; height: 64px; padding: 0; border-radius: 50%;
+    background: #fff6e0; border: 3px solid #d9b57f; box-sizing: border-box; pointer-events: auto; cursor: pointer; touch-action: manipulation;
+    box-shadow: inset -4px -5px 0 rgba(217,181,127,.42), 0 4px 10px rgba(60,40,20,.25); animation: bbu-bob 2.4s ease-in-out infinite; }
+  .bbu-exit svg { width: 100%; height: 100%; display: block; }
+  .bbu-exit.pressed { transform: translateY(2px); box-shadow: inset -4px -5px 0 rgba(217,181,127,.42), 0 2px 4px rgba(60,40,20,.25); }
+  @keyframes bbu-bob { 0%, 100% { translate: 0 -2px; } 50% { translate: 0 2px; } }
+  /* the shared play clock chip (hub mode): cream pill, drawn clock, m:ss; orange with a moon in the last minute */
+  .bbu-clock { pointer-events: auto; display: flex; align-items: center; gap: 6px; height: 56px; box-sizing: border-box; padding: 0 16px 0 10px;
+    background: #fff6e0; border-radius: 999px; font-size: 28px; font-weight: 800; color: #3a2a3c; white-space: nowrap; flex: none;
+    font-variant-numeric: tabular-nums; box-shadow: inset -3px -4px 0 rgba(217,181,127,.45), 0 4px 0 rgba(120,80,40,.15);
+    transition: background .4s, color .4s; }
+  .bbu-clock svg { width: 34px; height: 34px; display: block; }
+  .bbu-clock .ic-moon, .bbu-clock.late .ic-clock { display: none; } .bbu-clock.late .ic-moon { display: block; }
+  .bbu-clock.late { background: #ff9a2e; color: #fff; text-shadow: 0 2px 0 rgba(0,0,0,.2); box-shadow: inset -3px -4px 0 rgba(180,90,10,.35), 0 4px 0 rgba(0,0,0,.15); }
+  .bbu-clock.hidden { display: none; }
+  html.hub-sound-wait .bbu-snd { visibility: hidden; }
+  /* goodnight */
+  .bbu-night { position: absolute; inset: 0; pointer-events: auto; opacity: 0; transition: opacity 2.5s;
+    background: radial-gradient(ellipse at 50% 30%, rgba(40,48,120,.25), rgba(14,18,60,.62)); }
+  .bbu-night.on { opacity: 1; }
+  .bbu-night .moon { position: absolute; right: calc(var(--sr) + 40px); top: calc(var(--st) + 20px); width: 90px; height: 90px; }
+  .bbu-night .star { position: absolute; width: 8px; height: 8px; border-radius: 50%; background: #fff3b8; animation: bbu-twinkle 2s ease-in-out infinite; }
+  @keyframes bbu-twinkle { 50% { opacity: .3; transform: scale(.6); } }
+  .bbu-night .zzz { position: absolute; left: 50%; top: 38%; font-size: 54px; font-weight: 800; color: #fff3b8; opacity: 0;
+    text-shadow: 0 3px 0 rgba(0,0,0,.25); animation: bbu-zzz 3s ease-out infinite 1.5s; }
+  @keyframes bbu-zzz { 0% { opacity: 0; transform: translate(0, 10px) scale(.6); } 30% { opacity: 1; } 100% { opacity: 0; transform: translate(40px, -60px) scale(1.2); } }
+  .bbu-go { position: absolute; right: calc(var(--sr) + 6px); bottom: var(--sb);
     width: 136px; height: 136px; border-radius: 50%; border: none; pointer-events: auto; cursor: pointer; touch-action: none;
     background: radial-gradient(circle at 40% 35%, #7ad86f, #3fae49 60%, #2f8f3a); box-shadow: 0 8px 0 #24702d, 0 10px 18px rgba(0,0,0,.18);
     color: #fff; font-size: 40px; font-weight: 800; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; }
@@ -49,8 +72,8 @@
   .bbu-go.down { transform: translateY(6px) scale(.97); box-shadow: 0 2px 0 #24702d; }
   .bbu-go.nudge { animation: bbu-nudge 1.4s ease-in-out infinite; }
   @keyframes bbu-nudge { 50% { box-shadow: 0 8px 0 #24702d, 0 0 0 14px rgba(255,212,92,.6); } }
-  .bbu-horn { position: absolute; left: max(18px, env(safe-area-inset-left)); bottom: max(18px, env(safe-area-inset-bottom)); width: 84px; height: 84px; font-size: 40px; }
-  .bbu-arrows { position: absolute; left: 50%; bottom: max(18px, env(safe-area-inset-bottom)); transform: translateX(-50%); display: flex; gap: 14px; pointer-events: none; }
+  .bbu-horn { position: absolute; left: calc(var(--sl) + 6px); bottom: var(--sb); width: 84px; height: 84px; font-size: 40px; }
+  .bbu-arrows { position: absolute; left: 50%; bottom: var(--sb); transform: translateX(-50%); display: flex; gap: 14px; pointer-events: none; }
   .bbu-arrow { width: 100px; height: 100px; border-radius: 28px; border: 4px solid #d9b57f; background: #fff6e0; pointer-events: auto; cursor: pointer;
     box-shadow: 0 6px 0 rgba(120,80,40,.2); display: flex; align-items: center; justify-content: center; padding: 0; touch-action: manipulation;
     animation: bbu-pop .3s cubic-bezier(.2,1.5,.5,1); }
@@ -61,7 +84,7 @@
   @keyframes bbu-pop { from { transform: scale(.3); opacity: 0; } }
   @keyframes bbu-glow { to { box-shadow: 0 6px 0 rgba(120,80,40,.2), 0 0 0 8px rgba(255,212,92,.55); } }
   .bbu-title { position: absolute; inset: 0; pointer-events: auto; display: flex; flex-direction: column; align-items: center; justify-content: space-between;
-    padding: max(24px, env(safe-area-inset-top)) 16px max(28px, env(safe-area-inset-bottom)); box-sizing: border-box; cursor: pointer;
+    padding: calc(var(--st) + 14px) var(--sr) calc(var(--sb) + 10px) var(--sl); box-sizing: border-box; cursor: pointer;
     background: linear-gradient(rgba(255,246,224,.0), rgba(255,246,224,0) 60%, rgba(255,230,180,.35)); }
   .bbu-logo { font-size: clamp(44px, 9vw, 92px); font-weight: 800; color: #fff; letter-spacing: 1px; line-height: 1;
     text-shadow: 0 5px 0 #2f8f3a, 0 8px 14px rgba(0,0,0,.2); -webkit-text-stroke: 3px #3fae49; paint-order: stroke fill; }
@@ -82,12 +105,24 @@
   .bbu-turn .phone { width: 80px; height: 130px; border: 8px solid #3a2a3c; border-radius: 18px; animation: bbu-rot 2s ease-in-out infinite; }
   @keyframes bbu-rot { 40%, 100% { transform: rotate(-90deg); } }
   @media (orientation: portrait) { .bbu-turn.standalone { display: flex; } }
+  /* narrower screens: the clock moves under the coins, the fuel gauge gets shorter */
+  @media (max-width: 1000px) { .bbu-fuel .bar { width: 70px; } }
+  @media (max-width: 900px) {
+    .bbu-top .bbu-clock { position: absolute; left: 0; top: 66px; height: 52px; font-size: 24px; }
+    .bbu-top .bbu-clock svg { width: 30px; height: 30px; }
+  }
+  @media (max-width: 720px) { .bbu-fuel .bar { width: 44px; } .bbu-job .dots { gap: 4px; } .bbu-job .dots i { width: 13px; height: 13px; } .bbu-top { gap: 7px; } .bbu-right { gap: 6px; } }
   @media (max-height: 520px) {
     .bbu-pill, .bbu-round { height: 56px; } .bbu-pill { padding-right: 10px; } .bbu-cash b { font-size: 24px; }
-    .bbu-fuel .bar { width: 64px; } .bbu-go { width: 112px; height: 112px; font-size: 32px; } .bbu-go svg { width: 44px; height: 44px; }
+    .bbu-go { width: 112px; height: 112px; font-size: 32px; } .bbu-go svg { width: 44px; height: 44px; }
     .bbu-arrow { width: 84px; height: 84px; } .bbu-arrow svg { width: 52px; height: 52px; } .bbu-horn { width: 72px; height: 72px; font-size: 34px; }
   }`);
 
+  function darkHex(c, t = 0.22) {
+    const n = parseInt(c.slice(1), 16), f = (v) => Math.round(v * (1 - t)).toString(16).padStart(2, '0');
+    return '#' + f((n >> 16) & 255) + f((n >> 8) & 255) + f(n & 255);
+  }
+  U.darkHex = darkHex;
   const picCanvas = (name, size = 80) => { const c = document.createElement('canvas'); c.width = c.height = size; c.getContext('2d').drawImage(BB.pic(name, size), 0, 0); return c; };
   const ARROW = {
     left: '<svg viewBox="0 0 64 64"><path d="M40 52 V30 Q40 22 32 22 H22 V12 L6 27 L22 42 V32 H30 V52Z" fill="#19a79b"/></svg>',
@@ -100,11 +135,6 @@
     U.root = document.getElementById('ui');
     hud = BB.el('div', 'bbu-hud off', U.root);
     const top = BB.el('div', 'bbu-top', hud);
-    // all-games button (hub mode only). TODO(hub-mode builder): show it on the title/garage screen as the hub spec says.
-    if (BB.HUB) {
-      exitBtn = BB.el('button', 'bbu-round bbu-exit', top, '<i style="background:#f26b5b"></i><i style="background:#f5b83d"></i><i style="background:#5cb85c"></i><i style="background:#4fa3e0"></i>');
-      BB.tap(exitBtn, () => BB.hub.post({ hub: 'exit' }));
-    }
     cashEl = BB.el('div', 'bbu-pill bbu-cash', top); cashEl.appendChild(picCanvas('coin', 64)); BB.el('b', '', cashEl, String(BB.depot.cash));
     fuelEl = BB.el('div', 'bbu-pill bbu-fuel', top); fuelEl.appendChild(picCanvas('pump', 64));
     const bar = BB.el('div', 'bar', fuelEl); fuelBars = [];
@@ -113,11 +143,12 @@
     jobDots = BB.el('div', 'dots', jobEl);
     BB.tap(jobEl, () => { const t = BB.bus.target; if (t) BB.say(`Drive to ${t.say}!`); });
     jobEl.style.visibility = 'hidden';
+    if (BB.HUB) top.appendChild(U.makeClock());
     const right = BB.el('div', 'bbu-right', top);
     const depotBtn = BB.el('button', 'bbu-round', right); depotBtn.appendChild(picCanvas('depot', 80));
     BB.tap(depotBtn, () => { if (BB.jobs.phase === 'drive' || BB.jobs.phase === 'done') BB.jobs.goDepot(); });
-    musicBtn = BB.el('button', 'bbu-round', right, '🎵');
-    soundBtn = BB.el('button', 'bbu-round', right, '🔊');
+    musicBtn = BB.el('button', 'bbu-round bbu-snd', right, '🎵');
+    soundBtn = BB.el('button', 'bbu-round bbu-snd', right, '🔊');
     BB.tap(musicBtn, () => BB.audio.setSound(BB.audio.mute, !BB.audio.music, true));
     BB.tap(soundBtn, () => BB.audio.setSound(!BB.audio.mute, BB.audio.music, true));
     BB.on('sound:changed', syncSound); syncSound();
@@ -136,9 +167,18 @@
     // title
     titleEl = BB.el('div', 'bbu-title', U.root, '<div class="bbu-logo">Bendy <span>Bus</span></div><div class="bbu-tap">Tap to drive!</div>');
     titleEl.style.display = 'none';
-    BB.tap(titleEl, () => { U.hideTitle(); BB.emit('title:start'); });
+    BB.tap(titleEl, () => { if (BB.bedtime) return; U.hideTitle(); BB.emit('title:start'); });
     // standalone portrait hint (the hub shows its own card in hub mode)
     BB.el('div', 'bbu-turn' + (BB.HUB ? '' : ' standalone'), U.root, '<div class="phone"></div><div>Turn me sideways!</div>');
+    // the shared "all games" button (hub mode): on the title and garage screens only
+    if (BB.HUB) {
+      const CARD = [['#f26b5b', 17.3, 17.3], ['#f5b83d', 35.85, 17.3], ['#5cb85c', 17.3, 35.85], ['#4fa3e0', 35.85, 35.85]];
+      exitBtn = BB.el('button', 'bbu-exit', U.root, '<svg viewBox="0 0 64 64" aria-hidden="true">' + CARD.map(([c, x, y]) =>
+        `<rect x="${x}" y="${y}" width="10.85" height="10.85" rx="2.4" fill="${c}" stroke="${darkHex(c)}" stroke-width="1.3"/>`).join('') + '</svg>');
+      exitBtn.setAttribute('aria-label', 'Back to all games');
+      exitBtn.style.display = 'none';
+      BB.tap(exitBtn, () => { BB.sfx.pop(); BB.hush(); BB.hub.post({ hub: 'exit' }); });
+    }
 
     // keyboard (for testing; touch is first)
     addEventListener('keydown', (e) => {
@@ -148,7 +188,7 @@
       else if (e.code === 'ArrowRight') BB.bus.choose('right');
       else if (e.code === 'ArrowDown') BB.bus.choose('straight');
       else if (e.code === 'KeyH') BB.bus.horn();
-      else if (e.code === 'Enter' && titleEl.style.display !== 'none') { U.hideTitle(); BB.emit('title:start'); }
+      else if (e.code === 'Enter' && titleEl.style.display !== 'none' && !BB.bedtime) { U.hideTitle(); BB.emit('title:start'); }
     });
     addEventListener('keyup', (e) => { if (e.code === 'ArrowUp' || e.code === 'Space') { BB.bus.go(false); goBtn.classList.remove('down'); } });
     addEventListener('blur', () => { BB.bus.go(false); goBtn.classList.remove('down'); });
@@ -168,8 +208,8 @@
     BB.on('bus:arrived', () => { arrowsEl.innerHTML = ''; });
     BB.on('question:show', () => setDriving(false));
     BB.on('question:hide', () => setDriving(true));
-    BB.on('depot:open', () => hud.classList.add('off'));
-    BB.on('depot:closed', () => hud.classList.remove('off'));
+    BB.on('depot:open', () => { hud.classList.add('off'); U.showExit(true); });
+    BB.on('depot:closed', () => { U.showExit(false); if (!BB.bedtime) hud.classList.remove('off'); });
   };
   function syncSound() {
     soundBtn.textContent = BB.audio.mute ? '🔇' : '🔊';
@@ -200,8 +240,58 @@
     BB.sfx.beep();
   }
 
-  U.showTitle = function () { titleEl.style.display = ''; hud.classList.add('off'); };
-  U.hideTitle = function () { titleEl.style.display = 'none'; hud.classList.remove('off'); goBtn.classList.add('nudge'); };
+  U.showTitle = function () { titleEl.style.display = ''; hud.classList.add('off'); U.showExit(true); };
+  U.hideTitle = function () { titleEl.style.display = 'none'; hud.classList.remove('off'); goBtn.classList.add('nudge'); U.showExit(false); };
+  U.titleShown = () => titleEl.style.display !== 'none';
+  U.showExit = function (on) { if (exitBtn) exitBtn.style.display = on && !BB.hub.slept ? '' : 'none'; };
+  // hide everything for the goodnight moment
+  U.hideAll = function () { titleEl.style.display = 'none'; hud.classList.add('off'); U.showExit(false); arrowsEl.innerHTML = ''; };
+
+  // ---------- play clock chip (hub mode) ----------
+  const clocks = [];
+  const CLOCK_SVG = '<svg class="ic-clock" viewBox="0 0 24 24" aria-hidden="true">'
+    + '<circle cx="12" cy="13" r="9.5" fill="#f26b5b"/><circle cx="12" cy="13" r="7" fill="#fffdf6"/>'
+    + '<rect x="9.5" y="1.2" width="5" height="2.6" rx="1.2" fill="#f26b5b"/>'
+    + '<path d="M12 13V8.6M12 13l3 1.8" stroke="#3a2a3c" stroke-width="2" stroke-linecap="round" fill="none"/>'
+    + '<circle cx="12" cy="13" r="1.3" fill="#3a2a3c"/></svg>'
+    + '<svg class="ic-moon" viewBox="0 0 24 24" aria-hidden="true">'
+    + '<path d="M15.5 3.2a9.3 9.3 0 1 0 5.6 13.7A7.6 7.6 0 0 1 15.5 3.2z" fill="#fff3b8"/>'
+    + '<circle cx="9.5" cy="15.5" r="1.1" fill="#f2c94c"/><circle cx="13.5" cy="18.2" r=".8" fill="#f2c94c"/></svg>';
+  // A new clock chip element (the HUD has one, the garage another); all are kept up to date.
+  U.makeClock = function () {
+    const c = BB.el('div', 'bbu-clock hidden', null, CLOCK_SVG + '<span class="t"></span>');
+    clocks.push(c); syncClock(true);
+    return c;
+  };
+  let clockKey = '';
+  function syncClock(force) {
+    const H = BB.hub, on = BB.HUB && H.limit > 0 && H.left != null;
+    const key = on ? H.left : 'off';
+    if (key === clockKey && !force) return;
+    clockKey = key;
+    for (const c of clocks) {
+      c.classList.toggle('hidden', !on);
+      if (!on) continue;
+      c.classList.toggle('late', H.left <= 60);
+      c.lastChild.textContent = `${Math.floor(H.left / 60)}:${String(H.left % 60).padStart(2, '0')}`;
+    }
+  }
+  if (BB.HUB) BB.on('hub:time', () => syncClock());
+
+  // ---------- goodnight overlay ----------
+  let nightEl = null;
+  U.night = function (on) {
+    if (!on) { if (nightEl) nightEl.remove(); nightEl = null; return; }
+    if (nightEl) return;
+    nightEl = BB.el('div', 'bbu-night', U.root, '<svg class="moon" viewBox="0 0 24 24"><path d="M15.5 3.2a9.3 9.3 0 1 0 5.6 13.7A7.6 7.6 0 0 1 15.5 3.2z" fill="#fff3b8"/>'
+      + '<circle cx="9.5" cy="15.5" r="1.1" fill="#f2c94c"/><circle cx="13.5" cy="18.2" r=".8" fill="#f2c94c"/></svg><div class="zzz">z z z</div>');
+    for (let i = 0; i < 18; i++) {
+      const st = BB.el('i', 'star', nightEl);
+      st.style.left = (4 + Math.random() * 92) + '%'; st.style.top = (3 + Math.random() * 40) + '%';
+      st.style.animationDelay = (Math.random() * 2) + 's';
+    }
+    requestAnimationFrame(() => requestAnimationFrame(() => nightEl && nightEl.classList.add('on')));
+  };
   U.toast = function (html, ms = 1400) { const t = BB.el('div', 'bbu-toast', U.root, html); BB.later(ms, () => t.remove()); return t; };
   U.coins = function (n) { const t = U.toast(`+${n}`); t.prepend(picCanvas('coin', 64)); BB.sfx.coin(); };
   U.confetti = function () {
@@ -228,6 +318,5 @@
       fuelBars.forEach((b, i) => b.classList.toggle('off', i >= lv));
       fuelEl.classList.toggle('low', f <= BB.cfg.fuelLow);
     }
-    // TODO(hub-mode builder): play clock chip (cream pill, drawn clock, m:ss, orange with a moon in the last minute).
   };
 })();

@@ -58,6 +58,7 @@
   };
   const DEFAULT_SAVE = () => ({
     paint: 'green', upgrades: {}, stickers: [], hat: null, fuel: 1, jobsDone: 0, questions: 0, seen: {},
+    paints: ['green'], stickersOwned: [], hatsOwned: [],
   });
   BB.save = (function () {
     const s = DEFAULT_SAVE(), got = BB.store.get('save', null);
@@ -65,7 +66,8 @@
       for (const k in s) if (k in got && got[k] != null) s[k] = got[k];
       if (typeof s.upgrades !== 'object') s.upgrades = {};
       if (typeof s.seen !== 'object') s.seen = {};
-      if (!Array.isArray(s.stickers)) s.stickers = [];
+      for (const k of ['stickers', 'paints', 'stickersOwned', 'hatsOwned']) if (!Array.isArray(s[k])) s[k] = k === 'paints' ? ['green'] : [];
+      if (s.hat != null && typeof s.hat !== 'string') s.hat = null;
       s.fuel = Math.max(0, Math.min(1, +s.fuel || 0));
     }
     return s;
@@ -96,7 +98,25 @@
   BB.shuffle = (arr) => { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; };
   BB.clamp = (v, a, b) => v < a ? a : v > b ? b : v;
   BB.smooth = (t) => { t = BB.clamp(t, 0, 1); return t * t * (3 - 2 * t); };
-  BB.later = (ms, fn) => setTimeout(() => { try { fn(); } catch (e) { console.error(e); } }, ms); // TODO(hub): hold-aware timers
+  // Timers that stand still while the game is held (hub "turn me sideways" card, hidden page) and then carry on
+  // with the time they had left. Use BB.later for every game-flow timer; BB.cancelLater(handle) stops one.
+  const timers = new Set();
+  BB.later = (ms, fn) => {
+    const t = { ms: Math.max(0, +ms || 0), start: performance.now(), id: 0 };
+    t.fire = () => { if (!timers.delete(t)) return; try { fn(); } catch (e) { console.error(e); } };
+    timers.add(t);
+    if (!BB.held) t.id = setTimeout(t.fire, t.ms);
+    return t;
+  };
+  BB.cancelLater = (t) => { if (t && t.fire) { clearTimeout(t.id); timers.delete(t); } };
+  BB.wait = (ms) => new Promise((r) => BB.later(ms, r));
+  function freezeTimers(on) {
+    const now = performance.now();
+    for (const t of timers) {
+      if (on) { clearTimeout(t.id); t.ms = Math.max(0, t.ms - (now - t.start)); }
+      else { t.start = now; t.id = setTimeout(t.fire, t.ms); }
+    }
+  }
 
   // ---------- low-poly mesh builder ----------
   // Collects many small parts (each with a flat colour and a transform) and merges them into ONE flat-shaded,
@@ -312,14 +332,14 @@
     A.mute = !!mute; A.music = !!music;
     A.apply();
     if (A.mute) { try { speechSynthesis.cancel(); } catch (e) { /* none */ } }
-    if (BB.HUB) { if (fromChild) BB.hub.post({ hub: 'sound', mute: A.mute, music: A.music }); }
+    if (BB.HUB) { if (fromChild) { BB.emit('sound:tapped', { mute: A.mute, music: A.music }); BB.hub.post({ hub: 'sound', mute: A.mute, music: A.music }); } }
     else BB.store.set('sound', { mute: A.mute, music: A.music });
     BB.emit('sound:changed', { mute: A.mute, music: A.music });
   };
   A.unlock = function () {
     const ctx = A.ensure();
     try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) { /* older iOS */ }
-    if (ctx && ctx.state !== 'running' && !BB.held) { try { ctx.resume(); } catch (e) { /* ignore */ } }
+    if (ctx && ctx.state !== 'running' && !BB.held) { try { const p = ctx.resume(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* ignore */ } }
     if (!A.unlocked && ctx) {
       A.unlocked = true;
       try { const b = ctx.createBuffer(1, 1, 22050), s = ctx.createBufferSource(); s.buffer = b; s.connect(ctx.destination); s.start(0); } catch (e) { /* ignore */ }
@@ -329,12 +349,13 @@
   };
   for (const ev of ['pointerup', 'touchend', 'click', 'keydown']) addEventListener(ev, () => A.unlock(), { passive: true });
   A.suspend = () => { if (A.ctx && A.ctx.state === 'running') { try { A.ctx.suspend(); } catch (e) { /* ignore */ } } };
-  A.resume = () => { if (A.ctx && A.unlocked && A.ctx.state !== 'running') { try { A.ctx.resume(); } catch (e) { /* ignore */ } } };
+  A.resume = () => { if (A.ctx && A.unlocked && A.ctx.state !== 'running') { try { const p = A.ctx.resume(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* ignore */ } } };
 
   // tone(freq, dur, opts): one synth note into the sfx bus (or opts.bus). Peaks: effects <= 0.14.
   function tone(freq, dur, o = {}) {
     const ctx = A.ctx; if (!ctx || ctx.state !== 'running') return;
     const t = ctx.currentTime + (o.at || 0);
+    if (freq > 0) while (freq < 130) freq *= 2;          // phone speakers don't play much below ~130 Hz
     const osc = ctx.createOscillator(), g = ctx.createGain();
     osc.type = o.type || 'triangle';
     osc.frequency.setValueAtTime(freq, t);
@@ -365,6 +386,25 @@
       tone(N(7), 0.3, { type: 'sawtooth', vol: 0.06, at: 0.26 }); tone(N(11), 0.3, { type: 'sawtooth', vol: 0.05, at: 0.26 });
     },
     tick() { tone(N(31), 0.04, { type: 'sine', vol: 0.05 }); },
+    // buying something: a bright little cash-register jingle
+    jingle() {
+      [19, 23, 26, 31].forEach((s, i) => tone(N(s), 0.12, { type: 'square', vol: 0.045, at: i * 0.07 }));
+      tone(N(36), 0.4, { type: 'sine', vol: 0.09, at: 0.3 }); tone(N(43), 0.3, { type: 'sine', vol: 0.05, at: 0.34 });
+    },
+    // the fuel pump: glug-glug bubbles rising over `sec` seconds
+    gurgle(sec = 1.6) {
+      const n = Math.round(sec / 0.13);
+      for (let i = 0; i < n; i++) { const f = N(-2 + i * 0.9 + Math.random() * 3); tone(f, 0.11, { type: 'sine', vol: 0.09, at: i * 0.13, slide: f * 1.7 }); }
+      tone(N(24), 0.25, { type: 'sine', vol: 0.08, at: sec }); tone(N(31), 0.35, { type: 'sine', vol: 0.07, at: sec + 0.12 });
+    },
+    whoosh() { tone(N(5), 0.35, { type: 'triangle', vol: 0.05, slide: N(29) }); },
+    sparkle() { [31, 35, 38, 43].forEach((s, i) => tone(N(s), 0.14, { type: 'sine', vol: 0.05, at: i * 0.06 })); },
+    // goodnight: a slow, soft falling lullaby phrase
+    lullaby() {
+      [[16, 0], [12, 0.5], [14, 1.0], [7, 1.5], [12, 2.2], [9, 2.7], [7, 3.2], [0, 3.9]]
+        .forEach(([s, at]) => tone(N(s), 0.7, { type: 'sine', vol: 0.07, at, attack: 0.08 }));
+    },
+    snore() { tone(N(0), 0.9, { type: 'sine', vol: 0.04, slide: N(5), attack: 0.3 }); },
   };
   // Engine hum, level 0..1 (called every frame by bus.js). Kept above 130 Hz for phone speakers.
   let eng = null;
@@ -393,7 +433,7 @@
   };
   const M = BB.music = { on: false, step: 0, next: 0, timer: null };
   M.start = function () {
-    if (M.on) return; M.on = true;
+    if (M.on || BB.hub.paused) return; M.on = true;
     const ctx = A.ensure(); if (!ctx) return;
     M.next = ctx.currentTime + 0.1;
     M.timer = setInterval(M.tick, 90);
@@ -414,65 +454,130 @@
 
   // ---------- speech ----------
   // BB.say(text, {queue}) -> Promise resolved when done (or after a safety timeout). Cuts current speech unless queue.
+  // Hold-aware: while held nothing is spoken (requests wait for the release); a line cut off by a hold is said
+  // again afterwards and its promise only resolves then, so flows that await speech carry on exactly where they were.
   let lastSay = null;
+  const active = new Set();              // items being spoken (or queued in speechSynthesis)
+  let heldItems = [], waiting = [];      // cut off by a hold / asked for during a hold
+  const sayLen = (t) => String(t).length;
+  function speak(item) {
+    if (A.mute || !window.speechSynthesis) { BB.later(300 + sayLen(item.text) * 40, item.resolve); return; }
+    item.held = false; item.finished = false;
+    const token = item.token = {};
+    const done = () => {
+      if (item.finished || item.token !== token) return;
+      item.finished = true; BB.cancelLater(item.safety);
+      active.delete(item);
+      if (!active.size) { A.ducked = false; A.apply(); }
+      if (!item.held) item.resolve();
+    };
+    try {
+      if (!item.queue) speechSynthesis.cancel();
+      speechSynthesis.resume();
+      const u = new SpeechSynthesisUtterance(item.text);
+      u.rate = 0.95; u.pitch = 1.15; u.lang = 'en-GB';
+      u.onend = done; u.onerror = done;
+      lastSay = item.text;
+      active.add(item);
+      item.safety = BB.later(1500 + sayLen(item.text) * 90, done);
+      A.ducked = true; A.apply();
+      speechSynthesis.speak(u);
+    } catch (e) { done(); }
+  }
   BB.say = function (text, opts = {}) {
     return new Promise((resolve) => {
-      const done = () => { clearTimeout(safety); A.ducked = false; A.apply(); resolve(); };
-      const safety = setTimeout(done, 1500 + String(text).length * 90);
-      if (A.mute || BB.held || !window.speechSynthesis) { clearTimeout(safety); setTimeout(resolve, 300 + String(text).length * 40); return; }
-      try {
-        if (!opts.queue) speechSynthesis.cancel();
-        speechSynthesis.resume();
-        const u = new SpeechSynthesisUtterance(text);
-        u.rate = 0.95; u.pitch = 1.15; u.lang = 'en-GB';
-        u.onend = done; u.onerror = done;
-        lastSay = text;
-        A.ducked = true; A.apply();
-        speechSynthesis.speak(u);
-      } catch (e) { done(); }
+      const item = { text: String(text), queue: !!opts.queue, resolve };
+      if (BB.held) { waiting.push(item); return; }
+      speak(item);
     });
   };
   BB.hush = () => { try { speechSynthesis.cancel(); } catch (e) { /* none */ } };
   BB.lastSay = () => lastSay;
+  BB.speaking = () => active.size > 0;
+  function holdSpeech(on, short) {
+    if (on) {
+      heldItems = [...active].filter((it) => !it.finished);
+      for (const it of heldItems) { it.held = true; BB.cancelLater(it.safety); }
+      active.clear(); A.ducked = false;
+      BB.hush();
+      return;
+    }
+    let again = heldItems; heldItems = [];
+    let next = waiting; waiting = [];
+    // A newer line that would have cut in replaces everything before it.
+    const cut = next.map((it) => !it.queue).lastIndexOf(true);
+    if (cut >= 0) { for (const it of again.concat(next.slice(0, cut))) it.resolve(); again = []; next = next.slice(cut); }
+    // A short hold (a quick wobble of the tablet) doesn't repeat anything: the cut line counts as said.
+    if (short) { for (const it of again) it.resolve(); again = []; }
+    again.concat(next).forEach((it, i) => { it.queue = i > 0; speak(it); });
+  }
 
   // ---------- hub mode ----------
-  // Stub: protocol plumbing only. TODO(hub-mode builder): clock chip, gentle bedtime (finish the stop,
-  // goodnight moment, then post sleep once, never start a new job after time is up), stars message,
-  // hold-aware timers (BB.later), all-games button on the title/garage screen (ui.js).
+  // The protocol plumbing (time, hold, pause, sound) lives here; the flow on top of it (clock chip, last-minute
+  // warning, goodnight, stars) is in main.js and ui.js.
   BB.hub = {
-    on: BB.HUB, limit: 0, left: null, used: 0, share: 0, slept: false,
+    on: BB.HUB, limit: 0, left: null, used: 0, share: 0, slept: false, paused: false, gotTime: false,
     post(msg) { if (!BB.HUB) return; try { window.parent.postMessage(msg, '*'); } catch (e) { /* ignore */ } },
     timeUp() { return BB.HUB && this.limit > 0 && this.left != null && this.left <= 0; },
+    sleep() { if (!BB.HUB || this.slept) return; this.slept = true; this.post({ hub: 'sleep' }); },
   };
+  // For a moment after the child taps our own sound button, an older value still on its way from the hub
+  // doesn't undo the tap.
+  let soundSent = null;
+  BB.on('sound:tapped', (d) => { soundSent = { mute: d.mute, music: d.music, until: performance.now() + 2000 }; });
   if (BB.HUB) {
+    document.documentElement.classList.add('hub', 'hub-sound-wait');
     addEventListener('message', (e) => {
       if (e.source !== window.parent) return;
       const d = e.data;
       if (!d || typeof d !== 'object' || typeof d.hub !== 'string') return;
       const H = BB.hub;
       if (d.hub === 'time') {
-        H.limit = +d.limit || 0; H.left = d.left == null ? null : +d.left; H.used = +d.used || 0; H.share = +d.share || 0;
-        if (typeof d.mute === 'boolean' || typeof d.music === 'boolean') {
-          const mute = typeof d.mute === 'boolean' ? d.mute : A.mute, music = typeof d.music === 'boolean' ? d.music : A.music;
-          if (mute !== A.mute || music !== A.music) A.setSound(mute, music, false);
+        H.limit = Math.max(0, +d.limit || 0);
+        H.left = H.limit > 0 && d.left != null && isFinite(+d.left) ? Math.max(0, Math.floor(+d.left)) : null;
+        H.used = +d.used || 0;
+        H.share = H.limit > 0 ? BB.clamp(+d.share || 0, 0, 1) : 0;
+        H.gotTime = true;
+        if (typeof d.mute === 'boolean' && typeof d.music === 'boolean') {
+          let ok = true;
+          if (soundSent) {
+            if (soundSent.mute === d.mute && soundSent.music === d.music) soundSent = null;
+            else if (performance.now() < soundSent.until) ok = false;
+            else soundSent = null;
+          }
+          if (ok && (d.mute !== A.mute || d.music !== A.music)) A.setSound(d.mute, d.music, false);
         }
-        BB.emit('hub:time', d);
+        document.documentElement.classList.remove('hub-sound-wait');
+        BB.emit('hub:time', H);
       } else if (d.hub === 'hold') {
         BB.setHeld('hub', !!d.on);
         BB.emit('hub:hold', { on: !!d.on });
       } else if (d.hub === 'pause') {
-        BB.hush(); A.suspend(); BB.music.stop();
+        H.paused = true;
+        BB.setHeld('pause', true);         // never released: the frame is about to be removed
+        BB.music.stop(); BB.hush();
         BB.emit('hub:pause');
       }
     });
   }
-  // Several reasons can hold the game (hub card, hidden page); it runs only when none do.
+  // Several reasons can hold the game (hub card, hidden page, pause); it runs only when none do.
+  // Held: no updates (main.js), no BB.later timers, no speech, audio suspended. Released: everything carries on.
   const holds = new Set();
+  let heldAt = 0;
   BB.setHeld = function (why, on) {
     if (on) holds.add(why); else holds.delete(why);
     const was = BB.held; BB.held = holds.size > 0;
     if (BB.held === was) return;
-    if (BB.held) { BB.hush(); A.suspend(); } else A.resume();
+    if (BB.held) {
+      heldAt = performance.now();
+      freezeTimers(true);
+      holdSpeech(true);
+      A.suspend();
+    } else {
+      freezeTimers(false);
+      A.resume();
+      holdSpeech(false, performance.now() - heldAt < 500);
+    }
     BB.emit('held', { on: BB.held });
   };
 })();
