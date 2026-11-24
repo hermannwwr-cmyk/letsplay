@@ -132,7 +132,7 @@
     spinHop = Math.sin(Math.PI * spin.t) * 0.7;
     if (spin.t >= 1) { spin = null; spinHop = 0; collide(); camH = h; refreshRibbon(); }
   }
-  let spinHop = 0, facingAway = false, awayT = 0, realMove = 0;
+  let spinHop = 0, facingAway = false, awayT = 0, realMove = 0, jamT = 0, jamSide = 0;
   B.setLights = function (on) { B.lightsOn = !!on; B.sleepy = !on; };
 
   // ---------- model ----------
@@ -650,7 +650,7 @@
       // phones held sideways: the question card is a column on the left, so frame the bus toward the right
       if (innerHeight <= 500 && BB.jobs && BB.jobs.phase === 'question') {
         let dx = camLook.x - camPos.x, dz = camLook.z - camPos.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
-        const sh = 6.5;                                   // move the camera to its left: the scene slides right
+        const sh = innerWidth <= 700 ? 9 : 6.5;           // move the camera to its left: the scene slides right
         camPos.x += dz * sh; camPos.z -= dx * sh; camLook.x += dz * sh; camLook.z -= dx * sh;
       }
     } else {
@@ -839,13 +839,22 @@
       const head = -(nx * f1.x + nz * f1.z) * mv;          // > 0 when driving into it
       if (head > 0.35) { const v0 = Math.abs(B.speed), v1 = Math.max(Math.min(v0, 1.5), v0 * Math.max(0.3, 1 - head * 0.9 * Math.min(1, push.d * 6))); B.speed = Math.sign(B.speed) * v1; }   // keeps a crawl, so it slides along
       if (bumpCool <= 0 && Math.abs(v) > 1.2 && head > 0.3) { bumpCool = 0.8; wobble = 1; BB.emit('bus:bump', { strength: Math.min(1, Math.abs(v) / MAX_FWD) }); }
-      // nearly head-on into something small and round: ease sideways off it, so the bus never sits jammed
-      if (head > 0.85) {
-        const lx = f1.z, lz = -f1.x, side = Math.abs(B.steer) > 0.05 ? Math.sign(B.steer) : (Math.sign(nx * lx + nz * lz) || 1);   // the way the child steers
-        fx += lx * side * 1.2 * dt; fz += lz * side * 1.2 * dt;
+    }
+    // jammed (pushing but hardly moving, e.g. nose on a post): after a moment ease sideways until free. The side is
+    // picked once: the way the child steers, else the way the push leans, else toward the left of travel.
+    const wantD = Math.abs(v * dt), got = Math.abs((fx - sx0) * f1.x + (fz - sz0) * f1.z);
+    if (wantD > 0.004 && got < wantD * 0.25 && push.d > 0.001) {
+      jamT += dt;
+      if (!jamSide) {
+        const lx0 = f1.z, lz0 = -f1.x, lean = push.d > 0.01 ? (push.x * lx0 + push.z * lz0) / push.d : 0;
+        jamSide = Math.abs(B.steer) > 0.1 ? Math.sign(B.steer) * Math.sign(v || 1) : Math.abs(lean) > 0.15 ? Math.sign(lean) : 1;
+      }
+      if (jamT > 0.35) {
+        const lx = f1.z, lz = -f1.x;
+        fx += lx * jamSide * 1.6 * dt; fz += lz * jamSide * 1.6 * dt;
         collide();
       }
-    }
+    } else if (got > wantD * 0.6 || wantD <= 0.004) { jamT = 0; jamSide = 0; }
     // speed, fuel and wheels follow how far the bus really moved (not how hard it pushes)
     const moved = (fx - sx0) * f1.x + (fz - sz0) * f1.z, real = Math.abs(moved) / Math.max(dt, 1e-4);
     if (Math.abs(B.speed) > real + 0.6) B.speed = Math.sign(B.speed) * (real + 0.6);
