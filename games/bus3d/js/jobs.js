@@ -280,6 +280,8 @@
     });
   }
   BB.on('bus:type', () => { try { buildUpstairs(); } catch (e) { console.error(e); } });
+  // hidden while the bus is at a stop (and during a question), so nobody counts them by mistake
+  BB.on('jobs:busy', (d) => { for (const m of upstairs) m.visible = !(d && d.on); });
 
   // ---------- glowing numbers above the bus's seats (3D) ----------
   // Little sprites over each seat, so counting on the card lights up the real bus too.
