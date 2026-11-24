@@ -890,6 +890,7 @@
     driveTo(stop, quiet);
   }
   J.nextStop = nextStop;
+  J.setWaiting = setWaiting;
   // Drive to the current stop again (after the depot or a tow), keeping its question and the people waiting.
   function resumeJob(quiet) {
     const job = J.current;

@@ -25,12 +25,15 @@
     hatMount: null, stickerAnchors: [], lightsOn: true,
   };
 
-  const LF = 7.4, LR = 6.0, GAP = 1.0;   // front carriage, rear carriage, joint gap lengths
-  const FRONT_AXLE = 1.3, MID_AXLE = 5.6, REAR_AXLE = 4.2;   // axle distances (from nose / from joint)
-  const WB = MID_AXLE - FRONT_AXLE;      // wheelbase of the front carriage
-  const AX = MID_AXLE - LF / 2;          // front carriage centre -> its rear axle
-  const HITCH = LF / 2 + GAP / 2;        // front carriage centre -> hitch
-  const R_AXLE = GAP / 2 + REAR_AXLE, R_CTR = GAP / 2 + LR / 2;   // hitch -> rear axle / rear carriage centre
+  // Geometry of the current bus type (install() sets these from the model): front carriage, rear carriage, joint gap
+  // lengths; axle distances (from the nose / from the rear carriage's front); ART = articulated (has a rear carriage).
+  let LF = 7.4, LR = 6.0, GAP = 1.0, ART = true;
+  let FRONT_AXLE = 1.3, MID_AXLE = 5.6, REAR_AXLE = 4.2;
+  let WB = MID_AXLE - FRONT_AXLE;        // wheelbase of the front carriage
+  let AX = MID_AXLE - LF / 2;            // front carriage centre -> its rear axle
+  let HITCH = LF / 2 + GAP / 2;          // front carriage centre -> hitch
+  let R_AXLE = GAP / 2 + REAR_AXLE, R_CTR = GAP / 2 + LR / 2;   // hitch -> rear axle / rear carriage centre
+  const totalLen = () => LF + GAP + LR, frontOff = () => totalLen() / 2 - LF / 2;   // front centre ahead of the middle
   const MAX_FWD = 9, MAX_BACK = 4, ACCEL = 4.2, BRAKE = 9, COAST = 5;
   const MAX_STEER = 0.55, STEER_IN = 2.2, STEER_OUT = 3.0, MAX_BEND = 55 * Math.PI / 180;
   const W = () => BB.world;
@@ -48,7 +51,7 @@
     const bay = W().bayOf(stop);
     const hh = reversed ? wrapA(bay.heading + Math.PI) : bay.heading, f = fwdOf(hh);
     // the whole bus (front centre .. rear centre) sits centred on the bay
-    const total = LF + GAP + LR, cx = bay.x + f.x * (total / 2 - LF / 2), cz = bay.z + f.z * (total / 2 - LF / 2);
+    const cx = bay.x + f.x * frontOff(), cz = bay.z + f.z * frontOff();
     return { fx: cx, fz: cz, h: hh, hr: hh };
   }
   // Park the bus at a stop or the depot (used at start, after a tow).
@@ -60,6 +63,13 @@
     placeModel(); snapCamera();
     refreshRibbon();
   };
+  // The game starts at the depot: the bus parked in front of the garage door (in the kerb lane), garage camera.
+  B.placeAtDepot = function (camera) {
+    B.placeAt(BB.world.depot); B.atStop = null; B.doorsOpen = false;
+    B.setCamera(camera || 'depot', true);
+  };
+  // "Drive!": leave the depot (the child drives off into the kerb lane; the first job is started by jobs.js).
+  B.leaveDepot = function () { B.closeDoors(); B.atStop = null; B.setCamera('chase'); };
   // Put the bus anywhere, straight, facing heading (x,z = the front carriage's centre). Used by tows and tests.
   B.setPose = function (x, z, heading) {
     fx = x; fz = z; h = hr = wrapA(heading || 0); B.speed = 0; B.steer = 0; settle = null; B.atStop = null;
@@ -93,7 +103,7 @@
   B.horn = function () { BB.sfx.horn(!!BB.save.upgrades.horn); BB.emit('bus:horn'); };
   // World position of seat i (0..9).
   B.seatWorld = function (i, v) { v = v || new THREE.Vector3(); const s = B.seats[i]; v.set(s.x, s.y, s.z); return B.front.localToWorld(v); };
-  B.doorWorld = function (v) { v = v || new THREE.Vector3(); v.set(1.6, 0, LF / 2 - 1.0); return B.front.localToWorld(v); };
+  B.doorWorld = function (v) { v = v || new THREE.Vector3(); const d = M ? M.doorLocal : { x: 1.6, y: 0, z: LF / 2 - 1 }; v.set(d.x, 0, d.z); return B.front.localToWorld(v); };
   B.pathAhead = () => 0;
   B.isSettling = () => !!settle;
   B.isFacingAway = () => facingAway;
@@ -129,16 +139,17 @@
     const k = BB.smooth(BB.clamp((spin.t - 0.22) / 0.56, 0, 1)), a = spin.h0 + spin.turn * k;
     h = wrapA(a); hr = wrapA(a + spin.bend * (1 - k));
     const mx = spin.m.x + spin.sx * k, mz = spin.m.z + spin.sz * k, f = fwdOf(h);
-    fx = mx + f.x * ((LF + GAP + LR) / 2 - LF / 2); fz = mz + f.z * ((LF + GAP + LR) / 2 - LF / 2);
+    fx = mx + f.x * frontOff(); fz = mz + f.z * frontOff();
     const pz = collide(true); spin.m.x += pz.x; spin.m.z += pz.z;   // tall buildings: slide the whole hop away from them
     spinHop = Math.sin(Math.PI * spin.t) * spin.lift;
     if (spin.t >= 1) { spin = null; spinHop = 0; collide(); collide(); collide(); camH = h; refreshRibbon(); }
   }
+  let wipePh = 0, lastRoofT = -1;
   let spinHop = 0, facingAway = false, awayT = 0, realMove = 0, jamT = 0, jamSide = 0, jamFlipped = false;
   // Where a straight bus with heading hh, centred at (mx,mz), comes to rest clear of everything (checked before a hop,
   // so it never lands overlapping anything).
   function clearLanding(mx, mz, hh) {
-    const s0 = { fx, fz, h, hr }, f = fwdOf(hh), off = (LF + GAP + LR) / 2 - LF / 2;
+    const s0 = { fx, fz, h, hr }, f = fwdOf(hh), off = frontOff();
     h = hr = hh; fx = mx + f.x * off; fz = mz + f.z * off;
     collide();
     const out = { x: fx - f.x * off, z: fz - f.z * off };
@@ -151,17 +162,23 @@
     if (!near) return;
     const f = fwdOf(h), s = (f.x * near.dx + f.z * near.dz) >= 0 ? 1 : -1, tx = near.dx * s, tz = near.dz * s;
     const ht = Math.atan2(tx, tz), lx = tz, lz = -tx;
-    const land = clearLanding(near.x + lx * (C.lane + 0.25), near.z + lz * (C.lane + 0.25), ht);
+    const land = clearLanding(near.x + lx * C.lane, near.z + lz * C.lane, ht);
     spin = { t: 0, m, h0: h, bend: wrapA(hr - h), sx: land.x - m.x, sz: land.z - m.z, turn: wrapA(ht - h), dur: 1.4, lift: 7 };
     B.speed = 0; B.steer = 0;
     BB.sfx.whoosh(); BB.sfx.sparkle && BB.sfx.sparkle();
     BB.emit('bus:hopFree', {});
   }
-  B.setLights = function (on) { B.lightsOn = !!on; };
+  B.setLights = function (on) { B.lightsOn = !!on; if (M && M.setLights) M.setLights(!!on); };
 
   // ---------- model ----------
-  let paintMat, glassMat, lampMat, wheelsF = [], wheelsR = [], steerWheels = [], doorF, doorR;
-  let heads, hair, shirts, lightCones, beacon, ribbon, ribbonTex, bayGlow, bayTex, wayArrow, jointF, jointR;
+  // Three bus types: 'bendy' (two carriages and a joint), 'double' (a double-decker) and 'single'. BB.fleet (fleet.js)
+  // builds their models when it is loaded; without it this file's own bendy bus is used. install() wires a model in;
+  // the physics reads the geometry vars (LF, LR, GAP, axles, ART) it sets.
+  let paintMat, glassMat, lampMat, wheelsF = [], wheelsR = [], steerWheels = [], doors = [], wipers = [];
+  let heads, hair, shirts, lightCones, beacon, ribbon, ribbonTex, bayGlow, bayTex, wayArrow, jointF = null, jointR = null;
+  let M = null;                       // the installed model: {type, roofParts, mounts, routeSign, doorLocal, roofY, paintMats}
+  let roofT = 0;                      // 0 = roof on, 1 = roof lifted away (the stop's cut-away view)
+  const rearDummy = new THREE.Object3D();
   // Rounded profile (in x-y) extruded along z: the bus body's soft paper-cut look.
   function profile(w, y0, y1, rt, rb) {
     const s = new THREE.Shape(), x0 = -w / 2, x1 = w / 2;
@@ -180,39 +197,178 @@
     glassMat = new THREE.MeshLambertMaterial({ color: 0xbfe6f5, transparent: true, opacity: 0.4, depthWrite: false, emissive: 0x000000 });
     lampMat = new THREE.MeshBasicMaterial({ vertexColors: true });
     B.group = new THREE.Group(); B.group.name = 'bus';
-    B.front = carriage(true); B.rear = carriage(false);
-    jointF = jointMesh(1); jointR = jointMesh(-1); B.joint = jointF;
-    B.group.add(B.front, B.rear, jointF, jointR);
-    // seats: two rows of five (a ten-frame). Row 1 = seats 0-4 on the door (left, +x) side, front to back.
-    for (let i = 0; i < 10; i++) B.seats.push({ x: i < 5 ? 0.62 : -0.62, y: 1.25, z: 1.9 - (i % 5) * 1.15 });
     buildPassengers();
-    // headlight beams (brighter with the upgrade; softly at night)
+    // headlight beams (brighter with the upgrade; at night and in storms)
     const lb = BB.mk.builder();
-    for (const x of [-0.8, 0.8]) lb.add(new THREE.ConeGeometry(1.4, 7, 10, 1, true), '#fff6c0', x, 0.9, LF / 2 + 3.5, 0, Math.PI / 2 + 0.12);
+    for (const x of [-0.8, 0.8]) lb.add(new THREE.ConeGeometry(1.4, 7, 10, 1, true), '#fff6c0', x, 0.9, 3.5, 0, Math.PI / 2 + 0.12);
     lightCones = new THREE.Mesh(lb.geometry(), new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.22, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
-    lightCones.visible = false; B.front.add(lightCones);
-    // hat mount on the front roof, sticker anchors on the sides (and a super sticker spot on the rear roof)
-    B.hatMount = new THREE.Group(); B.hatMount.name = 'hatMount'; B.hatMount.position.set(0, 3.1, LF / 2 - 1.7); B.front.add(B.hatMount);   // empty (no hats now)
-    const anchor = (car, x, y, z, ry, rx, size) => { const o = new THREE.Object3D(); o.position.set(x, y, z); o.rotation.set(rx || 0, ry, 0, 'YXZ'); o.userData.size = size; car.add(o); return o; };
-    B.stickerAnchors = [
-      [anchor(B.front, 1.27, 1.0, 0.45, Math.PI / 2, 0, 1.15), anchor(B.front, -1.27, 1.0, 0.45, -Math.PI / 2, 0, 1.15)],
-      [anchor(B.rear, 1.27, 1.0, -2.3, Math.PI / 2, 0, 1.0), anchor(B.rear, -1.27, 1.0, -2.3, -Math.PI / 2, 0, 1.0)],
-      [anchor(B.rear, 0, 3.1, -0.4, 0, -Math.PI / 2, 2.0)],
-    ];
+    lightCones.visible = false;
     BB.scene.add(B.group);
     buildRibbon(); buildBeacon(); buildBayGlow(); buildWayArrow();
     B.setPaint(BB.save.paint);
+    B.setType(BB.save.busType || 'bendy');
     B.applyCustom(BB.save);
   }
+  B.TYPES = ['bendy', 'double', 'single'];
+  B.type = null;
+  // Swap the bus for another type (keeps where it is and which way it faces). Fleet models come from BB.fleet.
+  B.setType = function (type, force) {
+    if (B.TYPES.indexOf(type) < 0) type = 'bendy';
+    const F = BB.fleet && typeof BB.fleet.build === 'function' ? BB.fleet : null;
+    if (!F && type !== 'bendy') type = 'bendy';
+    if (B.type === type && M && !force) return false;
+    let m = null;
+    if (F) { try { m = F.build(type, B.paint); } catch (e) { console.error('[fleet]', e); m = null; } }
+    if (!m) { type = 'bendy'; m = ownBendy(); }
+    // take the old model out (a fleet model disposes itself; our own: geometries disposed, shared materials kept)
+    if (B.paxGroup && B.paxGroup.parent) B.paxGroup.parent.remove(B.paxGroup);
+    if (lightCones.parent) lightCones.parent.remove(lightCones);
+    for (const o of [bumperF, bumperR, lightPart, lightRoof]) if (o && o.parent) { o.parent.remove(o); o.geometry.dispose(); }
+    for (const gl of glows) { if (gl.parent) gl.parent.remove(gl); gl.geometry.dispose(); gl.material.dispose(); }
+    if (M && M.dispose) { try { M.dispose(); } catch (e) { console.error(e); } }
+    const keep = new Set([paintMat, glassMat, lampMat, BB.mk.mat]);
+    for (const ch of B.group.children.slice()) {
+      B.group.remove(ch);
+      ch.traverse((o) => { if (o === B.paxGroup || o === lightCones) return; if (o.geometry && !o.isInstancedMesh && o !== lightCones) o.geometry.dispose(); });
+    }
+    if (B.paxGroup && B.paxGroup.parent) B.paxGroup.parent.remove(B.paxGroup);
+    if (lightCones.parent) lightCones.parent.remove(lightCones);
+    install(m, type);
+    keep.clear();
+    BB.emit('bus:type', { type });
+    return true;
+  };
+  function install(m, type) {
+    const car = m.carriages || [];
+    B.front = car[0]; ART = !!car[1]; B.rear = car[1] || rearDummy;
+    LF = m.length || 7.4; LR = ART ? (m.lengthRear || 6.0) : 0;
+    GAP = !ART ? 0 : m.gap != null ? m.gap : m.hitch ? Math.max(0.2, 2 * (-m.hitch.front.z - LF / 2)) : 1.0;
+    const wf = (m.wheels && m.wheels.front) || [], wr = (m.wheels && m.wheels.rear) || [];
+    const zs = wf.map((w) => w.position.z);
+    FRONT_AXLE = zs.length ? LF / 2 - Math.max(...zs) : 1.3;
+    MID_AXLE = m.wheelbase ? FRONT_AXLE + m.wheelbase : zs.length > 1 ? LF / 2 - Math.min(...zs) : LF - 1.8;
+    REAR_AXLE = ART ? (wr.length ? LR / 2 - wr[0].position.z : 4.2) : 0;
+    WB = Math.max(2.5, MID_AXLE - FRONT_AXLE); AX = MID_AXLE - LF / 2; HITCH = LF / 2 + GAP / 2;
+    R_AXLE = GAP / 2 + REAR_AXLE; R_CTR = GAP / 2 + LR / 2;
+    B.group.add(B.front); if (ART) B.group.add(B.rear);
+    jointF = jointR = null;
+    if (m.joints) { jointF = m.joints[0]; jointR = m.joints[1] || null; }
+    else if (m.joint || m.jointGroup) jointF = m.joint || m.jointGroup;
+    else if (ART && !m.hitch) { jointF = jointMesh(1); jointR = jointMesh(-1); }   // (fleet bendies have the accordion built in)
+    for (const j of [jointF, jointR]) if (j) B.group.add(j);
+    B.joint = jointF;
+    wheelsF = wf; wheelsR = wr;
+    steerWheels = (m.wheels && m.wheels.steer) || (wf.length ? [wf.reduce((a, b) => (b.position.z > a.position.z ? b : a))] : []);
+    for (const w of wheelsF.concat(wheelsR)) w.rotation.order = 'YXZ';
+    // doors: Object3Ds (ours) or {mesh, slide} (fleet proxies that only slide along z)
+    doors = (m.doors || []).map((d) => {
+      const o = d.isObject3D ? d : d.mesh, zOnly = !d.isObject3D;
+      o.userData.z = o.position.z; o.userData.x = o.position.x; o.userData.zOnly = zOnly; o.userData.slide = d.slide || 1.1;
+      return o;
+    });
+    wipers = m.wipers || [];
+    B.seats = (m.seatsLocal && m.seatsLocal.length === 10) ? m.seatsLocal : defaultSeats();
+    // roof parts fade for the stop's cut-away view: a fleet model hands over its roof material; ours get clones
+    const paintMats = [m.paintMaterial || paintMat], roofMats = [];
+    const roofParts = (m.roofParts || []).map((o) => {
+      o.userData.roofY = o.position.y;
+      if (m.roofMaterial) return o;
+      o.traverse((q) => {
+        if (!q.material || q.userData.roofOwn) return;
+        const wasPaint = paintMats.indexOf(q.material) >= 0;
+        q.material = q.material.clone(); q.userData.roofOwn = true; roofMats.push({ mat: q.material, base: q.material.opacity, tr: q.material.transparent });
+        if (wasPaint) paintMats.push(q.material);
+      });
+      return o;
+    });
+    if (m.roofMaterial) roofMats.push({ mat: m.roofMaterial, base: m.roofMaterial.opacity, tr: m.roofMaterial.transparent });
+    const pm = m.partMounts || {};
+    M = { type, roofParts, roofMats, routeSign: m.routeSign || null, doorLocal: m.doorLocal || { x: 1.6, y: 0, z: LF / 2 - 1.0 },
+      roofY: m.roofY || m.height || 3.1, paintMats, setPaint: m.setPaint, setLights: m.setLights, dispose: m.dispose,
+      mounts: { lights: pm.lights || pm.lightsFront, bumpersFront: pm.bumpersFront || pm.bumperFront, bumpersRear: pm.bumpersRear || pm.bumperRear, roof: pm.roofFront || null,
+        glow: [pm.underglow, pm.underglowRear].filter(Boolean) } };
+    B.type = type; B.length = LF + GAP + LR;
+    // passengers, headlight beams, the (empty) old hat mount, sticker anchors
+    B.front.add(B.paxGroup); seatPassengers();
+    lightCones.position.set(0, 0, LF / 2); B.front.add(lightCones);
+    B.hatMount = new THREE.Group(); B.hatMount.name = 'hatMount'; B.hatMount.position.set(0, M.roofY, LF / 2 - 1.7); B.front.add(B.hatMount);
+    B.stickerAnchors = m.stickerAnchors || [[], [], []];
+    for (let i = 0; i < 3; i++) { stickerMeshes[i] = []; stickerMeshes[i].want = undefined; }
+    // the swappable parts on their mounts
+    const mt = M.mounts;
+    bumperF = new THREE.Mesh(new THREE.BufferGeometry(), BB.mk.mat); bumperF.name = 'bumperF';
+    bumperR = new THREE.Mesh(new THREE.BufferGeometry(), BB.mk.mat); bumperR.name = 'bumperR';
+    if (mt.bumpersFront) mt.bumpersFront.add(bumperF);
+    if (mt.bumpersRear) mt.bumpersRear.add(bumperR);
+    lightPart = new THREE.Mesh(new THREE.BufferGeometry(), lampMat); lightPart.name = 'lightPart';
+    (mt.lights || B.front).add(lightPart);
+    lightRoof = new THREE.Mesh(new THREE.BufferGeometry(), lampMat); lightRoof.name = 'lightRoof';
+    (mt.roof || mt.lights || B.front).add(lightRoof);
+    glows.length = 0;
+    const glowAt = mt.glow.length ? mt.glow.map((g) => [g, (g.userData && g.userData.length) || LF, 0]) : [[B.front, LF, 0.06]].concat(ART ? [[B.rear, LR, 0.06]] : []);
+    for (const [c, L, y] of glowAt) {
+      const gl = new THREE.Mesh(new THREE.PlaneGeometry(3.6, L + 1.0), glowMat()); gl.rotation.x = -Math.PI / 2; gl.position.y = y; gl.renderOrder = 1; gl.visible = false; c.add(gl); glows.push(gl);
+    }
+    for (const k of ['lights', 'bumpers', 'wheels', 'rims']) B.setPart(k, B.parts[k]);
+    B.setPaint(B.paint);
+    B.setRouteNumber(B.routeNo);
+    partsApplied = false;
+    if (B.front) placeModel();
+  }
+  function defaultSeats() { const s = []; for (let i = 0; i < 10; i++) s.push({ x: i < 5 ? 0.62 : -0.62, y: 1.25, z: 1.9 - (i % 5) * 1.15 }); return s; }
+
+  // This file's own bendy bus (used when fleet.js isn't there), in the same shape fleet.build() returns.
+  function ownBendy() {
+    LF = 7.4; LR = 6.0; GAP = 1.0; FRONT_AXLE = 1.3; MID_AXLE = 5.6; REAR_AXLE = 4.2;
+    const f = carriage(true), r = carriage(false);
+    const anchor = (c, x, y, z, ry, rx, size) => { const o = new THREE.Object3D(); o.position.set(x, y, z); o.rotation.set(rx || 0, ry, 0, 'YXZ'); o.userData.size = size; c.add(o); return o; };
+    const mount = (c, z) => { const o = new THREE.Object3D(); o.position.set(0, 0, z); c.add(o); return o; };
+    const digitsF = new THREE.Mesh(new THREE.BufferGeometry(), lampMat), digitsR = new THREE.Mesh(new THREE.BufferGeometry(), lampMat);
+    digitsF.position.set(-0.82, 2.43, 7.4 / 2 + 0.1); f.g.add(digitsF);
+    digitsR.position.set(0, 2.46, -6.0 / 2 - 0.08); digitsR.rotation.y = Math.PI; r.g.add(digitsR);
+    return {
+      carriages: [f.g, r.g], wheels: { front: f.wheels, rear: r.wheels, steer: [f.wheels[0]] }, doors: [f.door, r.door],
+      seatsLocal: defaultSeats(), doorLocal: { x: 1.6, y: 0, z: 7.4 / 2 - 1.0 }, roofParts: [f.roof], wipers: f.wipers,
+      stickerAnchors: [
+        [anchor(f.g, 1.27, 1.0, 0.45, Math.PI / 2, 0, 1.15), anchor(f.g, -1.27, 1.0, 0.45, -Math.PI / 2, 0, 1.15)],
+        [anchor(r.g, 1.27, 1.0, -2.3, Math.PI / 2, 0, 1.0), anchor(r.g, -1.27, 1.0, -2.3, -Math.PI / 2, 0, 1.0)],
+        [anchor(r.g, 0, 3.1, -0.4, 0, -Math.PI / 2, 2.0)],
+      ],
+      partMounts: { lights: mount(f.g, 7.4 / 2), bumpersFront: mount(f.g, 7.4 / 2 + 0.04), bumpersRear: (() => { const o = mount(r.g, -6.0 / 2 - 0.04); o.rotation.y = Math.PI; return o; })() },
+      routeSign: { setNumber(s) { for (const d of [digitsF, digitsR]) { d.geometry.dispose(); d.geometry = digitGeometry(s); } } },
+      length: 7.4, lengthRear: 6.0, gap: 1.0, paintMaterial: paintMat, roofY: 3.1,
+    };
+  }
+  // LED route number: up to 3 digits as 7-segment bars, centred on the mesh's origin (facing +z).
+  function digitGeometry(str) {
+    const b = BB.mk.builder(), SEG = { 0: 'abcdef', 1: 'bc', 2: 'abdeg', 3: 'abcdg', 4: 'bcfg', 5: 'acdfg', 6: 'acdefg', 7: 'abc', 8: 'abcdefg', 9: 'abcdfg' };
+    const s = String(str == null ? '' : str).replace(/[^0-9]/g, '').slice(0, 3), w = 0.12, hh = 0.18, gap = 0.17;
+    b.box(0.2 + s.length * gap, 0.28, 0.04, '#1c1a20', 0, -0.14, -0.03);
+    [...s].forEach((ch, i) => {
+      const x = (i - (s.length - 1) / 2) * gap, segs = SEG[ch] || '';
+      const H = (y) => b.box(w, 0.025, 0.03, '#ffb43a', x, y, 0), V = (dx, y) => b.box(0.025, hh / 2, 0.03, '#ffb43a', x + dx, y, 0);
+      if (segs.includes('a')) H(0.075); if (segs.includes('g')) H(-0.012); if (segs.includes('d')) H(-0.1);
+      if (segs.includes('f')) V(-w / 2, 0.0); if (segs.includes('b')) V(w / 2, 0.0);
+      if (segs.includes('e')) V(-w / 2, -0.09); if (segs.includes('c')) V(w / 2, -0.09);
+    });
+    return b.geometry();
+  }
+  // Show a route number on the bus's displays (front, rear; fleet models may have more). Generic numbers only.
+  B.routeNo = '10';
+  B.setRouteNumber = function (str) {
+    B.routeNo = String(str == null ? '10' : str).replace(/[^0-9]/g, '').slice(0, 3) || '10';
+    if (M && M.routeSign && typeof M.routeSign.setNumber === 'function') { try { M.routeSign.setNumber(B.routeNo); } catch (e) { console.error(e); } }
+  };
   function carriage(isFront) {
-    const L = isFront ? LF : LR, g = new THREE.Group();
+    const L = isFront ? LF : LR, g = new THREE.Group(), out = { g, wheels: [], wipers: [] };
     const paint = BB.mk.builder(), det = BB.mk.builder(), glass = BB.mk.builder(), lamps = BB.mk.builder();
+    const roofP = BB.mk.builder(), roofD = BB.mk.builder();
     const zf = L / 2, zb = -L / 2;
     // painted body (vertex colour white = paint colour, grey = a deeper tone of it): a rounded lower body, window
     // pillars and a rounded roof
     paint.add(slab(2.5, 0.42, 1.32, 0.12, 0.18, L), '#ffffff');
     paint.add(slab(2.54, 0.4, 0.72, 0.1, 0.16, L + 0.04, 0.1), '#b9b9b9');             // darker skirt
-    paint.add(slab(2.5, 2.36, 3.1, 0.5, 0.05, L), '#ffffff');
+    roofP.add(slab(2.5, 2.36, 3.1, 0.5, 0.05, L), '#ffffff');                           // the roof (lifts off at stops)
     // side windows with dark frames (pillars and a frame along the top and bottom of the glass)
     const nWin = isFront ? 4 : 3, FRAME = '#33303a';
     for (let k = 0; k <= nWin; k++) {
@@ -222,8 +378,8 @@
     }
     if (isFront) det.box(2.5, 1.06, 0.3, FRAME, 0, 1.31, zf - 0.17);
     for (const s of [1, -1]) { det.box(0.05, 0.08, L - 0.3, FRAME, s * 1.252, 1.3, 0); det.box(0.05, 0.08, L - 0.3, FRAME, s * 1.252, 2.32, 0); }
-    det.box(1.4, 0.32, L * 0.34, '#f4ecdc', 0, 3.02, -L * 0.12);                    // roof pod (air-con)
-    det.box(1.1, 0.1, L * 0.3, '#ffffff', 0, 3.34, -L * 0.12);
+    roofD.box(1.4, 0.32, L * 0.34, '#f4ecdc', 0, 3.02, -L * 0.12);                  // roof pod (air-con)
+    roofD.box(1.1, 0.1, L * 0.3, '#ffffff', 0, 3.34, -L * 0.12);
     det.box(2.3, 0.1, L - 0.3, '#6c6470', 0, 0.62, 0);                               // floor (seen through glass)
     // a fleet-style stripe along each side that stays cream whatever the paint
     for (const s of [1, -1]) { det.box(0.06, 0.16, L - 0.4, '#fff6e0', s * 1.255, 1.08, 0); det.box(0.06, 0.07, L - 0.4, '#3a3440', s * 1.256, 0.98, 0); }
@@ -239,12 +395,13 @@
       for (const x of [-0.6, 0.6]) det.box(1.12, 1.06, 0.1, '#46708f', x, 1.29, FZ + 0.01);
       for (const x of [-0.9, 0.3]) det.box(0.22, 0.9, 0.11, '#6a93b0', x, 1.38, FZ + 0.015, 0, 0, 0.12);   // a glint
       det.box(2.42, 0.4, 0.08, '#2a2630', 0, 2.36, FZ);                               // display housing
-      lamps.box(0.5, 0.26, 0.06, '#1c1a20', -0.82, 2.43, FZ + 0.05);                  // route number box, LED "10"
-      for (const [x, y, w, hh] of [[-0.96, 2.5, 0.04, 0.17], [-0.79, 2.5, 0.04, 0.17], [-0.66, 2.5, 0.04, 0.17], [-0.725, 2.58, 0.12, 0.03], [-0.725, 2.42, 0.12, 0.03]])
-        lamps.box(w, hh, 0.04, '#ffb43a', x, y - hh / 2, FZ + 0.08);
       for (let k = 0; k < 9; k++) lamps.box(0.1, 0.06 + (k % 3) * 0.03, 0.04, '#ffb43a', -0.3 + k * 0.15, 2.46, FZ + 0.06);   // destination
-      // wipers resting at the bottom of the glass
-      for (const x of [-0.75, 0.45]) det.box(0.7, 0.04, 0.04, '#24222a', x, 1.33, FZ + 0.07, 0, 0, 0.18);
+      // wipers (they sweep in the rain): pivots at the bottom of the glass
+      for (const x of [-0.95, 0.25]) {
+        const wp = new THREE.Group(); wp.position.set(x, 1.33, FZ + 0.08); wp.userData.rest = 0.18;
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.045, 0.04), BB.mk.mat); arm.position.x = 0.36; wp.add(arm);
+        wp.rotation.z = 0.18; g.add(wp); out.wipers.push(wp);
+      }
       // lower front: grille, rectangular headlight clusters with indicators, bumper, a generic number plate
       det.box(2.44, 0.34, 0.06, '#d9d4cb', 0, 0.58, FZ);
       for (let k = 0; k < 3; k++) det.box(1.0, 0.04, 0.07, '#3a3440', 0, 0.63 + k * 0.08, FZ + 0.01);
@@ -270,7 +427,7 @@
     } else {
       const BZ = zb - 0.01;
       det.box(2.1, 0.8, 0.08, '#33303a', 0, 1.52, BZ); det.box(1.9, 0.66, 0.1, '#46708f', 0, 1.59, BZ - 0.01);   // rear window
-      det.box(1.3, 0.22, 0.08, '#2a2630', 0, 2.42, BZ); for (let k = 0; k < 2; k++) lamps.box(0.12, 0.14, 0.04, '#ffb43a', -0.12 + k * 0.2, 2.46, BZ - 0.05);   // route number
+      det.box(1.3, 0.22, 0.08, '#2a2630', 0, 2.42, BZ);                              // route number display
       det.box(1.5, 0.62, 0.06, '#3a3440', 0, 0.62, BZ);                              // engine grille
       for (let k = 0; k < 5; k++) det.box(1.4, 0.05, 0.08, '#6c6470', 0, 0.68 + k * 0.11, BZ - 0.01);
       for (const s of [1, -1]) {                                                       // tail-light clusters
@@ -283,30 +440,21 @@
     const pm = paint.mesh(paintMat), dm = det.mesh(), gm = glass.mesh(glassMat), lm = lamps.mesh(lampMat);
     gm.renderOrder = 3;
     g.add(pm, dm, gm, lm);
+    const roof = new THREE.Group(); roof.name = 'roof'; roof.add(roofP.mesh(paintMat), roofD.mesh()); g.add(roof); out.roof = roof;
     // doors (kerb side, +x): front door near the nose, rear door on the rear carriage
     const db = BB.mk.builder();
     db.box(0.08, 1.95, 0.55, '#5d86a3', 0, 0, -0.29); db.box(0.08, 1.95, 0.55, '#5d86a3', 0, 0, 0.29);
     db.box(0.1, 0.1, 1.2, '#33303a', 0, 1.95, 0); db.box(0.1, 1.95, 0.08, '#33303a', 0, 0, 0);
     for (const z of [-0.29, 0.29]) db.box(0.1, 0.06, 0.55, '#33303a', 0, 0.9, z);
     const door = db.mesh(); door.position.set(1.27, 0.5, isFront ? zf - 1.0 : zf - 1.6); door.userData.z = door.position.z;
-    g.add(door);
-    if (isFront) doorF = door; else doorR = door;
+    g.add(door); out.door = door;
     // wheels: one mesh per axle (both wheels), spinning about x; the front axle also steers
     for (const z of axles) {
       const wm = new THREE.Mesh(wheelGeometry(), BB.mk.mat); wm.position.set(0, tyreR(), z); wm.rotation.order = 'YXZ';
-      g.add(wm);
-      (isFront ? wheelsF : wheelsR).push(wm);
-      if (isFront && z === zf - FRONT_AXLE) steerWheels.push(wm);
+      g.add(wm); out.wheels.push(wm);
     }
     const blob = BB.mk.blob(3.6, L + 1.6); blob.position.y = 0.08; g.add(blob);
-    // the swappable parts' meshes (rebuilt by setPart): bumpers on both carriages, extra lights on the front,
-    // an underglow plane under each carriage
-    const bm = new THREE.Mesh(bumperGeometry(B.parts.bumpers, isFront), BB.mk.mat); bm.name = 'bumper'; g.add(bm);
-    if (isFront) bumperF = bm; else bumperR = bm;
-    const glow = new THREE.Mesh(new THREE.PlaneGeometry(3.6, L + 1.0), glowMat()); glow.rotation.x = -Math.PI / 2; glow.position.y = 0.06; glow.renderOrder = 1; glow.visible = false; g.add(glow);
-    glows.push(glow);
-    if (isFront) { lightPart = new THREE.Mesh(new THREE.BufferGeometry(), lampMat); lightPart.name = 'lightPart'; g.add(lightPart); }
-    return g;
+    return out;
   }
   // The accordion: soft rounded rings, half on each carriage's side of the hitch, so it bends without gaps.
   function jointMesh(side) {
@@ -331,22 +479,30 @@
     shirts = new THREE.InstancedMesh(sg, new THREE.MeshLambertMaterial(), 10);
     const skins = ['#f1c7a0', '#d9a679', '#a8714a', '#f5d3b5', '#7a4b2e'], tops = [P.coral, P.teal, P.honey, P.berry, P.plum, P.leaf, P.rose];
     const hairs = ['#3a2a2c', '#6b4a2e', '#1f1b22', '#b5793e', '#d8d0c8', '#8a3b2e'];
-    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1), p = new THREE.Vector3();
-    B.seats.forEach((s, i) => {
-      q.setFromAxisAngle(up, (s.x > 0 ? 1 : -1) * (0.75 + (i % 3) * 0.15));
-      m.compose(p.set(s.x, s.y, s.z), q, one);
-      heads.setMatrixAt(i, m); hair.setMatrixAt(i, m); shirts.setMatrixAt(i, m);
+    for (let i = 0; i < 10; i++) {
       heads.setColorAt(i, new THREE.Color(skins[(i * 3) % skins.length])); shirts.setColorAt(i, new THREE.Color(tops[(i * 2 + 1) % tops.length]));
       hair.setColorAt(i, new THREE.Color(hairs[(i * 5 + 1) % hairs.length]));
-    });
+    }
     heads.count = hair.count = shirts.count = 0;
-    const pg = new THREE.Group(); pg.add(heads, hair, shirts); B.front.add(pg); B.paxGroup = pg;
+    const pg = new THREE.Group(); pg.add(heads, hair, shirts); B.paxGroup = pg;
+  }
+  // Seat the passengers on the current model's seats (they look out of the windows, and up a little at stops).
+  function seatPassengers() {
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), sc = new THREE.Vector3(1.15, 1.15, 1.15), p = new THREE.Vector3();
+    B.seats.forEach((s, i) => {
+      q.setFromAxisAngle(up, (s.x > 0 ? 1 : -1) * (0.75 + (i % 3) * 0.15));
+      m.compose(p.set(s.x, s.y, s.z), q, sc);
+      heads.setMatrixAt(i, m); hair.setMatrixAt(i, m); shirts.setMatrixAt(i, m);
+    });
+    heads.instanceMatrix.needsUpdate = hair.instanceMatrix.needsUpdate = shirts.instanceMatrix.needsUpdate = true;
   }
 
   B.setPaint = function (c) {
     const found = BB.PAINTS.find((p) => p.id === c);
     B.paint = found ? found.color : (typeof c === 'string' && c[0] === '#' ? c : P.busGreen);
     if (paintMat) paintMat.color.set(B.paint);
+    if (M && M.setPaint) M.setPaint(B.paint);
+    else if (M) for (const pm of M.paintMats) if (pm && pm.color) pm.color.set(B.paint);
   };
 
   // ---------- stickers and hats ----------
@@ -418,7 +574,7 @@
   const PART_ALIAS = { standard: 'std', lightbar: 'roof', sporty: 'sport', tough: 'bull', whitewall: 'white', silver: 'std' };
   B.GLOW_COLORS = ['#5fd0ff', '#ff5fd0', '#7dff8a', '#ffd45c', '#b58cff'];
   B.parts = { lights: 'std', bumpers: 'std', wheels: 'std', rims: 'std', glow: '#5fd0ff' };
-  let bumperF = null, bumperR = null, lightPart = null;
+  let bumperF = null, bumperR = null, lightPart = null, lightRoof = null;
   const glows = [];
   const tyreR = () => B.parts.wheels === 'big' ? 0.62 : B.parts.wheels === 'chunky' ? 0.57 : 0.52;
   // One axle's two wheels (tyres + rims), merged; the wheel spins about x.
@@ -439,8 +595,9 @@
     return b.geometry();
   }
   // Front or rear bumper with a generic number plate.
-  function bumperGeometry(kind, isFront) {
-    const b = BB.mk.builder(), L = isFront ? LF : LR, z = isFront ? L / 2 + 0.04 : -L / 2 - 0.04, s = isFront ? 1 : -1;
+  // (built on its mount: the mount's +z points out of the bus, front or back)
+  function bumperGeometry(kind) {
+    const b = BB.mk.builder(), z = 0, s = 1;
     const col = { std: '#46404e', chrome: '#dfe3ea', sport: '#2b2830', bull: '#3a3440' }[kind] || '#46404e';
     b.add(slab(2.6, 0.18, 0.5, 0.1, 0.1, 0.4, 0.06), col, 0, 0, z);
     if (kind === 'chrome') { b.box(2.5, 0.08, 0.06, '#ffffff', 0, 0.4, z + s * 0.2); b.box(2.5, 0.05, 0.06, '#aab2bf', 0, 0.22, z + s * 0.2); }
@@ -458,12 +615,13 @@
   }
   // Extra lights on the front carriage (MeshBasic: they always look lit and glow at night).
   function lightGeometry(kind) {
-    const b = BB.mk.builder(), zf = LF / 2 + 0.06;
+    // (built on the lights mount at the front face: +z out of the bus)
+    const b = BB.mk.builder(), zf = 0.06, ry = M && M.mounts.roof ? 0 : M ? M.roofY : 3.1;
     if (kind === 'led') { b.box(2.2, 0.07, 0.04, '#ffffff', 0, 1.14, zf); b.box(2.24, 0.03, 0.04, '#cfeaff', 0, 1.1, zf); }
-    else if (kind === 'fog') for (const x of [-0.7, 0.7]) { b.add(new THREE.CylinderGeometry(0.12, 0.12, 0.06, 10), '#33303a', x, 0.34, LF / 2 + 0.25, 0, Math.PI / 2); b.add(new THREE.CylinderGeometry(0.09, 0.09, 0.07, 10), '#ffc23a', x, 0.34, LF / 2 + 0.27, 0, Math.PI / 2); }
+    else if (kind === 'fog') for (const x of [-0.7, 0.7]) { b.add(new THREE.CylinderGeometry(0.12, 0.12, 0.06, 10), '#33303a', x, 0.34, 0.25, 0, Math.PI / 2); b.add(new THREE.CylinderGeometry(0.09, 0.09, 0.07, 10), '#ffc23a', x, 0.34, 0.27, 0, Math.PI / 2); }
     else if (kind === 'roof') {
-      b.box(2.0, 0.12, 0.3, '#33303a', 0, 3.1, LF / 2 - 0.35);
-      for (let k = 0; k < 6; k++) b.box(0.26, 0.14, 0.06, k % 2 ? '#fff6c8' : '#ffffff', -0.85 + k * 0.34, 3.1, LF / 2 - 0.18);
+      b.box(2.0, 0.12, 0.3, '#33303a', 0, ry, -0.35);
+      for (let k = 0; k < 6; k++) b.box(0.26, 0.14, 0.06, k % 2 ? '#fff6c8' : '#ffffff', -0.85 + k * 0.34, ry, -0.18);
     }
     if (!b.parts.length) return new THREE.BufferGeometry();
     return b.geometry();
@@ -486,13 +644,14 @@
     if (!B.PARTS[kind].some((p) => p.id === id)) id = B.PARTS[kind][0].id;
     B.parts[kind] = id;
     if (kind === 'lights' && typeof opt === 'string') B.parts.glow = opt;
-    if (!B.front) return true;
-    if (kind === 'bumpers') for (const [m, f] of [[bumperF, true], [bumperR, false]]) { m.geometry.dispose(); m.geometry = bumperGeometry(id, f); }
+    if (!B.front || !lightPart) return true;
+    if (kind === 'bumpers') for (const m of [bumperF, bumperR]) { m.geometry.dispose(); m.geometry = m.parent ? bumperGeometry(id) : new THREE.BufferGeometry(); }
     if (kind === 'wheels' || kind === 'rims') {
-      for (const w of wheelsF.concat(wheelsR)) { w.geometry.dispose(); w.geometry = wheelGeometry(); w.position.y = tyreR(); }
+      for (const w of wheelsF.concat(wheelsR)) { if (w.userData.busWheels === false) continue; w.geometry.dispose(); w.geometry = wheelGeometry(); w.material = BB.mk.mat; w.position.y = tyreR(); }
     }
     if (kind === 'lights') {
-      lightPart.geometry.dispose(); lightPart.geometry = lightGeometry(id);
+      lightPart.geometry.dispose(); lightPart.geometry = id === 'roof' ? new THREE.BufferGeometry() : lightGeometry(id);
+      lightRoof.geometry.dispose(); lightRoof.geometry = id === 'roof' ? lightGeometry(id) : new THREE.BufferGeometry();
       for (const gl of glows) { gl.visible = id === 'underglow'; gl.material.color.set(B.parts.glow); }
     }
     return true;
@@ -501,6 +660,9 @@
   // super sticker upgrade) and the parts (save.parts = {lights, bumpers, wheels, rims, glow}).
   B.applyCustom = function (save) {
     save = save || BB.save;
+    if (save.busType && save.busType !== B.type) B.setType(save.busType);
+    if (save.routeNo != null && String(save.routeNo) !== B.routeNo) B.setRouteNumber(save.routeNo);
+    B.assist = !!save.assist;
     B.setPaint(save.paint);
     const st = Array.isArray(save.stickers) ? save.stickers : [];
     for (let i = 0; i < 3; i++) {
@@ -574,19 +736,19 @@
   // ---------- placing the model ----------
   const _v = new THREE.Vector3();
   function rearPose() {
-    const f = fwdOf(h), r = fwdOf(hr);
+    const f = fwdOf(h), r = fwdOf(ART ? hr : h);
     const hx = fx - f.x * HITCH, hz = fz - f.z * HITCH;
     return { hx, hz, rx: hx - r.x * R_CTR, rz: hz - r.z * R_CTR, ax: hx - r.x * R_AXLE, az: hz - r.z * R_AXLE };
   }
   function placeModel() {
     const rp = rearPose();
     B.front.position.set(fx, gy, fz); B.front.rotation.y = h;
-    B.rear.position.set(rp.rx, gy, rp.rz); B.rear.rotation.y = hr;
-    jointF.position.set(rp.hx, gy, rp.hz); jointF.rotation.y = h;
-    jointR.position.set(rp.hx, gy, rp.hz); jointR.rotation.y = hr;
+    if (ART) { B.rear.position.set(rp.rx, gy, rp.rz); B.rear.rotation.y = hr; } else { hr = h; B.rear.position.set(fx, gy, fz); B.rear.rotation.y = h; }
+    if (jointF) { jointF.position.set(rp.hx, gy, rp.hz); jointF.rotation.y = jointR ? h : h + wrapA(hr - h) / 2; }
+    if (jointR) { jointR.position.set(rp.hx, gy, rp.hz); jointR.rotation.y = hr; }
     // a little wobble after a bump
-    if (wobble > 0) { const w = Math.sin(clock * 30) * wobble * 0.05; B.front.rotation.z = w; B.rear.rotation.z = -w * 0.7; }
-    else { B.front.rotation.z = 0; B.rear.rotation.z = 0; }
+    if (wobble > 0) { const w = Math.sin(clock * 30) * wobble * 0.05; B.front.rotation.z = w; if (ART) B.rear.rotation.z = -w * 0.7; }
+    else { B.front.rotation.z = 0; if (ART) B.rear.rotation.z = 0; }
     B.pos.copy(B.front.position); B.heading = h;
   }
 
@@ -689,13 +851,13 @@
       for (let k = 0; k <= 6; k++) { const t = k / 6, m = 1 - t; out.push({ x: m * m * A.x + 2 * m * t * p.x + t * t * Bp.x, z: m * m * A.z + 2 * m * t * p.z + t * t * Bp.z }); }
     }
     out.push(pts[pts.length - 1]);
-    return W().offsetLine(out, C.lane + 0.25);           // a touch away from the centre line (and the viaduct piers)
+    return W().offsetLine(out, C.lane);                   // the kerb (left) lane
   }
 
   // ---------- camera ----------
   const camPos = new THREE.Vector3(), camLook = new THREE.Vector3();
   let orbit = 0.6, camH = 0;
-  function midPoint() { const r = B.rear.position; return { x: (fx + r.x) / 2, z: (fz + r.z) / 2 }; }
+  function midPoint() { if (!ART) return { x: fx, z: fz }; const r = B.rear.position; return { x: (fx + r.x) / 2, z: (fz + r.z) / 2 }; }
   const _w1 = new THREE.Vector3(), _w2 = new THREE.Vector3();
   // Move the wanted camera toward the bus (and a little up) until no building stands in the way.
   function clearSight(m, maxUp) {
@@ -721,10 +883,10 @@
     } else if (mode === 'depot' || mode === 'depotClose' || mode === 'depotSide') {
       // the garage: depot.js may turn the bus on a turntable, so frame it from its real (world) position
       B.front.getWorldPosition(_w1); B.rear.getWorldPosition(_w2);
-      const wx = (_w1.x + _w2.x) / 2, wz = (_w1.z + _w2.z) / 2;
+      const wx = ART ? (_w1.x + _w2.x) / 2 : _w1.x, wz = ART ? (_w1.z + _w2.z) / 2 : _w1.z;
       if (mode === 'depot') {
         // from the road side, looking at the bus's door side, with the whole bus left of the depot panel
-        const hh = Math.atan2(_w1.x - _w2.x, _w1.z - _w2.z), kx = Math.cos(hh), kz = -Math.sin(hh);
+        const fr = B.front.localToWorld(new THREE.Vector3(0, 0, 1)), hh = Math.atan2(fr.x - _w1.x, fr.z - _w1.z), kx = Math.cos(hh), kz = -Math.sin(hh);
         const d = innerHeight > 500 ? 28 : 24, cam = BB.camera, vis = 2 * d * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2) * cam.aspect;
         const panel = Math.min(480, innerWidth * 0.56) / Math.max(1, innerWidth);
         const sh = vis * panel / 2;
@@ -752,12 +914,14 @@
         camPos.x -= vz * sh; camPos.z += vx * sh; camLook.x -= vz * sh; camLook.z += vx * sh;   // bus left of the panel
       }
     } else if (B.atStop || settle) {
-      // at a stop: from the road side, a little ahead, fairly low: the windows (seats), the door and the shelter
-      const kx = Math.cos(h), kz = -Math.sin(h), f = fwdOf(h);
-      camPos.set(fx + f.x * 6 - kx * 15, 11, fz + f.z * 6 - kz * 15);
-      camLook.set(fx - f.x * 2 + kx * 1.2, 1.0, fz - f.z * 2 + kz * 1.2);
-      // tablets: the question card is a strip along the bottom, so keep the whole bus in the upper part
-      if (innerHeight > 500) { camLook.x += (camPos.x - camLook.x) * 0.16; camLook.z += (camPos.z - camLook.z) * 0.16; camLook.y = -0.5; }
+      // at a stop: high on the road side looking down at about 45 degrees: the roof is lifted off (cut-away), so the
+      // ten seats and the people on them can be counted, with the door, the path and the shelter in the same frame
+      const kx = Math.cos(h), kz = -Math.sin(h), f = fwdOf(h), up = M && M.type === 'double' ? 17 : 14.5;
+      const sx = fx + f.x * 0.6, sz = fz + f.z * 0.6;
+      camPos.set(sx - kx * 11.5, up, sz - kz * 11.5);
+      camLook.set(sx + kx * 2.6, 0.4, sz + kz * 2.6);
+      // tablets: the question card is a strip along the bottom, so keep the bus and the shelter in the upper part
+      if (innerHeight > 500) { camLook.x += (camPos.x - camLook.x) * 0.14; camLook.z += (camPos.z - camLook.z) * 0.14; camLook.y = -1.2; }
       // phones held sideways: the question card is a column on the left, so frame the bus toward the right
       if (innerHeight <= 500 && BB.jobs && BB.jobs.phase === 'question') {
         let dx = camLook.x - camPos.x, dz = camLook.z - camPos.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
@@ -895,13 +1059,16 @@
   B.refreshRibbon = refreshRibbon;
 
   // ---------- driving ----------
-  const circles = [];
+  const circles = []; let nFront = 8;
   function busCircles() {
     const f = fwdOf(h), rp = rearPose(), r = fwdOf(hr);
     circles.length = 0;
     const add = (cx, cz, d, along, side, rad) => circles.push([cx + d.x * along + d.z * side, cz + d.z * along - d.x * side, rad]);
-    for (const a of [2.6, 0.9, -0.9, -2.6]) add(fx, fz, f, a, 0, 1.3);
-    for (const s of [-0.85, 0.85]) { add(fx, fz, f, 3.35, s, 0.56); add(fx, fz, f, -3.35, s, 0.56); }   // the corners
+    const hl = LF / 2, n = Math.max(2, Math.ceil((LF - 2.4) / 1.7));
+    for (let k = 0; k < n; k++) add(fx, fz, f, -hl + 1.3 + (LF - 2.6) * k / (n - 1), 0, 1.3);
+    for (const s of [-0.85, 0.85]) { add(fx, fz, f, hl - 0.35, s, 0.56); add(fx, fz, f, -hl + 0.35, s, 0.56); }   // the corners
+    nFront = circles.length;
+    if (!ART) return circles;
     for (const a of [2.2, 0.75, -0.75, -2.2]) add(rp.rx, rp.rz, r, a, 0, 1.3);
     for (const s of [-0.85, 0.85]) { add(rp.rx, rp.rz, r, 2.65, s, 0.56); add(rp.rx, rp.rz, r, -2.65, s, 0.56); }
     return circles;
@@ -919,7 +1086,7 @@
         if (q.hit <= 0.001) continue;
         let dx = q.x - c[0], dz = q.z - c[1];
         moved = true;
-        if (i >= 8 && !rigid) {
+        if (ART && i >= nFront && !rigid) {
           const f = fwdOf(h), hx = fx - f.x * HITCH, hz = fz - f.z * HITCH, vx = c[0] - hx, vz = c[1] - hz, l2 = vx * vx + vz * vz || 1;
           const want = (dx * vz - dz * vx) / l2, nb = wrapA(hr + want - h);
           if (Math.abs(nb) <= MAX_BEND) { hr = wrapA(hr + want); continue; }
@@ -933,10 +1100,18 @@
   }
   function drive(dt) {
     const inp = B.input, canDrive = !B.atStop && !B.doorsOpen && !B.noFuel && !B.locked && B.camMode === 'chase' && !settle;
-    const fwd = canDrive && (inp.fwd || B.going), back = canDrive && inp.back && !fwd;
-    let left = canDrive && inp.left, right = canDrive && inp.right;
+    // input: the one-thumb joystick (analog: throttle -1..1, steer -1..1, + = right) or the buttons/keys (booleans)
+    let thr, kidSteer;
+    if (inp.analog) {
+      thr = canDrive ? BB.clamp(+inp.throttle || 0, -1, 1) : 0; if (Math.abs(thr) < 0.08) thr = 0;
+      kidSteer = canDrive ? -BB.clamp(+inp.steer || 0, -1, 1) : 0; if (Math.abs(kidSteer) < 0.08) kidSteer = 0;
+    } else {
+      const fwd = canDrive && (inp.fwd || B.going), back = canDrive && inp.back && !fwd;
+      thr = fwd ? 1 : back ? -1 : 0;
+      kidSteer = canDrive ? (inp.left && !inp.right ? 1 : inp.right && !inp.left ? -1 : 0) : 0;
+    }
     // speed: ease toward the wanted speed; braking when the pedal points the other way
-    let want = fwd ? MAX_FWD : back ? -MAX_BACK : 0;
+    let want = thr > 0 ? thr * MAX_FWD : thr * MAX_BACK;
     let cap = approachCap();
     if (cap < Infinity) want = BB.clamp(want, -cap, cap); else cap = 0;   // ease off coming into the target bay so it can settle
     const slowing = Math.abs(want) < Math.abs(B.speed) || (Math.sign(want) !== Math.sign(B.speed) && Math.abs(B.speed) > 0.2);
@@ -946,7 +1121,13 @@
     if (Math.abs(B.speed) < 0.01) B.speed = 0;
     // steering: turns toward the wheel's way while held, straightens itself when let go
     const ms = MAX_STEER + 0.22 * (1 - Math.min(1, Math.abs(B.speed) / 4));   // tighter when slow: easier to turn round
-    const st = left && !right ? ms : right && !left ? -ms : 0;
+    let st = kidSteer * ms;
+    // assist (a garage option): keep gently to the kerb lane, follow its bends and the ribbon at junctions, pull in
+    // at the stop. The child's own steering wins (blended by how hard they steer).
+    if (B.assist && canDrive && B.speed > 0.6) {
+      const a = assistSteer(ms);
+      if (a != null) { const k = Math.min(1, Math.abs(kidSteer) / 0.5); st = a * (1 - k) + st * k; }
+    }
     if (st) B.steer += BB.clamp(st - B.steer, -STEER_IN * dt, STEER_IN * dt);
     else B.steer += BB.clamp(-B.steer, -STEER_OUT * dt, STEER_OUT * dt);
     const v = B.speed, ds = v * dt, sx0 = fx, sz0 = fz;
@@ -961,8 +1142,9 @@
     // the rear carriage follows the hitch like a trailer (and is kept from folding too far)
     const hx = fx - f1.x * HITCH, hz = fz - f1.z * HITCH;
     const dx = hx - before.ax, dz = hz - before.az;
-    if (Math.hypot(dx, dz) > 1e-4) hr = Math.atan2(dx, dz);
-    if (v < 0) hr += wrapA(h - hr) * Math.min(1, -ds * 0.25 + dt * 0.9);  // reversing: a helping hand straightens it
+    if (!ART) hr = h;
+    else if (Math.hypot(dx, dz) > 1e-4) hr = Math.atan2(dx, dz);
+    if (ART && v < 0) hr += wrapA(h - hr) * Math.min(1, -ds * 0.25 + dt * 0.9);  // reversing: a helping hand straightens it
     const bend = wrapA(hr - h);
     if (Math.abs(bend) > MAX_BEND) hr = wrapA(h + Math.sign(bend) * MAX_BEND);
     // never crash: slide along walls, trees and posts
@@ -995,6 +1177,29 @@
     if (Math.abs(B.speed) > real + 0.6) B.speed = Math.sign(B.speed) * (real + 0.6);
     realMove = moved;
     return Math.abs(moved);
+  }
+  // Assist's steering: pure pursuit of a point ahead on the ribbon (with a target) or on the kerb lane of the road
+  // the bus is on, in the way it is going. Returns a steer angle, or null when off the roads.
+  function assistSteer(ms) {
+    const f = fwdOf(h), look = 6.5 + B.speed * 0.6;
+    let tx, tz;
+    if (routePts && routePts.length > 1 && B.target) {
+      let r = routePts;
+      const bay = W().bayOf(B.target); r = r.concat([{ x: bay.nose.x + bay.fwd.x * 12, z: bay.nose.z + bay.fwd.z * 12 }]);
+      let bi = 0, bd = 1e9, ac = 0;
+      for (let i = 0; i < r.length && ac < 16; i++) { if (i) ac += Math.hypot(r[i].x - r[i - 1].x, r[i].z - r[i - 1].z); const d = Math.hypot(r[i].x - fx, r[i].z - fz); if (d < bd) { bd = d; bi = i; } }
+      if (bd > 14) return null;
+      let j = bi, acc = 0; while (j < r.length - 1 && acc < look) { acc += Math.hypot(r[j + 1].x - r[j].x, r[j + 1].z - r[j].z); j++; }
+      tx = r[j].x; tz = r[j].z;
+    } else {
+      const near = nearestRoad(fx, fz);
+      if (!near || near.d > C.roadHalf + 2) return null;
+      const s = (f.x * near.dx + f.z * near.dz) >= 0 ? 1 : -1, e = near.edge;
+      const p = W().pointAt(e, BB.clamp(near.s + s * look, 0, e.length));
+      tx = p.x + p.dz * s * C.lane; tz = p.z - p.dx * s * C.lane;
+    }
+    const alpha = wrapA(Math.atan2(tx - fx, tz - fz) - h), Ld = Math.max(3, Math.hypot(tx - fx, tz - fz));
+    return BB.clamp(Math.atan2(2 * WB * Math.sin(alpha), Ld), -ms, ms);
   }
   // Coming into the target bay (lined up within 45 degrees, either way round): a speed limit that eases to a crawl
   // by the middle of the bay, so the bus can't overshoot it.
@@ -1077,7 +1282,7 @@
     if (spin) updateSpin(dt); else { ds = settle ? 0 : drive(dt); updateSettle(dt); }
     gy += (W().groundY(fx, fz) - gy) * Math.min(1, dt * 8);
     placeModel();
-    if (spinHop) { B.front.position.y += spinHop; B.rear.position.y += spinHop; jointF.position.y += spinHop; jointR.position.y += spinHop; }
+    if (spinHop) { for (const o of [B.front, ART ? B.rear : null, jointF, jointR]) if (o) o.position.y += spinHop; }
     laneCheck(dt);
 
     // fuel
@@ -1095,7 +1300,19 @@
     for (const w of wheelsR) w.rotation.x = wheelAngle;
     for (const w of steerWheels) w.rotation.y = B.steer * 0.8;
     doorT += ((B.doorsOpen ? 1 : 0) - doorT) * Math.min(1, dt * 6);
-    for (const d of [doorF, doorR]) { d.position.x = 1.27 + doorT * 0.1; d.position.z = d.userData.z + doorT * 1.1; }
+    for (const d of doors) { if (!d.userData.zOnly) d.position.x = d.userData.x + Math.sign(d.userData.x || 1) * doorT * 0.1; d.position.z = d.userData.z + doorT * d.userData.slide; }
+    // the stop's cut-away: the roof over the seats lifts off and fades so the passengers can be counted
+    const wantRoof = (B.atStop || settle) && B.camMode === 'chase' ? 1 : 0;
+    roofT += BB.clamp(wantRoof - roofT, -dt * 2.5, dt * 2.5);
+    if (M && roofT !== lastRoofT) {
+      lastRoofT = roofT;
+      for (const o of M.roofParts) { o.position.y = o.userData.roofY + roofT * 2.4; o.visible = roofT < 0.97; }
+      for (const r of M.roofMats) { const tr = r.tr || roofT > 0.01; if (r.mat.transparent !== tr) { r.mat.transparent = tr; r.mat.needsUpdate = true; } r.mat.opacity = r.base * (1 - roofT); r.mat.depthWrite = roofT < 0.5 && !r.tr; }
+    }
+    // wipers sweep while it rains
+    const raining = W().isRaining && W().isRaining();
+    wipePh = raining ? wipePh + dt * (W().isStormy && W().isStormy() ? 6 : 4) : wipePh;
+    for (const wp of wipers) { const rest = wp.userData.rest || 0; wp.rotation.z = raining ? rest + (0.5 - 0.5 * Math.cos(wipePh)) * 1.35 : rest + (wp.rotation.z - rest) * 0.9; }
     const n = BB.clamp(B.passengers | 0, 0, 10);
     if (heads.count !== n) heads.count = hair.count = shirts.count = n;
     B.paxGroup.position.y = Math.abs(B.speed) > 0.5 ? Math.abs(Math.sin(clock * 9)) * 0.04 : 0;
@@ -1162,6 +1379,7 @@
   }
   B.updateCamera = updateCamera;
 
+  B.assist = !!BB.save.assist;
   B.build = function () {
     buildModel();
     B.placeAt(BB.world.depot);
