@@ -593,14 +593,14 @@
   ];
   const scheme = (s) => typeof s === 'number' ? SCHEMES[s % SCHEMES.length] : s || rpick(SCHEMES);
   const FH = 2.6, VD = 3.2;
-  function voidDeck(q, len, dep, sc, people) {
+  function voidDeck(q, len, dep, sc, people, far) {
     bx(q, len + 0.4, 0.25, dep + 0.4, '#efe4d0', 0, 0, 0);
     bx(q, len * 0.34, VD, dep - 2.6, dark(sc.body, 0.12), -len * 0.16, 0.25, 0);          // lift lobby
     bx(q, 1.6, 1.2, 0.2, sc.accent, -len * 0.16, 0.8, (dep - 2.6) / 2 + 0.1);              // letterboxes
-    const n = Math.max(3, Math.round(len / 4.5));
+    const n = far ? 2 : Math.max(3, Math.round(len / 6));
     for (let i = 0; i <= n; i++) {
       const px = -len / 2 + 0.5 + (len - 1) * i / n;
-      for (const pz of [-dep / 2 + 0.55, dep / 2 - 0.55]) q.cyl(0.36, 0.36, VD - 0.25, 6, sc.trim, px, 0.25, pz);
+      for (const pz of [-dep / 2 + 0.55, dep / 2 - 0.55]) bx(q, 0.66, VD - 0.25, 0.66, sc.trim, px, 0.25, pz);
     }
     if (people) {
       bx(q, 2.2, 0.45, 0.6, P.wood, len * 0.22, 0.25, 0.4);                                  // a bench, a stone table
@@ -613,7 +613,7 @@
     const H = VD + floors * FH, far = opt.far, roof = opt.roof || (rnd() < 0.3 ? 'pitch' : 'flat');
     if (!far) addBoxAt(x, z, ry, 1.6, 0, len / 2 + 1.8, dep / 2 + 0.6);
     A(b, x, 0, z, ry, (q) => {
-      voidDeck(q, len, dep, sc, far ? 0 : opt.people != null ? opt.people : (rnd() < 0.6 ? 2 + (rnd() < 0.4 ? 1 : 0) : 0));
+      voidDeck(q, len, dep, sc, far ? 0 : opt.people != null ? opt.people : (rnd() < 0.6 ? 2 + (rnd() < 0.4 ? 1 : 0) : 0), far);
       bx(q, len, floors * FH, dep, sc.body, 0, VD, 0);
       // gable end in the accent colour, a stair/lift core at the other end
       bx(q, 0.3, floors * FH + 0.4, dep + 0.3, sc.accent, -len / 2 - 0.15, VD - 0.2, 0);
@@ -628,8 +628,8 @@
       const n = Math.max(4, Math.floor(len / 2.5));
       for (let f = 0; f < floors; f++) {
         const y = VD + f * FH;
-        bx(q, len + 0.15, 0.95, 0.42, f % 4 === 3 ? light(sc.accent, 0.25) : sc.trim, 0, y, dep / 2 + 0.2);
-        bx(q, len + 0.3, 0.2, dep + 0.3, sc.trim, 0, y - 0.1, 0);
+        if (!far || f % 3 === 0) bx(q, len + 0.15, 0.95, 0.42, f % 4 === 3 ? light(sc.accent, 0.25) : sc.trim, 0, y, dep / 2 + 0.2);
+        if (f % 3 === 0 && !far) bx(q, len + 0.3, 0.2, dep + 0.3, sc.trim, 0, y - 0.1, 0);
         if (far) { pane(q, 0, y + 1.5, dep / 2 + 0.02, 0, len * 0.9, 0.9, rnd() < 0.5); pane(q, 0, y + 1.3, -dep / 2 - 0.02, Math.PI, len * 0.9, 0.9, rnd() < 0.5); continue; }
         for (let i = 0; i < n; i++) {
           const wx = -len / 2 + (i + 0.5) * len / n;
@@ -659,17 +659,18 @@
     const H = VD + floors * FH;
     if (!opt.far) addBoxAt(x, z, ry, 0, 0, size / 2 + 0.3, size / 2 + 0.3);
     A(b, x, 0, z, ry, (q) => {
-      voidDeck(q, size - 0.6, size - 0.6, sc, opt.far ? 0 : rnd() < 0.5 ? 2 : 0);
+      voidDeck(q, size - 0.6, size - 0.6, sc, opt.far ? 0 : rnd() < 0.5 ? 2 : 0, opt.far);
       bx(q, size, floors * FH, size, sc.body, 0, VD, 0);
       for (const [cx, cz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) bx(q, 1.3, floors * FH + 0.6, 1.3, sc.accent, cx * (size / 2 - 0.45), VD, cz * (size / 2 - 0.45));
       const n = Math.max(2, Math.floor((size - 2.6) / 2.2));
       for (let f = 0; f < floors; f++) {
         const y = VD + f * FH;
-        bx(q, size + 0.3, 0.22, size + 0.3, f % 4 === 3 ? sc.accent : sc.trim, 0, y - 0.1, 0);
+        if (!opt.far || f % 3 === 0) bx(q, size + 0.3, 0.22, size + 0.3, f % 4 === 3 ? sc.accent : sc.trim, 0, y - 0.1, 0);
         for (let r = 0; r < 4; r++) {
           const a = r * Math.PI / 2;
+          if (opt.far && f % 2) continue;
           A(q, 0, 0, 0, a, (w) => {
-            if (opt.far) { pane(w, 0, y + 1.4, size / 2 + 0.02, 0, size - 3, 0.9, rnd() < 0.5); return; }
+            if (opt.far) { pane(w, 0, y + 2.7, size / 2 + 0.02, 0, size - 3, 2.2, rnd() < 0.5); return; }
             for (let i = 0; i < n; i++) pane(w, -(size - 2.6) / 2 + (i + 0.5) * (size - 2.6) / n, y + 1.4, size / 2 + 0.01, 0, 1.0, 1.1);
           });
         }
@@ -694,7 +695,7 @@
         for (let i = 0; i < n; i++) {
           const wx = -len / 2 + (i + 0.5) * len / n;
           for (const sz of [1, -1]) {
-            bx(q, 2.6, 0.5, 0.9, cols[(i + f) % 3], wx, y + 0.25, sz * (dep / 2 + 0.45));       // balcony
+            if (sz > 0) bx(q, 2.6, 0.5, 0.9, cols[(i + f) % 3], wx, y + 0.25, dep / 2 + 0.45);   // balcony (road side)
             pane(q, wx, y + 1.5, sz * (dep / 2 + 0.01), sz > 0 ? 0 : Math.PI, 1.6, 1.2);
           }
         }
@@ -1026,7 +1027,7 @@
     b.box(len, 0.9, 0.4, '#e3dacd', 0, DECK_Y + 1.4, z - 2.9); b.box(len, 0.9, 0.4, '#e3dacd', 0, DECK_Y + 1.4, z + 2.9);
     b.box(len, 0.25, 0.25, '#a59a90', 0, DECK_Y + 1.4, z - 0.8); b.box(len, 0.25, 0.25, '#a59a90', 0, DECK_Y + 1.4, z + 0.8);
     // flower boxes along the parapets (pink bougainvillea)
-    for (let x = -168; x <= 168; x += 6) for (const s of [-1, 1]) {
+    for (let x = -168; x <= 168; x += 8) for (const s of [-1, 1]) {
       if (Math.abs(x - 46) < 18) continue;
       green.box(3.2, 0.6, 0.7, '#5aa848', x, DECK_Y + 0.6, z + s * 3.35);
       green.ball(0.55, (x / 6) % 2 ? '#ff7fb0' : '#ff9fc6', x - 0.7, DECK_Y + 1.15, z + s * 3.4, 0, 1.3, 0.6, 0.8);
@@ -1089,7 +1090,7 @@
       const x = Math.cos(a) * r, z = Math.sin(a) * r, s = rr(0.8, 1.4);
       b.at(x, y, z, -a, (q) => {
         q.ball(9 * s, '#eef0fb', 0, 0, 0, 1, 2.4, 0.35, 1.1);
-        for (let j = 0; j < 5; j++) q.ball(rr(4, 7) * s, '#ffffff', rr(-12, 12) * s, rr(1.5, 4) * s, rr(-3, 3) * s, 1, 1.2, 0.85, 1);
+        for (let j = 0; j < 4; j++) q.ball(rr(4.5, 7) * s, '#ffffff', rr(-11, 11) * s, rr(1.5, 4) * s, rr(-3, 3) * s, 0, 1.2, 0.85, 1);
       });
     }
     cloudMat = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false, transparent: true, opacity: 0.94 });

@@ -460,20 +460,6 @@
     return best;
   }
   B.nearestRoad = nearestRoad;
-  // Dijkstra over the junctions (the bus may turn round anywhere, so edges go both ways).
-  function shortest(fromCosts) {
-    const dist = {}, prev = {}, open = [];
-    for (const [id, c] of fromCosts) { dist[id] = c; open.push(id); }
-    while (open.length) {
-      open.sort((a, b) => dist[a] - dist[b]);
-      const id = open.shift(), n = W().node(id);
-      for (const eid of n.edges) {
-        const e = W().edge(eid), o = e.a === id ? e.b : e.a, c = dist[id] + e.length;
-        if (dist[o] == null || c < dist[o]) { dist[o] = c; prev[o] = { id, e }; if (open.indexOf(o) < 0) open.push(o); }
-      }
-    }
-    return { dist, prev };
-  }
   // Centre-line polyline from the road point nearest the bus to the target's parking spot, approaching in the stop's
   // travel direction. Returns {pts, sign} or null.
   function routeTo(stop) {
@@ -490,17 +476,36 @@
       addEdgePart(pts, te, here.s, s1);
       return pts;
     }
-    // prefer carrying on the way the bus faces: turning round costs a little extra
-    const f = fwdOf(h), facing = f.x * here.dx + f.z * here.dz, TURN = 35;
-    const ca = here.s + (facing > 0.3 ? TURN : 0), cb = e.length - here.s + (facing < -0.3 ? TURN : 0);
-    const { dist, prev } = shortest([[e.a, ca], [e.b, cb]]);
-    if (dist[entry] == null) return null;
-    // walk back from the entry node
-    const chain = []; let id = entry;
-    while (prev[id]) { chain.unshift(prev[id]); id = prev[id].id; }
-    // id is now the start node (e.a or e.b): leave the bus's edge toward it
-    addEdgePart(pts, e, here.s, id === e.a ? 0 : e.length);
-    for (const step of chain) { const ed = step.e; addEdgePart(pts, ed, ed.a === step.id ? 0 : ed.length, ed.a === step.id ? ed.length : 0); }
+    // Dijkstra over directed states (an edge driven one way, ending at its far junction). Turning round costs extra
+    // (at the start if the bus faces the other way, and as a U-turn at a junction), so the ribbon prefers to carry
+    // on the way the bus faces unless going round would be much longer.
+    const f = fwdOf(h), facing = f.x * here.dx + f.z * here.dz, TURN = 35, UTURN = 55;
+    const key = (ed, d) => ed.id + (d > 0 ? '+' : '-'), endOf = (ed, d) => d > 0 ? ed.b : ed.a;
+    const dist = {}, prev = {}, open = [];
+    const seed = (d, c) => { const k = key(e, d); dist[k] = c; prev[k] = null; open.push({ ed: e, d, k }); };
+    seed(1, e.length - here.s + (facing < -0.3 ? TURN : 0));
+    seed(-1, here.s + (facing > 0.3 ? TURN : 0));
+    let best = null, bestC = Infinity;
+    while (open.length) {
+      open.sort((a, b) => dist[a.k] - dist[b.k]);
+      const it = open.shift(), c0 = dist[it.k];
+      if (c0 >= bestC) break;
+      const n = endOf(it.ed, it.d);
+      if (n === entry) {                                  // carry on onto the target's edge
+        const c = c0 + tAlong + (it.ed === te ? UTURN : 0);
+        if (c < bestC) { bestC = c; best = it; }
+      }
+      for (const eid of W().node(n).edges) {
+        const e2 = W().edge(eid), d2 = e2.a === n ? 1 : -1, k2 = key(e2, d2);
+        const c = c0 + e2.length + (e2 === it.ed ? UTURN : 0);
+        if (dist[k2] == null || c < dist[k2]) { dist[k2] = c; prev[k2] = it; open.push({ ed: e2, d: d2, k: k2 }); }
+      }
+    }
+    if (!best) return null;
+    const chain = []; for (let s = best; s; s = prev[s.k]) chain.unshift(s);
+    // the first state is the bus's own edge, driven from the bus to its end
+    addEdgePart(pts, e, here.s, chain[0].d > 0 ? e.length : 0);
+    for (let k = 1; k < chain.length; k++) { const s = chain[k]; addEdgePart(pts, s.ed, s.d > 0 ? 0 : s.ed.length, s.d > 0 ? s.ed.length : 0); }
     addEdgePart(pts, te, stop.dir > 0 ? 0 : te.length, stop.dir > 0 ? stop.s + 3 : stop.s - 3);
     return pts;
   }
@@ -511,8 +516,19 @@
     else { for (let i = e.points.length - 2; i > 0; i--) if (e.cum[i] < s0 && e.cum[i] > s1) push(e.points[i]); }
     push(W().pointAt(e, s1));
   }
-  // Round sharp corners (junction turns) with a short curve, then move the line into the LEFT lane.
+  // Round sharp corners (junction turns) with a short curve, then move the line into the LEFT lane. A U-turn splits
+  // the line: each piece goes into its own left lane and a half circle joins them.
   function leftLane(pts) {
+    for (let i = 1; i < pts.length - 1; i++) {
+      const a = pts[i - 1], p = pts[i], c = pts[i + 1];
+      const ix = p.x - a.x, iz = p.z - a.z, ox = c.x - p.x, oz = c.z - p.z, li = Math.hypot(ix, iz), lo = Math.hypot(ox, oz);
+      if (li > 1e-3 && lo > 1e-3 && (ix * ox + iz * oz) / (li * lo) < -0.9) {
+        const A = leftLane(pts.slice(0, i + 1)), Bq = leftLane(pts.slice(i));
+        const ux = ix / li, uz = iz / li, lx = uz, lz = -ux, r = C.lane, arc = [];
+        for (let k = 1; k < 8; k++) { const t2 = k / 8 * Math.PI; arc.push({ x: p.x + lx * r * Math.cos(t2) + ux * r * Math.sin(t2), z: p.z + lz * r * Math.cos(t2) + uz * r * Math.sin(t2) }); }
+        return A.concat(arc, Bq);
+      }
+    }
     const out = [pts[0]];
     for (let i = 1; i < pts.length - 1; i++) {
       const a = pts[i - 1], p = pts[i], c = pts[i + 1];
@@ -521,7 +537,6 @@
       if (li < 1e-3 || lo < 1e-3) continue;
       ix /= li; iz /= li; ox /= lo; oz /= lo;
       if (ix * ox + iz * oz > 0.97) { out.push(p); continue; }
-      if (ix * ox + iz * oz < -0.9) { out.push(p); continue; }                       // a U-turn: keep the point
       const r = Math.min(6, li / 2, lo / 2);
       const A = { x: p.x - ix * r, z: p.z - iz * r }, Bp = { x: p.x + ox * r, z: p.z + oz * r };
       for (let k = 0; k <= 6; k++) { const t = k / 6, m = 1 - t; out.push({ x: m * m * A.x + 2 * m * t * p.x + t * t * Bp.x, z: m * m * A.z + 2 * m * t * p.z + t * t * Bp.z }); }
@@ -558,6 +573,12 @@
       const nx = fx + f.x * LF / 2, nz = fz + f.z * LF / 2;
       camPos.set(nx + f.x * 13 - kx * 7, 10, nz + f.z * 13 - kz * 7);
       camLook.set(nx - f.x * 5 + kx * 1.5, -1.5, nz - f.z * 5 + kz * 1.5);
+      // phones held sideways: the question card is a column on the left, so frame the bus toward the right
+      if (innerHeight <= 500 && BB.jobs && BB.jobs.phase === 'question') {
+        let dx = camLook.x - camPos.x, dz = camLook.z - camPos.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
+        const sh = 6.5;                                   // move the camera to its left: the scene slides right
+        camPos.x += dz * sh; camPos.z -= dx * sh; camLook.x += dz * sh; camLook.z -= dx * sh;
+      }
     } else {
       // chase: behind and above the front carriage, trailing its heading smoothly
       camH += wrapA(h - camH) * Math.min(1, dt * 2.2);
@@ -699,14 +720,16 @@
     let left = canDrive && inp.left, right = canDrive && inp.right;
     // speed: ease toward the wanted speed; braking when the pedal points the other way
     let want = fwd ? MAX_FWD : back ? -MAX_BACK : 0;
-    const inBay = bayCheck();
-    if (inBay) want = BB.clamp(want, -1.6, 1.6);            // slow down in the target bay so it can settle
-    const rate = (want === 0) ? COAST : (Math.sign(want) !== Math.sign(B.speed) && Math.abs(B.speed) > 0.2) ? BRAKE : ACCEL;
+    let cap = approachCap();
+    if (cap < Infinity) want = BB.clamp(want, -cap, cap); else cap = 0;   // ease off coming into the target bay so it can settle
+    const slowing = Math.abs(want) < Math.abs(B.speed) || (Math.sign(want) !== Math.sign(B.speed) && Math.abs(B.speed) > 0.2);
+    const rate = !slowing ? ACCEL : (want === 0 && !cap) ? COAST : BRAKE;
     if (B.speed < want) B.speed = Math.min(want, B.speed + rate * dt); else B.speed = Math.max(want, B.speed - rate * dt);
     if (!canDrive) B.speed = settle ? 0 : B.speed * Math.max(0, 1 - dt * 6);
     if (Math.abs(B.speed) < 0.01) B.speed = 0;
     // steering: turns toward the wheel's way while held, straightens itself when let go
-    const st = left && !right ? MAX_STEER : right && !left ? -MAX_STEER : 0;
+    const ms = MAX_STEER + 0.22 * (1 - Math.min(1, Math.abs(B.speed) / 4));   // tighter when slow: easier to turn round
+    const st = left && !right ? ms : right && !left ? -ms : 0;
     if (st) B.steer += BB.clamp(st - B.steer, -STEER_IN * dt, STEER_IN * dt);
     else B.steer += BB.clamp(-B.steer, -STEER_OUT * dt, STEER_OUT * dt);
     const v = B.speed, ds = v * dt;
@@ -735,6 +758,22 @@
     }
     return Math.abs(ds);
   }
+  // Coming into the target bay (lined up within 45 degrees, either way round): a speed limit that eases to a crawl
+  // by the middle of the bay, so the bus can't overshoot it.
+  function approachCap() {
+    const t = B.target;
+    if (!t || B.atStop) return Infinity;
+    const bay = W().bayOf(t), m = midPoint(), dx = m.x - bay.x, dz = m.z - bay.z;
+    const lat = dx * bay.side.x + dz * bay.side.z;
+    if (Math.abs(lat) > 4.8) return Infinity;
+    const dh = Math.abs(wrapA(h - bay.heading));
+    if (dh > Math.PI / 4 && dh < Math.PI * 3 / 4) return Infinity;
+    const f = fwdOf(h), mv = Math.sign(B.speed) || 1;
+    const m2 = Math.sign((f.x * bay.fwd.x + f.z * bay.fwd.z) * mv) || 1;
+    const prog = (dx * bay.fwd.x + dz * bay.fwd.z) * m2;
+    if (prog < -26 || prog > 7) return Infinity;
+    return 1.6 + Math.sqrt(10 * Math.max(0, 2 - prog));
+  }
   // Is the bus roughly in the target bay? (mid point within the box, heading within 45 degrees either way round)
   function bayCheck() {
     const t = B.target;
@@ -743,7 +782,7 @@
     const dx = m.x - bay.x, dz = m.z - bay.z;
     const along = dx * bay.fwd.x + dz * bay.fwd.z, lat = dx * bay.side.x + dz * bay.side.z;
     const dh = Math.abs(wrapA(h - bay.heading));
-    if (Math.abs(along) > 6 || Math.abs(lat) > 3.4) return false;
+    if (Math.abs(along) > 6 || Math.abs(lat) > 4.8) return false;
     if (dh < Math.PI / 4) return 'same';
     if (dh > Math.PI * 3 / 4) return 'reversed';
     return false;
@@ -863,7 +902,11 @@
     if (!routePts || !B.target || B.atStop || settle || B.camMode !== 'chase') { wayArrow.visible = false; return; }
     // the route point ~12 ahead of the point nearest the bus
     let bi = 0, bd = Infinity;
-    for (let i = 0; i < routePts.length; i++) { const d = Math.hypot(routePts[i].x - fx, routePts[i].z - fz); if (d < bd) { bd = d; bi = i; } }
+    // (the route starts at the road point nearest the bus, so only look near its start: a U-turn's way back may pass close by)
+    for (let i = 0, acc = 0; i < routePts.length && acc < 16; i++) {
+      if (i) acc += Math.hypot(routePts[i].x - routePts[i - 1].x, routePts[i].z - routePts[i - 1].z);
+      const d = Math.hypot(routePts[i].x - fx, routePts[i].z - fz); if (d < bd) { bd = d; bi = i; }
+    }
     let j = bi, acc = 0;
     while (j < routePts.length - 1 && acc < 12) { acc += Math.hypot(routePts[j + 1].x - routePts[j].x, routePts[j + 1].z - routePts[j].z); j++; }
     const tx = routePts[j].x - fx, tz = routePts[j].z - fz, ang = Math.atan2(tx, tz);

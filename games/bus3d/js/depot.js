@@ -217,6 +217,7 @@
     });
   }
   D.pics = { sticker: stickerPic, hat: hatPic, icon: iconPic };
+  D.stickerPic = (id) => (STICKER_ART[id] ? stickerPic(id, 128) : null);
   const cv = (src, css) => { const c = mkCanvas(src.width); c.getContext('2d').drawImage(src, 0, 0); if (css) c.style.cssText = css; return c; };
 
   // ---------- 3D: stickers and hats on the bus ----------
@@ -287,15 +288,16 @@
   D.applyLooks = function (look) {
     const B = BB.bus; if (!B || !B.front) return;
     look = Object.assign({ paint: S.paint, stickers: S.stickers, hat: S.hat, lights: !!S.upgrades.lights }, look || {});
-    try { B.applyCustom(Object.assign({}, S, { paint: look.paint, upgrades: Object.assign({}, S.upgrades, { lights: look.lights }) })); } catch (e) { console.error(e); }
+    // bus.js applies paint and lights; stickers and hats are ours (so it is given none of its own to show)
+    try { B.applyCustom(Object.assign({}, S, { paint: look.paint, stickers: [], hat: null, upgrades: Object.assign({}, S.upgrades, { lights: look.lights }) })); } catch (e) { console.error(e); }
     for (const m of placed) if (m.parent) m.parent.remove(m);
     placed.length = 0;
     const mt = mounts();
     look.stickers.forEach((id, i) => {
       if (!STICKER_ART[id] || !mt.stickers[i]) return;
-      for (const a of mt.stickers[i]) { const m = stickerMesh(id); m.position.z = 0.012; a.add(m); placed.push(m); }
+      for (const a of mt.stickers[i]) { const m = stickerMesh(id); m.position.z = 0.012; if (a.userData && a.userData.size) m.scale.setScalar(a.userData.size / 1.35); a.add(m); placed.push(m); }
     });
-    if (look.hat && HAT_ART[look.hat] && mt.hat) { const h = hatMesh(look.hat); mt.hat.add(h); placed.push(h); }
+    if (look.hat && HAT_ART[look.hat] && mt.hat) { const h = hatMesh(look.hat); if (B.hatMount) h.scale.setScalar(1.25); mt.hat.add(h); placed.push(h); }
   };
   D.afterBus = function () { D.applyLooks(); build3D(); };
 
@@ -444,7 +446,7 @@
     .bbd-go { height: 60px; } .bbd-go svg { height: 38px; }
     .bbd-fuel { padding: 6px 10px; } .bbd-fuel > canvas { width: 56px; height: 56px; } .bbd-fill { height: 62px; }
     .bbd-awning { height: 34px; }
-    .bbd-head .bbu-clock { height: 52px; font-size: 24px; padding: 0 12px 0 8px; } .bbd-head .bbu-clock svg { width: 30px; height: 30px; }
+    .bbd-head .bbu-clock { height: 56px; font-size: 24px; padding: 0 12px 0 8px; } .bbd-head .bbu-clock svg { width: 30px; height: 30px; }
   }`);
 
   const BUS_SVG = '<svg viewBox="0 0 120 56" aria-hidden="true"><rect x="4" y="6" width="92" height="38" rx="10" fill="#fff6e0"/>'

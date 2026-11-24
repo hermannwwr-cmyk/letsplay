@@ -110,7 +110,7 @@
   /* narrower screens: the clock moves under the coins, the fuel gauge gets shorter */
   @media (max-width: 1000px) { .bbu-fuel .bar { width: 70px; } }
   @media (max-width: 900px) {
-    .bbu-top .bbu-clock { position: absolute; left: 0; top: 66px; height: 52px; font-size: 24px; }
+    .bbu-top .bbu-clock { position: absolute; left: 0; top: 66px; height: 56px; font-size: 24px; }
     .bbu-top .bbu-clock svg { width: 30px; height: 30px; }
   }
   @media (max-width: 720px) { .bbu-fuel .bar { width: 44px; } .bbu-job .dots { gap: 4px; } .bbu-job .dots i { width: 13px; height: 13px; } .bbu-top { gap: 7px; } .bbu-right { gap: 6px; } }
