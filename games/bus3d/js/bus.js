@@ -1,5 +1,5 @@
 /* Bendy Bus 3D: the bus.
-   A friendly articulated (bendy) bus: a front carriage with a face (eyes on the windscreen, a smile, rosy cheeks),
+   A friendly articulated (bendy) bus: a front carriage with a smile and rosy cheeks (no eyes: the owner's choice),
    an accordion joint and a rear carriage that follows the hitch like a trailer, so it bends on turns. Wheels spin and
    the front ones steer, doors slide, ten seats (two rows of five, a ten-frame) hold smiling passengers.
    Driving is FREE and gentle: BB.bus.input = {fwd, back, left, right} (the HUD and keys set it). Speed eases in and
@@ -234,7 +234,7 @@
       eyesF = new THREE.Group(); eyesF.position.set(0, 1.62, LF / 2 + 0.08);
       const em = eb.mesh(new THREE.MeshBasicMaterial({ vertexColors: true }));
       pupils = pb.mesh(new THREE.MeshBasicMaterial({ vertexColors: true }));
-      eyesF.add(em, pupils); g.add(eyesF);
+      eyesF.add(em, pupils); eyesF.visible = false; g.add(eyesF);   // the owner asked for no eyes on the bus
     }
     // doors (kerb side, +x): front door near the nose, rear door on the rear carriage
     const db = BB.mk.builder();
