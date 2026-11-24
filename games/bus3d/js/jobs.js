@@ -814,6 +814,7 @@
     BB.emit('jobs:bedtime');
   }
   J.start = function () {
+    if (J.current) return;                    // a job is already running: starting twice must not make two
     if (timeUp()) { bedtime(); return; }
     const job = { stops: pickStops(), index: 0, cash: 0, q: null };
     J.current = job;
@@ -894,7 +895,10 @@
 
   // ---------- depot trips, low fuel and the tow ----------
   J.goDepot = function (reason) {
-    if (J.phase === 'question' || J.phase === 'stop' || J.phase === 'tow' || J.phase === 'bedtime') { if (J.phase !== 'bedtime') J.wantDepot = true; return; }
+    if (J.phase === 'bedtime' || J.phase === 'toDepot' || J.phase === 'depot') return;
+    // busy (a stop, a question, the tow) or settling into a stop's bay: go after the stop instead
+    const settling = typeof BB.bus.isSettling === 'function' && BB.bus.isSettling();
+    if (J.phase === 'question' || J.phase === 'stop' || J.phase === 'tow' || settling) { J.wantDepot = true; return; }
     J.wantDepot = false;
     setPhase('toDepot');
     BB.bus.closeDoors();
@@ -920,7 +924,13 @@
   // Out of fuel: a friendly tow truck backs up to the bus (beep, beep), hooks on and pulls it to the depot, where a
   // free top-up gets it going again. No cost, no lost progress. Uses the art builder's tow truck when there is one
   // (BB.bus.makeTowTruck() or BB.world.towTruck), else a soft fade.
+  let towTruck = null;
   function getTowTruck() {
+    if (towTruck) return towTruck;            // made once and reused for every tow
+    towTruck = makeTowTruck();
+    return towTruck;
+  }
+  function makeTowTruck() {
     try {
       if (typeof BB.bus.makeTowTruck === 'function') return BB.bus.makeTowTruck();
       const w = BB.world.towTruck;
@@ -977,7 +987,7 @@
       const e = t * t;
       truck.position.set(from2.x + sp.fx * 28 * e, 0, from2.z + sp.fz * 28 * e);
       truck.scale.setScalar(t < 0.7 ? 1 : Math.max(0.01, 1 - (t - 0.7) / 0.3));
-    }).then(() => { truck.visible = false; if (truck.parent && truck !== BB.world.towTruck) truck.parent.remove(truck); });
+    }).then(() => { truck.visible = false; truck.scale.setScalar(1); });   // hidden, kept for the next tow
     await say('Free fuel! Thank you, tow truck!');
   }
   function towWithFade() {
@@ -991,7 +1001,6 @@
   }
   BB.on('bus:fuelEmpty', async () => {
     if (J.phase === 'tow' || BB.bedtime) return;
-    const back = J.phase;
     setPhase('tow'); BB.bus.locked = true; BB.bus.go(false);
     J.wantDepot = false;
     await say("Oh! We're out of fuel. Here comes the tow truck!");
@@ -999,9 +1008,11 @@
     try { if (truck) await towWithTruck(truck); else await towWithFade(); } catch (e) { console.error(e); await towWithFade(); }
     BB.bus.locked = false;
     if (BB.bedtime) return;
-    setPhase(back === 'toDepot' ? 'drive' : back);
-    await say("Let's go!", { queue: true });
+    await say("Let's go!", { queue: true });           // still 'tow': a depot tap now is remembered (wantDepot)
+    if (BB.bedtime) return;
     if (timeUp()) { bedtime(); return; }
+    setPhase('drive');
+    if (J.wantDepot) { J.goDepot('quiet'); return; }
     if (J.current) resumeJob(true); else J.start();
   });
 

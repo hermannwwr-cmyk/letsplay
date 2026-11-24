@@ -67,8 +67,13 @@
   };
   // Drive to (and settle in) a stop or the depot; cb(stop) runs on arrival. Null clears the target.
   B.stopAt = function (stop, cb) {
+    if (settle) {
+      if (stop && stop !== settle.stop) return false;          // busy pulling in: finish this stop first
+      if (!stop) settle = null;                                 // cancelled (e.g. goodnight)
+    }
     B.target = stop || null; B.onArrive = cb || null;
     refreshRibbon();
+    return true;
   };
   B.openDoors = function () { if (!B.doorsOpen) { B.doorsOpen = true; BB.sfx.door(); } };
   B.closeDoors = function () {
@@ -127,7 +132,7 @@
     spinHop = Math.sin(Math.PI * spin.t) * 0.7;
     if (spin.t >= 1) { spin = null; spinHop = 0; collide(); camH = h; refreshRibbon(); }
   }
-  let spinHop = 0, facingAway = false, awayT = 0;
+  let spinHop = 0, facingAway = false, awayT = 0, realMove = 0;
   B.setLights = function (on) { B.lightsOn = !!on; B.sleepy = !on; };
 
   // ---------- model ----------
@@ -417,8 +422,16 @@
   // ---------- tow truck (the jobs builder animates it) ----------
   // B.makeTowTruck() -> Group (forward +z, about 2.4 wide, 6.6 long) with userData: wheels [meshes, spin about x],
   // beacon (the flashing light), hook (an Object3D at the tow hook, behind the truck), update(dt, speed).
+  let towCache = null;
   B.makeTowTruck = function () {
-    const g = new THREE.Group(); g.name = 'towTruck';
+    if (towCache) {                                   // one truck, reused (no new GPU buffers per tow)
+      const g = towCache;
+      if (g.parent) g.parent.remove(g);
+      g.position.set(0, 0, 0); g.rotation.set(0, 0, 0); g.scale.set(1, 1, 1); g.visible = true;
+      for (const w of g.userData.wheels) w.rotation.x = 0;
+      return g;
+    }
+    const g = towCache = new THREE.Group(); g.name = 'towTruck';
     const b = BB.mk.builder();
     b.add(slab(2.3, 0.45, 1.3, 0.12, 0.15, 6.4), '#ff9a3c', 0, 0, -0.2);           // chassis
     b.add(slab(2.3, 1.2, 2.9, 0.45, 0.05, 2.4), '#ffb81f', 0, 0, 1.6);               // cab
@@ -505,7 +518,8 @@
     const pts = [{ x: here.x, z: here.z }];
     // already on the target's edge, behind the stop in its direction: straight there
     const along = stop.dir > 0 ? here.s : e.length - here.s;
-    if (e === te && along < tAlong - 1) {
+    const fd = fwdOf(h), withStop = (fd.x * here.dx + fd.z * here.dz) * stop.dir;   // > 0: facing the stop's way
+    if (e === te && along < tAlong - 1 && withStop > -0.3) {
       const s1 = stop.dir > 0 ? stop.s + 3 : stop.s - 3;
       addEdgePart(pts, te, here.s, s1);
       return pts;
@@ -764,16 +778,20 @@
   function busCircles() {
     const f = fwdOf(h), rp = rearPose(), r = fwdOf(hr);
     circles.length = 0;
-    circles.push([fx + f.x * 2.5, fz + f.z * 2.5], [fx + f.x * 0.1, fz + f.z * 0.1], [fx - f.x * 2.3, fz - f.z * 2.3], [rp.rx + r.x * 1.9, rp.rz + r.z * 1.9], [rp.rx, rp.rz], [rp.rx - r.x * 1.9, rp.rz - r.z * 1.9]);
+    const add = (cx, cz, d, along, side, rad) => circles.push([cx + d.x * along + d.z * side, cz + d.z * along - d.x * side, rad]);
+    for (const a of [2.6, 0.9, -0.9, -2.6]) add(fx, fz, f, a, 0, 1.3);
+    for (const s of [-0.85, 0.85]) { add(fx, fz, f, 3.35, s, 0.56); add(fx, fz, f, -3.35, s, 0.56); }   // the corners
+    for (const a of [2.2, 0.75, -0.75, -2.2]) add(rp.rx, rp.rz, r, a, 0, 1.3);
+    for (const s of [-0.85, 0.85]) { add(rp.rx, rp.rz, r, 2.65, s, 0.56); add(rp.rx, rp.rz, r, -2.65, s, 0.56); }
     return circles;
   }
   // Push the whole bus out of anything it overlaps; returns the push vector length and direction.
   function collide() {
     let tx = 0, tz = 0;
-    for (let it = 0; it < 3; it++) {
+    for (let it = 0; it < 4; it++) {
       let moved = false;
       for (const c of busCircles()) {
-        const q = W().pushOut(c[0], c[1], 1.3);
+        const q = W().pushOut(c[0], c[1], c[2]);
         if (q.hit > 0.001) { const dx = q.x - c[0], dz = q.z - c[1]; fx += dx; fz += dz; tx += dx; tz += dz; moved = true; }
       }
       if (!moved) break;
@@ -798,7 +816,7 @@
     const st = left && !right ? ms : right && !left ? -ms : 0;
     if (st) B.steer += BB.clamp(st - B.steer, -STEER_IN * dt, STEER_IN * dt);
     else B.steer += BB.clamp(-B.steer, -STEER_OUT * dt, STEER_OUT * dt);
-    const v = B.speed, ds = v * dt;
+    const v = B.speed, ds = v * dt, sx0 = fx, sz0 = fz;
     // bicycle model on the front carriage (reference: its rear axle)
     const before = rearPose();
     const f0 = fwdOf(h);
@@ -811,7 +829,7 @@
     const hx = fx - f1.x * HITCH, hz = fz - f1.z * HITCH;
     const dx = hx - before.ax, dz = hz - before.az;
     if (Math.hypot(dx, dz) > 1e-4) hr = Math.atan2(dx, dz);
-    if (v < 0) hr += wrapA(h - hr) * Math.min(1, -ds * 0.18);  // reversing: a helping hand keeps it straight
+    if (v < 0) hr += wrapA(h - hr) * Math.min(1, -ds * 0.25 + dt * 0.9);  // reversing: a helping hand straightens it
     const bend = wrapA(hr - h);
     if (Math.abs(bend) > MAX_BEND) hr = wrapA(h + Math.sign(bend) * MAX_BEND);
     // never crash: slide along walls, trees and posts
@@ -821,8 +839,18 @@
       const head = -(nx * f1.x + nz * f1.z) * mv;          // > 0 when driving into it
       if (head > 0.35) { const v0 = Math.abs(B.speed), v1 = Math.max(Math.min(v0, 1.5), v0 * Math.max(0.3, 1 - head * 0.9 * Math.min(1, push.d * 6))); B.speed = Math.sign(B.speed) * v1; }   // keeps a crawl, so it slides along
       if (bumpCool <= 0 && Math.abs(v) > 1.2 && head > 0.3) { bumpCool = 0.8; wobble = 1; BB.emit('bus:bump', { strength: Math.min(1, Math.abs(v) / MAX_FWD) }); }
+      // nearly head-on into something small and round: ease sideways off it, so the bus never sits jammed
+      if (head > 0.85) {
+        const lx = f1.z, lz = -f1.x, side = Math.abs(B.steer) > 0.05 ? Math.sign(B.steer) : (Math.sign(nx * lx + nz * lz) || 1);   // the way the child steers
+        fx += lx * side * 1.2 * dt; fz += lz * side * 1.2 * dt;
+        collide();
+      }
     }
-    return Math.abs(ds);
+    // speed, fuel and wheels follow how far the bus really moved (not how hard it pushes)
+    const moved = (fx - sx0) * f1.x + (fz - sz0) * f1.z, real = Math.abs(moved) / Math.max(dt, 1e-4);
+    if (Math.abs(B.speed) > real + 0.6) B.speed = Math.sign(B.speed) * (real + 0.6);
+    realMove = moved;
+    return Math.abs(moved);
   }
   // Coming into the target bay (lined up within 45 degrees, either way round): a speed limit that eases to a crawl
   // by the middle of the bay, so the bus can't overshoot it.
@@ -869,10 +897,10 @@
     B.steer *= 0.9;
     if (settle.t >= 1) {
       const stop = settle.stop; settle = null;
-      B.target = null; B.atStop = stop;
+      const cb = B.target === stop ? B.onArrive : null;
+      B.target = null; B.atStop = stop; B.onArrive = null;
       refreshRibbon();
       BB.emit('bus:arrived', { stop });
-      const cb = B.onArrive; B.onArrive = null;
       if (cb) cb(stop);
     }
   }
@@ -914,11 +942,11 @@
       if (!lowWarned && B.fuel <= C.fuelLow) { lowWarned = true; BB.emit('bus:fuelLow', { fuel: B.fuel }); }
       if (B.fuel <= 0) { B.noFuel = true; B.speed = 0; BB.emit('bus:fuelEmpty', {}); }
       saveTimer -= dt;
-      if (saveTimer <= 0) { saveTimer = 4; BB.save.fuel = B.fuel; BB.saveNow(); }
+      if (saveTimer <= 0 && !B.noFuel) { saveTimer = 4; BB.save.fuel = B.fuel; BB.saveNow(); }
     }
 
     // wheels, doors, passengers, face
-    wheelAngle += (B.speed * dt) / 0.52;
+    wheelAngle += (spin ? 0 : realMove) / 0.52; realMove = 0;
     for (const w of wheelsF) w.rotation.x = wheelAngle;
     for (const w of wheelsR) w.rotation.x = wheelAngle;
     for (const w of steerWheels) w.rotation.y = B.steer * 0.8;
@@ -1002,6 +1030,10 @@
     buildModel();
     B.placeAt(BB.world.depot);
     B.atStop = null;                      // parked, not "at a stop" (doors shut)
-    B.fuel = BB.save.fuel; B.noFuel = B.fuel <= 0;
+    B.fuel = BB.save.fuel;
+    // an empty (or nearly empty) tank from an earlier visit: a little free top-up, so the bus can drive and the
+    // usual "I'm getting hungry" trip to the depot happens instead of a stuck bus
+    if (!(B.fuel > 0.02)) { B.fuel = 0.12; BB.save.fuel = B.fuel; BB.saveNow(); }
+    B.noFuel = false; lowWarned = false;
   };
 })();
