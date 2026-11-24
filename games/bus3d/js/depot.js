@@ -561,8 +561,10 @@
     return t;
   }
 
+  let autoFill = null;
   function renderBody(animate) {
     if (!bodyEl) return;
+    autoFill = null;
     bodyEl.innerHTML = '';
     bodyEl.classList.toggle('anim', !!animate);
     const isPrev = (kind, id) => preview && preview.kind === kind && preview.id === id;
@@ -575,8 +577,8 @@
       const btn = BB.el('button', 'bbd-fill' + (full ? ' full' : ''), row);
       if (full) btn.innerHTML = '<svg viewBox="0 0 24 24" width="40" height="40"><path d="M5 12.5l4.5 4.5 9.5-10" stroke="#3f913f" stroke-width="3.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
       else btn.innerHTML = '<svg viewBox="0 0 24 24" width="44" height="44"><path d="M12 2.5C9 7 6 10.2 6 14a6 6 0 0 0 12 0c0-3.8-3-7-6-11.5z" fill="#fff6e0"/><path d="M9.2 14.5a3 3 0 0 0 2.6 2.9" stroke="#5cb85c" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>';
-      BB.tap(btn, () => {
-        if (BB.bus.fuel >= 0.98) { BB.say('The tank is full! Yum!'); return; }
+      const doFill = (auto) => {
+        if (BB.bus.fuel >= 0.98) { if (!auto) BB.say('The tank is full! Yum!'); return; }
         if (btn.dataset.busy) return;
         btn.dataset.busy = '1';
         BB.sfx.gurgle(1.6); fill = 1.8;
@@ -585,8 +587,14 @@
         bar.animate([{ width: Math.round(from * 100) + '%' }, { width: '100%' }], { duration: 1600, easing: 'ease-in-out', fill: 'forwards' });
         for (let i = 0; i < 10; i++) BB.later(i * 150, () => { const b = BB.el('b', '', gauge); b.style.left = (Math.max(from, i / 10) * 90 + 3) + '%'; BB.later(1000, () => b.remove()); });
         BB.bus.refuel(1);
-        BB.later(1700, () => { BB.say('Yum! A full tank!'); D.hop(); renderBody(); });
-      });
+        BB.later(1700, () => {
+          D.hop();
+          if (auto) { BB.say('Glug glug! A full tank, free! Now make your bus beautiful!', { queue: true }); BB.later(1200, () => { if (panel && tab === 'fuel') setTab('paint', true); }); }
+          else { BB.say('Yum! A full tank!'); renderBody(); }
+        });
+      };
+      BB.tap(btn, () => doFill(false));
+      autoFill = () => doFill(true);
       if (!full) BB.later(300, () => { if (tab === 'fuel' && panel) btn.classList.add('shake'); });
     } else if (tab === 'paint') {
       BB.PAINTS.forEach((p, i) => {
@@ -689,7 +697,7 @@
     if (D.isOpen) return;
     D.isOpen = true;
     preview = null; goalEl = null;
-    tab = BB.bus.fuel < 0.6 ? 'fuel' : 'paint';
+    tab = 'paint';
     awning = BB.el('div', 'bbd-awning', BB.ui.root);
     panel = BB.el('div', 'bbd', BB.ui.root);
     render();
@@ -697,11 +705,16 @@
     BB.bus.setCamera('depot');
     BB.emit('depot:open');
     BB.sfx.whoosh();
-    BB.say(BB.bus.fuel < 0.6 ? 'Welcome to the garage! Tap the pump for free fuel. Then make your bus beautiful!' : 'Welcome to the garage! Make your bus beautiful!');
+    // fuel is free: every visit fills the tank, with the pump's gurgle as a little show
+    const low = BB.bus.fuel < 0.98;
+    if (low) { tab = 'fuel'; setTab('fuel', true); }
+    BB.say(low ? 'Welcome to the garage! Let\'s fill up the tank.' : 'Welcome to the garage! Make your bus beautiful!');
+    if (low) BB.later(900, () => { if (D.isOpen && autoFill) autoFill(); else if (D.isOpen) BB.bus.refuel(1); });
   };
   D.close = function () {
     if (!D.isOpen) return;
     D.isOpen = false;
+    if (BB.bus.fuel < 0.98) BB.bus.refuel(1);   // never leave the garage hungry
     preview = null; D.applyLooks();
     for (const el of [panel, awning]) if (el) el.remove();
     panel = awning = bodyEl = cashBox = cashSpan = goalEl = null;

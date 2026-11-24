@@ -58,14 +58,17 @@
     // wasn't heard and the title is still showing.
     const welcome = BB.HUB ? 'Tap to drive!' : 'Hello! Tap to drive the bendy bus!';
     BB.say(welcome);
-    BB.on('audio:unlocked', () => { if (BB.ui.titleShown() && !BB.heard(welcome)) BB.say(welcome); });
+    // (deferred: when the unlocking tap is the title tap itself, title:start greets instead)
+    BB.on('audio:unlocked', () => BB.later(0, () => { if (BB.ui.titleShown() && !BB.heard(welcome)) BB.say(welcome); }));
     let started = false;                 // once per title visit, however many taps arrive
     BB.on('title:start', () => {
       if (started) return;
       started = true;
       BB.bus.setCamera('chase');
       BB.music.start();
-      BB.say('Hold the green button to go!');
+      // a short hello if the welcome was never heard (iOS blocks speech before the first tap), then the tips, queued
+      if (!BB.heard(welcome)) BB.say('Hello, driver!');
+      BB.say('Hold the green button to go!', { queue: true });
       BB.say('Use the arrows to steer!', { queue: true });
       if (BB.ui.showTips) BB.ui.showTips();
       BB.later(2200, () => { if (!BB.bedtime) BB.jobs.start(); });

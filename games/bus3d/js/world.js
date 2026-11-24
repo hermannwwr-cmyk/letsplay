@@ -132,18 +132,37 @@
   let amb, hemi, sun, winMat, lampMat, poolMat, cloudMat;
   let WIN = null;                          // the lit-at-night windows builder (filled alongside the town)
   let TREES = null;                        // trees and lamp posts (their own mesh, so they can fade out of the way)
-  // Props between the camera and the bus are "screen-door" faded (dithered discard, cheap: no sorting, no blending).
+  // Props (trees, lamp posts) between the camera and the bus, or right by the camera, are hidden whole: each
+  // prop's vertices carry its centre and size (aCenter) and the vertex shader drops the entire prop off screen.
   const fadeU = { uCam: { value: new THREE.Vector3(0, -999, 0) }, uBus: { value: new THREE.Vector3(0, -999, 0) } };
+  const PROPS = new Map();                 // builder -> [{s, e, x, z, r}] part ranges
+  function propStart(b) { return b.parts.length; }
+  function propEnd(b, s, x, z, r) { if (!PROPS.has(b)) PROPS.set(b, []); PROPS.get(b).push({ s, e: b.parts.length, x, z, r }); }
+  // Build the aCenter attribute for a builder (call before b.geometry()/mesh(), which disposes the parts).
+  function propAttr(b) {
+    const counts = b.parts.map((p) => p.geo.index ? p.geo.index.count : p.geo.attributes.position.count);
+    const total = counts.reduce((a, c) => a + c, 0), arr = new Float32Array(total * 3).fill(1e5);
+    const starts = []; let o = 0; for (const c of counts) { starts.push(o); o += c; }
+    for (const pr of PROPS.get(b) || []) for (let k = pr.s; k < pr.e; k++) for (let v = 0; v < counts[k]; v++) { const q = (starts[k] + v) * 3; arr[q] = pr.x; arr[q + 1] = pr.z; arr[q + 2] = pr.r; }
+    return new THREE.BufferAttribute(arr, 3);
+  }
+  function propMesh(b, mat, name) {
+    const attr = propAttr(b), m = b.mesh(mat);
+    m.geometry.setAttribute('aCenter', attr);
+    return tag(m, name);
+  }
   function fadeMat(m) {
     m.onBeforeCompile = (sh) => {
       sh.uniforms.uCam = fadeU.uCam; sh.uniforms.uBus = fadeU.uBus;
-      sh.vertexShader = 'varying vec3 vFadeW;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvFadeW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-      sh.fragmentShader = 'uniform vec3 uCam; uniform vec3 uBus; varying vec3 vFadeW;\n' + sh.fragmentShader.replace('void main() {', `void main() {
-        vec3 ab = uBus - uCam; float t = clamp(dot(vFadeW - uCam, ab) / max(dot(ab, ab), 1e-3), 0.0, 1.0);
-        float d = length(vFadeW - (uCam + ab * t));
-        if (t > 0.02 && t < 0.97 && vFadeW.y > 0.6 && d < 4.8) {
-          vec2 q = floor(gl_FragCoord.xy); float chk = mod(q.x + q.y, 2.0), chk2 = mod(q.x, 2.0) * mod(q.y, 2.0);
-          if (d < 3.4 ? chk2 < 0.5 : chk < 0.5) discard;
+      sh.vertexShader = 'attribute vec3 aCenter; uniform vec3 uCam; uniform vec3 uBus;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
+        if (aCenter.x < 9e4) {
+          vec2 c = aCenter.xy; float rr = aCenter.z; bool hideMe = distance(c, uCam.xz) < rr + 3.0;
+          vec3 ab = uBus - uCam; float l2 = max(dot(ab, ab), 1e-3);
+          for (int k = 0; k < 2; k++) {
+            vec3 p = vec3(c.x, k == 0 ? 2.0 : 5.0, c.y); float tt = clamp(dot(p - uCam, ab) / l2, 0.0, 1.0);
+            if (tt > 0.02 && tt < 0.97 && distance(p, uCam + ab * tt) < rr + 1.2) hideMe = true;
+          }
+          if (hideMe) gl_Position = vec4(0.0, 0.0, -2.0, 1.0);
         }`);
     };
     return m;
@@ -283,12 +302,12 @@
     buildStops(town);
     const poolPts = buildLamps(town, lamps);
     scene.add(tag(roads.mesh(), 'roads'), tag(town.mesh(), 'town'), tag(green.mesh(), 'green'));
-    scene.add(tag(TREES.mesh(fadeMat(new THREE.MeshLambertMaterial({ vertexColors: true }))), 'trees'));
+    scene.add(propMesh(TREES, fadeMat(new THREE.MeshLambertMaterial({ vertexColors: true })), 'trees'));
     TREES = null;
     winMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x000000 });
     scene.add(tag(WIN.mesh(winMat), 'windows'));
     lampMat = fadeMat(new THREE.MeshBasicMaterial({ vertexColors: true, color: 0xe9e4da }));
-    scene.add(tag(lamps.mesh(lampMat), 'lamps'));
+    scene.add(propMesh(lamps, lampMat, 'lamps'));
     pools = buildPools(poolPts); scene.add(pools);
     WIN = null;
     scene.add(buildSigns());
@@ -547,9 +566,11 @@
   function tree(b, x, z, y0 = 0.27, kind, s = 1) {
     kind = kind || (rnd() < 0.55 ? 'rain' : rnd() < 0.8 ? 'round' : 'flame');
     const col = rpick(TREE_GREENS);
+    if (inCamSpot(x, z)) return;              // keep the stop and garage camera views clear
     if (Math.hypot(x, z) < 160) W.addCircle(x, z, 0.9 * s);
     b.disc(2.6 * s, 7, P.grassDark, x + 0.6, y0 + 0.02, z + 0.5, 1, 0.8);       // soft shadow patch
-    if (TREES) b = TREES;                     // trees go in their own mesh, which fades between the camera and the bus
+    if (TREES) b = TREES;                     // trees go in their own mesh: hidden whole when they block the view
+    const p0 = propStart(b);
     if (kind === 'rain') {                    // Singapore rain tree: a wide umbrella crown
       b.cyl(0.32 * s, 0.5 * s, 3.4 * s, 5, P.woodDark, x, y0, z);
       b.ball(3.2 * s, col, x, y0 + 4.6 * s, z, 0, 1.35, 0.5, 1.35);
@@ -567,8 +588,21 @@
       b.ball(2.1 * s, col, x, y0 + 3.9 * s, z, 0, 1, 1.1, 1);
       b.ball(1.1 * s, light(col, 0.2), x - 0.7 * s, y0 + 4.6 * s, z - 0.6 * s, 0);
     }
+    propEnd(b, p0, x, z, kind === 'rain' ? 4.3 * s : kind === 'flame' ? 3.6 * s : kind === 'palm' ? 3 * s : 2.4 * s);
   }
   W.tree = tree;
+  // Where the resting cameras stand (each stop's view, the garage views): no trees or lamp posts there.
+  const CAM_SPOTS = (function () {
+    const out = [];
+    for (const st of W.stops.concat([W.depot])) {
+      const bay = W.bayOf(st), f = bay.fwd, k = bay.side, fcx = bay.x + f.x * 3.5, fcz = bay.z + f.z * 3.5;
+      out.push([fcx + f.x * 6 - k.x * 15, fcz + f.z * 6 - k.z * 15, 7]);
+      out.push([fcx + f.x * 3 - k.x * 9, fcz + f.z * 3 - k.z * 9, 4]);              // between it and the bus
+      if (st.id === 'depot') { out.push([bay.x - k.x * 21, bay.z - k.z * 21, 8], [bay.x - k.x * 12, bay.z - k.z * 12, 5], [fcx + f.x * 11 - k.x * 4.5, fcz + f.z * 11 - k.z * 4.5, 5]); }
+    }
+    return out;
+  })();
+  function inCamSpot(x, z) { for (const [cx, cz, r] of CAM_SPOTS) if (Math.hypot(x - cx, z - cz) < r) return true; return false; }
   // Is (x,z) clear of roads (and stops)? Used when scattering things.
   function clearOfRoads(x, z, margin) {
     for (const e of W.roads.edges) {
@@ -1210,10 +1244,13 @@
   function buildLamps(town, lamps) {
     const pts = [];
     const lamp = (x, z, h) => {                       // h: heading of the arm (toward the road)
+      if (inCamSpot(x, z)) return;
+      const s0 = propStart(TREES), s1 = propStart(lamps);
       TREES.cyl(0.13, 0.17, 5.4, 5, '#8f96a0', x, 0.25, z); W.addCircle(x, z, 0.3);
       const ax = Math.sin(h), az = Math.cos(h);
       TREES.box(0.14, 0.14, 1.6, '#8f96a0', x + ax * 0.7, 5.5, z + az * 0.7, h);
       lamps.box(0.55, 0.22, 0.9, '#ffffff', x + ax * 1.45, 5.3, z + az * 1.45, h);
+      propEnd(TREES, s0, x + ax * 0.7, z + az * 0.7, 1.0); propEnd(lamps, s1, x + ax * 0.7, z + az * 0.7, 1.0);
       pts.push({ x: x + ax * 2.2, z: z + az * 2.2 });
     };
     for (const e of W.roads.edges) {

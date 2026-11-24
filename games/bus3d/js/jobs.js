@@ -73,6 +73,7 @@
       const c = { kind, n, k, answer: kind === 'add' ? n + k : n - k };
       if (c.answer < 0 || c.answer > 10 || c.n > 10) continue;
       if (avoid && qKey(c) === avoid) continue;
+      if (tries < 40 && (J.recent || []).includes(qKey(c))) continue;   // not a sum from the last 5 questions, if we can help it
       if (c.n < n0 && tries < 45) continue;      // people getting off before the question is confusing: avoid it
       q = c;
     }
@@ -137,7 +138,7 @@
     }
   }
   // Walk a person to a point at a gentle pace. Resolves on arrival.
-  function walkTo(m, to, speed = 2.6, opts = {}) {
+  function walkTo(m, to, speed = 3.3, opts = {}) {
     return new Promise((resolve) => {
       const from = m.position.clone(), dist = Math.hypot(to.x - from.x, to.z - from.z);
       J.walkers.push({ m, from, to: to.clone(), t: 0, dur: Math.max(0.35, dist / speed), done: resolve, shrink: !!opts.shrink });
@@ -146,7 +147,7 @@
   // One person gets on: walk to the door, step in, and appear in the next seat (the bus draws seated heads by count).
   async function boardOne(m, onSeat) {
     await walkTo(m, doorOut());
-    await walkTo(m, doorIn(), 2.2);
+    await walkTo(m, doorIn(), 2.8);
     removePerson(m);
     BB.bus.passengers = BB.clamp((BB.bus.passengers | 0) + 1, 0, 10);
     BB.sfx.pop();
@@ -154,7 +155,7 @@
   }
   // People get on one after another (a little overlap, so a queue of 4 doesn't take ages).
   function boardPeople(list, onSeat) {
-    return Promise.all(list.map((m, i) => wait(i * 520).then(() => boardOne(m, onSeat))));
+    return Promise.all(list.map((m, i) => wait(i * 380).then(() => boardOne(m, onSeat))));
   }
   // One person gets off: the last seated leaves first (seat n-1), steps out of the door and walks away along the
   // pavement, waving goodbye with a little hop.
@@ -166,13 +167,15 @@
     const m = person(BB.randInt(0, 7));
     m.position.copy(doorIn());
     BB.sfx.pop();
-    await walkTo(m, doorOut(), 2.2);
+    await walkTo(m, doorOut(), 2.8);
     const away = busPoint(BB.rand(4.2, 5.4), 2.6 + BB.rand(-7, 7));
-    walkTo(m, away, 2.4, { shrink: true }).then(() => removePerson(m));
-    await wait(250);
+    walkTo(m, away, 3, { shrink: true }).then(() => removePerson(m));
   }
+  // several people get off one after another, overlapping (a new one every 0.45 s), so 4 take about 3 s
   async function alightPeople(count, onLeave) {
-    for (let i = 0; i < count; i++) { await alightOne(onLeave); await wait(260); }
+    const all = [];
+    for (let i = 0; i < count; i++) { all.push(alightOne(onLeave)); if (i < count - 1) await wait(450); }
+    await Promise.all(all);
   }
   // Everybody gets off and walks away (e.g. for a goodnight moment). cb when the bus is empty.
   J.allOff = async function (cb) {
@@ -291,8 +294,8 @@
     animation: bbq-spark .7s ease-out forwards; }
   @keyframes bbq-spark { from { transform: translate(0, 0) scale(.4); opacity: 1; } to { transform: translate(var(--dx), var(--dy)) scale(1.2) rotate(90deg); opacity: 0; } }
   /* little people: a round head over rounded shoulders, in the group's colour */
-  .bbq-dots { display: grid; grid-template-columns: repeat(5, 13px); gap: 3px 3px; justify-content: center; --pc: #3fae49; }
-  .bbq-dots i { width: 13px; height: 16px; background:
+  .bbq-dots { display: grid; grid-template-columns: repeat(5, 26px); gap: 2px 3px; justify-content: start; --pc: #3fae49; }
+  .bbq-dots i { width: 26px; height: 30px; background:
     radial-gradient(circle at 50% 27%, var(--pc) 0 26%, transparent 28%),
     radial-gradient(ellipse 50% 42% at 50% 100%, var(--pc) 0 98%, transparent 100%); }
   .bbq-term.n2.add .bbq-dots { --pc: #19a79b; }
@@ -323,7 +326,6 @@
   .bbj svg { width: 56px; height: 56px; animation: bbq-pop .5s both; }
   .bbj svg:nth-child(2) { animation-delay: .15s; } .bbj svg:nth-child(3) { animation-delay: .3s; }
   .bbj canvas { width: 52px; height: 52px; margin-left: 10px; }
-  @media (max-height: 380px) { .bbq-dots { display: none; } .bbq-sum { min-height: 40px; } }
   @media (max-height: 520px) {
     .bbq { left: max(10px, env(safe-area-inset-left), var(--padx, 0px)); bottom: max(8px, env(safe-area-inset-bottom)); transform: none;
       flex-direction: column; align-items: center; gap: 8px; padding: 6px 12px 12px; border-radius: 22px; --cell: 36px; --bird: 66px; }
@@ -341,11 +343,16 @@
     .bbq-term.n2.sub b { line-height: 34px; }
     .bbq-term.ans b { min-width: 46px; line-height: 32px; border-width: 3px; }
     .bbq-spark { top: 19px; }
-    .bbq-dots { grid-template-columns: repeat(5, 8px); gap: 1px 2px; }
-    .bbq-dots i { width: 8px; height: 10px; }
+    .bbq-dots { grid-template-columns: repeat(5, 16px); gap: 1px 2px; }
+    .bbq-dots i { width: 16px; height: 18px; }
     .bbq-btn { width: 64px; height: 64px; font-size: 38px; border-radius: 20px; }
     .bbq-say { width: 56px; height: 56px; }
     .bbj { font-size: 36px; padding: 8px 20px; top: 20%; } .bbj svg { width: 42px; height: 42px; } .bbj canvas { width: 40px; height: 40px; }
+  }
+  @media (max-height: 380px) {
+    .bbq { --cell: 30px; --bird: 54px; gap: 5px; padding: 4px 10px 8px; }
+    .bbq-frame { gap: 3px; padding: 5px; }
+    .bbq-sum { min-height: 0; }
   }`);
 
   // A friendly face for each seat (shirt, skin and hair vary; the same seat always shows the same friend).
@@ -445,18 +452,19 @@
   }
 
   // Mina hops to a seat (perching on its top-right corner) or back to her spot on the frame's top-right corner.
+  // Mina never sits on a face: she flies along the top edge of the frame to the column of the seat being counted
+  // and leans over it (the seat itself glows), or rests on the frame's top-right corner.
   function birdTo(i, beside) {
     if (!bird || !frame) return;
     const bw = bird.offsetWidth, bh = bird.offsetHeight;
-    let x, y;
     const el = i == null ? null : seatEls[i];
-    // seats' offsetParent is .bbq-pic; she perches on the top-right corner, ahead of the count (badges sit top-left)
-    if (el && beside) { x = el.offsetLeft + el.offsetWidth - bw * 0.18; y = el.offsetTop + el.offsetHeight - bh * 0.95; }   // next to it, not on it
-    else if (el) { x = el.offsetLeft + el.offsetWidth - bw * 0.5; y = el.offsetTop - bh * 0.62; }
-    else { x = frame.offsetLeft + frame.offsetWidth - bw * 0.5; y = frame.offsetTop - bh * 0.78; }   // perched on the card's top edge
+    const y = frame.offsetTop - bh * 0.86;                  // feet on the frame's top edge
+    // seats' offsetParent is .bbq-pic; her beak (right side) points down at the seat
+    const x = el ? el.offsetLeft + el.offsetWidth * 0.5 - bw * 0.72 : frame.offsetLeft + frame.offsetWidth - bw * 0.5;
     bird.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
     bird.classList.remove('hop'); void bird.offsetWidth; bird.classList.add('hop');
   }
+
 
   function buildCard(q) {
     hideQuestion(true, true);
@@ -610,6 +618,7 @@
       btn.classList.add('yes'); BB.sfx.right();
       BB.save.questions = (BB.save.questions | 0) + 1; BB.saveNow();
       J.lastKey = qKey(q);
+      J.recent = (J.recent || []).concat(J.lastKey).slice(-5);
       const cash = q.tries ? CASH_STOP_RETRY : CASH_STOP;
       // celebrate: every friend on the bus bounces, coins fly to the cash counter
       clearMarks();

@@ -645,7 +645,7 @@
     } else if (B.atStop || settle) {
       // at a stop: from the road side, a little ahead, fairly low: the windows (seats), the door and the shelter
       const kx = Math.cos(h), kz = -Math.sin(h), f = fwdOf(h);
-      camPos.set(fx + f.x * 6 - kx * 13.5, 8.5, fz + f.z * 6 - kz * 13.5);
+      camPos.set(fx + f.x * 6 - kx * 15, 11, fz + f.z * 6 - kz * 15);
       camLook.set(fx - f.x * 2 + kx * 1.2, 1.0, fz - f.z * 2 + kz * 1.2);
       // phones held sideways: the question card is a column on the left, so frame the bus toward the right
       if (innerHeight <= 500 && BB.jobs && BB.jobs.phase === 'question') {
@@ -688,7 +688,16 @@
     if (Math.abs(wrapA(a1 - a0)) > 0.3) r = Math.max(r, Math.min(r0, r1, 13));   // keep clear of the bus while swinging
     let ny = cp.y + (camPos.y - cp.y) * k;
     if (camPos.y <= 10.2 && (underViaduct(m.x + Math.sin(a) * r, m.z + Math.cos(a) * r) || underViaduct(m.x, m.z))) ny = Math.min(ny, 10.2);
-    cp.set(m.x + Math.sin(a) * r, ny, m.z + Math.cos(a) * r);
+    let px = m.x + Math.sin(a) * r, pz = m.z + Math.cos(a) * r;
+    // while swinging: never inside a pillar, a trunk or a building, and go over anything in the way
+    const capY = underViaduct(px, pz) || underViaduct(m.x, m.z) ? 10.2 : 30;
+    const q = W().pushOut(px, pz, 1.4);
+    if (q.hit > 0.01) { px = q.x; pz = q.z; }
+    for (let k = 0; k < 6 && W().blocksSight(px, ny, pz, m.x, 2.2, m.z); k++) {
+      if (ny < capY - 0.5) ny = Math.min(capY, ny + 1.6);
+      else { px = m.x + (px - m.x) * 0.85; pz = m.z + (pz - m.z) * 0.85; }
+    }
+    cp.set(px, ny, pz);
     curLook.lerp(camLook, Math.min(1, k * 1.4));
     BB.camera.lookAt(curLook);
   }
