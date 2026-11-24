@@ -1,6 +1,6 @@
 /* Bendy Bus 3D: HUD and screens (DOM over the canvas, inside #ui).
    Cash with a coin, fuel gauge as a picture, the job card (picture of the next stop + progress dots), the GO pedal,
-   turn arrows at junctions, horn, depot button, sound buttons, the title screen ("Tap to drive!"), toasts, coins,
+   steering and GO/reverse pedals (hold, multi-touch), horn, depot button, sound buttons, the title screen ("Tap to drive!"), toasts, coins,
    confetti, a fade for the tow, and a turn-sideways hint (standalone portrait).
    Listens to events; exposes BB.ui. */
 (function () {
@@ -64,23 +64,25 @@
   .bbu-night .zzz { position: absolute; left: 50%; top: 38%; font-size: 54px; font-weight: 800; color: #fff3b8; opacity: 0;
     text-shadow: 0 3px 0 rgba(0,0,0,.25); animation: bbu-zzz 3s ease-out infinite 1.5s; }
   @keyframes bbu-zzz { 0% { opacity: 0; transform: translate(0, 10px) scale(.6); } 30% { opacity: 1; } 100% { opacity: 0; transform: translate(40px, -60px) scale(1.2); } }
-  .bbu-go { position: absolute; right: calc(var(--sr) + 6px); bottom: var(--sb);
-    width: 136px; height: 136px; border-radius: 50%; border: none; pointer-events: auto; cursor: pointer; touch-action: none;
-    background: radial-gradient(circle at 40% 35%, #7ad86f, #3fae49 60%, #2f8f3a); box-shadow: 0 8px 0 #24702d, 0 10px 18px rgba(0,0,0,.18);
-    color: #fff; font-size: 40px; font-weight: 800; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; }
-  .bbu-go svg { width: 54px; height: 54px; }
+  /* driving controls: hold-buttons, several at once (steer + GO). Steering bottom-left, pedals bottom-right. */
+  .bbu-ctl { position: absolute; border: none; padding: 0; pointer-events: auto; cursor: pointer; touch-action: none;
+    display: flex; align-items: center; justify-content: center; -webkit-user-select: none; user-select: none; transition: transform .06s; }
+  .bbu-ctl svg { width: 58%; height: 58%; pointer-events: none; }
+  .bbu-steer { bottom: var(--sb); width: 100px; height: 100px; border-radius: 30px; background: #fff6e0; border: 4px solid #d9b57f;
+    box-shadow: inset -4px -5px 0 rgba(217,181,127,.45), 0 6px 0 rgba(120,80,40,.22); }
+  .bbu-steer.l { left: calc(var(--sl) + 6px); } .bbu-steer.r { left: calc(var(--sl) + 6px + 100px + 14px); }
+  .bbu-steer.down { transform: translateY(5px) scale(.96); background: #c9f2e4; border-color: #19a79b; box-shadow: inset -4px -5px 0 rgba(25,167,155,.25), 0 1px 0 rgba(120,80,40,.22); }
+  .bbu-go { right: calc(var(--sr) + 6px); bottom: var(--sb); width: 136px; height: 136px; border-radius: 50%;
+    background: radial-gradient(circle at 40% 35%, #7ad86f, #3fae49 60%, #2f8f3a); box-shadow: 0 8px 0 #24702d, 0 10px 18px rgba(0,0,0,.18); }
   .bbu-go.down { transform: translateY(6px) scale(.97); box-shadow: 0 2px 0 #24702d; }
   .bbu-go.nudge { animation: bbu-nudge 1.4s ease-in-out infinite; }
   @keyframes bbu-nudge { 50% { box-shadow: 0 8px 0 #24702d, 0 0 0 14px rgba(255,212,92,.6); } }
-  .bbu-horn { position: absolute; left: calc(var(--sl) + 6px); bottom: var(--sb); width: 84px; height: 84px; font-size: 40px; }
-  .bbu-arrows { position: absolute; left: 50%; bottom: var(--sb); transform: translateX(-50%); display: flex; gap: 14px; pointer-events: none; }
-  .bbu-arrow { width: 100px; height: 100px; border-radius: 28px; border: 4px solid #d9b57f; background: #fff6e0; pointer-events: auto; cursor: pointer;
-    box-shadow: 0 6px 0 rgba(120,80,40,.2); display: flex; align-items: center; justify-content: center; padding: 0; touch-action: manipulation;
-    animation: bbu-pop .3s cubic-bezier(.2,1.5,.5,1); }
-  .bbu-arrow svg { width: 64px; height: 64px; }
-  .bbu-arrow.sug { border-color: #ffb81f; background: #fff1c2; animation: bbu-pop .3s cubic-bezier(.2,1.5,.5,1), bbu-glow 1s .3s infinite alternate; }
-  .bbu-arrow.picked { border-color: #19a79b; background: #c9f2e4; transform: scale(1.1); }
-  .bbu-arrow.pressed { transform: translateY(4px); }
+  .bbu-back { right: calc(var(--sr) + 6px + 136px + 14px); bottom: var(--sb); width: 84px; height: 84px; border-radius: 50%;
+    background: radial-gradient(circle at 40% 35%, #ffd27a, #f5a23d 60%, #d98226); box-shadow: 0 6px 0 #a8601a, 0 8px 14px rgba(0,0,0,.15); }
+  .bbu-back.down { transform: translateY(5px) scale(.96); box-shadow: 0 1px 0 #a8601a; }
+  .bbu-horn { position: absolute; left: calc(var(--sl) + 6px); bottom: calc(var(--sb) + 100px + 14px); width: 64px; height: 64px; font-size: 32px; }
+  .bbu-wobble { animation: bbu-wobble .35s ease-out; }
+  @keyframes bbu-wobble { 25% { transform: translate(-5px, 2px); } 50% { transform: translate(4px, -2px); } 75% { transform: translate(-2px, 1px); } }
   @keyframes bbu-pop { from { transform: scale(.3); opacity: 0; } }
   @keyframes bbu-glow { to { box-shadow: 0 6px 0 rgba(120,80,40,.2), 0 0 0 8px rgba(255,212,92,.55); } }
   .bbu-title { position: absolute; inset: 0; pointer-events: auto; display: flex; flex-direction: column; align-items: center; justify-content: space-between;
@@ -114,8 +116,9 @@
   @media (max-width: 720px) { .bbu-fuel .bar { width: 44px; } .bbu-job .dots { gap: 4px; } .bbu-job .dots i { width: 13px; height: 13px; } .bbu-top { gap: 7px; } .bbu-right { gap: 6px; } }
   @media (max-height: 520px) {
     .bbu-pill, .bbu-round { height: 56px; } .bbu-pill { padding-right: 10px; } .bbu-cash b { font-size: 24px; }
-    .bbu-go { width: 112px; height: 112px; font-size: 32px; } .bbu-go svg { width: 44px; height: 44px; }
-    .bbu-arrow { width: 84px; height: 84px; } .bbu-arrow svg { width: 52px; height: 52px; } .bbu-horn { width: 72px; height: 72px; font-size: 34px; }
+    .bbu-go { width: 112px; height: 112px; } .bbu-back { width: 68px; height: 68px; right: calc(var(--sr) + 6px + 112px + 12px); }
+    .bbu-steer { width: 76px; height: 76px; border-radius: 24px; } .bbu-steer.r { left: calc(var(--sl) + 6px + 76px + 12px); }
+    .bbu-horn { width: 56px; height: 56px; font-size: 28px; bottom: calc(var(--sb) + 76px + 12px); }
   }`);
 
   function darkHex(c, t = 0.22) {
@@ -124,12 +127,14 @@
   }
   U.darkHex = darkHex;
   const picCanvas = (name, size = 80) => { const c = document.createElement('canvas'); c.width = c.height = size; c.getContext('2d').drawImage(BB.pic(name, size), 0, 0); return c; };
-  const ARROW = {
-    left: '<svg viewBox="0 0 64 64"><path d="M40 52 V30 Q40 22 32 22 H22 V12 L6 27 L22 42 V32 H30 V52Z" fill="#19a79b"/></svg>',
-    straight: '<svg viewBox="0 0 64 64"><path d="M24 58 V26 H12 L32 6 L52 26 H40 V58Z" fill="#19a79b"/></svg>',
-    right: '<svg viewBox="0 0 64 64"><path d="M24 52 V30 Q24 22 32 22 H42 V12 L58 27 L42 42 V32 H34 V52Z" fill="#19a79b"/></svg>',
+  const ICON = {
+    left: '<svg viewBox="0 0 64 64"><path d="M38 10 L14 32 L38 54 Z" fill="#19a79b"/><rect x="34" y="24" width="18" height="16" rx="4" fill="#19a79b"/></svg>',
+    right: '<svg viewBox="0 0 64 64"><path d="M26 10 L50 32 L26 54 Z" fill="#19a79b"/><rect x="12" y="24" width="18" height="16" rx="4" fill="#19a79b"/></svg>',
+    go: '<svg viewBox="0 0 64 64"><path d="M32 6 L58 34 L42 34 L42 58 L22 58 L22 34 L6 34 Z" fill="#fff"/></svg>',
+    back: '<svg viewBox="0 0 64 64"><path d="M32 58 L58 30 L42 30 L42 6 L22 6 L22 30 L6 30 Z" fill="#fff"/></svg>',
   };
-  let hud, cashEl, fuelEl, fuelBars, jobEl, jobPic, jobDots, goBtn, arrowsEl, titleEl, soundBtn, musicBtn, exitBtn;
+
+  let hud, cashEl, fuelEl, fuelBars, jobEl, jobPic, jobDots, goBtn, ctlEls, titleEl, soundBtn, musicBtn, exitBtn;
 
   U.init = function () {
     U.root = document.getElementById('ui');
@@ -153,16 +158,29 @@
     BB.tap(soundBtn, () => BB.audio.setSound(!BB.audio.mute, BB.audio.music, true));
     BB.on('sound:changed', syncSound); syncSound();
 
-    // GO pedal: hold to drive
-    goBtn = BB.el('button', 'bbu-go', hud, '<svg viewBox="0 0 64 64"><path d="M14 10 L54 32 L14 54 Z" fill="#fff"/></svg>GO');
-    const down = (e) => { e.preventDefault(); goBtn.setPointerCapture && goBtn.setPointerCapture(e.pointerId); goBtn.classList.add('down'); goBtn.classList.remove('nudge'); BB.bus.go(true); };
-    const up = () => { goBtn.classList.remove('down'); BB.bus.go(false); };
-    goBtn.addEventListener('pointerdown', down);
-    for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) goBtn.addEventListener(ev, up);
-    goBtn.addEventListener('contextmenu', (e) => e.preventDefault());
+    // driving controls: four hold-buttons that work together (multi-touch), plus the horn
+    ctlEls = {};
+    const mk = (cls, key) => {
+      const b = BB.el('button', 'bbu-ctl ' + cls, hud, ICON[key]);
+      b.setAttribute('aria-label', key);
+      const down = (e) => {
+        e.preventDefault();
+        try { b.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+        b._ptrs = (b._ptrs || new Set()); b._ptrs.add(e.pointerId);
+        press('btn', key, true);
+      };
+      const up = (e) => { if (!b._ptrs) return; b._ptrs.delete(e.pointerId); if (!b._ptrs.size) press('btn', key, false); };
+      b.addEventListener('pointerdown', down);
+      for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) b.addEventListener(ev, up);
+      b.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') up(e); });
+      b.addEventListener('contextmenu', (e) => e.preventDefault());
+      ctlEls[key] = b;
+      return b;
+    };
+    mk('bbu-steer l', 'left'); mk('bbu-steer r', 'right'); mk('bbu-back', 'back');
+    goBtn = mk('bbu-go', 'go');
     const horn = BB.el('button', 'bbu-round bbu-horn', hud, '📯');
     BB.tap(horn, () => BB.bus.horn());
-    arrowsEl = BB.el('div', 'bbu-arrows', hud);
 
     // title
     titleEl = BB.el('div', 'bbu-title', U.root, '<div class="bbu-logo">Bendy <span>Bus</span></div><div class="bbu-tap">Tap to drive!</div>');
@@ -180,18 +198,20 @@
       BB.tap(exitBtn, () => { BB.sfx.pop(); BB.hush(); BB.hub.post({ hub: 'exit' }); });
     }
 
-    // keyboard (for testing; touch is first)
+    // keyboard (for testing; touch is first): arrows / WASD, Space = GO, H = horn
+    const KEYS = { ArrowUp: 'go', KeyW: 'go', Space: 'go', ArrowDown: 'back', KeyS: 'back', ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right' };
     addEventListener('keydown', (e) => {
+      const k = KEYS[e.code];
+      if (k) { e.preventDefault(); if (!e.repeat) press('key', k, true); return; }
       if (e.repeat) return;
-      if (e.code === 'ArrowUp' || e.code === 'Space') { BB.bus.go(true); goBtn.classList.add('down'); e.preventDefault(); }
-      else if (e.code === 'ArrowLeft') BB.bus.choose('left');
-      else if (e.code === 'ArrowRight') BB.bus.choose('right');
-      else if (e.code === 'ArrowDown') BB.bus.choose('straight');
-      else if (e.code === 'KeyH') BB.bus.horn();
+      if (e.code === 'KeyH') BB.bus.horn();
       else if (e.code === 'Enter' && titleEl.style.display !== 'none' && !BB.bedtime) { U.hideTitle(); BB.emit('title:start'); }
     });
-    addEventListener('keyup', (e) => { if (e.code === 'ArrowUp' || e.code === 'Space') { BB.bus.go(false); goBtn.classList.remove('down'); } });
-    addEventListener('blur', () => { BB.bus.go(false); goBtn.classList.remove('down'); });
+    addEventListener('keyup', (e) => { const k = KEYS[e.code]; if (k) press('key', k, false); });
+    addEventListener('blur', () => U.releaseAll());
+    document.addEventListener('visibilitychange', () => { if (document.hidden) U.releaseAll(); });
+    BB.on('held', (d) => { if (d.on) U.releaseAll(); });
+    BB.on('bus:bump', () => { const c = document.getElementById('c'); if (!c) return; c.classList.remove('bbu-wobble'); void c.offsetWidth; c.classList.add('bbu-wobble'); BB.sfx.pop(); });
 
     // events
     BB.on('cash:changed', (d) => {
@@ -202,13 +222,9 @@
     BB.on('job:target', () => renderJob());
     BB.on('job:stopDone', () => renderJob());
     BB.on('job:done', () => { renderJob(); U.confetti(); });
-    BB.on('bus:atJunction', (d) => showArrows(d.options, d.suggested));
-    BB.on('bus:chosen', (d) => arrowsEl.querySelectorAll('.bbu-arrow').forEach((b) => b.classList.toggle('picked', b.dataset.dir === d.dir)));
-    BB.on('bus:junctionDone', () => { arrowsEl.innerHTML = ''; });
-    BB.on('bus:arrived', () => { arrowsEl.innerHTML = ''; });
     BB.on('question:show', () => setDriving(false));
     BB.on('question:hide', () => setDriving(true));
-    BB.on('depot:open', () => { hud.classList.add('off'); U.showExit(true); });
+    BB.on('depot:open', () => { U.releaseAll(); hud.classList.add('off'); U.showExit(true); });
     BB.on('depot:closed', () => { U.showExit(false); if (!BB.bedtime) hud.classList.remove('off'); });
   };
   function syncSound() {
@@ -216,8 +232,8 @@
     musicBtn.classList.toggle('offx', !BB.audio.music || BB.audio.mute);
   }
   function setDriving(on) {
-    goBtn.style.display = on ? '' : 'none';
-    arrowsEl.style.display = on ? '' : 'none';
+    for (const k in ctlEls) ctlEls[k].style.display = on ? '' : 'none';
+    if (!on) U.releaseAll();
     hud.querySelector('.bbu-horn').style.display = on ? '' : 'none';
   }
   function renderJob() {
@@ -229,23 +245,34 @@
     jobDots.innerHTML = '';
     if (job) job.stops.forEach((s, i) => BB.el('i', i < job.index ? 'done' : i === job.index ? 'now' : '', jobDots));
   }
-  function showArrows(options, suggested) {
-    arrowsEl.innerHTML = '';
-    for (const dir of ['left', 'straight', 'right']) {
-      if (!options.includes(dir)) continue;
-      const b = BB.el('button', 'bbu-arrow' + (dir === suggested ? ' sug' : ''), arrowsEl, ARROW[dir]);
-      b.dataset.dir = dir;
-      BB.tap(b, () => BB.bus.choose(dir));
-    }
-    BB.sfx.beep();
+  // Driving input from the hold-buttons and the keyboard, combined. BB.bus.input = {fwd, back, left, right} when
+  // bus.js has free driving; otherwise GO falls back to BB.bus.go().
+  const held = { btn: {}, key: {} };
+  function press(src, key, on) {
+    held[src][key] = on;
+    if (ctlEls[key]) ctlEls[key].classList.toggle('down', !!(held.btn[key] || held.key[key]));
+    if (on && key === 'go') goBtn.classList.remove('nudge');
+    applyInput();
   }
+  const isOn = (k) => !!(held.btn[k] || held.key[k]);
+  function applyInput() {
+    const B = BB.bus, inp = B.input;
+    if (inp && typeof inp === 'object') { inp.fwd = isOn('go'); inp.back = isOn('back'); inp.left = isOn('left'); inp.right = isOn('right'); }
+    if (!inp || typeof inp !== 'object' || !('fwd' in inp)) B.go(isOn('go'));
+  }
+  U.releaseAll = function () {
+    for (const src of ['btn', 'key']) for (const k in held[src]) held[src][k] = false;
+    if (ctlEls) for (const k in ctlEls) { ctlEls[k].classList.remove('down'); ctlEls[k]._ptrs && ctlEls[k]._ptrs.clear(); }
+    try { applyInput(); } catch (e) { /* bus not built yet */ }
+  };
+  U.input = () => ({ go: isOn('go'), back: isOn('back'), left: isOn('left'), right: isOn('right') });
 
   U.showTitle = function () { titleEl.style.display = ''; hud.classList.add('off'); U.showExit(true); };
   U.hideTitle = function () { titleEl.style.display = 'none'; hud.classList.remove('off'); goBtn.classList.add('nudge'); U.showExit(false); };
   U.titleShown = () => titleEl.style.display !== 'none';
   U.showExit = function (on) { if (exitBtn) exitBtn.style.display = on && !BB.hub.slept ? '' : 'none'; };
   // hide everything for the goodnight moment
-  U.hideAll = function () { titleEl.style.display = 'none'; hud.classList.add('off'); U.showExit(false); arrowsEl.innerHTML = ''; };
+  U.hideAll = function () { titleEl.style.display = 'none'; hud.classList.add('off'); U.showExit(false); U.releaseAll(); };
 
   // ---------- play clock chip (hub mode) ----------
   const clocks = [];

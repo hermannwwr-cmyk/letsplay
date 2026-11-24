@@ -59,11 +59,15 @@
       const free = tries > 10;                   // after a few tries, also change who is on the bus first
       const kind = Math.random() < L.sub ? 'sub' : 'add';
       let n = n0, k;
+      // a new starting group, at most 4 people getting on or off first (so the stop doesn't take ages)
+      const regroup = (lo, hi) => { const a = Math.max(lo, n0 - 4), b = Math.min(hi, n0 + 4); return a <= b ? BB.randInt(a, b) : BB.randInt(lo, hi); };
       if (kind === 'add') {
-        if (n < 1 || n > L.tot - 1 || (free && Math.random() < 0.6)) n = first ? 2 : BB.randInt(1, Math.min(lv < 2 ? 3 : 6, L.tot - 1));
+        // adding needs n <= 8, so three possible answers fit (9 + 1 would only leave 9 and 10)
+        const hiN = Math.min(8, L.tot - 1);
+        if (n < 1 || n > hiN || (free && Math.random() < 0.6)) n = first ? 2 : regroup(1, Math.min(lv < 2 ? 3 : 6, hiN));
         k = BB.randInt(1, Math.max(1, Math.min(L.kMax, L.tot - n, 10 - n)));
       } else {
-        if (n < 2 || n > L.tot || (free && Math.random() < 0.6)) n = BB.randInt(3, L.tot);
+        if (n < 2 || n > L.tot || (free && Math.random() < 0.6)) n = regroup(3, L.tot);
         k = BB.randInt(1, Math.max(1, Math.min(L.subK || L.kMax, L.zero ? n : n - 1)));
       }
       const c = { kind, n, k, answer: kind === 'add' ? n + k : n - k };
@@ -183,14 +187,18 @@
     if (markTex[label]) return markTex[label];
     const c = document.createElement('canvas'); c.width = c.height = 128;
     const x = c.getContext('2d');
-    const g = x.createRadialGradient(64, 64, 20, 64, 64, 64);
-    g.addColorStop(0, 'rgba(255,230,120,0.95)'); g.addColorStop(0.55, 'rgba(255,200,60,0.55)'); g.addColorStop(1, 'rgba(255,190,40,0)');
+    const g = x.createRadialGradient(64, 64, 30, 64, 64, 64);
+    g.addColorStop(0, 'rgba(255,214,92,0.7)'); g.addColorStop(1, 'rgba(255,190,40,0)');
     x.fillStyle = g; x.beginPath(); x.arc(64, 64, 64, 0, Math.PI * 2); x.fill();
-    if (label !== '') {
-      x.fillStyle = '#ffb81f'; x.beginPath(); x.arc(64, 64, 40, 0, Math.PI * 2); x.fill();
-      x.fillStyle = '#fff6e0'; x.beginPath(); x.arc(64, 64, 34, 0, Math.PI * 2); x.fill();
-      x.fillStyle = '#d98700'; x.font = '800 48px "Fredoka","Baloo 2",system-ui,sans-serif';
-      x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(label, 64, 67);
+    if (label === '') {                       // a little star
+      x.beginPath();
+      for (let i = 0; i < 10; i++) { const r = i % 2 ? 19 : 44, a = -Math.PI / 2 + i * Math.PI / 5; x.lineTo(64 + Math.cos(a) * r, 66 + Math.sin(a) * r); }
+      x.closePath(); x.fillStyle = '#ffd45c'; x.fill();
+    } else {
+      x.fillStyle = '#ffb81f'; x.beginPath(); x.arc(64, 64, 44, 0, Math.PI * 2); x.fill();
+      x.fillStyle = '#fff6e0'; x.beginPath(); x.arc(62, 62, 37, 0, Math.PI * 2); x.fill();
+      x.fillStyle = '#d98700'; x.font = '800 54px "Fredoka","Baloo 2",system-ui,sans-serif';
+      x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(label, 62, 66);
     }
     const t = new THREE.CanvasTexture(c);
     if ('colorSpace' in t) t.colorSpace = THREE.SRGBColorSpace; else if (THREE.sRGBEncoding) t.encoding = THREE.sRGBEncoding;
@@ -202,8 +210,8 @@
     for (let i = 0; i < 10; i++) {
       const s = BB.bus.seats[i];
       const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: texFor(''), transparent: true, depthTest: false, depthWrite: false, fog: false }));
-      sp.position.set(s.x * 1.25, 3.75, s.z);
-      sp.renderOrder = 20; sp.visible = false; sp.userData = { base: 1.05, pulse: false, pop: 0 };
+      sp.position.set(s.x * 1.5, 4.0, s.z);
+      sp.renderOrder = 20; sp.visible = false; sp.userData = { base: 0.95, pulse: false, pop: 0 };
       BB.bus.front.add(sp); marks.push(sp);
     }
     return true;
@@ -243,7 +251,7 @@
   @keyframes bbq-bye { 25% { transform: rotate(-14deg); } 75% { transform: rotate(14deg); } }
   .bbq-seat.lit { background: #ffd45c !important; transform: scale(1.1); box-shadow: 0 0 0 4px #ffb81f, 0 0 16px #ffb81f; z-index: 1; }
   .bbq-seat.lit.gone svg { opacity: .5; }
-  .bbq-seat .num { position: absolute; right: -7px; top: -9px; min-width: 26px; height: 26px; padding: 0 3px; box-sizing: border-box;
+  .bbq-seat .num { position: absolute; left: -7px; top: -9px; min-width: 26px; height: 26px; padding: 0 3px; box-sizing: border-box;
     border-radius: 13px; background: #ff6b5c; color: #fff; font: 700 19px/26px 'Fredoka', 'Baloo 2', system-ui, sans-serif;
     text-align: center; box-shadow: 0 2px 0 #c84a3c; animation: bbq-pop .35s cubic-bezier(.2,1.6,.5,1); pointer-events: none; }
   .bbq-seat .num.big { background: #19a79b; box-shadow: 0 2px 0 #127a71; }
@@ -292,7 +300,7 @@
     @keyframes bbq-out-l { to { transform: translateX(-120%); opacity: 0; } }
     .bbq-frame { gap: 4px; padding: 6px; border-radius: 14px; }
     .bbq-seat { border-radius: 10px; }
-    .bbq-seat .num { min-width: 22px; height: 22px; font-size: 16px; line-height: 22px; right: -6px; top: -8px; }
+    .bbq-seat .num { min-width: 22px; height: 22px; font-size: 16px; line-height: 22px; left: -6px; top: -8px; }
     .bbq-side { gap: 8px; padding-bottom: 4px; }
     .bbq-ask { gap: 8px; }
     .bbq-btn { width: 64px; height: 64px; font-size: 38px; border-radius: 20px; }
@@ -368,13 +376,14 @@
   }
   function hintMarks() { for (let i = 0; i < 10; i++) if (isFull(i)) mark(i, null, true); }
 
-  // Mina hops to a seat (perching on its top-left corner) or back to her spot on the frame's top-right corner.
+  // Mina hops to a seat (perching on its top-right corner) or back to her spot on the frame's top-right corner.
   function birdTo(i) {
     if (!bird || !frame) return;
     const bw = bird.offsetWidth, bh = bird.offsetHeight;
     let x, y;
     const el = i == null ? null : seatEls[i];
-    if (el) { x = el.offsetLeft - bw * 0.42; y = el.offsetTop - bh * 0.62; }   // seats' offsetParent is .bbq-pic
+    // seats' offsetParent is .bbq-pic; she perches on the top-right corner, ahead of the count (badges sit top-left)
+    if (el) { x = el.offsetLeft + el.offsetWidth - bw * 0.5; y = el.offsetTop - bh * 0.62; }
     else { x = frame.offsetLeft + frame.offsetWidth - bw * 0.55; y = frame.offsetTop - bh * 0.62; }
     bird.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
     bird.classList.remove('hop'); void bird.offsetWidth; bird.classList.add('hop');

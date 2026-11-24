@@ -220,7 +220,7 @@
   const cv = (src, css) => { const c = mkCanvas(src.width); c.getContext('2d').drawImage(src, 0, 0); if (css) c.style.cssText = css; return c; };
 
   // ---------- 3D: stickers and hats on the bus ----------
-  const stickerMat = {}, stickerGeo = new THREE.PlaneGeometry(1.15, 1.15);
+  const stickerMat = {}, stickerGeo = new THREE.PlaneGeometry(1.35, 1.35);
   function stickerMesh(id) {
     if (!stickerMat[id]) {
       const t = new THREE.CanvasTexture(stickerPic(id, 128));
@@ -271,7 +271,7 @@
     const B = BB.bus;
     if (!fallback && B.front && B.rear) {
       // spots on the lower body panels, both sides (+x = kerb side, -x = road side), clear of doors and wheels
-      const spot = (car, z, side) => { const o = new THREE.Object3D(); o.position.set(side * 1.275, 1.2, z); o.rotation.y = side * Math.PI / 2; car.add(o); return o; };
+      const spot = (car, z, side) => { const o = new THREE.Object3D(); o.position.set(side * 1.275, 1.25, z); o.rotation.y = side * Math.PI / 2; car.add(o); return o; };
       const hat = new THREE.Object3D(); hat.position.set(0, 3.16, 1.9); B.front.add(hat);
       fallback = {
         hat,
