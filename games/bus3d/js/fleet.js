@@ -23,7 +23,8 @@
   const FLOOR = '#8f8699', LINING = '#efe6d6', ARCH = '#3f3744', HOUSING = '#7a7284', CEIL = '#f4eee2';
   const SEAT_A = '#4f8fe0', SEAT_B = '#f29a3a', SEAT_UP = '#6f86c9';
   const LAMP_HEAD = '*#fff6c8', LAMP_IND = '*#ffae3a', LAMP_TAIL = '*#ff4a3a', LAMP_REV = '*#fbf3e0';
-  const DOOR_SLIDE = 1.1;          // how far bus.js moves a door proxy along +z when the door is fully open
+  const DOOR_SLIDE = 1.1;
+  const RAISE = 0.44;              // row 2 (seats 5-9, the far side) sits on a step this high, so the side view reads as a ten-frame          // how far bus.js moves a door proxy along +z when the door is fully open
   // LED sign texture (256 x 64): route number on the left, destination dots on the right, and a white block in the
   // top-right corner that every other vertex samples (so the map leaves ordinary surfaces untouched).
   const TEX_W = 256, TEX_H = 64;
@@ -183,6 +184,16 @@
     g.translate(0, 0, -(len - 2 * bevel) / 2);
     return g;
   }
+  // A roof piece from x0 to x1 (square bottom), top corners rounded by rL (left, -x) and rR (right, +x).
+  function roofPiece(x0, x1, y0, y1, rL, rR, len, bevel = 0.1) {
+    const s = new THREE.Shape(), a = x0 + bevel, b = x1 - bevel, lo = y0 + bevel, hi = y1 - bevel;
+    s.moveTo(a, lo); s.lineTo(b, lo); s.lineTo(b, hi - rR); if (rR) s.quadraticCurveTo(b, hi, b - rR, hi);
+    s.lineTo(a + rL, hi); if (rL) s.quadraticCurveTo(a, hi, a, hi - rL); s.lineTo(a, lo);
+    const g = new THREE.ExtrudeGeometry(s, { depth: len - 2 * bevel, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 1, curveSegments: 2 });
+    g.translate(0, 0, -(len - 2 * bevel) / 2);
+    return g;
+  }
+  const SPLIT = -0.35;             // the kerb-side half of the roof / upper floor (x > SPLIT) belongs to the kerb wall mesh
   // [z0,z1] minus the given gaps [[a,b],...] -> list of [z0,z1] pieces (z0 < z1)
   function cut(z0, z1, gaps) {
     let segs = [[z0, z1]];
@@ -224,8 +235,13 @@
     const L = spec.L, zf = L / 2, zb = -L / 2, dbl = spec.deck === 2;
     const hasFront = spec.role !== 'rear', hasRear = spec.role !== 'front';
     const low = new Kit(!spec.see), up = spec.see ? new Kit(false) : low;
-    const winTop = dbl ? 2.18 : 2.34, roof0 = dbl ? 3.64 : winTop, roof1 = dbl ? 4.36 : 3.1;
-    const doorTop = dbl ? 2.1 : 2.26;
+    // kerb: the kerb-side (+x) wall above the sill of the seated (lower) deck, a mesh of its own so the stop's side
+    // view can fade it away like a dollhouse
+    const kerb = spec.seatsZ ? new Kit(false) : up;
+    // tall enough inside for row 2's heads on their step
+    const winTop = 2.64, deck2 = winTop + 0.36, upF = deck2 - 0.12;
+    const roof0 = dbl ? deck2 + 0.98 : winTop, roof1 = roof0 + (dbl ? 0.68 : 0.72);
+    const doorTop = winTop - 0.08;
     const doorGaps = spec.doors.map((d) => [d.z - d.w / 2 - 0.06, d.z + d.w / 2 + 0.06]);
     const archGaps = spec.axles.map((z) => [z - 0.74, z + 0.74]);
     const g = new THREE.Group();
@@ -260,13 +276,18 @@
     // --- seats: two rows of five (a ten-frame): row 1 (seats 0-4) blue on the door side, row 2 orange
     const seats = [];
     if (spec.seatsZ) {
+      // row 2 stands on a raised step along the far (-x) side, with a yellow edge
+      const pz0 = spec.seatsZ[4] - 0.45, pz1 = spec.seatsZ[0] + 0.42;
+      low.box(0.94, RAISE, pz1 - pz0, '#9a92a4', -0.71, FLOOR_Y, (pz0 + pz1) / 2);
+      low.box(0.05, 0.05, pz1 - pz0, '#ffd45c', -0.24, FLOOR_Y + RAISE - 0.04, (pz0 + pz1) / 2);
+      low.box(0.03, RAISE - 0.06, pz1 - pz0 - 0.1, '#857d90', -0.23, FLOOR_Y, (pz0 + pz1) / 2);
       for (let i = 0; i < 10; i++) {
-        const sx = i < 5 ? 0.6 : -0.6, z = spec.seatsZ[i % 5], col = i < 5 ? SEAT_A : SEAT_B;
-        low.box(0.34, 0.08, 0.3, '#5a5260', sx, FLOOR_Y, z);
-        low.box(0.66, 0.12, 0.58, col, sx, FLOOR_Y + 0.06, z);
-        low.box(0.66, 0.62, 0.1, col, sx, FLOOR_Y + 0.18, z - 0.33, NO, -0.08);
-        low.box(0.06, 0.06, 0.12, '#c9c3cf', sx + (i < 5 ? -0.34 : 0.34), FLOOR_Y + 0.75, z - 0.33);  // grab handle
-        seats.push({ x: sx, y: 1.25, z });
+        const sx = i < 5 ? 0.6 : -0.6, z = spec.seatsZ[i % 5], col = i < 5 ? SEAT_A : SEAT_B, fy = FLOOR_Y + (i < 5 ? 0 : RAISE);
+        low.box(0.34, 0.08, 0.3, '#5a5260', sx, fy, z);
+        low.box(0.66, 0.12, 0.58, col, sx, fy + 0.06, z);
+        low.box(0.66, 0.62, 0.1, col, sx, fy + 0.18, z - 0.33, NO, -0.08);
+        low.box(0.06, 0.06, 0.12, '#c9c3cf', sx + (i < 5 ? -0.34 : 0.34), fy + 0.75, z - 0.33);  // grab handle
+        seats.push({ x: sx, y: 1.25 + (i < 5 ? 0 : RAISE), z });
       }
     }
 
@@ -313,7 +334,7 @@
       up.sign(0.52, 0.28, UV_NUM, -0.78, dy + 0.17, FZ + 0.045);
       up.sign(1.5, 0.26, UV_DEST, 0.26, dy + 0.17, FZ + 0.045);
       // mirrors on arms ("rabbit ears"): from the top corners, forward, hanging in front of the windscreen corners
-      const ay = dbl ? 2.4 : roof0 + 0.08;
+      const ay = dbl ? winTop + 0.22 : roof0 + 0.08;
       for (const s of [1, -1]) {
         up.box(0.06, 0.06, 0.62, FRAME, s * 1.28, ay, FZ + 0.24, NO, 0, s * 0.22);
         up.box(0.06, ay - 1.95, 0.06, FRAME, s * 1.36, 1.95, FZ + 0.52);
@@ -333,7 +354,7 @@
     // --- rear end
     if (hasRear) {
       const BZ = zb;
-      const panelTop = dbl ? 2.62 : 1.42;
+      const panelTop = dbl ? deck2 : 1.42;
       low.box(2.46, panelTop - SKIRT0, 0.1, '~#ffffff', 0, SKIRT0, BZ + 0.05);
       low.box(2.46, 0.12, 0.1, '~#b0b0b0', 0, SKIRT0, BZ + 0.04);
       low.box(1.5, 0.6, 0.04, '#3a3440', 0, 0.56, BZ - 0.01);                                    // engine grille
@@ -346,7 +367,7 @@
         low.box(0.14, 0.08, 0.04, LAMP_TAIL, s * 0.95, roof1 - 0.2, BZ - 0.01);                  // high marker
       }
       // rear window (single / bendy) or the upper-deck rear window (double)
-      const ry0 = dbl ? 2.78 : 1.46, ry1 = dbl ? 3.5 : winTop - 0.1;
+      const ry0 = dbl ? deck2 + 0.16 : 1.46, ry1 = dbl ? roof0 - 0.14 : winTop - 0.1;
       // the painted rear wall around the window (pieces, so the glass stays see-through)
       const wz = BZ + 0.05;
       up.box(2.46, ry0 - panelTop + 0.02, 0.1, '~#ffffff', 0, panelTop - 0.02, wz);
@@ -356,14 +377,15 @@
       for (const s of [1, -1]) up.box(0.06, ry1 - ry0, 0.07, FRAME, s * 0.97, ry0, BZ - 0.01);
       up.glass(1.9, ry1 - ry0 - 0.02, 0.03, 0, ry0 + 0.01, BZ - 0.035);
       // rear route number
-      const rny = dbl ? 2.3 : roof1 - 0.5;
+      const rny = dbl ? winTop + 0.12 : roof1 - 0.5;
       (dbl ? low : up).box(0.66, 0.3, 0.05, '#211e25', 0, rny, BZ - 0.02);
       (dbl ? low : up).sign(0.56, 0.24, UV_NUM, 0, rny + 0.15, BZ - 0.05, Math.PI);
     }
 
     // --- side windows: framed glass with pillars; the doors get glass leaves instead
-    const sideWin = (k, yb, yt, z0, z1, gapsPlus, barPitch) => {
+    const sideWin = (k, yb, yt, z0, z1, gapsPlus, barPitch, kPlus) => {
       for (const s of [1, -1]) {
+        const k0 = k; k = s > 0 && kPlus ? kPlus : k0;
         for (const [a, b] of cut(z0, z1, s > 0 ? gapsPlus : [])) {
           const n = Math.max(1, Math.round((b - a) / barPitch)), zc = (a + b) / 2;
           k.glass(0.03, yt - yb, b - a, s * 1.215, yb, zc);
@@ -371,15 +393,16 @@
           k.box(0.06, 0.07, b - a, FRAME, s * 1.235, yt - 0.07, zc);
           for (let i = 0; i <= n; i++) k.box(0.07, yt - yb, 0.11, FRAME, s * 1.232, yb, a + (b - a) * i / n + (i === 0 ? 0.05 : i === n ? -0.05 : 0));
         }
+        k = k0;
       }
     };
     const sz0 = zb + 0.16, sz1 = zf - 0.16;
-    if (!dbl) sideWin(up, WAIST, winTop, sz0, sz1, doorGaps, 1.35);
+    if (!dbl) sideWin(up, WAIST, winTop, sz0, sz1, doorGaps, 1.35, kerb);
     else {
-      sideWin(up, WAIST, winTop, zb + 2.5, sz1, doorGaps, 1.35);                         // lower deck (solid at the back)
+      sideWin(up, WAIST, winTop, zb + 2.5, sz1, doorGaps, 1.35, kerb);                   // lower deck (solid at the back)
       for (const s of [1, -1]) {
-        up.box(0.06, winTop - WAIST, 2.5 - 0.12, '~#ffffff', s * 1.22, WAIST, zb + 0.06 + 1.19);
-        up.box(0.04, winTop - WAIST, 2.5 - 0.12, LINING, s * 1.17, WAIST, zb + 0.06 + 1.19);
+        (s > 0 ? kerb : up).box(0.06, winTop - WAIST, 2.5 - 0.12, '~#ffffff', s * 1.22, WAIST, zb + 0.06 + 1.19);
+        (s > 0 ? kerb : up).box(0.04, winTop - WAIST, 2.5 - 0.12, LINING, s * 1.17, WAIST, zb + 0.06 + 1.19);
       }
     }
     // headers above the doors
@@ -389,21 +412,25 @@
     //     and a staircase at the back on the right (it stays in the cut-away view as a hint)
     if (dbl) {
       for (const s of [1, -1]) {
-        up.box(0.06, 2.62 - winTop, L - 0.24, '~#ffffff', s * 1.22, winTop, 0);
-        up.box(0.03, 0.12, L - 0.4, '#fff6e0', s * 1.255, winTop + 0.12, 0);
+        const k = s > 0 ? kerb : up;
+        k.box(0.06, deck2 - winTop, L - 0.24, '~#ffffff', s * 1.22, winTop, 0);
+        k.box(0.03, 0.12, L - 0.4, '#fff6e0', s * 1.255, winTop + 0.12, 0);
       }
-      up.box(2.46, 2.66 - winTop, 0.1, '~#ffffff', 0, winTop, zf - 0.05);                      // front band behind the display
-      up.box(2.34, 0.08, L - 3.0, FLOOR, 0, 2.5, 1.25);                                          // upper floor (stairwell left open)
-      up.box(1.1, 0.08, 2.6, FLOOR, 0.62, 2.5, zb + 1.5);
+      up.box(2.46, deck2 + 0.04 - winTop, 0.1, '~#ffffff', 0, winTop, zf - 0.05);                      // front band behind the display
+      // upper floor (stairwell left open); its kerb half goes with the kerb wall so row 2 shows in the side view
+      up.box(SPLIT + 1.17, 0.08, L - 3.0, FLOOR, (SPLIT - 1.17) / 2, upF, 1.25);
+      kerb.box(1.17 - SPLIT, 0.08, L - 3.0, FLOOR, (SPLIT + 1.17) / 2, upF, 1.25);
+      kerb.box(1.1, 0.08, 2.6, FLOOR, 0.62, upF, zb + 1.5);
       for (let i = 0; i < 6; i++) for (const sx of [0.6, -0.6]) {
         const z = zf - 1.3 - i * 1.25;
         if (sx < 0 && z < zb + 2.9) continue;
-        up.box(0.66, 0.1, 0.56, SEAT_UP, sx, 2.58, z);
-        up.box(0.66, 0.55, 0.1, SEAT_UP, sx, 2.68, z - 0.32, NO, -0.08);
+        const k = sx > 0 ? kerb : up;
+        k.box(0.66, 0.1, 0.56, SEAT_UP, sx, upF + 0.08, z);
+        k.box(0.66, 0.55, 0.1, SEAT_UP, sx, upF + 0.18, z - 0.32, NO, -0.08);
       }
-      sideWin(up, 2.62, roof0, zb + 0.3, zf - 0.08, [], 1.5);
+      sideWin(up, deck2, roof0, zb + 0.3, zf - 0.08, [], 1.5, kerb);
       // the panoramic upper front window
-      const py0 = 2.66, py1 = roof0 - 0.06;
+      const py0 = deck2 + 0.04, py1 = roof0 - 0.06;
       up.box(2.46, 0.07, 0.08, FRAME, 0, py0 - 0.04, zf);
       up.box(2.46, 0.08, 0.08, FRAME, 0, py1 - 0.02, zf);
       for (const s of [1, -1]) up.box(0.08, py1 - py0, 0.08, FRAME, s * 1.2, py0, zf);
@@ -411,7 +438,7 @@
       // staircase: steps rising from the back towards the front, on the driver's (-x) side
       const n = 9, s0 = zb + 0.45, s1 = zb + 2.75;
       for (let i = 0; i < n; i++) {
-        const z = s0 + (s1 - s0) * i / (n - 1), top = FLOOR_Y + (2.5 - FLOOR_Y) * (i + 1) / n;
+        const z = s0 + (s1 - s0) * i / (n - 1), top = FLOOR_Y + (upF - FLOOR_Y) * (i + 1) / n;
         low.box(0.72, top - FLOOR_Y, (s1 - s0) / (n - 1) + 0.02, '#9a92a4', -0.72, FLOOR_Y, z);
         low.box(0.72, 0.03, 0.06, '#ffd45c', -0.72, top - 0.01, z + (s1 - s0) / (n - 1) / 2);
       }
@@ -419,19 +446,28 @@
     }
 
     // --- roof: rounded, with an air-con pod and a cream ceiling inside
-    up.add(slab(2.5, roof0, roof1, 0.46, 0.04, L), '~#ffffff');
-    up.box(2.3, 0.03, L - 0.3, CEIL, 0, roof0 - 0.04, 0);
-    const podZ = spec.podZ != null ? spec.podZ : -L * 0.12, podL = spec.podL || L * 0.3;
-    up.box(1.5, 0.3, podL, '#f1ebe0', 0, roof1 - 0.06, podZ);
-    up.box(1.2, 0.08, podL - 0.3, '#ffffff', 0, roof1 + 0.24, podZ);
-    for (let k = 0; k < 3; k++) up.box(0.9, 0.02, 0.18, '#cfc7b8', 0, roof1 + 0.32, podZ - podL / 3 + k * podL / 3);
+    // (on the seated carriage the kerb half of the roof, with the pod, is part of the kerb wall mesh)
+    const split = kerb !== up;
+    if (split) {
+      up.add(roofPiece(-HW, SPLIT, roof0, roof1, 0.46, 0, L), '~#ffffff');
+      kerb.add(roofPiece(SPLIT, HW, roof0, roof1, 0, 0.46, L), '~#ffffff');
+      up.box(SPLIT + 1.15, 0.03, L - 0.3, CEIL, (SPLIT - 1.15) / 2, roof0 - 0.04, 0);
+      kerb.box(1.15 - SPLIT, 0.03, L - 0.3, CEIL, (SPLIT + 1.15) / 2, roof0 - 0.04, 0);
+    } else {
+      up.add(slab(2.5, roof0, roof1, 0.46, 0.04, L), '~#ffffff');
+      up.box(2.3, 0.03, L - 0.3, CEIL, 0, roof0 - 0.04, 0);
+    }
+    const podZ = spec.podZ != null ? spec.podZ : -L * 0.12, podL = spec.podL || L * 0.3, pk = split ? kerb : up;
+    pk.box(1.5, 0.3, podL, '#f1ebe0', 0, roof1 - 0.06, podZ);
+    pk.box(1.2, 0.08, podL - 0.3, '#ffffff', 0, roof1 + 0.24, podZ);
+    for (let k = 0; k < 3; k++) pk.box(0.9, 0.02, 0.18, '#cfc7b8', 0, roof1 + 0.32, podZ - podL / 3 + k * podL / 3);
 
     // --- kerb-side route display (beside the front door, at the top of the windows)
     if (hasFront) {
       const d0 = spec.doors[0], zc = d0.z - d0.w / 2 - 0.9, y = winTop - 0.36;
-      up.box(0.05, 0.3, 1.5, '#211e25', 1.24, y, zc);
-      up.sign(0.4, 0.24, UV_NUM, 1.27, y + 0.15, zc + 0.52, Math.PI / 2);
-      up.sign(0.98, 0.22, UV_DEST, 1.27, y + 0.15, zc - 0.2, Math.PI / 2);
+      kerb.box(0.05, 0.3, 1.5, '#211e25', 1.24, y, zc);
+      kerb.sign(0.4, 0.24, UV_NUM, 1.27, y + 0.15, zc + 0.52, Math.PI / 2);
+      kerb.sign(0.98, 0.22, UV_DEST, 1.27, y + 0.15, zc - 0.2, Math.PI / 2);
     } else if (spec.role === 'rear') {
       const zc = -0.5, y = winTop - 0.36;
       low.box(0.05, 0.3, 0.6, '#211e25', 1.24, y, zc);
@@ -462,7 +498,7 @@
     // --- bendy: the accordion (half on each carriage, so it bends with no gap), merged into the carriage
     if (spec.joint) {
       const hz = spec.joint.z, side = spec.joint.side;
-      for (let k = 0; k < 3; k++) low.add(slab(2.3, 0.5, 2.95, 0.4, 0.1, 0.13, 0.04), k % 2 ? '#5d5466' : '#463e50', 0, 0, hz + side * (0.08 + k * 0.17));
+      for (let k = 0; k < 3; k++) low.add(slab(2.3, 0.5, roof1 - 0.15, 0.4, 0.1, 0.13, 0.04), k % 2 ? '#5d5466' : '#463e50', 0, 0, hz + side * (0.08 + k * 0.17));
       low.box(2.0, 0.08, 0.55, '#6c6470', 0, 0.5, hz + side * 0.27);
     }
 
@@ -480,6 +516,12 @@
       upMat = busMaterial(shared, true);
       upMesh = new THREE.Mesh(up.geometry(), upMat); upMesh.name = 'upper'; upMesh.renderOrder = 3;
       g.add(upMesh);
+    }
+    let kerbMesh = null, kerbMat = null;
+    if (kerb !== up) {
+      kerbMat = busMaterial(shared, true);
+      kerbMesh = new THREE.Mesh(kerb.geometry(), kerbMat); kerbMesh.name = 'kerbWall'; kerbMesh.renderOrder = 3;
+      upMesh.add(kerbMesh);              // a child of the upper mesh: hiding roofParts hides it too
     }
     // door uniforms follow the proxies just before each draw
     const doorsOn = (mesh, mat) => {
@@ -507,7 +549,7 @@
     let blob = null;
     if (opts.shadow !== false && BB.mk.blob) { blob = BB.mk.blob(3.6, L + 1.6); blob.position.y = 0.08; g.add(blob); }
 
-    return { g, L, zf, zb, lowMesh, upMesh, mats: [lowMat, upMat].filter(Boolean), seats, doors, wheels, steer, hubs, blob, roof1, roof0, winTop };
+    return { g, L, zf, zb, lowMesh, upMesh, mats: [lowMat, upMat, kerbMat].filter(Boolean), kerbMesh, seats, doors, wheels, steer, hubs, blob, roof1, roof0, winTop };
   }
 
   // ---------- the three types ----------
@@ -552,7 +594,7 @@
       bumperFront: mount(F.g, 'bumperFront', 0, 0, F.zf),
       bumperRear: mount(last.g, 'bumperRear', 0, 0, last.zb, Math.PI),
       // on the roof's front edge; on the see-through upper mesh so it hides with the roof in the cut-away view
-      roofFront: mount(F.upMesh || F.g, 'roofFront', 0, F.roof1, F.zf),
+      roofFront: mount(F.kerbMesh || F.upMesh || F.g, 'roofFront', 0, F.roof1, F.zf),
       underglow: mount(F.g, 'underglow', 0, 0.06, 0),
       underglowRear: R ? mount(R.g, 'underglowRear', 0, 0.06, 0) : null,
       wheelHubs: F.hubs.concat(R ? R.hubs : []),
@@ -574,13 +616,13 @@
       stickerAnchors = [
         [anchor(F.g, 1.27, 0.98, 1.4, Math.PI / 2, 0, 1.05), anchor(F.g, -1.27, 0.98, 1.4, -Math.PI / 2, 0, 1.05)],
         [anchor(F.g, 1.27, 0.98, -4.35, Math.PI / 2, 0, 1.0), anchor(F.g, -1.27, 0.98, -4.35, -Math.PI / 2, 0, 1.0)],
-        [anchor(F.upMesh, 0, F.roof1 + 0.012, -2.4, 0, -Math.PI / 2, 2.2)],
+        [anchor(F.kerbMesh, 0, F.roof1 + 0.012, -2.4, 0, -Math.PI / 2, 2.2)],
       ];
     } else {
       stickerAnchors = [
         [anchor(F.g, 1.27, 0.98, 1.4, Math.PI / 2, 0, 1.05), anchor(F.g, -1.27, 0.98, 1.4, -Math.PI / 2, 0, 1.05)],
-        [anchor(F.upMesh, 1.27, 1.6, -4.15, Math.PI / 2, 0, 1.1), anchor(F.upMesh, -1.27, 1.6, -4.15, -Math.PI / 2, 0, 1.1)],
-        [anchor(F.upMesh, 0, F.roof1 + 0.012, -1.4, 0, -Math.PI / 2, 2.2)],
+        [anchor(F.kerbMesh, 1.27, 1.6, -4.15, Math.PI / 2, 0, 1.1), anchor(F.upMesh, -1.27, 1.6, -4.15, -Math.PI / 2, 0, 1.1)],
+        [anchor(F.kerbMesh, 0, F.roof1 + 0.012, -1.4, 0, -Math.PI / 2, 2.2)],
       ];
     }
 
@@ -604,6 +646,10 @@
       seatsLocal: F.seats,
       doorLocal: { x: 1.6, y: 0, z: d0.z },
       roofParts: [F.upMesh],
+      // the kerb-side wall above the sill of the seated deck (windows, pillars, panels, kerb-side display): fade or
+      // hide it for the stop's side view; the doors stay on the upper mesh
+      kerbWallParts: [F.kerbMesh],
+      kerbWallMaterial: F.kerbMesh ? F.kerbMesh.material : null,
       stickerAnchors,
       partMounts,
       shadows: [F.blob, R && R.blob].filter(Boolean),
@@ -617,7 +663,7 @@
       dispose() {
         for (const car of [F, R]) {
           if (!car) continue;
-          car.lowMesh.geometry.dispose(); if (car.upMesh) car.upMesh.geometry.dispose();
+          car.lowMesh.geometry.dispose(); if (car.upMesh) car.upMesh.geometry.dispose(); if (car.kerbMesh) car.kerbMesh.geometry.dispose();
           for (const w of car.wheels) w.geometry.dispose();
           if (car.blob) { car.blob.geometry.dispose(); car.blob.material.dispose(); }
           if (car.g.parent) car.g.parent.remove(car.g);

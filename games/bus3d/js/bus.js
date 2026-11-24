@@ -846,7 +846,7 @@
       if (li < 1e-3 || lo < 1e-3) continue;
       ix /= li; iz /= li; ox /= lo; oz /= lo;
       if (ix * ox + iz * oz > 0.97) { out.push(p); continue; }
-      const r = Math.min(6, li / 2, lo / 2);
+      const r = Math.min(C.lane + 3.5, li / 2, lo / 2);      // wide enough that the left-turn lane line doesn't fold over
       const A = { x: p.x - ix * r, z: p.z - iz * r }, Bp = { x: p.x + ox * r, z: p.z + oz * r };
       for (let k = 0; k <= 6; k++) { const t = k / 6, m = 1 - t; out.push({ x: m * m * A.x + 2 * m * t * p.x + t * t * Bp.x, z: m * m * A.z + 2 * m * t * p.z + t * t * Bp.z }); }
     }
@@ -1028,14 +1028,28 @@
     wayArrow.visible = false; wayArrow.name = 'wayArrow';
     BB.scene.add(wayArrow);
   }
-  let routePts = null;                    // the current left-lane route polyline (for the arrow and the lane tip)
+  let routePts = null, routeFor = null;                    // the current left-lane route polyline (for the arrow and the lane tip)
   function refreshRibbon() {
     ribbonTimer = 0.35;
     if (!ribbon) return;
     if (!B.target || B.atStop === B.target || settle) { ribbon.geometry.setDrawRange(0, 0); routePts = null; B.route = []; return; }
-    const c = routeTo(B.target);
-    if (!c || c.length < 2) { ribbon.geometry.setDrawRange(0, 0); routePts = null; return; }
-    const pts = leftLane(c);
+    // keep following the route already planned while the bus is still on it (so it doesn't flip to another plan in
+    // the middle of a junction); plan afresh when the target changes or the bus has left the route
+    let pts = null;
+    if (routePts && routeFor === B.target && routePts.length > 2) {
+      let bi = -1, bd = 1e9;
+      for (let i = 0, acc = 0; i < routePts.length - 1 && acc < 30; i++) {
+        if (i) acc += Math.hypot(routePts[i].x - routePts[i - 1].x, routePts[i].z - routePts[i - 1].z);
+        const d = Math.hypot(routePts[i].x - fx, routePts[i].z - fz); if (d < bd) { bd = d; bi = i; }
+      }
+      const f = fwdOf(h), nx = routePts[Math.min(routePts.length - 1, bi + 1)], dirOk = (nx.x - routePts[bi].x) * f.x + (nx.z - routePts[bi].z) * f.z > -0.2;
+      if (bd < 5 && dirOk) pts = routePts.slice(Math.max(0, bi - 1));
+    }
+    if (!pts) {
+      const c = routeTo(B.target);
+      if (!c || c.length < 2) { ribbon.geometry.setDrawRange(0, 0); routePts = null; return; }
+      pts = leftLane(c); routeFor = B.target;
+    }
     routePts = pts; B.route = pts;
     const pos = ribbon.geometry.attributes.position.array, uv = ribbon.geometry.attributes.uv.array;
     const cum = [0];
