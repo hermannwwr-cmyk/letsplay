@@ -18,13 +18,15 @@
 
   // ---------- sizes and colours ----------
   const HW = 1.25, WIDTH = 2.5, TYRE_R = 0.52, WHEEL_X = 1.08;
-  const SKIRT0 = 0.38, FLOOR_Y = 0.86, WAIST = 1.32;
+  const SKIRT0 = 0.36, FLOOR_Y = 0.66, WAIST = 1.32;
   const FRAME = '#33303a', RUBBER = '#26232b', GLASS = '#d6f1fb', GLASS_A = 0.34, GLASS_OPAQUE = '#86a3b6';
   const FLOOR = '#8f8699', LINING = '#efe6d6', ARCH = '#3f3744', HOUSING = '#7a7284', CEIL = '#f4eee2';
   const SEAT_A = '#4f8fe0', SEAT_B = '#f29a3a', SEAT_UP = '#6f86c9';
   const LAMP_HEAD = '*#fff6c8', LAMP_IND = '*#ffae3a', LAMP_TAIL = '*#ff4a3a', LAMP_REV = '*#fbf3e0';
-  const DOOR_SLIDE = 1.1;
-  const RAISE = 0.44;              // row 2 (seats 5-9, the far side) sits on a step this high, so the side view reads as a ten-frame          // how far bus.js moves a door proxy along +z when the door is fully open
+  const DOOR_SLIDE = 1.1;          // how far bus.js moves a door proxy along +z when the door is fully open
+  // Row 2 (seats 5-9, the far side) sits on a step this high and half a seat along, so from the kerb, a little
+  // raised, its heads show clearly above and between row 1's: a ten-frame seen from the side.
+  const RAISE = 0.76, SEAT_Y = 0.39;   // seat anchor (a passenger's middle) above the floor it sits on
   // LED sign texture (256 x 64): route number on the left, destination dots on the right, and a white block in the
   // top-right corner that every other vertex samples (so the map leaves ordinary surfaces untouched).
   const TEX_W = 256, TEX_H = 64;
@@ -239,7 +241,7 @@
     // view can fade it away like a dollhouse
     const kerb = spec.seatsZ ? new Kit(false) : up;
     // tall enough inside for row 2's heads on their step
-    const winTop = 2.64, deck2 = winTop + 0.36, upF = deck2 - 0.12;
+    const winTop = 2.84, deck2 = winTop + 0.36, upF = deck2 - 0.12;
     const roof0 = dbl ? deck2 + 0.98 : winTop, roof1 = roof0 + (dbl ? 0.68 : 0.72);
     const doorTop = winTop - 0.08;
     const doorGaps = spec.doors.map((d) => [d.z - d.w / 2 - 0.06, d.z + d.w / 2 + 0.06]);
@@ -277,17 +279,17 @@
     const seats = [];
     if (spec.seatsZ) {
       // row 2 stands on a raised step along the far (-x) side, with a yellow edge
-      const pz0 = spec.seatsZ[4] - 0.45, pz1 = spec.seatsZ[0] + 0.42;
+      const sh = spec.row2Shift || 0, pz0 = Math.min(spec.seatsZ[4], spec.seatsZ[4] + sh) - 0.45, pz1 = Math.max(spec.seatsZ[0], spec.seatsZ[0] + sh) + 0.42;
       low.box(0.94, RAISE, pz1 - pz0, '#9a92a4', -0.71, FLOOR_Y, (pz0 + pz1) / 2);
       low.box(0.05, 0.05, pz1 - pz0, '#ffd45c', -0.24, FLOOR_Y + RAISE - 0.04, (pz0 + pz1) / 2);
       low.box(0.03, RAISE - 0.06, pz1 - pz0 - 0.1, '#857d90', -0.23, FLOOR_Y, (pz0 + pz1) / 2);
       for (let i = 0; i < 10; i++) {
-        const sx = i < 5 ? 0.6 : -0.6, z = spec.seatsZ[i % 5], col = i < 5 ? SEAT_A : SEAT_B, fy = FLOOR_Y + (i < 5 ? 0 : RAISE);
+        const sx = i < 5 ? 0.6 : -0.6, z = spec.seatsZ[i % 5] + (i < 5 ? 0 : sh), col = i < 5 ? SEAT_A : SEAT_B, fy = FLOOR_Y + (i < 5 ? 0 : RAISE);
         low.box(0.34, 0.08, 0.3, '#5a5260', sx, fy, z);
         low.box(0.66, 0.12, 0.58, col, sx, fy + 0.06, z);
         low.box(0.66, 0.62, 0.1, col, sx, fy + 0.18, z - 0.33, NO, -0.08);
         low.box(0.06, 0.06, 0.12, '#c9c3cf', sx + (i < 5 ? -0.34 : 0.34), fy + 0.75, z - 0.33);  // grab handle
-        seats.push({ x: sx, y: 1.25 + (i < 5 ? 0 : RAISE), z });
+        seats.push({ x: sx, y: fy + SEAT_Y, z });
       }
     }
 
@@ -327,7 +329,6 @@
       up.box(2.46, 0.07, 0.07, FRAME, 0, wy1 - 0.05, FZ);
       for (const x of [-1.2, 0, 1.2]) up.box(x ? 0.08 : 0.06, wh, 0.07, FRAME, x, wy0, FZ);
       for (const x of [-0.6, 0.6]) up.glass(1.12, wh - 0.04, 0.03, x, wy0 + 0.02, FZ + 0.01);
-      for (const x of [-0.75, 0.45]) up.box(0.7, 0.035, 0.035, RUBBER, x, wy0 + 0.06, FZ + 0.045, NO, 0, 0, 0.16);  // wipers
       // the front route display: above the windscreen (single, bendy) or between the decks (double-decker)
       const dy = winTop + 0.02;
       up.box(2.24, 0.34, 0.06, '#211e25', 0, dy, FZ + 0.01);
@@ -546,21 +547,55 @@
       if (z === spec.steerZ) steer.push(wm);
       const hub = new THREE.Group(); hub.name = 'wheelHub'; hub.position.set(0, TYRE_R, z); g.add(hub); hubs.push(hub);
     }
+    // windscreen wipers: two pivots (at the bottom of the glass, the arm points up along local +y, rotation.z sweeps;
+    // at rest they lie along the bottom pointing towards +x), both drawn by one small mesh
+    const wipers = [];
+    if (hasFront) {
+      const wb = BB.mk.builder();
+      wb.box(0.045, 0.06, 0.04, RUBBER, 0, -0.03, 0);
+      wb.box(0.03, 0.82, 0.03, '#3a3640', 0, 0, 0.0);
+      wb.box(0.05, 0.78, 0.035, RUBBER, 0, 0.06, 0.03);
+      const REST = -1.42, X = [-1.0, 0.18], arm = wb.geometry(), n = arm.attributes.position.count;
+      for (const x of X) {
+        const pv = new THREE.Object3D(); pv.name = 'wiper'; pv.position.set(x, 1.08, zf + 0.06); pv.rotation.z = REST;
+        pv.userData = { rest: REST, sweep: [REST, -0.12] };
+        g.add(pv); wipers.push(pv);
+      }
+      // both arms in one geometry; the vertex shader turns each about its pivot by the pivot's rotation.z
+      const geo = new THREE.BufferGeometry(), cat = (name, k) => { const src = arm.attributes[name].array, out = new Float32Array(src.length * 2); out.set(src); out.set(src, src.length); return new THREE.BufferAttribute(out, k); };
+      geo.setAttribute('position', cat('position', 3)); geo.setAttribute('normal', cat('normal', 3)); geo.setAttribute('color', cat('color', 3));
+      const piv = new Float32Array(n * 6), wid = new Float32Array(n * 2);
+      for (let i = 0; i < n * 2; i++) { const w = i < n ? 0 : 1; wid[i] = w; piv.set([X[w], 1.08, zf + 0.06], i * 3); }
+      geo.setAttribute('aPivot', new THREE.BufferAttribute(piv, 3)); geo.setAttribute('aWiper', new THREE.BufferAttribute(wid, 1));
+      arm.dispose();
+      const wu = { value: new THREE.Vector2(REST, REST) };
+      const wmat = new THREE.MeshLambertMaterial({ vertexColors: true });
+      wmat.onBeforeCompile = (sh) => {
+        sh.uniforms.uWipe = wu;
+        sh.vertexShader = sh.vertexShader
+          .replace('#include <common>', '#include <common>\nattribute vec3 aPivot;\nattribute float aWiper;\nuniform vec2 uWipe;\nvec3 wipeRot(vec3 v) { float a = aWiper < 0.5 ? uWipe.x : uWipe.y; float c = cos(a), s = sin(a); return vec3(c * v.x - s * v.y, s * v.x + c * v.y, v.z); }')
+          .replace('#include <beginnormal_vertex>', 'vec3 objectNormal = wipeRot(vec3( normal ));\n#ifdef USE_TANGENT\nvec3 objectTangent = vec3( tangent.xyz );\n#endif')
+          .replace('#include <begin_vertex>', 'vec3 transformed = wipeRot(vec3( position )) + aPivot;');
+      };
+      const wim = new THREE.Mesh(geo, wmat); wim.name = 'wipers'; wim.frustumCulled = false;
+      wim.onBeforeRender = () => { wu.value.set(wipers[0].rotation.z, wipers[1].rotation.z); };
+      g.add(wim); wipers.mesh = wim;
+    }
     let blob = null;
     if (opts.shadow !== false && BB.mk.blob) { blob = BB.mk.blob(3.6, L + 1.6); blob.position.y = 0.08; g.add(blob); }
 
-    return { g, L, zf, zb, lowMesh, upMesh, mats: [lowMat, upMat, kerbMat].filter(Boolean), kerbMesh, seats, doors, wheels, steer, hubs, blob, roof1, roof0, winTop };
+    return { g, wipers, L, zf, zb, lowMesh, upMesh, mats: [lowMat, upMat, kerbMat].filter(Boolean), kerbMesh, seats, doors, wheels, steer, hubs, blob, roof1, roof0, winTop };
   }
 
   // ---------- the three types ----------
   const SPECS = {
     bendy: {
       LF: 7.4, LR: 6.0, GAP: 1.0,
-      front: { L: 7.4, role: 'front', deck: 1, axles: [1.7, -1.9], steerZ: 1.7, doors: [{ z: 3.0, w: 1.1 }], seatsZ: [1.75, 0.65, -0.45, -1.55, -2.65], see: true, podZ: -0.4, podL: 2.4 },
+      front: { L: 7.4, role: 'front', deck: 1, axles: [1.7, -1.9], steerZ: 1.7, doors: [{ z: 3.0, w: 1.1 }], seatsZ: [1.75, 0.65, -0.45, -1.55, -2.65], row2Shift: -0.5, see: true, podZ: -0.4, podL: 2.4 },
       rear: { L: 6.0, role: 'rear', deck: 1, axles: [-1.2], steerZ: null, doors: [{ z: 1.4, w: 1.1 }], seatsZ: null, see: false, podZ: 1.55, podL: 1.6 },
     },
-    single: { L: 10.8, role: 'solo', deck: 1, axles: [3.3, -2.7], steerZ: 3.3, doors: [{ z: 4.55, w: 1.1 }, { z: -0.35, w: 1.15 }], seatsZ: [2.4, 1.3, 0.2, -0.9, -2.0], see: true, podZ: 1.6, podL: 2.6 },
-    double: { L: 10.8, role: 'solo', deck: 2, axles: [3.3, -2.3, -3.45], steerZ: 3.3, doors: [{ z: 4.55, w: 1.1 }, { z: -0.35, w: 1.15 }], seatsZ: [2.4, 1.3, 0.2, -0.9, -2.0], see: true, podZ: -4.3, podL: 1.6 },
+    single: { L: 10.8, role: 'solo', deck: 1, axles: [3.3, -2.7], steerZ: 3.3, doors: [{ z: 4.55, w: 1.1 }, { z: -0.35, w: 1.15 }], seatsZ: [2.4, 1.3, 0.2, -0.9, -2.0], row2Shift: 0.55, see: true, podZ: 1.6, podL: 2.6 },
+    double: { L: 10.8, role: 'solo', deck: 2, axles: [3.3, -2.3, -3.45], steerZ: 3.3, doors: [{ z: 4.55, w: 1.1 }, { z: -0.35, w: 1.15 }], seatsZ: [2.4, 1.3, 0.2, -0.9, -2.0], row2Shift: 0.55, see: true, podZ: -4.3, podL: 1.6 },
   };
 
   function anchor(parent, x, y, z, ry, rx, size) {
@@ -649,6 +684,9 @@
       // the kerb-side wall above the sill of the seated deck (windows, pillars, panels, kerb-side display): fade or
       // hide it for the stop's side view; the doors stay on the upper mesh
       kerbWallParts: [F.kerbMesh],
+      // windscreen wipers: Object3D pivots at the bottom of the glass; sweep rotation.z between userData.sweep[0]
+      // (rest, lying along the bottom) and userData.sweep[1] (nearly upright). One mesh draws both (shader-turned).
+      wipers: F.wipers.slice(),
       kerbWallMaterial: F.kerbMesh ? F.kerbMesh.material : null,
       stickerAnchors,
       partMounts,
@@ -665,6 +703,7 @@
           if (!car) continue;
           car.lowMesh.geometry.dispose(); if (car.upMesh) car.upMesh.geometry.dispose(); if (car.kerbMesh) car.kerbMesh.geometry.dispose();
           for (const w of car.wheels) w.geometry.dispose();
+          if (car.wipers.mesh) { car.wipers.mesh.geometry.dispose(); car.wipers.mesh.material.dispose(); }
           if (car.blob) { car.blob.geometry.dispose(); car.blob.material.dispose(); }
           if (car.g.parent) car.g.parent.remove(car.g);
         }
