@@ -359,11 +359,12 @@
     const m = b.mesh(); m.name = 'hat:' + id; return m;
   };
   // Put a hat on the roof: an id from B.HATS, any Object3D (the depot can make its own), or null.
+  let myHat = null;
   B.setHat = function (hat) {
     if (!B.hatMount) return;
-    while (B.hatMount.children.length) B.hatMount.remove(B.hatMount.children[0]);
-    const o = typeof hat === 'string' ? B.makeHat(hat) : hat;
-    if (o) B.hatMount.add(o);
+    if (myHat) B.hatMount.remove(myHat);                  // only our own hat: the depot may hang its own here too
+    myHat = typeof hat === 'string' ? B.makeHat(hat) : hat || null;
+    if (myHat) B.hatMount.add(myHat);
   };
   // Apply the saved customisation: paint, headlights upgrade, stickers (save.stickers[0..2]; slot 2 needs the
   // super sticker upgrade) and the hat (save.hat).
