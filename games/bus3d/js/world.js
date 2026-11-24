@@ -799,6 +799,7 @@
   W.clearOfRoads = clearOfRoads;
   function buildStreetTrees(b) {
     for (const e of W.roads.edges) {
+      if (e.points.length > 2) continue;           // not along the loop's curves (they'd crowd the kerb lane there)
       for (let s = 12; s < e.length - 10; s += 11) {
         const p = W.pointAt(e, s);
         for (const side of [1, -1]) {

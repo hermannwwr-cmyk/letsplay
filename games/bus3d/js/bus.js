@@ -1153,6 +1153,9 @@
     }
     // speed: ease toward the wanted speed; braking when the pedal points the other way
     let want = thr > 0 ? thr * MAX_FWD : thr * MAX_BACK;
+    // assist also eases off for bends and turns (like a careful driver), unless the child is steering
+    const asst = B.assist && canDrive && thr > 0 ? assistSteer(MAX_STEER + 0.22) : null;
+    if (asst && Math.abs(kidSteer) < 0.3) want = Math.min(want, Math.max(3.2, MAX_FWD * (1 - 1.6 * Math.abs(asst.alpha))));
     let cap = approachCap();
     if (cap < Infinity) want = BB.clamp(want, -cap, cap); else cap = 0;   // ease off coming into the target bay so it can settle
     const slowing = Math.abs(want) < Math.abs(B.speed) || (Math.sign(want) !== Math.sign(B.speed) && Math.abs(B.speed) > 0.2);
@@ -1165,9 +1168,8 @@
     let st = kidSteer * ms;
     // assist (a garage option): keep gently to the kerb lane, follow its bends and the ribbon at junctions, pull in
     // at the stop. The child's own steering wins (blended by how hard they steer).
-    if (B.assist && canDrive && B.speed > 0.6) {
-      const a = assistSteer(ms);
-      if (a != null) { const k = Math.min(1, Math.abs(kidSteer) / 0.5); st = a * (1 - k) + st * k; }
+    if (asst && B.speed > 0.6) {
+      const k = Math.min(1, Math.abs(kidSteer) / 0.5); st = BB.clamp(asst.steer, -ms, ms) * (1 - k) + st * k;
     }
     if (st) B.steer += BB.clamp(st - B.steer, -STEER_IN * dt, STEER_IN * dt);
     else B.steer += BB.clamp(-B.steer, -STEER_OUT * dt, STEER_OUT * dt);
@@ -1222,25 +1224,41 @@
   // Assist's steering: pure pursuit of a point ahead on the ribbon (with a target) or on the kerb lane of the road
   // the bus is on, in the way it is going. Returns a steer angle, or null when off the roads.
   function assistSteer(ms) {
-    const f = fwdOf(h), look = 6.5 + B.speed * 0.6;
-    let tx, tz;
+    // the path to keep to: the ribbon (with a target, plus a little past the bay) or the kerb lane of this road
+    const f = fwdOf(h);
+    let r;
     if (routePts && routePts.length > 1 && B.target) {
-      let r = routePts;
-      const bay = W().bayOf(B.target); r = r.concat([{ x: bay.nose.x + bay.fwd.x * 12, z: bay.nose.z + bay.fwd.z * 12 }]);
-      let bi = 0, bd = 1e9, ac = 0;
-      for (let i = 0; i < r.length && ac < 16; i++) { if (i) ac += Math.hypot(r[i].x - r[i - 1].x, r[i].z - r[i - 1].z); const d = Math.hypot(r[i].x - fx, r[i].z - fz); if (d < bd) { bd = d; bi = i; } }
-      if (bd > 14) return null;
-      let j = bi, acc = 0; while (j < r.length - 1 && acc < look) { acc += Math.hypot(r[j + 1].x - r[j].x, r[j + 1].z - r[j].z); j++; }
-      tx = r[j].x; tz = r[j].z;
+      const bay = W().bayOf(B.target);
+      r = routePts.concat([{ x: bay.nose.x + bay.fwd.x * 12, z: bay.nose.z + bay.fwd.z * 12 }]);
     } else {
       const near = nearestRoad(fx, fz);
       if (!near || near.d > C.roadHalf + 2) return null;
       const s = (f.x * near.dx + f.z * near.dz) >= 0 ? 1 : -1, e = near.edge;
-      const p = W().pointAt(e, BB.clamp(near.s + s * look, 0, e.length));
-      tx = p.x + p.dz * s * C.lane; tz = p.z - p.dx * s * C.lane;
+      r = [];
+      for (let k = -2; k <= 30; k += 2) {
+        const sd = near.s + s * k; if (sd < 0 || sd > e.length) continue;
+        const p = W().pointAt(e, sd); r.push({ x: p.x + p.dz * s * C.lane, z: p.z - p.dx * s * C.lane });
+      }
+      if (r.length < 2) return null;
     }
-    const alpha = wrapA(Math.atan2(tx - fx, tz - fz) - h), Ld = Math.max(3, Math.hypot(tx - fx, tz - fz));
-    return BB.clamp(Math.atan2(2 * WB * Math.sin(alpha), Ld), -ms, ms);
+    // Stanley steering at the front axle: line up with the path's direction and close the sideways gap
+    const ax = fx + f.x * (LF / 2 - FRONT_AXLE), az = fz + f.z * (LF / 2 - FRONT_AXLE);
+    let bi = -1, bd = 1e9, bt = 0;
+    for (let i = 0, acc = 0; i < r.length - 1 && acc < 24; i++) {
+      const a = r[i], b = r[i + 1], dx = b.x - a.x, dz = b.z - a.z, l2 = dx * dx + dz * dz || 1;
+      const tt = BB.clamp(((ax - a.x) * dx + (az - a.z) * dz) / l2, 0, 1), d = Math.hypot(a.x + dx * tt - ax, a.z + dz * tt - az);
+      if (d < bd) { bd = d; bi = i; bt = tt; }
+      acc += Math.sqrt(l2);
+    }
+    if (bi < 0 || bd > 12) return null;
+    const a = r[bi], b = r[bi + 1], th = Math.atan2(b.x - a.x, b.z - a.z);
+    const qx = a.x + (b.x - a.x) * bt, qz = a.z + (b.z - a.z) * bt;
+    const e = (ax - qx) * Math.cos(th) + (az - qz) * -Math.sin(th);          // + = the bus is left of the path
+    const steer = wrapA(th - h) - Math.atan2(1.6 * e, Math.abs(B.speed) + 2);
+    // how much the path turns in the next ~12 (for easing off before bends)
+    let j = bi + 1, acc = 0; while (j < r.length - 1 && acc < 12) { acc += Math.hypot(r[j + 1].x - r[j].x, r[j + 1].z - r[j].z); j++; }
+    const thA = Math.atan2(r[j].x - r[Math.max(0, j - 1)].x, r[j].z - r[Math.max(0, j - 1)].z);
+    return { steer: BB.clamp(steer, -ms, ms), alpha: Math.max(Math.abs(wrapA(thA - th)) * 0.7, Math.abs(wrapA(th - h)), Math.min(1, Math.abs(e) / 4)) };
   }
   // Coming into the target bay (lined up within 45 degrees, either way round): a speed limit that eases to a crawl
   // by the middle of the bay, so the bus can't overshoot it.
