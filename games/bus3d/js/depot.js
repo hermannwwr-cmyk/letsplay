@@ -255,8 +255,8 @@
     const sun = new THREE.DirectionalLight(0xffffff, 0.75); sun.position.set(6, 10, 7); scene.add(sun);
     scene.add(g);
     const len = (g.userData && g.userData.length) || 12, ht = (g.userData && g.userData.height) || 3.2;
-    const cam = new THREE.PerspectiveCamera(28, W / H, 0.1, 500), d = len * 1.75 + 4;
-    cam.position.set(d * 0.92, ht * 0.75 + d * 0.22, d * 0.42); cam.lookAt(0, ht * 0.45, 0);
+    const cam = new THREE.PerspectiveCamera(30, W / H, 0.1, 500), d = len * 0.98 + 2.5;
+    cam.position.set(d * 0.9, ht * 0.6 + d * 0.2, d * 0.45); cam.lookAt(0, ht * 0.42, 0);
     const rt = new THREE.WebGLRenderTarget(W, H), px = new Uint8Array(W * H * 4), old = R.getClearColor(new THREE.Color()), oldA = R.getClearAlpha();
     try {
       R.setRenderTarget(rt); R.setClearColor(0x000000, 0); R.clear(); R.render(scene, cam);

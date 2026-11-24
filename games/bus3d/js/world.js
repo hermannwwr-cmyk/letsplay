@@ -313,7 +313,7 @@
     buildHDBs(town);
     buildLandmarks(town, green);
     buildViaduct(town, green);
-    buildStops(town);
+    buildStops(TREES);   // (with the props: the shelter hides when it stands between the stop camera and the bus)
     const poolPts = buildLamps(town, lamps);
     roadMat = new THREE.MeshLambertMaterial({ vertexColors: true });   // its own material: it darkens in the rain
     scene.add(tag(roads.mesh(roadMat), 'roads'), tag(town.mesh(), 'town'), tag(green.mesh(), 'green'));
@@ -766,7 +766,7 @@
     const out = [];
     for (const st of W.stops.concat([W.depot])) {
       const bay = W.bayOf(st), f = bay.fwd, k = bay.side, fcx = bay.x + f.x * 3.5, fcz = bay.z + f.z * 3.5;
-      out.push([fcx - k.x * 13, fcz - k.z * 13, 7], [fcx - k.x * 7, fcz - k.z * 7, 4]);   // the stop view (high, road side)
+      out.push([fcx + k.x * 11, fcz + k.z * 11, 5], [fcx + k.x * 15, fcz + k.z * 15, 4]);   // the stop view (side-on, from the pavement)
       if (st.id === 'depot') { out.push([bay.x - k.x * 28, bay.z - k.z * 28, 9], [bay.x - k.x * 16, bay.z - k.z * 16, 6], [fcx + f.x * 11 - k.x * 4.5, fcz + f.z * 11 - k.z * 4.5, 5], [fcx - k.x * 11, fcz - k.z * 11, 5]); }
     }
     return out;
@@ -1012,7 +1012,7 @@
   // and a louvred clerestory, a row of stalls with bright signboards, round tables with stools and people, and
   // umbrella tables on the plaza by the road. A bowl picture board stands on the roof.
   function hawkerCentre(b, green) {
-    W.addBox(0, -45.5, 16, 12.6, 0, 11);
+    W.addBox(0, -45.5, 16, 12.6, 0, 3.5);   // (low for sight lines: the pavilion is open-sided)
     A(b, 0, 0.25, -46, Math.PI, (q) => {            // local +z = toward the road (north)
       bx(q, 32, 0.12, 25, '#f1e2c6', 0, 0, -0.5);
       for (let x = -14; x <= 14; x += 2) bx(q, 0.9, 0.02, 25, '#e6d2b0', x, 0.12, -0.5);    // floor tiles
@@ -1464,6 +1464,7 @@
     for (const st of W.stops) {
       addBoxAt(st.pos.x, st.pos.z, st.heading, 0.3, 0, 1.1, 4.1, 3.6);
       addBoxAt(st.pos.x, st.pos.z, st.heading, -0.9, 4.6, 0.2, 0.2, 4);
+      const p0 = propStart(b);
       b.at(st.pos.x, 0.25, st.pos.z, st.heading, (q) => {
         // local: +z forward (travel), +x toward the kerb side (away from the road)
         q.box(3.0, 0.06, 8.4, '#e3d6bc', 0.3, 0.0, 0);                 // paving
@@ -1481,6 +1482,7 @@
         q.box(0.1, 1.0, 0.7, '#fff6e0', -0.9, 1.4, 4.6);               // route board under the sign
         for (let k = 0; k < 3; k++) q.box(0.12, 0.14, 0.5, [P.coral, P.teal, P.berry][k], -0.9, 1.55 + k * 0.28, 4.6);
       });
+      propEnd(b, p0, st.pos.x, st.pos.z, 4.4);
     }
   }
   // Picture signs: one atlas texture, one mesh, both faces. Stops' pole signs, the depot board and the landmark boards.

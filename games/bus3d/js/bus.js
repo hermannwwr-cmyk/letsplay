@@ -144,7 +144,7 @@
     spinHop = Math.sin(Math.PI * spin.t) * spin.lift;
     if (spin.t >= 1) { spin = null; spinHop = 0; collide(); collide(); collide(); camH = h; refreshRibbon(); }
   }
-  let wipePh = 0, lastRoofT = -1;
+  let wipePh = 0, lastRoofT = -1, wallT = 0, lastWallT = -1;
   let spinHop = 0, facingAway = false, awayT = 0, realMove = 0, jamT = 0, jamSide = 0, jamFlipped = false;
   // Where a straight bus with heading hh, centred at (mx,mz), comes to rest clear of everything (checked before a hop,
   // so it never lands overlapping anything).
@@ -282,12 +282,15 @@
       return o;
     });
     if (m.roofMaterial) roofMats.push({ mat: m.roofMaterial, base: m.roofMaterial.opacity, tr: m.roofMaterial.transparent });
+    // the kerb-side wall above the sill (fleet buses): it fades away at stops so the bus becomes a dollhouse
+    const wallMats = [];
+    if (m.kerbWallMaterial) wallMats.push({ mat: m.kerbWallMaterial, base: m.kerbWallMaterial.opacity, tr: m.kerbWallMaterial.transparent });
     const pm = m.partMounts || {};
-    M = { type, roofParts, roofMats, routeSign: m.routeSign || null, doorLocal: m.doorLocal || { x: 1.6, y: 0, z: LF / 2 - 1.0 },
+    M = { type, roofParts, roofMats, wallMats, wallParts: m.kerbWallParts || [], height: m.height || 3.1, routeSign: m.routeSign || null, doorLocal: m.doorLocal || { x: 1.6, y: 0, z: LF / 2 - 1.0 },
       roofY: m.roofY || m.height || 3.1, paintMats, setPaint: m.setPaint, setLights: m.setLights, dispose: m.dispose,
       mounts: { lights: pm.lights || pm.lightsFront, bumpersFront: pm.bumpersFront || pm.bumperFront, bumpersRear: pm.bumpersRear || pm.bumperRear, roof: pm.roofFront || null,
         glow: [pm.underglow, pm.underglowRear].filter(Boolean) } };
-    B.type = type; B.length = LF + GAP + LR; lastRoofT = -1;
+    B.type = type; B.length = LF + GAP + LR; lastRoofT = -1; lastWallT = -1;
     // passengers, headlight beams, the (empty) old hat mount, sticker anchors
     B.front.add(B.paxGroup); seatPassengers();
     lightCones.position.set(0, 0, LF / 2); B.front.add(lightCones);
@@ -914,14 +917,15 @@
         camPos.x -= vz * sh; camPos.z += vx * sh; camLook.x -= vz * sh; camLook.z += vx * sh;   // bus left of the panel
       }
     } else if (B.atStop || settle) {
-      // at a stop: high on the road side looking down at about 45 degrees: the roof is lifted off (cut-away), so the
-      // ten seats and the people on them can be counted, with the door, the path and the shelter in the same frame
-      const kx = Math.cos(h), kz = -Math.sin(h), f = fwdOf(h), up = M && M.type === 'double' ? 17 : 14.5;
-      const sx = fx + f.x * 0.6, sz = fz + f.z * 0.6;
-      camPos.set(sx - kx * 11.5, up, sz - kz * 11.5);
-      camLook.set(sx + kx * 2.6, 0.4, sz + kz * 2.6);
-      // tablets: the question card is a strip along the bottom, so keep the bus and the shelter in the upper part
-      if (innerHeight > 500) { camLook.x += (camPos.x - camLook.x) * 0.14; camLook.z += (camPos.z - camLook.z) * 0.14; camLook.y = -1.2; }
+      // at a stop: side-on from the pavement, about 17 degrees down, looking at the kerb side (the doors): the kerb
+      // wall fades (dollhouse), so both rows of seats, the door, the path and the queue at the shelter are in view.
+      // The shelter, trees and lamps in the way are hidden by the world; buildings pull the camera in.
+      const kx = Math.cos(h), kz = -Math.sin(h), f = fwdOf(h), H = M ? M.height : 3.3;
+      const D = (LF > 9 ? 12.5 : 11) + (H > 4 ? 1.2 : 0), cy = H * 0.45, sx = fx + f.x * 0.3, sz = fz + f.z * 0.3;
+      camPos.set(sx + kx * D, cy + D * Math.tan(17 * Math.PI / 180), sz + kz * D);
+      camLook.set(sx + kx * 0.4, cy, sz + kz * 0.4);
+      // tablets: the question card is a strip along the bottom, so look a little lower (the bus sits higher)
+      if (innerHeight > 500) camLook.y -= 1.6;
       // phones held sideways: the question card is a column on the left, so frame the bus toward the right
       if (innerHeight <= 500 && BB.jobs && BB.jobs.phase === 'question') {
         let dx = camLook.x - camPos.x, dz = camLook.z - camPos.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
@@ -1315,8 +1319,15 @@
     for (const w of steerWheels) w.rotation.y = B.steer * 0.8;
     doorT += ((B.doorsOpen ? 1 : 0) - doorT) * Math.min(1, dt * 6);
     for (const d of doors) { if (!d.userData.zOnly) d.position.x = d.userData.x + Math.sign(d.userData.x || 1) * doorT * 0.1; d.position.z = d.userData.z + doorT * d.userData.slide; }
-    // the stop's cut-away: the roof over the seats lifts off and fades so the passengers can be counted
-    const wantRoof = (B.atStop || settle) && B.camMode === 'chase' ? 1 : 0;
+    // the stop's dollhouse view: the kerb-side wall fades away so the seats and the people can be counted from the
+    // pavement (the old roof cut-away is kept for models without a kerb wall, but off: the owner preferred the side)
+    const wantRoof = 0, wantWall = (B.atStop || settle) && B.camMode === 'chase' ? 1 : 0;
+    wallT += BB.clamp(wantWall - wallT, -dt * 2, dt * 2);
+    if (M && wallT !== lastWallT) {
+      lastWallT = wallT;
+      for (const r of M.wallMats) { const tr = r.tr || wallT > 0.01; if (r.mat.transparent !== tr) { r.mat.transparent = tr; r.mat.needsUpdate = true; } r.mat.opacity = r.base * (1 - 0.9 * wallT); r.mat.depthWrite = !tr || wallT < 0.5; }
+      for (const o of M.wallParts) o.visible = wallT < 0.98 || M.wallMats.length > 0;
+    }
     roofT += BB.clamp(wantRoof - roofT, -dt * 2.5, dt * 2.5);
     if (M && roofT !== lastRoofT) {
       lastRoofT = roofT;
