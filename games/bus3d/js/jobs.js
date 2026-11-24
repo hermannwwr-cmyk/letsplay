@@ -15,7 +15,7 @@
 (function () {
   'use strict';
   const BB = window.BB, P = BB.P;
-  const J = BB.jobs = { current: null, phase: 'idle', walkers: [], waiting: [], question: null, teaching: false };
+  const J = BB.jobs = { current: null, phase: 'idle', walkers: [], waiting: [], extras: [], question: null, teaching: false };
 
   const CASH_STOP = 3, CASH_STOP_RETRY = CASH_STOP, CASH_JOB = 5;   // same coins after a retry: no hidden penalty
   const wait = (ms) => (BB.wait ? BB.wait(ms) : new Promise((r) => BB.later(ms, r)));
@@ -118,9 +118,23 @@
   function clearWaiting() { for (const m of J.waiting) removePerson(m); J.waiting = []; }
   const GROUND = 0.25;
   // Points next to the bus, in the front carriage's frame (+x is the door side, the kerb).
-  const busPoint = (x, z, y) => { const v = new THREE.Vector3(x, 0, z); BB.bus.front.localToWorld(v); v.y = y == null ? GROUND : y; return v; };
-  const doorOut = () => busPoint(2.0, 2.6);
-  const doorIn = () => busPoint(0.4, 2.6, 0.55);
+  // Points around the door, from BB.bus.doorWorld() and seatWorld() only, so every bus type works (bendy,
+  // double-decker, single-decker): 'out' is the direction from the bus's middle through the door, onto the pavement.
+  const _v = new THREE.Vector3();
+  function doorFrame() {
+    const B = BB.bus, d = B.doorWorld(new THREE.Vector3());
+    const h = B.heading || 0, fx = Math.sin(h), fz = Math.cos(h);
+    const c = B.pos || d;                                    // a point on the bus's middle line
+    const along = (d.x - c.x) * fx + (d.z - c.z) * fz;
+    let ox = d.x - (c.x + fx * along), oz = d.z - (c.z + fz * along);
+    const ol = Math.hypot(ox, oz);
+    if (ol < 0.2) { ox = fz; oz = -fx; } else { ox /= ol; oz /= ol; }   // fallback: left of travel (the kerb side)
+    return { d, ox, oz, fx, fz };
+  }
+  const doorOut = () => { const f = doorFrame(); return new THREE.Vector3(f.d.x + f.ox * 0.5, GROUND, f.d.z + f.oz * 0.5); };
+  const doorIn = () => { const f = doorFrame(); return new THREE.Vector3(f.d.x - f.ox * 1.1, 0.55, f.d.z - f.oz * 1.1); };
+  // a spot on the pavement beside the bus: 'out' units from the door, 'along' units along the bus
+  const kerbSpot = (out, along) => { const f = doorFrame(); return new THREE.Vector3(f.d.x + f.ox * out + f.fx * along, GROUND, f.d.z + f.oz * out + f.fz * along); };
 
   // Put the people for the next question at the stop's shelter, in a little queue facing the road.
   function setWaiting(stop, q) {
@@ -129,7 +143,8 @@
     const pre = Math.max(0, q.pre), total = pre + (q.kind === 'add' ? q.k : 0);
     for (let i = 0; i < total; i++) {
       const m = person(BB.randInt(0, 7));
-      const along = 4.6 + Math.floor(i / 2) * 0.9, off = (i % 2) * 0.8 - 0.1;
+      // one clear line along the pavement just past the shelter, nearest first, so every person can be counted
+      const along = 3.4 + i * 0.95, off = 0.3;
       m.position.set(stop.pos.x + stop.fwd.x * along + stop.side.x * off, GROUND, stop.pos.z + stop.fwd.z * along + stop.side.z * off);
       m.rotation.y = Math.atan2(-stop.side.x, -stop.side.z);
       m.userData.pre = i < pre;
@@ -168,8 +183,17 @@
     m.position.copy(doorIn());
     BB.sfx.pop();
     await walkTo(m, doorOut(), 2.8);
-    const away = busPoint(BB.rand(4.2, 5.4), 2.6 + BB.rand(-7, 7));
-    walkTo(m, away, 3, { shrink: true }).then(() => removePerson(m));
+    // stand on the pavement in a little row, turn to the bus and wave (two happy hops), then walk off
+    const k = J.extras.length, spot = kerbSpot(1.9 + (k % 2) * 0.6, -1.2 - k * 0.9);
+    walkTo(m, spot, 3).then(async () => {
+      J.extras.push(m);
+      m.userData.jump = 1; m.userData.jumpDelay = 0;
+      await wait(1300);
+      J.extras = J.extras.filter((x) => x !== m);
+      const away = kerbSpot(4 + Math.random(), -8 - Math.random() * 4);
+      await walkTo(m, away, 3.2, { shrink: true });
+      removePerson(m);
+    });
   }
   // several people get off one after another, overlapping (a new one every 0.45 s), so 4 take about 3 s
   async function alightPeople(count, onLeave) {
@@ -209,16 +233,39 @@
     return (markTex[label] = t);
   }
   const marks = [];
+  // The sprites live in the scene and follow BB.bus.seatWorld(i) every frame (any bus type, any seat layout).
   function ensureMarks() {
-    if (marks.length || !BB.bus.front || !BB.bus.seats || BB.bus.seats.length < 10) return marks.length > 0;
+    if (marks.length) return true;
+    if (!BB.scene || typeof BB.bus.seatWorld !== 'function') return false;
     for (let i = 0; i < 10; i++) {
-      const s = BB.bus.seats[i];
       const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: texFor(''), transparent: true, depthTest: false, depthWrite: false, fog: false }));
-      sp.position.set(s.x * 1.5, 4.0, s.z);
       sp.renderOrder = 20; sp.visible = false; sp.userData = { base: 0.72, pulse: false, pop: 0 };
-      BB.bus.front.add(sp); marks.push(sp);
+      BB.scene.add(sp); marks.push(sp);
     }
     return true;
+  }
+  // A bigger number over the bus's middle while "3 friends are on the bus" is said (only the starting number).
+  let countTag = null;
+  function showCount(n) {
+    if (!BB.scene || typeof BB.bus.seatWorld !== 'function') return;
+    if (!countTag) {
+      countTag = new THREE.Sprite(new THREE.SpriteMaterial({ map: texFor(''), transparent: true, depthTest: false, depthWrite: false, fog: false }));
+      countTag.renderOrder = 21; countTag.userData = { base: 1.5, pulse: false, pop: 0 }; BB.scene.add(countTag);
+    }
+    countTag.material.map = texFor(String(n)); countTag.material.needsUpdate = true;
+    countTag.visible = n > 0; countTag.userData.pop = 1;
+    placeCount();
+  }
+  function placeCount() {
+    if (!countTag) return;
+    try {
+      const a = BB.bus.seatWorld(0, new THREE.Vector3()), b = BB.bus.seatWorld(9, new THREE.Vector3());
+      countTag.position.set((a.x + b.x) / 2, Math.max(a.y, b.y) + 3.2, (a.z + b.z) / 2);
+    } catch (e) { countTag.visible = false; }
+  }
+  function hideCount() { if (countTag) countTag.visible = false; }
+  function placeMark(i) {
+    try { BB.bus.seatWorld(i, _v); marks[i].position.set(_v.x, _v.y + 1.9, _v.z); } catch (e) { marks[i].visible = false; }
   }
   // Only the seat being counted shows its number above the bus (several would pile up at the stop camera angle).
   function mark(i, label, pulse) {
@@ -227,6 +274,7 @@
     const sp = marks[i];
     sp.material.map = texFor(label == null ? '' : String(label)); sp.material.needsUpdate = true;
     sp.visible = true; sp.userData.pulse = !!pulse; sp.userData.pop = 1;
+    placeMark(i);
   }
   function unmark(i) { if (marks[i]) marks[i].visible = false; }
   function clearMarks() { for (const sp of marks) sp.visible = false; }
@@ -524,6 +572,7 @@
 
   function hideQuestion(now, keepSeq) {
     if (!keepSeq) { seq++; stopGen++; }
+    hideCount();
     J.teaching = false;
     if (card) {
       const c = card;
@@ -567,8 +616,9 @@
     }
     // the story, told while it happens
     for (let i = 0; i < q.n; i++) light(i, true);
-    showSum('n1'); litSum('n1');
+    showSum('n1'); litSum('n1'); showCount(q.n);
     await say(nPhrase(q.n));
+    hideCount();
     for (let i = 0; i < q.n; i++) light(i, false);
     litSum(null);
     if (!alive()) return;
@@ -956,7 +1006,9 @@
     truck.rotation.set(0, 0, 0); truck.position.set(0, 0, 0); truck.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(truck);
     const back = isFinite(box.min.z) ? -box.min.z : 3;
-    const front = busPoint(0, 3.6);                     // just past the bus's nose
+    const df = doorFrame(), c = B.pos || df.d;            // just past the bus's nose (the door is near the front)
+    const dAlong = (df.d.x - c.x) * fx + (df.d.z - c.z) * fz + 1.3;
+    const front = new THREE.Vector3(c.x + fx * dAlong, 0, c.z + fz * dAlong);
     const hook = new THREE.Vector3(front.x + fx * (back + 0.4), 0, front.z + fz * (back + 0.4));
     return { h, fx, fz, hook };
   }
@@ -1032,7 +1084,7 @@
     if (now - lastHorn < 300) return;
     lastHorn = now;
     const bp = BB.bus.pos || (BB.bus.front && BB.bus.front.position);
-    for (const m of J.waiting.concat(J.walkers.map((w) => w.m))) {
+    for (const m of J.waiting.concat(J.extras, J.walkers.map((w) => w.m))) {
       if (bp && Math.hypot(m.position.x - bp.x, m.position.z - bp.z) > 30) continue;
       m.userData.jump = 1; m.userData.jumpDelay = Math.random() * 0.25;
     }
@@ -1067,8 +1119,9 @@
     });
     // a horn toot: two happy jumps with a wiggle, facing the bus
     const bp = BB.bus.pos;
-    for (const m of J.waiting.concat(J.walkers.map((w) => w.m))) {
+    for (const m of J.waiting.concat(J.extras, J.walkers.map((w) => w.m))) {
       const u = m.userData;
+      if (J.extras.includes(m) && !J.walkers.some((w) => w.m === m)) m.position.y = GROUND;   // standing on the pavement
       if (!(u.jump > 0)) continue;
       if (u.jumpDelay > 0) { u.jumpDelay -= dt; continue; }
       u.jump = Math.max(0, u.jump - dt / 1.1);
@@ -1086,7 +1139,9 @@
       if (tw.t >= 1) { tweens.splice(i, 1); tw.done(); }
     }
     // the glowing numbers above the seats pop in and the hint ones pulse
-    for (const sp of marks) {
+    marks.forEach((sp, i) => { if (sp.visible) placeMark(i); });
+    if (countTag && countTag.visible) placeCount();
+    for (const sp of (countTag ? marks.concat(countTag) : marks)) {
       if (!sp.visible) continue;
       const u = sp.userData;
       u.pop = Math.max(0, u.pop - dt * 4);

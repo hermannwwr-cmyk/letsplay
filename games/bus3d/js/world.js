@@ -7,7 +7,12 @@
 (function () {
   'use strict';
   const BB = window.BB, P = BB.P, C = BB.cfg;
+  // Dual carriageways: two lanes each way (about 4.2 m each). The blocks grow with the roads so the buildings keep
+  // their size. These go into the shared config (bus.js reads lane/roadHalf too): kerb lane centre 6.7 from the
+  // middle, inner lane 2.5, road half-width 9.2.
+  C.block = 56; C.roadHalf = 9.2; C.lane = 6.7; C.laneInner = 2.5; C.laneDivider = 4.6;
   const S = C.block, RH = C.roadHalf;
+  const K = S / 46;                              // the layout was first drawn for 46-unit blocks: older numbers x K
   const g = (i) => (i - 1.5) * S;                // grid line -> world coordinate (-69, -23, 23, 69)
 
   // Deterministic random so the town looks the same every visit.
@@ -97,11 +102,11 @@
   // ---------- stops and depot ----------
   // Each stop sits on an edge at parameter t, on the kerb to the LEFT of the travel direction `dir` that faces its block.
   const STOP_DEFS = [
-    { id: 'hawker', name: 'Hawker Centre', say: 'the hawker centre', pic: 'bowl', from: 'n10', to: 'n20', t: 0.5, toward: [0, -46] },
-    { id: 'shops', name: 'Shophouses', say: 'the shops', pic: 'shop', from: 'n01', to: 'n02', t: 0.5, toward: [-46, 0] },
+    { id: 'hawker', name: 'Hawker Centre', say: 'the hawker centre', pic: 'bowl', from: 'n10', to: 'n20', t: 0.5, toward: [0, -S] },
+    { id: 'shops', name: 'Shophouses', say: 'the shops', pic: 'shop', from: 'n01', to: 'n02', t: 0.5, toward: [-S, 0] },
     { id: 'park', name: 'Park', say: 'the park', pic: 'tree', from: 'n11', to: 'n12', t: 0.45, toward: [0, 0] },
-    { id: 'playground', name: 'Playground', say: 'the playground', pic: 'slide', from: 'n13', to: 'n23', t: 0.5, toward: [0, 46] },
-    { id: 'mrt', name: 'MRT Station', say: 'the MRT station', pic: 'train', from: 'n21', to: 'n22', t: 0.55, toward: [46, 0] },
+    { id: 'playground', name: 'Playground', say: 'the playground', pic: 'slide', from: 'n13', to: 'n23', t: 0.5, toward: [0, S] },
+    { id: 'mrt', name: 'MRT Station', say: 'the MRT station', pic: 'train', from: 'n21', to: 'n22', t: 0.55, toward: [S, 0] },
   ];
   function placeOnKerb(def) {
     const e = W.edgeBetween(def.from, def.to);
@@ -119,8 +124,8 @@
     };
   }
   W.stops = STOP_DEFS.map(placeOnKerb);
-  W.depot = placeOnKerb({ id: 'depot', name: 'Bus Depot', say: 'the depot', pic: 'depot', from: 'n22', to: 'n23', t: 0.4, toward: [46, 46] });
-  const DEPOT_X = 41;            // the depot shed's centre (its door faces the road at x = DEPOT_X - 7)
+  W.depot = placeOnKerb({ id: 'depot', name: 'Bus Depot', say: 'the depot', pic: 'depot', from: 'n22', to: 'n23', t: 0.4, toward: [S, S] });
+  const DEPOT_X = S / 2 + RH + 13;  // the depot shed's centre (its door faces the road, 6 from the kerb)
   W.stopById = (id) => id === 'depot' ? W.depot : W.stops.find((s) => s.id === id);
 
 
@@ -128,7 +133,7 @@
   // Draw calls: sky, ground, roads, town, green, lit windows, lamp heads, lamp pools, signs, train (+ its windows),
   // clouds, cars, birds: about 14 for the whole world.
   let train = null, trainWin = null, clouds = null, sky = null, cars = null, birds = null, pools = null;
-  let trainX = -170, trainDir = 1, trainWait = 0;
+  let trainX = -200, trainDir = 1, trainWait = 0;
   let amb, hemi, sun, winMat, lampMat, poolMat, cloudMat;
   let WIN = null;                          // the lit-at-night windows builder (filled alongside the town)
   let TREES = null;                        // trees and lamp posts (their own mesh, so they can fade out of the way)
@@ -169,7 +174,7 @@
   }
   const DECK_Y = 12;                       // underside of the MRT viaduct deck
   const VIADUCT_Z = g(1);
-  const RING = 84, RING_R = 30, RING_HALF = 3.6;   // the decorative outer road (cars only; the bus never goes there)
+  const RING = 84 * K, RING_R = 30 * K, RING_HALF = 3.6;   // the decorative outer road (cars only; the bus never goes there)
 
   // Shared unit shapes (indexed, so the builder copies them and they can be reused).
   const UBOX = new THREE.BoxGeometry(1, 1, 1), QUAD = new THREE.PlaneGeometry(1, 1);
@@ -197,11 +202,20 @@
   // A box in a builder frame: local centre (lx,lz) of a frame at (x,z) turned by ry (local +x -> (cos ry, -sin ry)).
   function addBoxAt(x, z, ry, lx, lz, hw, hd, top = 12) {
     const c = Math.cos(ry), s = Math.sin(ry);
-    addCol({ x: x + lx * c + lz * s, z: z - lx * s + lz * c, hw, hd, ry, top });
+    addCol({ x: x + lx * c + lz * s + FRAME.x, z: z - lx * s + lz * c + FRAME.z, hw, hd, ry, top });
   }
-  W.addCircle = (x, z, r) => addCol({ x, z, r });
-  W.addBox = (x, z, hw, hd, ry = 0, top = 10) => addCol({ x, z, hw, hd, ry, top });
-  W.MAP_R = 150;                           // the bus stays inside this circle
+  // While a landmark group is being built inside a moved frame (shifted()), FRAME holds that move, so colliders,
+  // props and signs given in the group's own coordinates land in the right place.
+  const FRAME = { x: 0, z: 0 };
+  W.addCircle = (x, z, r) => addCol({ x: x + FRAME.x, z: z + FRAME.z, r });
+  W.addBox = (x, z, hw, hd, ry = 0, top = 10) => addCol({ x: x + FRAME.x, z: z + FRAME.z, hw, hd, ry, top });
+  function shifted(builders, dx, dz, fn) {
+    FRAME.x += dx; FRAME.z += dz;
+    const run = (i) => i === builders.length ? fn() : builders[i].at(dx, 0, dz, 0, () => run(i + 1));
+    run(0);
+    FRAME.x -= dx; FRAME.z -= dz;
+  }
+  W.MAP_R = 150 * K;                           // the bus stays inside this circle
   // Push a circle (x,z,r) out of everything it overlaps. Returns {x, z, hit} (hit = how far it was pushed).
   const _push = { x: 0, z: 0, hit: 0 };
   W.pushOut = function (x, z, r) {
@@ -266,11 +280,11 @@
     }
     return false;
   };
-  W.viaduct = { z: VIADUCT_Z, deckY: DECK_Y, halfW: 4, x0: -170, x1: 170 };
+  W.viaduct = { z: VIADUCT_Z, deckY: DECK_Y, halfW: 4, x0: -210, x1: 210 };
   // Where the bus parks at a stop (or the depot): its nose 3 past the shelter, 1 toward the kerb from its lane.
   W.bayOf = function (st) {
     if (st._bay) return st._bay;
-    const e = W.edge(st.edge), p = W.pointAt(e, st.s), off = C.lane + 0.7;
+    const e = W.edge(st.edge), p = W.pointAt(e, st.s), off = C.lane + 0.45;
     const nx = p.x + st.side.x * off + st.fwd.x * 3, nz = p.z + st.side.z * off + st.fwd.z * 3;
     return (st._bay = { nose: { x: nx, z: nz }, x: nx - st.fwd.x * 7.2, z: nz - st.fwd.z * 7.2, heading: st.heading, fwd: st.fwd, side: st.side, len: 15.4, width: 3.4 });
   };
@@ -301,7 +315,8 @@
     buildViaduct(town, green);
     buildStops(town);
     const poolPts = buildLamps(town, lamps);
-    scene.add(tag(roads.mesh(), 'roads'), tag(town.mesh(), 'town'), tag(green.mesh(), 'green'));
+    roadMat = new THREE.MeshLambertMaterial({ vertexColors: true });   // its own material: it darkens in the rain
+    scene.add(tag(roads.mesh(roadMat), 'roads'), tag(town.mesh(), 'town'), tag(green.mesh(), 'green'));
     scene.add(propMesh(TREES, fadeMat(new THREE.MeshLambertMaterial({ vertexColors: true })), 'trees'));
     TREES = null;
     winMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x000000 });
@@ -316,7 +331,11 @@
     cars = buildCars(); scene.add(cars);
     birds = buildBirds(); scene.add(birds);
     W.built = true;
-    W.setSky(W.sky.target, true);
+    puddles = buildPuddles(); scene.add(puddles);
+    rain = buildRain(); scene.add(rain);
+    rainbow = buildRainbow(); scene.add(rainbow);
+    W.built = true;
+    W.setDayTime(W.day.t);
   };
   const tag = (m, name) => { m.name = name; m.matrixAutoUpdate = false; m.updateMatrix(); return m; };
   const light = (c, t = 0.35) => '#' + new THREE.Color(c).lerp(new THREE.Color('#ffffff'), t).getHexString();
@@ -342,6 +361,7 @@
     moonAmt: { value: 0 }, starAmt: { value: 0 }, time: { value: 0 },
   };
   W.sky = { share: 0, target: 0, night: 0, evening: 0, lights: 0 };
+  let roadMat = null, puddles = null, rain = null, rainbow = null;
   function buildSky(scene) {
     const geo = new THREE.SphereGeometry(420, 32, 16);
     const mat = new THREE.ShaderMaterial({
@@ -399,8 +419,8 @@
     const lights = clamp01((ph - 0.7) / 0.18);
     W.sky.night = night; W.sky.evening = evening; W.sky.lights = lights;
     if (W.scene && W.scene.fog) { W.scene.fog.color.copy(skyU.hor.value); W.scene.fog.near = 95 - 20 * night; W.scene.fog.far = 260 - 30 * night; }
-    // the sun sets low in the west-south-west, the moon rises opposite
-    const el = 0.62 - 0.72 * clamp01(ph / 0.86), az = -2.25;
+    // the sun sets low in the west-south-west and rises in the east-north-east; the moon is opposite
+    const el = 0.62 - 0.72 * clamp01(ph / 0.86), az = W.day && W.day.rising ? 0.9 : -2.25;
     skyU.sunDir.value.set(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az)).normalize();
     skyU.sunAmt.value = clamp01((el + 0.05) / 0.08);
     lerpCol(skyU.sunCol.value, '#ffd45c', '#ff8a3d', clamp01((ph - 0.5) / 0.3));
@@ -411,12 +431,156 @@
     if (poolMat) { poolMat.opacity = 0.55 * lights; pools.visible = lights > 0.02; }
     if (trainWin) trainWin.material = winMat;
   }
-  // Public: set the sky for share 0..1 (main.js calls it from the hub's time messages; 1 at the goodnight moment).
-  // It eases there over a couple of seconds unless instant.
+  // ---------- the day clock ----------
+  // dayTime t 0..1: 0 dawn, ~0.25 midday, 0.5 sunset, 0.62 dusk, 0.7-0.92 night (windows, lamps, headlights), then
+  // dawn again. A full day takes 1/speed seconds of play (6 minutes). In hub mode, with a minute of play time left,
+  // it eases into the night and stays there (the bedtime cue); setSky(1) at goodnight does the same at once.
+  W.day = { t: 0.12, speed: 1 / 360, bed: false, rising: false, auto: true };
+  function phaseOf(t) {
+    if (t < 0.08) return 0.86 * (1 - t / 0.08);                  // dawn: pink sky to morning
+    if (t < 0.5) return 0.62 * (t - 0.08) / 0.42;                 // day
+    if (t < 0.62) return 0.62 + 0.18 * (t - 0.5) / 0.12;          // sunset
+    if (t < 0.7) return 0.8 + 0.2 * (t - 0.62) / 0.08;            // dusk
+    if (t < 0.92) return 1;                                        // night
+    return 1 - 0.14 * (t - 0.92) / 0.08;                           // before dawn
+  }
+  W.setDayTime = function (t) { W.day.t = ((+t || 0) % 1 + 1) % 1; dayDirty = true; };
+  Object.defineProperty(W, 'dayTime', { get: () => W.day.t, set: (v) => W.setDayTime(v) });
+  let dayDirty = true;
+  // Old API: main.js calls setSky(share) from the hub's time messages. The day clock replaces the share-based sky;
+  // share >= 1 (the goodnight moment) still means: night now.
   W.setSky = function (share, instant) {
     W.sky.target = clamp01(+share || 0);
-    if (instant || !W.built) { W.sky.share = W.sky.target; applySky(W.sky.share); }
+    if (W.sky.target >= 0.999) { W.day.bed = true; if (instant || !W.built) W.setDayTime(0.75); }
   };
+  function bedtime() { const H = BB.hub; return W.day.bed || !!(H && H.on && H.limit > 0 && H.left != null && H.left <= 60); }
+  function updateDay(dt) {
+    const d = W.day;
+    if (bedtime()) {                                               // ease forward into the night and stay
+      const inNight = d.t >= 0.72 && d.t <= 0.9;
+      if (!inNight) { d.t = (d.t + dt * (d.t > 0.9 || d.t < 0.45 ? 0.03 : 0.02)) % 1; dayDirty = true; }
+    } else if (d.auto) { d.t = (d.t + dt * d.speed) % 1; dayDirty = true; }
+  }
+
+  // ---------- weather ----------
+  // sunny, cloudy, drizzle (light rain), rain, storm (soft rumble, a soft sky flash). Changes every 2-3 minutes with
+  // smooth transitions; a rainbow sometimes follows the rain. setWeather(kind) picks one (auto changes continue
+  // unless weatherAuto is false).
+  const WX = { sunny: [0, 0, 0], cloudy: [0.7, 0, 0], drizzle: [0.8, 0.35, 0], rain: [1, 0.8, 0], storm: [1, 1, 1] };
+  W.WEATHERS = Object.keys(WX);
+  const wx = { kind: 'sunny', cloud: 0, rain: 0, storm: 0, wet: 0, bow: 0, bowT: 0, timer: rr(120, 180), flash: 0, nextFlash: 8, wasWet: false };
+  W.weatherState = wx; W.weatherAuto = true;
+  Object.defineProperty(W, 'weather', { get: () => wx.kind, set: (k) => W.setWeather(k) });
+  W.setWeather = function (kind, instant) {
+    if (!WX[kind]) return false;
+    wx.kind = kind; wx.timer = rr(120, 180);
+    if (instant) { [wx.cloud, wx.rain, wx.storm] = WX[kind]; wx.wet = wx.rain > 0.2 ? 1 : 0; }
+    return true;
+  };
+  W.isRaining = () => wx.rain > 0.15;
+  W.isStormy = () => wx.storm > 0.4;
+  function updateWeather(dt) {
+    if (W.weatherAuto && (wx.timer -= dt) <= 0) {
+      const order = ['sunny', 'sunny', 'sunny', 'cloudy', 'cloudy', 'drizzle', 'rain', 'rain', 'storm'];
+      let k; do { k = order[Math.floor(Math.random() * order.length)]; } while (k === wx.kind);
+      W.setWeather(k);
+    }
+    const tg = WX[wx.kind], step = dt * 0.06;
+    wx.cloud += BB.clamp(tg[0] - wx.cloud, -step, step);
+    wx.rain += BB.clamp(tg[1] - wx.rain, -step * 1.3, step * 1.3);
+    wx.storm += BB.clamp(tg[2] - wx.storm, -step, step);
+    wx.wet += wx.rain > 0.15 ? Math.min(1 - wx.wet, dt * 0.1) : -Math.min(wx.wet, dt * 0.02);
+    // a rainbow after the rain (sometimes), opposite the sun, by day
+    if (wx.rain > 0.5) wx.wasWet = true;
+    if (wx.wasWet && wx.rain < 0.08 && (wx.kind === 'sunny' || wx.kind === 'cloudy')) { wx.wasWet = false; if (Math.random() < 0.65) wx.bowT = 45; }
+    wx.bowT = Math.max(0, wx.bowT - dt);
+    const bowWant = wx.bowT > 0 && W.sky.night < 0.3 ? 0.55 : 0;
+    wx.bow += BB.clamp(bowWant - wx.bow, -dt * 0.05, dt * 0.08);
+    // storm: a soft flash now and then, and a gentle rumble a moment later
+    wx.flash = Math.max(0, wx.flash - dt * 4);
+    if (wx.storm > 0.6 && (wx.nextFlash -= dt) <= 0) { wx.flash = 1; wx.nextFlash = rr(8, 15); setTimeout(rumble, 700); }
+  }
+  function rumble() {
+    const A = BB.audio, ctx = A && A.ctx;
+    if (!ctx || ctx.state !== 'running' || A.mute || BB.held) return;
+    try {
+      const n = ctx.sampleRate * 2, buf = ctx.createBuffer(1, n, ctx.sampleRate), d = buf.getChannelData(0);
+      let v = 0; for (let i = 0; i < n; i++) { v = v * 0.97 + (Math.random() * 2 - 1) * 0.03; d[i] = v * 6; }
+      const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain(), t0 = ctx.currentTime;
+      f.type = 'lowpass'; f.frequency.value = 260; src.buffer = buf;
+      g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(0.09, t0 + 0.4); g.gain.exponentialRampToValueAtTime(0.001, t0 + 1.9);
+      src.connect(f); f.connect(g); g.connect(A.sfxBus || ctx.destination); src.start(t0); src.stop(t0 + 2);
+    } catch (e) { /* no sound */ }
+  }
+  // After applySky(phase): grey the sky and dim the light with the clouds, rain, flashes; wet roads and puddles.
+  const _grey = new THREE.Color();
+  function weatherSky() {
+    const c = wx.cloud, nightK = W.sky.night;
+    _grey.set('#a7aeb8').multiplyScalar(0.3 + 0.7 * (1 - nightK));
+    for (const u of [skyU.top.value, skyU.mid.value, skyU.hor.value]) u.lerp(_grey, c * 0.72);
+    skyU.sunAmt.value *= 1 - c * 0.85; skyU.starAmt.value *= 1 - c; skyU.moonAmt.value *= 1 - c * 0.7; skyU.glowAmt.value *= 1 - c * 0.7;
+    if (amb) { amb.intensity *= 1 - 0.16 * c; sun.intensity *= 1 - 0.55 * c; }
+    if (wx.flash > 0) { const f = wx.flash * wx.flash; if (amb) amb.intensity += 0.45 * f; for (const u of [skyU.top.value, skyU.mid.value, skyU.hor.value]) u.lerp(_c1.set('#eef0ff'), 0.35 * f); }
+    if (W.scene && W.scene.fog) { W.scene.fog.color.copy(skyU.hor.value); W.scene.fog.near = Math.max(30, W.scene.fog.near - 45 * wx.rain); W.scene.fog.far -= 100 * wx.rain; }
+    if (cloudMat) { cloudMat.color.lerp(_grey, c * 0.6); cloudMat.opacity = 0.94; }
+    if (clouds) clouds.scale.set(1 + 0.35 * c, 1 + 0.6 * c, 1 + 0.35 * c);
+    if (roadMat) roadMat.color.setScalar(1 - 0.24 * wx.wet);
+    if (puddles) { puddles.visible = wx.wet > 0.03; puddles.material.opacity = 0.5 * wx.wet; }
+    if (rain) { rain.visible = wx.rain > 0.02; rain.material.uniforms.uAmount.value = wx.rain; rain.material.uniforms.uDark.value = nightK; }
+    if (rainbow) { rainbow.visible = wx.bow > 0.01; rainbow.material.opacity = wx.bow; }
+    W.sky.lights = Math.max(W.sky.lights, wx.storm * 0.8);        // headlights and lamps on in a storm
+    if (winMat && wx.storm > 0) winMat.emissive.set('#ffbf52').multiplyScalar(0.95 * W.sky.lights);
+    if (lampMat) lerpCol(lampMat.color, '#e9e4da', '#fff1b0', W.sky.lights);
+    if (poolMat) { poolMat.opacity = 0.55 * W.sky.lights; pools.visible = W.sky.lights > 0.02; }
+  }
+  // Rain: one LineSegments draw call; the streaks live in a box that wraps round the camera in the vertex shader.
+  function buildRain() {
+    const N = 1400, pos = new Float32Array(N * 6), end = new Float32Array(N * 2), rnd2 = new Float32Array(N * 2);
+    for (let i = 0; i < N; i++) {
+      const x = Math.random() * 70, y = Math.random() * 34, z = Math.random() * 70, r0 = Math.random();
+      pos.set([x, y, z, x, y, z], i * 6); end.set([0, 1], i * 2); rnd2.set([r0, r0], i * 2);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('aEnd', new THREE.BufferAttribute(end, 1)); geo.setAttribute('aR', new THREE.BufferAttribute(rnd2, 1));
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { uTime: { value: 0 }, uCam: { value: new THREE.Vector3() }, uAmount: { value: 0 }, uDark: { value: 0 } },
+      transparent: true, depthWrite: false, fog: false,
+      vertexShader: `uniform float uTime, uAmount; uniform vec3 uCam; attribute float aEnd, aR; varying float vA;
+        void main() {
+          vec3 p = position;
+          float y = mod(p.y - uTime * 24.0 * (0.8 + 0.4 * aR), 34.0);
+          vec3 w = vec3(uCam.x + mod(p.x - uCam.x, 70.0) - 35.0, uCam.y - 16.0 + y, uCam.z + mod(p.z - uCam.z, 70.0) - 35.0);
+          w += vec3(0.25, 1.3, 0.1) * aEnd;
+          vA = aR < uAmount ? 0.55 : 0.0;
+          gl_Position = projectionMatrix * viewMatrix * vec4(w, 1.0);
+          if (aR >= uAmount) gl_Position = vec4(0.0, 0.0, -2.0, 1.0);
+        }`,
+      fragmentShader: `uniform float uDark; varying float vA; void main() { gl_FragColor = vec4(mix(vec3(0.86, 0.92, 1.0), vec3(0.6, 0.66, 0.85), uDark), vA); }`,
+    });
+    const m = new THREE.LineSegments(geo, mat); m.frustumCulled = false; m.visible = false; m.name = 'rain'; m.renderOrder = 4;
+    return m;
+  }
+  // Puddles: soft sheens on the roads, shown while wet.
+  function buildPuddles() {
+    const b = BB.mk.builder();
+    for (const e of W.roads.edges) for (let s = RH + 4; s < e.length - RH - 4; s += rr(9, 15)) {
+      const p = W.pointAt(e, s), off = rpick([-1, 1]) * rr(1, RH - 1.5);
+      b.disc(rr(0.9, 1.8), 9, rpick(['#b9cde0', '#a9c0d8', '#c7d8e8']), p.x + p.dz * off, ROAD_Y + 0.015, p.z - p.dx * off, rr(1, 2.2), rr(0.6, 1));
+    }
+    const m = new THREE.Mesh(b.geometry(), new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 }));
+    m.name = 'puddles'; m.visible = false; m.renderOrder = 1;
+    return m;
+  }
+  // A rainbow: seven soft bands on a half ring, far away opposite the sun; it follows the camera like the sky.
+  function buildRainbow() {
+    const geo = new THREE.RingGeometry(150, 175, 48, 7, 0, Math.PI), cols = ['#b58cff', '#6f8fff', '#5fc6ff', '#7ddc7a', '#ffe066', '#ffab4a', '#ff6b6b'];
+    const pos = geo.attributes.position, col = [], c = new THREE.Color();
+    for (let i = 0; i < pos.count; i++) { const rr0 = Math.hypot(pos.getX(i), pos.getY(i)); c.set(cols[Math.min(6, Math.floor((rr0 - 150) / 25 * 7))]); col.push(c.r, c.g, c.b); }
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+    m.name = 'rainbow'; m.visible = false; m.renderOrder = -9; m.frustumCulled = false;
+    return m;
+  }
   W.night = () => W.sky.lights;
 
   // ---------- roads ----------
@@ -429,10 +593,14 @@
     out.push(W.pointAt(e, s1));
     return out.map((p) => ({ x: p.x, z: p.z }));
   }
-  function zebra(b, from, to, s) {
-    const e = W.edgeBetween(from, to), d = e.a === from ? s : e.length - s, p = W.pointAt(e, d);
+  function zebra(b, from, to) {
+    const e = W.edgeBetween(from, to), st = W.stops.concat([W.depot]).find((q) => q.edge === e.id);
+    const s0 = RH + 4, s1 = e.length - RH - 4;
+    let d = s0;
+    if (st) { const bay = W.bayOf(st), bp = (bay.x - e.points[0].x) * (e.points[e.points.length - 1].x - e.points[0].x) + (bay.z - e.points[0].z) * (e.points[e.points.length - 1].z - e.points[0].z); d = bp / e.length > e.length / 2 ? s0 : s1; }
+    const p = W.pointAt(e, d);
     b.at(p.x, ROAD_Y + 0.012, p.z, W.headingOf(p.dx, p.dz), (q) => {
-      for (let k = -4; k <= 4; k++) q.box(0.62, 0.02, 3.2, '#fffaf0', k * 1.08, 0, 0);
+      for (let k = -8; k <= 8; k++) q.box(0.62, 0.02, 3.2, '#fffaf0', k * 1.06, 0, 0);
     });
   }
   function buildRoads(b) {
@@ -440,24 +608,26 @@
     for (const n of W.roads.nodes) b.box(RH * 2, 0.01, RH * 2, P.road, n.x, ROAD_Y - 0.005, n.z);
     for (const e of W.roads.edges) {
       const inner = subPts(e, RH + 0.4, e.length - RH - 0.4);
-      b.strip(inner, RH - 0.75, RH - 0.5, ROAD_Y + 0.008, '#efe6d2');
+      b.strip(inner, RH - 0.75, RH - 0.5, ROAD_Y + 0.008, '#efe6d2');                 // solid edge lines
       b.strip(inner, -RH + 0.5, -RH + 0.75, ROAD_Y + 0.008, '#efe6d2');
+      for (let s = RH + 2; s < e.length - RH - 2; s += 5.5) {                          // dashed lane dividers
+        const p = W.pointAt(e, s + 1.3), hh = W.headingOf(p.dx, p.dz);
+        for (const sd of [1, -1]) b.box(0.24, 0.02, 2.4, P.roadLine, p.x + p.dz * sd * C.laneDivider, ROAD_Y, p.z - p.dx * sd * C.laneDivider, hh);
+      }
       const underViaduct = Math.abs(e.points[0].z - VIADUCT_Z) < 1 && Math.abs(e.points[e.points.length - 1].z - VIADUCT_Z) < 1;
       if (underViaduct) {                                    // planted median strip instead of dashes
-        const a = W.pointAt(e, 9), z = W.pointAt(e, e.length - 9);
+        const a = W.pointAt(e, RH + 4), z = W.pointAt(e, e.length - RH - 4);
         const len = Math.abs(z.x - a.x), cx = (a.x + z.x) / 2;
         b.box(len, 0.3, 1.4, P.kerb, cx, 0, a.z);
         b.box(len - 0.4, 0.12, 1.0, P.grassDark, cx, 0.3, a.z);
         for (let x = cx - len / 2 + 2; x < cx + len / 2 - 1; x += 3) b.ball(0.5, rnd() < 0.5 ? '#ff7fb0' : '#5aa848', x, 0.55, a.z, 0, 1, 0.7, 1);
         continue;
       }
-      for (let s = 9; s < e.length - 9; s += 6) {
-        const p = W.pointAt(e, s + 1.3);
-        b.box(0.28, 0.02, 2.6, P.roadLine, p.x, ROAD_Y, p.z, W.headingOf(p.dx, p.dz));
-      }
+      const mid = subPts(e, RH + 0.4, e.length - RH - 0.4);                            // double centre line
+      b.strip(mid, 0.12, 0.3, ROAD_Y + 0.008, '#f3d27a'); b.strip(mid, -0.3, -0.12, ROAD_Y + 0.008, '#f3d27a');
     }
     // zebra crossings near the hawker centre, the playground, the shops, the park and the MRT station
-    zebra(b, 'n10', 'n20', 10); zebra(b, 'n13', 'n23', 10); zebra(b, 'n01', 'n02', 36); zebra(b, 'n21', 'n22', 36); zebra(b, 'n11', 'n12', 36);
+    zebra(b, 'n10', 'n20'); zebra(b, 'n13', 'n23'); zebra(b, 'n01', 'n02'); zebra(b, 'n21', 'n22'); zebra(b, 'n11', 'n12');
     for (const st of W.stops.concat([W.depot])) {
       const bay = W.bayOf(st), col = st.id === 'depot' ? P.teal : P.honey, L = bay.len / 2;
       b.at(bay.x, ROAD_Y + 0.01, bay.z, bay.heading, (q) => {   // a yellow box outline on the road: the bus bay
@@ -566,8 +736,8 @@
   function tree(b, x, z, y0 = 0.27, kind, s = 1) {
     kind = kind || (rnd() < 0.55 ? 'rain' : rnd() < 0.8 ? 'round' : 'flame');
     const col = rpick(TREE_GREENS);
-    if (inCamSpot(x, z)) return;              // keep the stop and garage camera views clear
-    if (Math.hypot(x, z) < 160) W.addCircle(x, z, 0.9 * s);
+    if (inCamSpot(x + FRAME.x, z + FRAME.z)) return;   // keep the stop and garage camera views clear
+    if (Math.hypot(x + FRAME.x, z + FRAME.z) < 200) W.addCircle(x, z, 0.9 * s);
     b.disc(2.6 * s, 7, P.grassDark, x + 0.6, y0 + 0.02, z + 0.5, 1, 0.8);       // soft shadow patch
     if (TREES) b = TREES;                     // trees go in their own mesh: hidden whole when they block the view
     const p0 = propStart(b);
@@ -588,7 +758,7 @@
       b.ball(2.1 * s, col, x, y0 + 3.9 * s, z, 0, 1, 1.1, 1);
       b.ball(1.1 * s, light(col, 0.2), x - 0.7 * s, y0 + 4.6 * s, z - 0.6 * s, 0);
     }
-    propEnd(b, p0, x, z, kind === 'rain' ? 4.3 * s : kind === 'flame' ? 3.6 * s : kind === 'palm' ? 3 * s : 2.4 * s);
+    propEnd(b, p0, x + FRAME.x, z + FRAME.z, kind === 'rain' ? 4.3 * s : kind === 'flame' ? 3.6 * s : kind === 'palm' ? 3 * s : 2.4 * s);
   }
   W.tree = tree;
   // Where the resting cameras stand (each stop's view, the garage views): no trees or lamp posts there.
@@ -596,9 +766,8 @@
     const out = [];
     for (const st of W.stops.concat([W.depot])) {
       const bay = W.bayOf(st), f = bay.fwd, k = bay.side, fcx = bay.x + f.x * 3.5, fcz = bay.z + f.z * 3.5;
-      out.push([fcx + f.x * 6 - k.x * 15, fcz + f.z * 6 - k.z * 15, 7]);
-      out.push([fcx + f.x * 3 - k.x * 9, fcz + f.z * 3 - k.z * 9, 4]);              // between it and the bus
-      if (st.id === 'depot') { out.push([bay.x - k.x * 21, bay.z - k.z * 21, 8], [bay.x - k.x * 12, bay.z - k.z * 12, 5], [fcx + f.x * 11 - k.x * 4.5, fcz + f.z * 11 - k.z * 4.5, 5]); }
+      out.push([fcx - k.x * 13, fcz - k.z * 13, 7], [fcx - k.x * 7, fcz - k.z * 7, 4]);   // the stop view (high, road side)
+      if (st.id === 'depot') { out.push([bay.x - k.x * 28, bay.z - k.z * 28, 9], [bay.x - k.x * 16, bay.z - k.z * 16, 6], [fcx + f.x * 11 - k.x * 4.5, fcz + f.z * 11 - k.z * 4.5, 5], [fcx - k.x * 11, fcz - k.z * 11, 5]); }
     }
     return out;
   })();
@@ -623,17 +792,17 @@
         const p = W.pointAt(e, s);
         for (const side of [1, -1]) {
           const x = p.x + p.dz * side * (RH + 1.3), z = p.z - p.dx * side * (RH + 1.3);
-          if (Math.abs(z - VIADUCT_Z) < 9 && Math.abs(x) < 170) continue;
+          if (Math.abs(z - VIADUCT_Z) < RH + 4 && Math.abs(x) < 210) continue;
           if (inDepotYard(x, z)) continue;
           if (!clearOfRoads(x, z, RH + 1)) continue;
           if (W.stops.concat([W.depot]).some((st) => Math.hypot(st.pos.x - x, st.pos.z - z) < 9)) continue;
-          if (x < -50 && x > -60 && Math.abs(z) < 20) continue;               // keep the shophouse fronts clear
+          if (x < -S - 2 && x > -S - 20 && Math.abs(z) < 20) continue;      // keep the shophouse fronts clear
           tree(b, x, z, Math.hypot(x, z) > 74 ? 0.2 : 0.27, 'round', 0.8);
         }
       }
     }
   }
-  const inDepotYard = (x, z) => x > 27 && x < 50 && z > 27 && z < 55;
+  const inDepotYard = (x, z) => x > S / 2 + RH - 2 && x < DEPOT_X + 10 && z > S / 2 + RH - 2 && z < W.depot.pos.z + 16;
 
   // ---------- little people (static, merged): on void decks, at the hawker centre, in the park ----------
   const SKINS = ['#f1c7a0', '#d9a679', '#a8714a', '#f5d3b5', '#7a4b2e'], HAIRS = ['#3a2a2c', '#6b4a2e', '#1f1b22', '#b5793e', '#d8d0c8'];
@@ -782,15 +951,15 @@
   const ESTATES = [];        // footprints of the outer blocks (for keeping trees off them)
   function buildHDBs(b) {
     // corner blocks inside the loop's curves
-    hdb(b, -45, -45, -Math.PI / 4, 18, 8, 9, 0, { people: 3, roof: 'flat' });
-    tower(b, 43, -43, 0, 10, 12, 1);
-    bayBlock(b, -45, 45, Math.PI / 4, 18, 8, 10, 2);
+    hdb(b, -45 * K, -45 * K, -Math.PI / 4, 20, 8, 9, 0, { people: 3, roof: 'flat' });
+    tower(b, 43 * K, -43 * K, 0, 11, 12, 1);
+    bayBlock(b, -45 * K, 45 * K, Math.PI / 4, 20, 8, 10, 2);
     // outside the loop: a ring of estates in a mix of block types and colour schemes
     const spots = [];
     for (const side of [-1, 1]) {
-      for (const k of [-60, -10, 40]) spots.push([k + 8, side * 100, 0]);          // north and south rows
-      for (const k of [-58, 52]) spots.push([side * 100, k, Math.PI / 2]);         // west and east (clear of the viaduct)
-      spots.push([side * 128, 8, Math.PI / 2]);
+      for (const k of [-60, -10, 40]) spots.push([(k + 8) * K, side * 100 * K, 0]);   // north and south rows
+      for (const k of [-58, 52]) spots.push([side * 100 * K, k * K, Math.PI / 2]);   // west and east (clear of the viaduct)
+      spots.push([side * 128 * K, 8 * K, Math.PI / 2]);
     }
     let si = 3;
     for (const [x, z, ry] of spots) {
@@ -800,10 +969,10 @@
       else hdb(b, x, z, ry, rr(24, 30), 8, Math.round(rr(9, 14)), sc);
       ESTATES.push([x, z]);
     }
-    for (const [x, z] of [[100, 100], [-100, 100], [100, -100], [-100, -100]]) { tower(b, x, z, Math.PI / 4, 11, Math.round(rr(12, 16)), si++); ESTATES.push([x, z]); }
+    for (const [x, z] of [[100 * K, 100 * K], [-100 * K, 100 * K], [100 * K, -100 * K], [-100 * K, -100 * K]]) { tower(b, x, z, Math.PI / 4, 11, Math.round(rr(12, 16)), si++); ESTATES.push([x, z]); }
     // further out: a few taller blocks fading into the haze (simpler windows)
     for (let k = 0; k < 14; k++) {
-      const a = k / 14 * Math.PI * 2 + 0.2, r = rr(165, 200);
+      const a = k / 14 * Math.PI * 2 + 0.2, r = rr(165, 200) * K;
       const x = Math.cos(a) * r, z = Math.sin(a) * r;
       if (Math.abs(z - VIADUCT_Z) < 14) continue;
       if (rnd() < 0.3) tower(b, x, z, -a, 12, Math.round(rr(15, 20)), si++, { far: true });
@@ -813,16 +982,18 @@
 
   // ---------- landmarks ----------
   const SIGNS = [];          // extra picture boards on landmarks: {pic, x, y, z, nx, nz, size, ring}
+  const sign = (s) => SIGNS.push(Object.assign({}, s, { x: s.x + FRAME.x, z: s.z + FRAME.z }));
   function buildLandmarks(b, green) {
-    hawkerCentre(b, green);
-    shophouses(b, green);
+    const all = [b, green, WIN, TREES], d = 46 * (K - 1);   // each group moves out with its (bigger) block
+    shifted(all, 0, -d, () => hawkerCentre(b, green));
+    shifted(all, -d, 0, () => shophouses(b, green));
     park(b, green);
-    playground(b, green);
-    mrtEntrance(b, green);
+    shifted(all, 0, d, () => playground(b, green));
+    shifted(all, d, 0, () => mrtEntrance(b, green));
     depotShed(b, green);
     // Scattered trees and a few palms outside the loop and in the corner blocks.
     for (let k = 0; k < 110; k++) {
-      const a = rnd() * Math.PI * 2, r = rr(80, 190);
+      const a = rnd() * Math.PI * 2, r = rr(80, 190) * K;
       const x = Math.cos(a) * r, z = Math.sin(a) * r;
       if (!clearOfRoads(x, z, RH + 4)) continue;
       if (nearRing(x, z, 3)) continue;
@@ -830,7 +1001,7 @@
       if (nearBuilding(x, z)) continue;
       tree(green, x, z, 0, rnd() < 0.15 ? 'palm' : null, rr(0.9, 1.3));
     }
-    for (const [x, z] of [[-34, -56], [-56, -32], [56, -32], [34, -58], [-56, 32], [-34, 56], [56, 34]]) tree(green, x, z, 0.27, null, 1);
+    for (const [x, z] of [[-34, -56], [-56, -32], [56, -32], [34, -58], [-56, 32], [-34, 56], [56, 34]]) tree(green, x * K, z * K, 0.27, null, 1);
   }
   function nearBuilding(x, z) {
     for (const [bx0, bz0] of ESTATES) if (Math.abs(x - bx0) < 19 && Math.abs(z - bz0) < 19) return true;
@@ -886,7 +1057,7 @@
         if (i % 2 === 0) figure(q, x + 1.3, 0.12, z + 0.4, -Math.PI / 2 - 0.3, true, 0.95);
       }
     });
-    SIGNS.push({ pic: 'bowl', x: 0, y: 0.25 + 12.3, z: -46, nx: 0, nz: -1, size: 3.4, ring: P.coral });
+    sign({ pic: 'bowl', x: 0, y: 0.25 + 12.3, z: -46, nx: 0, nz: -1, size: 3.4, ring: P.coral });
     tree(green, -16, -34, 0.27, 'rain'); tree(green, 15, -34, 0.27, 'flame');
   }
 
@@ -1037,7 +1208,7 @@
       q.box(0.25, 3.6, 0.25, '#7f8a96', 8.6, 0.12, 3.2);
       for (let k = 0; k < 5; k++) q.box(2.2, 0.2, 0.8, '#d8cfc2', -9.6, 0.12 + k * 0.2, 2 - k * 0.6);   // steps
     });
-    SIGNS.push({ pic: 'train', x: 54.6, y: 0.25 + 4.6, z: -8.8, nx: -0.7, nz: 0.7, size: 2.2, ring: P.teal });
+    sign({ pic: 'train', x: 54.6, y: 0.25 + 4.6, z: -8.8, nx: -0.7, nz: 0.7, size: 2.2, ring: P.teal });
     for (const [x, z] of [[34, 8], [58, 8], [46, 12]]) tree(green, x, z, 0.27, 'rain', 0.9);
     figure(b, 41, 0.37, -7.5, 0.3, false); figure(b, 49, 0.37, -6.6, -2.6, false);
   }
@@ -1091,19 +1262,19 @@
 
   // ---------- MRT viaduct over the middle road (generic: cream concrete, no operator branding) ----------
   function buildViaduct(b, green) {
-    const z = VIADUCT_Z, len = 340;
+    const z = VIADUCT_Z, len = 420;
     b.box(len, 1.4, 6, '#ece3d6', 0, DECK_Y, z);
     b.box(len, 0.3, 6.4, '#d8cfc2', 0, DECK_Y - 0.1, z);
     b.box(len, 0.9, 0.4, '#e3dacd', 0, DECK_Y + 1.4, z - 2.9); b.box(len, 0.9, 0.4, '#e3dacd', 0, DECK_Y + 1.4, z + 2.9);
     b.box(len, 0.25, 0.25, '#a59a90', 0, DECK_Y + 1.4, z - 0.8); b.box(len, 0.25, 0.25, '#a59a90', 0, DECK_Y + 1.4, z + 0.8);
     // flower boxes along the parapets (pink bougainvillea)
-    for (let x = -168; x <= 168; x += 8) for (const s of [-1, 1]) {
-      if (Math.abs(x - 46) < 18) continue;
+    for (let x = -204; x <= 204; x += 8) for (const s of [-1, 1]) {
+      if (Math.abs(x - S) < 18) continue;
       green.box(3.2, 0.6, 0.7, '#5aa848', x, DECK_Y + 0.6, z + s * 3.35);
       green.ball(0.55, (x / 6) % 2 ? '#ff7fb0' : '#ff9fc6', x - 0.7, DECK_Y + 1.15, z + s * 3.4, 0, 1.3, 0.6, 0.8);
       green.ball(0.5, '#ff6fa6', x + 0.8, DECK_Y + 1.1, z + s * 3.4, 0, 1.2, 0.6, 0.8);
     }
-    for (const x of [-160, -125, -96, -46, 0, 46, 96, 125, 160]) {
+    for (const x of [-196, -152, -2 * S, -S, 0, S, 2 * S, 152, 196]) {
       W.addCircle(x, z, 0.95);
       b.cyl(0.95, 1.05, DECK_Y - 1.2, 8, '#e3dacd', x, 0, z);
       b.box(2.4, 0.8, 2.4, '#d8cfc2', x, 0, z);
@@ -1111,18 +1282,18 @@
       b.prism(2.4, 6.8, 0.01, '#e3dacd', x, DECK_Y - 1.3, z, Math.PI / 2);
     }
     // the elevated station (over the east part of the middle road): platforms, glass sides, a curved roof
-    b.box(32, 0.6, 13, '#ece3d6', 46, DECK_Y + 1.4, z);
-    b.box(32, 0.4, 2.2, P.honey, 46, DECK_Y + 2.0, z - 5.2); b.box(32, 0.4, 2.2, P.honey, 46, DECK_Y + 2.0, z + 5.2);
+    b.box(32, 0.6, 13, '#ece3d6', S, DECK_Y + 1.4, z);
+    b.box(32, 0.4, 2.2, P.honey, S, DECK_Y + 2.0, z - 5.2); b.box(32, 0.4, 2.2, P.honey, S, DECK_Y + 2.0, z + 5.2);
     for (const zz of [z - 6.3, z + 6.3]) {
-      b.box(32, 1.2, 0.2, light(P.teal, 0.55), 46, DECK_Y + 2.0, zz);
-      for (let x = 31; x <= 61; x += 5) b.box(0.4, 5.4, 0.4, '#e9e2d6', x, DECK_Y + 2, zz);
+      b.box(32, 1.2, 0.2, light(P.teal, 0.55), S, DECK_Y + 2.0, zz);
+      for (let x = S - 15; x <= S + 15; x += 5) b.box(0.4, 5.4, 0.4, '#e9e2d6', x, DECK_Y + 2, zz);
     }
     const roof = new THREE.CylinderGeometry(7.6, 7.6, 34, 10, 1, true, 0, Math.PI);
-    b.add(roof, P.teal, 46, DECK_Y + 7.2, z, 0, 0, Math.PI / 2, 0.42, 1, 1);
-    b.add(roof, '#16928a', 46, DECK_Y + 7.2, z, 0, 0, Math.PI / 2, 0.42, 1, -1);           // its inside (seen from below)
-    b.box(34, 0.4, 0.4, '#e9e2d6', 46, DECK_Y + 7.0, z - 7.4); b.box(34, 0.4, 0.4, '#e9e2d6', 46, DECK_Y + 7.0, z + 7.4);
-    SIGNS.push({ pic: 'train', x: 46, y: DECK_Y + 5.2, z: z + 6.45, nx: 0, nz: 1, size: 2.4, ring: P.teal });
-    SIGNS.push({ pic: 'train', x: 46, y: DECK_Y + 5.2, z: z - 6.45, nx: 0, nz: -1, size: 2.4, ring: P.teal });
+    b.add(roof, P.teal, S, DECK_Y + 7.2, z, 0, 0, Math.PI / 2, 0.42, 1, 1);
+    b.add(roof, '#16928a', S, DECK_Y + 7.2, z, 0, 0, Math.PI / 2, 0.42, 1, -1);           // its inside (seen from below)
+    b.box(34, 0.4, 0.4, '#e9e2d6', S, DECK_Y + 7.0, z - 7.4); b.box(34, 0.4, 0.4, '#e9e2d6', S, DECK_Y + 7.0, z + 7.4);
+    SIGNS.push({ pic: 'train', x: S, y: DECK_Y + 5.2, z: z + 6.45, nx: 0, nz: 1, size: 2.4, ring: P.teal });
+    SIGNS.push({ pic: 'train', x: S, y: DECK_Y + 5.2, z: z - 6.45, nx: 0, nz: -1, size: 2.4, ring: P.teal });
   }
   // A generic three-car train: cream with a coral stripe, a rounded nose with a friendly face at each end.
   function buildTrain() {
@@ -1358,7 +1529,7 @@
   }
 
   // ---------- per frame ----------
-  let clock = 0;
+  let clock = 0, skyTimer = 0;
   W.update = function (dt) {
     if (!W.built) return;
     const Bs = BB.bus;
@@ -1367,22 +1538,31 @@
       fadeU.uBus.value.set((Bs.front.position.x + Bs.rear.position.x) / 2, 1.8, (Bs.front.position.z + Bs.rear.position.z) / 2);
     }
     clock += dt;
-    // the sky eases toward its target share (set by main.js from the hub's time messages)
+    // the day clock and the weather (the colour table, then the weather mixed in) - repainted a few times a second
     const sk = W.sky;
-    if (Math.abs(sk.target - sk.share) > 0.0005) {
-      sk.share += BB.clamp(sk.target - sk.share, -dt * 0.25, dt * 0.25);
-      applySky(sk.share);
+    updateDay(dt); updateWeather(dt);
+    skyTimer -= dt;
+    if (dayDirty && skyTimer <= 0 || wx.flash > 0 || skyTimer < -0.25) {
+      skyTimer = 0.12; dayDirty = false;
+      const ph = phaseOf(W.day.t); W.day.rising = W.day.t > 0.92 || W.day.t < 0.1; sk.share = ph;
+      applySky(ph); weatherSky();
     }
     skyU.time.value = clock;
     if (sky && BB.camera) sky.position.copy(BB.camera.position);
+    if (rain && rain.visible && BB.camera) { rain.material.uniforms.uTime.value = clock; rain.material.uniforms.uCam.value.copy(BB.camera.position); }
+    if (rainbow && rainbow.visible && BB.camera) {
+      const sd = skyU.sunDir.value, l = Math.hypot(sd.x, sd.z) || 1, cp = BB.camera.position;
+      rainbow.position.set(cp.x - sd.x / l * 300, -30, cp.z - sd.z / l * 300);
+      rainbow.lookAt(cp.x, -30, cp.z);
+    }
     if (clouds) clouds.rotation.y += dt * 0.004;
     if (train) {                           // glides back and forth, pausing at the station
       if (trainWait > 0) trainWait -= dt;
       else {
         const before = trainX;
         trainX += trainDir * 15 * dt;
-        if ((before - 46) * (trainX - 46) <= 0 && before !== 46) { trainX = 46; trainWait = 3; }
-        if (trainX > 175) { trainDir = -1; } else if (trainX < -175) { trainDir = 1; }
+        if ((before - S) * (trainX - S) <= 0 && before !== S) { trainX = S; trainWait = 3; }
+        if (trainX > 205) { trainDir = -1; } else if (trainX < -205) { trainDir = 1; }
       }
       train.position.x = trainX;
     }

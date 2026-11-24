@@ -20,10 +20,9 @@
   .bbu-cash b { font-size: 30px; min-width: 1.2em; }
   .bbu-cash.bump { animation: bbu-bump .5s; }
   @keyframes bbu-bump { 40% { transform: scale(1.18); } }
-  .bbu-fuel .bar { width: 96px; height: 20px; border-radius: 12px; background: #eadfca; overflow: hidden; display: flex; gap: 3px; padding: 2px; box-sizing: border-box; }
-  .bbu-fuel .bar i { flex: 1; border-radius: 6px; background: #5cb85c; }
-  .bbu-fuel .bar i.off { background: transparent; }
-  .bbu-fuel.low .bar i { background: #ff9a3c; } .bbu-fuel.low { animation: bbu-bump 1.2s infinite; }
+  /* the fuel gauge: a little dashboard dial (canvas) */
+  .bbu-fuel { padding: 0 8px; height: 68px; cursor: pointer; }
+  .bbu-fuel canvas { width: 120px; height: 60px; display: block; }
   .bbu-job { margin: 0 auto; pointer-events: auto; display: flex; align-items: center; gap: 8px; padding-right: 16px; }
   .bbu-job canvas { width: 46px; height: 46px; }
   .bbu-job .dots { display: flex; gap: 6px; }
@@ -65,22 +64,26 @@
     text-shadow: 0 3px 0 rgba(0,0,0,.25); animation: bbu-zzz 3s ease-out infinite 1.5s; }
   @keyframes bbu-zzz { 0% { opacity: 0; transform: translate(0, 10px) scale(.6); } 30% { opacity: 1; } 100% { opacity: 0; transform: translate(40px, -60px) scale(1.2); } }
   /* driving controls: hold-buttons, several at once (steer + GO). Steering bottom-left, pedals bottom-right. */
-  .bbu-ctl { position: absolute; border: none; padding: 0; pointer-events: auto; cursor: pointer; touch-action: none;
-    display: flex; align-items: center; justify-content: center; -webkit-user-select: none; user-select: none; transition: transform .06s; }
-  .bbu-ctl svg { width: 58%; height: 58%; pointer-events: none; }
-  .bbu-steer { bottom: var(--sb); width: 100px; height: 100px; border-radius: 30px; background: #fff6e0; border: 4px solid #d9b57f;
-    box-shadow: inset -4px -5px 0 rgba(217,181,127,.45), 0 6px 0 rgba(120,80,40,.22); }
-  .bbu-steer.l { left: calc(var(--sl) + 6px); } .bbu-steer.r { left: calc(var(--sl) + 6px + 100px + 14px); }
-  .bbu-steer.down { transform: translateY(5px) scale(.96); background: #c9f2e4; border-color: #19a79b; box-shadow: inset -4px -5px 0 rgba(25,167,155,.25), 0 1px 0 rgba(120,80,40,.22); }
-  .bbu-go { right: calc(var(--sr) + 6px); bottom: var(--sb); width: 136px; height: 136px; border-radius: 50%;
-    background: radial-gradient(circle at 40% 35%, #7ad86f, #3fae49 60%, #2f8f3a); box-shadow: 0 8px 0 #24702d, 0 10px 18px rgba(0,0,0,.18); }
-  .bbu-go.down { transform: translateY(6px) scale(.97); box-shadow: 0 2px 0 #24702d; }
-  .bbu-go.nudge { animation: bbu-nudge 1.4s ease-in-out infinite; }
-  @keyframes bbu-nudge { 50% { box-shadow: 0 8px 0 #24702d, 0 0 0 14px rgba(255,212,92,.6); } }
-  .bbu-back { right: calc(var(--sr) + 6px + 136px + 14px); bottom: var(--sb); width: 84px; height: 84px; border-radius: 50%;
-    background: radial-gradient(circle at 40% 35%, #ffd27a, #f5a23d 60%, #d98226); box-shadow: 0 6px 0 #a8601a, 0 8px 14px rgba(0,0,0,.15); }
-  .bbu-back.down { transform: translateY(5px) scale(.96); box-shadow: 0 1px 0 #a8601a; }
-  .bbu-horn { position: absolute; left: calc(var(--sl) + 6px); bottom: calc(var(--sb) + 100px + 14px); width: 64px; height: 64px; font-size: 32px; }
+  /* one-thumb joystick (bottom-right; .lefty puts it bottom-left), horn on the other side, lane-helper toggle beside it */
+  .bbu-joy { position: absolute; bottom: var(--sb); right: calc(var(--sr) + 6px); width: 176px; height: 176px; border-radius: 50%;
+    pointer-events: auto; touch-action: none; box-sizing: border-box; border: 4px solid #d9b57f;
+    background: radial-gradient(circle at 45% 40%, #fffdf6, #fff6e0 55%, #f1dfb8);
+    box-shadow: inset -6px -8px 0 rgba(217,181,127,.4), 0 6px 0 rgba(120,80,40,.2), 0 8px 18px rgba(0,0,0,.12); }
+  .bbu-joy > svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .bbu-knob { position: absolute; left: 50%; top: 50%; width: 46%; height: 46%; margin: -23% 0 0 -23%; border-radius: 50%; pointer-events: none;
+    background: radial-gradient(circle at 40% 35%, #7ad86f, #3fae49 60%, #2f8f3a); box-shadow: 0 6px 0 #24702d, 0 8px 12px rgba(0,0,0,.18);
+    transition: transform .28s cubic-bezier(.3,1.7,.5,1); }
+  .bbu-knob::after { content: ''; position: absolute; left: 22%; top: 16%; width: 30%; height: 20%; border-radius: 50%; background: rgba(255,255,255,.45); transform: rotate(-25deg); }
+  .bbu-joy.drag .bbu-knob { transition: none; }
+  .bbu-joy.nudge { animation: bbu-nudge 1.4s ease-in-out infinite; }
+  @keyframes bbu-nudge { 50% { box-shadow: inset -6px -8px 0 rgba(217,181,127,.4), 0 6px 0 rgba(120,80,40,.2), 0 0 0 14px rgba(255,212,92,.55); } }
+  .bbu-horn { position: absolute; left: calc(var(--sl) + 6px); bottom: var(--sb); width: 72px; height: 72px; font-size: 34px; }
+  .bbu-assist { position: absolute; right: calc(var(--sr) + 6px + 176px + 14px); bottom: var(--sb); width: 64px; height: 64px; padding: 0; }
+  .bbu-assist svg { width: 48px; height: 48px; } .bbu-assist .spk { opacity: 0; }
+  .bbu-assist.on { background: #c9f2e4; border-color: #19a79b; } .bbu-assist.on .spk { opacity: 1; }
+  .lefty .bbu-joy { right: auto; left: calc(var(--sl) + 6px); }
+  .lefty .bbu-horn { left: auto; right: calc(var(--sr) + 6px); }
+  .lefty .bbu-assist { right: auto; left: calc(var(--sl) + 6px + 176px + 14px); }
   .bbu-wobble { animation: bbu-wobble .35s ease-out; }
   @keyframes bbu-wobble { 25% { transform: translate(-5px, 2px); } 50% { transform: translate(4px, -2px); } 75% { transform: translate(-2px, 1px); } }
   @keyframes bbu-pop { from { transform: scale(.3); opacity: 0; } }
@@ -110,7 +113,7 @@
   .bbu-turn .phone .arc { animation: bbu-arc 2.4s ease-in-out infinite; }
   @keyframes bbu-arc { 0%, 15% { opacity: 1; } 55%, 100% { opacity: .25; } }
   /* turn-around button (bus:facingAway) */
-  .bbu-uturn { position: absolute; right: calc(var(--sr) + 6px + 26px); bottom: calc(var(--sb) + 136px + 18px); width: 84px; height: 84px; border-radius: 26px;
+  .bbu-uturn { position: absolute; right: calc(var(--sr) + 6px + 46px); bottom: calc(var(--sb) + 176px + 16px); width: 84px; height: 84px; border-radius: 26px;
     background: #fff6e0; border: 4px solid #d9b57f; padding: 0; pointer-events: auto; cursor: pointer; touch-action: manipulation; display: none;
     box-shadow: inset -4px -5px 0 rgba(217,181,127,.45), 0 6px 0 rgba(120,80,40,.22); animation: bbu-pop .3s cubic-bezier(.2,1.5,.5,1), bbu-glow 1s .3s infinite alternate; }
   .bbu-uturn.on { display: flex; align-items: center; justify-content: center; }
@@ -118,27 +121,30 @@
   .bbu-uturn.pressed { transform: translateY(4px); }
   @keyframes bbu-glow { to { box-shadow: inset -4px -5px 0 rgba(217,181,127,.45), 0 6px 0 rgba(120,80,40,.22), 0 0 0 9px rgba(255,212,92,.6); } }
   /* first-drive tips: bouncing arrows pointing at the GO pedal and the steering buttons */
-  .bbu-tip { position: absolute; width: 64px; height: 64px; pointer-events: none; animation: bbu-tipb .8s ease-in-out infinite; z-index: 3; }
-  .bbu-tip.go { right: calc(var(--sr) + 6px + 36px); bottom: calc(var(--sb) + 136px + 10px); }
-  .bbu-tip.steer { left: calc(var(--sl) + 6px + 75px); bottom: calc(var(--sb) + 100px + 8px); }
-  @keyframes bbu-tipb { 50% { transform: translateY(-14px); } }
+.lefty .bbu-uturn { right: auto; left: calc(var(--sl) + 6px + 46px); }
+  /* first-drive tip: a hand that drags the knob up */
+  .bbu-tip { position: absolute; width: 70px; height: 70px; pointer-events: none; z-index: 3; right: calc(var(--sr) + 6px + 60px); bottom: calc(var(--sb) + 40px);
+    animation: bbu-hand 1.8s ease-in-out infinite; }
+  .lefty .bbu-tip { right: auto; left: calc(var(--sl) + 6px + 60px); }
+  @keyframes bbu-hand { 0%, 15% { transform: translateY(0); opacity: 0; } 25% { opacity: 1; } 60%, 75% { transform: translateY(-52px); opacity: 1; } 100% { transform: translateY(-52px); opacity: 0; } }
   @media (orientation: portrait) { .bbu-turn.standalone { display: flex; } }
   /* narrower screens: the clock moves under the coins, the fuel gauge gets shorter */
-  @media (max-width: 1000px) { .bbu-fuel .bar { width: 70px; } }
   @media (max-width: 900px) {
     .bbu-top .bbu-clock { position: absolute; left: 0; top: 66px; height: 56px; font-size: 24px; }
     .bbu-top .bbu-clock svg { width: 30px; height: 30px; }
   }
-  @media (max-width: 720px) { .bbu-fuel .bar { width: 44px; } .bbu-job .dots { gap: 4px; } .bbu-job .dots i { width: 13px; height: 13px; } .bbu-top { gap: 7px; } .bbu-right { gap: 6px; } }
+  @media (max-width: 720px) { .bbu-job .dots { gap: 4px; } .bbu-job .dots i { width: 13px; height: 13px; } .bbu-top { gap: 7px; } .bbu-right { gap: 6px; } }
   @media (max-height: 520px) {
     .bbu-pill, .bbu-round { height: 56px; } .bbu-pill { padding-right: 10px; } .bbu-cash b { font-size: 24px; }
-    .bbu-go { width: 112px; height: 112px; } .bbu-back { width: 68px; height: 68px; right: calc(var(--sr) + 6px + 112px + 12px); }
-    .bbu-steer { width: 76px; height: 76px; border-radius: 24px; } .bbu-steer.r { left: calc(var(--sl) + 6px + 76px + 12px); }
-    .bbu-horn { width: 56px; height: 56px; font-size: 28px; bottom: calc(var(--sb) + 76px + 12px); }
-    .bbu-uturn { width: 64px; height: 64px; border-radius: 20px; right: calc(var(--sr) + 6px + 24px); bottom: calc(var(--sb) + 112px + 14px); }
+    .bbu-fuel { height: 56px; padding: 0 6px; } .bbu-fuel canvas { width: 100px; height: 50px; }
+    .bbu-joy { width: 132px; height: 132px; }
+    .bbu-horn { width: 56px; height: 56px; font-size: 28px; }
+    .bbu-assist { width: 56px; height: 56px; right: calc(var(--sr) + 6px + 132px + 12px); } .bbu-assist svg { width: 42px; height: 42px; }
+    .lefty .bbu-assist { left: calc(var(--sl) + 6px + 132px + 12px); }
+    .bbu-uturn { width: 64px; height: 64px; border-radius: 20px; right: calc(var(--sr) + 6px + 34px); bottom: calc(var(--sb) + 132px + 12px); }
+    .lefty .bbu-uturn { left: calc(var(--sl) + 6px + 34px); }
     .bbu-uturn svg { width: 48px; height: 48px; }
-    .bbu-tip { width: 50px; height: 50px; } .bbu-tip.go { right: calc(var(--sr) + 6px + 31px); bottom: calc(var(--sb) + 112px + 6px); }
-    .bbu-tip.steer { left: calc(var(--sl) + 6px + 57px); bottom: calc(var(--sb) + 76px + 6px); }
+    .bbu-tip { width: 56px; height: 56px; right: calc(var(--sr) + 6px + 42px); bottom: calc(var(--sb) + 26px); } .lefty .bbu-tip { left: calc(var(--sl) + 6px + 42px); }
   }`);
 
   function darkHex(c, t = 0.22) {
@@ -147,24 +153,26 @@
   }
   U.darkHex = darkHex;
   const picCanvas = (name, size = 80) => { const c = document.createElement('canvas'); c.width = c.height = size; c.getContext('2d').drawImage(BB.pic(name, size), 0, 0); return c; };
-  const ICON = {
-    left: '<svg viewBox="0 0 64 64"><path d="M38 10 L14 32 L38 54 Z" fill="#19a79b"/><rect x="34" y="24" width="18" height="16" rx="4" fill="#19a79b"/></svg>',
-    right: '<svg viewBox="0 0 64 64"><path d="M26 10 L50 32 L26 54 Z" fill="#19a79b"/><rect x="12" y="24" width="18" height="16" rx="4" fill="#19a79b"/></svg>',
-    go: '<svg viewBox="0 0 64 64"><path d="M32 6 L58 34 L42 34 L42 58 L22 58 L22 34 L6 34 Z" fill="#fff"/></svg>',
-    back: '<svg viewBox="0 0 64 64"><path d="M32 58 L58 30 L42 30 L42 6 L22 6 L22 30 L6 30 Z" fill="#fff"/></svg>',
-  };
+  const JOY_SVG = '<svg viewBox="0 0 100 100" aria-hidden="true">'
+    + '<path d="M50 6 L60 18 H40 Z" fill="#3fae49"/><path d="M50 94 L60 82 H40 Z" fill="#f5a23d"/>'
+    + '<path d="M6 50 L18 40 V60 Z" fill="#19a79b"/><path d="M94 50 L82 40 V60 Z" fill="#19a79b"/></svg>';
+  const ASSIST_SVG = '<svg viewBox="0 0 48 48" aria-hidden="true"><path d="M10 4 V44 M38 4 V44" stroke="#9aa4b0" stroke-width="3.5" stroke-dasharray="6 5" stroke-linecap="round"/>'
+    + '<rect x="16" y="10" width="16" height="30" rx="5" fill="#3fae49"/><rect x="18.5" y="13" width="11" height="6" rx="2" fill="#bfe6f5"/>'
+    + '<path class="spk" d="M40 6 l1.6 4 4 1.6 -4 1.6 -1.6 4 -1.6 -4 -4 -1.6 4 -1.6 z" fill="#ffb81f"/></svg>';
+  U.ASSIST_SVG = ASSIST_SVG;
+  const HAND_SVG = '<svg viewBox="0 0 64 64"><path d="M26 8 a5 5 0 0 1 10 0 V30 l4-1 a5 5 0 0 1 6 4 l2 2 a5 5 0 0 1 6 5 V46 c0 8-6 14-14 14 h-6 c-6 0-10-3-13-8 L13 41 a5 5 0 0 1 8-6 l5 5 Z" fill="#ffe0bd" stroke="#c98b5e" stroke-width="2.5" stroke-linejoin="round"/></svg>';
 
   let uturnBtn, facing = false, driving = true, tips = [];
-  let hud, cashEl, fuelEl, fuelBars, jobEl, jobPic, jobDots, goBtn, ctlEls, titleEl, soundBtn, musicBtn, exitBtn;
+  let hud, cashEl, fuelEl, fuelCv, jobEl, jobPic, jobDots, joyEl, knobEl, hornEl, assistEl, titleEl, soundBtn, musicBtn, exitBtn;
 
   U.init = function () {
     U.root = document.getElementById('ui');
     hud = BB.el('div', 'bbu-hud off', U.root);
     const top = BB.el('div', 'bbu-top', hud);
     cashEl = BB.el('div', 'bbu-pill bbu-cash', top); cashEl.appendChild(picCanvas('coin', 64)); BB.el('b', '', cashEl, String(BB.depot.cash));
-    fuelEl = BB.el('div', 'bbu-pill bbu-fuel', top); fuelEl.appendChild(picCanvas('pump', 64));
-    const bar = BB.el('div', 'bar', fuelEl); fuelBars = [];
-    for (let i = 0; i < 5; i++) fuelBars.push(BB.el('i', '', bar));
+    BB.tap(cashEl, () => { const n = BB.depot.cash; BB.say(n === 1 ? 'You have 1 coin!' : `You have ${n} coins!`); });
+    fuelEl = BB.el('div', 'bbu-pill bbu-fuel', top); fuelCv = BB.el('canvas', '', fuelEl);
+    BB.tap(fuelEl, () => { const f = BB.bus.fuel; BB.say(f > 0.55 ? 'Lots of fuel!' : f > BB.cfg.fuelLow + 0.05 ? 'Half a tank of fuel.' : "Fuel is getting low, let's go to the garage!"); });
     jobEl = BB.el('div', 'bbu-pill bbu-job', top); jobPic = BB.el('canvas', '', jobEl); jobPic.width = jobPic.height = 80;
     jobDots = BB.el('div', 'dots', jobEl);
     BB.tap(jobEl, () => { const t = BB.bus.target; if (t) BB.say(`Drive to ${t.say}!`); });
@@ -172,36 +180,47 @@
     if (BB.HUB) top.appendChild(U.makeClock());
     const right = BB.el('div', 'bbu-right', top);
     const depotBtn = BB.el('button', 'bbu-round', right); depotBtn.appendChild(picCanvas('depot', 80));
-    BB.tap(depotBtn, () => { if (BB.jobs.phase === 'drive' || BB.jobs.phase === 'done') BB.jobs.goDepot(); });
+    BB.tap(depotBtn, () => {
+      const ph = BB.jobs.phase;
+      if (ph === 'drive' || ph === 'done' || ph === 'stop' || ph === 'question') { BB.say("Let's go to the garage!"); BB.jobs.goDepot('quiet'); }
+      else if (ph === 'toDepot') BB.say("We're going to the garage!");
+    });
     musicBtn = BB.el('button', 'bbu-round bbu-snd', right, '🎵');
     soundBtn = BB.el('button', 'bbu-round bbu-snd', right, '🔊');
     BB.tap(musicBtn, () => BB.audio.setSound(BB.audio.mute, !BB.audio.music, true));
     BB.tap(soundBtn, () => BB.audio.setSound(!BB.audio.mute, BB.audio.music, true));
     BB.on('sound:changed', syncSound); syncSound();
 
-    // driving controls: four hold-buttons that work together (multi-touch), plus the horn
-    ctlEls = {};
-    const mk = (cls, key) => {
-      const b = BB.el('button', 'bbu-ctl ' + cls, hud, ICON[key]);
-      b.setAttribute('aria-label', key);
-      const down = (e) => {
-        e.preventDefault();
-        try { b.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
-        b._ptrs = (b._ptrs || new Set()); b._ptrs.add(e.pointerId);
-        press('btn', key, true);
-      };
-      const up = (e) => { if (!b._ptrs) return; b._ptrs.delete(e.pointerId); if (!b._ptrs.size) press('btn', key, false); };
-      b.addEventListener('pointerdown', down);
-      for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) b.addEventListener(ev, up);
-      b.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') up(e); });
-      b.addEventListener('contextmenu', (e) => e.preventDefault());
-      ctlEls[key] = b;
-      return b;
+    // driving: one-thumb joystick (up = go, down = reverse, sideways = steer; the knob springs back), the horn,
+    // and the lane-helper toggle
+    joyEl = BB.el('div', 'bbu-joy', hud, JOY_SVG); knobEl = BB.el('div', 'bbu-knob', joyEl);
+    joyEl.setAttribute('aria-label', 'joystick');
+    let joyId = null;
+    const joyMove = (e) => {
+      const r = joyEl.getBoundingClientRect(), R = r.width * 0.34;
+      let dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+      const l = Math.hypot(dx, dy); if (l > R) { dx *= R / l; dy *= R / l; }
+      knobEl.style.transform = `translate(${dx}px, ${dy}px)`;
+      const dz = (v) => (Math.abs(v) < 0.14 ? 0 : (v - Math.sign(v) * 0.14) / 0.86);
+      joy.x = dz(dx / R); joy.y = dz(-dy / R);
+      if (joy.y > 0.2) U.hideTips();
+      applyInput();
     };
-    mk('bbu-steer l', 'left'); mk('bbu-steer r', 'right'); mk('bbu-back', 'back');
-    goBtn = mk('bbu-go', 'go');
-    const horn = BB.el('button', 'bbu-round bbu-horn', hud, '📯');
-    BB.tap(horn, () => BB.bus.horn());
+    const joyUp = (e) => { if (e.pointerId !== joyId) return; joyId = null; joyEl.classList.remove('drag'); joy.x = joy.y = 0; knobEl.style.transform = ''; applyInput(); };
+    joyEl.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); if (joyId != null) return;
+      joyId = e.pointerId; try { joyEl.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+      joyEl.classList.add('drag'); joyEl.classList.remove('nudge'); joyMove(e);
+    });
+    joyEl.addEventListener('pointermove', (e) => { if (e.pointerId === joyId) joyMove(e); });
+    for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) joyEl.addEventListener(ev, joyUp);
+    joyEl.addEventListener('contextmenu', (e) => e.preventDefault());
+    hornEl = BB.el('button', 'bbu-round bbu-horn', hud, '📯');
+    BB.tap(hornEl, () => BB.bus.horn());
+    assistEl = BB.el('button', 'bbu-round bbu-assist', hud, ASSIST_SVG);
+    assistEl.setAttribute('aria-label', 'lane helper');
+    BB.tap(assistEl, () => U.setAssist(!BB.save.assist));
+    U.setLefty(!!BB.save.leftHand, true);
     // turn around: offered while the bus faces away from where it should go (bus.js emits bus:facingAway)
     uturnBtn = BB.el('button', 'bbu-uturn', hud, '<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M18 56 V28 a14 14 0 0 1 28 0 V34" stroke="#19a79b" stroke-width="9" fill="none" stroke-linecap="round"/>'
       + '<path d="M33 32 L46 48 L59 32 Z" fill="#19a79b"/></svg>');
@@ -238,14 +257,15 @@
 
     // keyboard (for testing; touch is first): arrows / WASD, Space = GO, H = horn
     const KEYS = { ArrowUp: 'go', KeyW: 'go', Space: 'go', ArrowDown: 'back', KeyS: 'back', ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right' };
+    const press = (k, on) => { keys[k] = on; if (on && k === 'go') U.hideTips(); applyInput(); };
     addEventListener('keydown', (e) => {
       const k = KEYS[e.code];
-      if (k) { e.preventDefault(); if (!e.repeat) press('key', k, true); return; }
+      if (k) { e.preventDefault(); if (!e.repeat) press(k, true); return; }
       if (e.repeat) return;
       if (e.code === 'KeyH') BB.bus.horn();
-      else if (e.code === 'Enter' && titleEl.style.display !== 'none' && !BB.bedtime) { U.hideTitle(); BB.emit('title:start'); }
+      else if (e.code === 'Enter' && BB.depot.isOpen && !BB.bedtime) BB.depot.close();
     });
-    addEventListener('keyup', (e) => { const k = KEYS[e.code]; if (k) press('key', k, false); });
+    addEventListener('keyup', (e) => { const k = KEYS[e.code]; if (k) press(k, false); });
     addEventListener('blur', () => U.releaseAll());
     document.addEventListener('visibilitychange', () => { if (document.hidden) U.releaseAll(); });
     BB.on('held', (d) => { if (d.on) U.releaseAll(); });
@@ -275,23 +295,20 @@
     soundBtn.textContent = BB.audio.mute ? '🔇' : '🔊';
     musicBtn.classList.toggle('offx', !BB.audio.music || BB.audio.mute);
   }
-  function syncUturn() { const on = facing && driving && !!BB.bus.turnAround; if (uturnBtn) uturnBtn.classList.toggle('on', on); if (on && U.hideTips) U.hideTips('go'); }
-  // first-drive tips: arrows pointing at the GO pedal and the steering buttons (until used, or 12 s)
-  const TIP = '<svg viewBox="0 0 64 64"><path d="M22 4 H42 V34 H56 L32 60 L8 34 H22 Z" fill="#ffb81f" stroke="#fff6e0" stroke-width="4" stroke-linejoin="round" paint-order="stroke"/><path d="M26 8 H38 V38 H48 L32 55" fill="none" stroke="#ffd45c" stroke-width="3" stroke-linejoin="round" opacity=".8"/></svg>';
+  function syncUturn() { const on = facing && driving && !!BB.bus.turnAround; if (uturnBtn) uturnBtn.classList.toggle('on', on); }
+  // first-drive tip: a hand dragging the knob up (until the bus is driven forward, or 12 s)
   U.showTips = function () {
     U.hideTips();
-    tips = [BB.el('div', 'bbu-tip go', hud, TIP), BB.el('div', 'bbu-tip steer', hud, TIP)];
+    tips = [BB.el('div', 'bbu-tip', hud, HAND_SVG)];
+    joyEl.classList.add('nudge');
     BB.later(12000, U.hideTips);
   };
-  U.hideTips = function (which) {
-    tips = tips.filter((t) => { if (!which || t.classList.contains(which)) { t.remove(); return false; } return true; });
-  };
+  U.hideTips = function () { for (const t of tips) t.remove(); tips = []; if (joyEl) joyEl.classList.remove('nudge'); };
   function setDriving(on) {
     driving = on; syncUturn();
     if (!on) U.hideTips();
-    for (const k in ctlEls) ctlEls[k].style.display = on ? '' : 'none';
+    for (const el of [joyEl, hornEl, assistEl]) el.style.display = on ? '' : 'none';
     if (!on) U.releaseAll();
-    hud.querySelector('.bbu-horn').style.display = on ? '' : 'none';
   }
   function renderJob() {
     const job = BB.jobs.current, t = BB.bus.target;
@@ -302,31 +319,47 @@
     jobDots.innerHTML = '';
     if (job) job.stops.forEach((s, i) => BB.el('i', i < job.index ? 'done' : i === job.index ? 'now' : '', jobDots));
   }
-  // Driving input from the hold-buttons and the keyboard, combined. BB.bus.input = {fwd, back, left, right} when
-  // bus.js has free driving; otherwise GO falls back to BB.bus.go().
-  const held = { btn: {}, key: {} };
-  function press(src, key, on) {
-    held[src][key] = on;
-    if (ctlEls[key]) ctlEls[key].classList.toggle('down', !!(held.btn[key] || held.key[key]));
-    if (on && key === 'go') { goBtn.classList.remove('nudge'); U.hideTips('go'); }
-    if (on && (key === 'left' || key === 'right')) U.hideTips('steer');
-    applyInput();
+  // Driving input from the joystick and the keyboard (keys win while held). BB.bus.input gets
+  // {analog: true, throttle: -1..1, steer: -1..1} plus the old booleans (thresholds) for a bus without analog support;
+  // no input object at all: GO falls back to BB.bus.go().
+  const joy = { x: 0, y: 0 }, keys = {};
+  function current() {
+    const throttle = keys.go ? 1 : keys.back ? -1 : joy.y;
+    const steer = keys.left && !keys.right ? -1 : keys.right && !keys.left ? 1 : joy.x;
+    return { throttle, steer };
   }
-  const isOn = (k) => !!(held.btn[k] || held.key[k]);
   function applyInput() {
-    const B = BB.bus, inp = B.input;
-    if (inp && typeof inp === 'object') { inp.fwd = isOn('go'); inp.back = isOn('back'); inp.left = isOn('left'); inp.right = isOn('right'); }
-    if (!inp || typeof inp !== 'object' || !('fwd' in inp)) B.go(isOn('go'));
+    const B = BB.bus, inp = B.input, c = current();
+    if (inp && typeof inp === 'object') {
+      inp.analog = true; inp.throttle = c.throttle; inp.steer = c.steer;
+      inp.fwd = c.throttle > 0.25; inp.back = c.throttle < -0.25; inp.left = c.steer < -0.3; inp.right = c.steer > 0.3;
+    } else if (B.go) B.go(c.throttle > 0.25);
   }
   U.releaseAll = function () {
-    for (const src of ['btn', 'key']) for (const k in held[src]) held[src][k] = false;
-    if (ctlEls) for (const k in ctlEls) { ctlEls[k].classList.remove('down'); ctlEls[k]._ptrs && ctlEls[k]._ptrs.clear(); }
+    for (const k in keys) keys[k] = false;
+    joy.x = joy.y = 0;
+    if (knobEl) { knobEl.style.transform = ''; joyEl.classList.remove('drag'); }
     try { applyInput(); } catch (e) { /* bus not built yet */ }
   };
-  U.input = () => ({ go: isOn('go'), back: isOn('back'), left: isOn('left'), right: isOn('right') });
+  U.input = () => { const c = current(); return { throttle: c.throttle, steer: c.steer, go: c.throttle > 0.25, back: c.throttle < -0.25, left: c.steer < -0.3, right: c.steer > 0.3 }; };
+  // Lane helper (BB.bus.assist, saved as save.assist): the HUD toggle and the garage's tile both use this.
+  U.setAssist = function (on, quiet) {
+    BB.save.assist = !!on; BB.saveNow();
+    if (BB.bus) BB.bus.assist = !!on;
+    if (assistEl) assistEl.classList.toggle('on', !!on);
+    BB.emit('assist:changed', { on: !!on });
+    if (!quiet) { BB.sfx.pop(); BB.say(on ? 'Lane helper on!' : 'Lane helper off!'); }
+  };
+  // Joystick on the left for left-handed drivers (save.leftHand).
+  U.setLefty = function (on, quiet) {
+    BB.save.leftHand = !!on; if (!quiet) BB.saveNow();
+    if (hud) hud.classList.toggle('lefty', !!on);
+    if (!quiet) { BB.sfx.pop(); BB.say(on ? 'Joystick on the left!' : 'Joystick on the right!'); }
+  };
+  U.afterBus = function () { U.setAssist(!!BB.save.assist, true); };
 
   U.showTitle = function () { titleEl.style.display = ''; hud.classList.add('off'); U.showExit(true); };
-  U.hideTitle = function () { titleEl.style.display = 'none'; hud.classList.remove('off'); goBtn.classList.add('nudge'); U.showExit(false); };
+  U.hideTitle = function () { titleEl.style.display = 'none'; hud.classList.remove('off'); U.showExit(false); };
   U.titleShown = () => titleEl.style.display !== 'none';
   U.showExit = function (on) { if (exitBtn) exitBtn.style.display = on && !BB.hub.slept ? '' : 'none'; };
   // hide everything for the goodnight moment
@@ -395,13 +428,47 @@
     BB.later(700, () => { try { mid && mid(); } finally { BB.later(400, () => { f.style.opacity = '0'; BB.later(650, () => { f.remove(); end && end(); }); }); } });
   };
 
-  let fuelShown = -1;
-  U.update = function () {
-    const f = BB.bus.fuel, lv = Math.ceil(f * 5 - 0.001);
-    if (lv !== fuelShown) {
-      fuelShown = lv;
-      fuelBars.forEach((b, i) => b.classList.toggle('off', i >= lv));
-      fuelEl.classList.toggle('low', f <= BB.cfg.fuelLow);
-    }
+  // ---------- fuel gauge: a half-round dial with E and F, a red zone, a smooth needle, a blinking warning lamp ----------
+  let needle = -1, gaugeKey = '', gaugeT = 0;
+  function drawGauge(f, low, blink) {
+    const cw = fuelCv.clientWidth || 120, ch = fuelCv.clientHeight || 60, dpr = Math.min(2, window.devicePixelRatio || 1);
+    if (fuelCv.width !== Math.round(cw * dpr)) { fuelCv.width = Math.round(cw * dpr); fuelCv.height = Math.round(ch * dpr); }
+    const x = fuelCv.getContext('2d'); x.setTransform(fuelCv.width / 120, 0, 0, fuelCv.height / 60, 0, 0);
+    x.clearRect(0, 0, 120, 60);
+    const cx = 60, cy = 54, R = 44, a0 = Math.PI + 0.32, a1 = 2 * Math.PI - 0.32, at = (t) => a0 + (a1 - a0) * t;
+    x.lineCap = 'round';
+    x.lineWidth = 9; x.strokeStyle = '#eadfca'; x.beginPath(); x.arc(cx, cy, R, a0, a1); x.stroke();
+    x.save();
+    if (low) { x.shadowColor = 'rgba(255,90,60,' + (blink ? 0.9 : 0.35) + ')'; x.shadowBlur = blink ? 10 : 4; }
+    x.strokeStyle = '#ff6b5c'; x.beginPath(); x.arc(cx, cy, R, a0, at(0.22)); x.stroke();
+    x.restore();
+    x.strokeStyle = '#5cb85c'; x.beginPath(); x.arc(cx, cy, R, at(0.7), a1); x.stroke();
+    x.strokeStyle = '#b9a98a'; x.lineWidth = 2.5;
+    for (let i = 0; i <= 4; i++) { const a = at(i / 4); x.beginPath(); x.moveTo(cx + Math.cos(a) * (R - 9), cy + Math.sin(a) * (R - 9)); x.lineTo(cx + Math.cos(a) * (R - 14), cy + Math.sin(a) * (R - 14)); x.stroke(); }
+    x.font = '800 15px "Baloo 2", "Fredoka", system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.fillStyle = '#d0473a'; x.fillText('E', cx + Math.cos(at(0)) * (R - 20) + 2, cy + Math.sin(at(0)) * (R - 20) + 2);
+    x.fillStyle = '#3f913f'; x.fillText('F', cx + Math.cos(at(1)) * (R - 20) - 2, cy + Math.sin(at(1)) * (R - 20) + 2);
+    // the pump icon is the warning lamp: it blinks orange when the tank is low
+    const lamp = low && blink;
+    if (lamp) { x.fillStyle = 'rgba(255,154,46,.35)'; x.beginPath(); x.arc(cx, 37, 12, 0, Math.PI * 2); x.fill(); }
+    x.fillStyle = lamp ? '#ff9a2e' : '#c9b99a';
+    x.beginPath(); x.roundRect ? x.roundRect(cx - 6, 29, 9, 14, 2) : x.rect(cx - 6, 29, 9, 14); x.fill();
+    x.fillRect(cx - 7.5, 42, 12, 2.5);
+    x.strokeStyle = x.fillStyle; x.lineWidth = 2; x.beginPath(); x.moveTo(cx + 3, 32); x.lineTo(cx + 7, 34); x.lineTo(cx + 7, 40); x.stroke();
+    x.fillStyle = '#fff6e0'; x.fillRect(cx - 4.5, 31, 6, 4);
+    // needle
+    const a = at(BB.clamp(f, 0, 1));
+    x.strokeStyle = '#3a2a3c'; x.lineWidth = 3.5;
+    x.beginPath(); x.moveTo(cx, cy); x.lineTo(cx + Math.cos(a) * (R - 6), cy + Math.sin(a) * (R - 6)); x.stroke();
+    x.fillStyle = '#f26b5b'; x.beginPath(); x.arc(cx, cy, 5.5, 0, Math.PI * 2); x.fill();
+  }
+  U.update = function (dt) {
+    const f = BB.bus.fuel;
+    needle = needle < 0 ? f : needle + (f - needle) * Math.min(1, (dt || 0.016) * 3);
+    const low = f <= BB.cfg.fuelLow;
+    gaugeT += dt || 0.016;
+    const blink = low && Math.floor(gaugeT * 2.5) % 2 === 0;
+    const key = Math.round(needle * 400) + (low ? 'L' : '') + (blink ? 'B' : '') + fuelCv.clientWidth;
+    if (key !== gaugeKey && !hud.classList.contains('off')) { gaugeKey = key; drawGauge(needle, low, blink); }
   };
 })();

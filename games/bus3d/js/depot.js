@@ -62,10 +62,23 @@
   ];
   const PAINT_SAY = { green: 'Green!', red: 'Red!', blue: 'Blue!', yellow: 'Yellow!', purple: 'Purple!', pink: 'Pink!' };
   const TABS = [
-    { id: 'fuel', say: 'Fuel!' }, { id: 'paint', say: 'Paint!' }, { id: 'sticker', say: 'Stickers!' },
+    { id: 'bus', say: 'Your bus!' }, { id: 'fuel', say: 'Fuel!' }, { id: 'sticker', say: 'Stickers!' },
     { id: 'lights', say: 'Lights!' }, { id: 'bumpers', say: 'Bumpers!' }, { id: 'wheels', say: 'Wheels and rims!' }, { id: 'upgrade', say: 'Super extras!' },
   ];
   const slots = () => (S.upgrades.sticker3 ? 3 : 2);
+  // Bus types come from js/fleet.js (BB.fleet.TYPES / NAMES / preview) when it is there; switching is free.
+  const MY_TYPES = [{ id: 'bendy', name: 'Bendy bus' }, { id: 'double', name: 'Double-decker' }, { id: 'single', name: 'Single-decker' }];
+  function fleetTypes() {
+    const F = BB.fleet;
+    if (!F || !Array.isArray(F.TYPES) || !F.TYPES.length) return MY_TYPES;
+    return F.TYPES.map((t) => {
+      const id = typeof t === 'string' ? t : t && t.id;
+      const nm = (t && t.name) || (F.NAMES && (F.NAMES[id] || (Array.isArray(F.NAMES) && F.NAMES[F.TYPES.indexOf(t)]))) || (MY_TYPES.find((m) => m.id === id) || {}).name || String(id);
+      return { id: String(id), name: String(nm) };
+    }).filter((t) => t.id);
+  }
+  const curType = () => S.busType || fleetTypes()[0].id;
+  const DIGITS = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
   if (!S.paints.includes('green')) S.paints.unshift('green');
   S.stickers = S.stickers.filter((id) => STICKERS.some((s) => s.id === id)).slice(0, slots());
   // Old saves: hats are gone from the shop (their coins come back quietly); "bright lights" became roof lamps.
@@ -177,6 +190,13 @@
       std: (x) => { lamp(x, 50, 52, 30, true); },
       fog: (x) => { shaded(x, (p) => p.rect(10, 62, 80, 10), '#6c6470'); lamp(x, 28, 50, 15, true); lamp(x, 72, 50, 15, true); for (const cx of [28, 72]) circ(x, cx - 1, 49, 9, P.honeyLight); },
       led: (x) => { shaded(x, (p) => p.roundRect ? p.roundRect(8, 40, 84, 22, 11) : p.rect(8, 40, 84, 22), '#6c6470'); for (let i = 0; i < 7; i++) lamp(x, 18 + i * 11, 51, 5, true); },
+      underglow: (x) => {
+        const g = x.createRadialGradient(50, 74, 4, 50, 74, 46); g.addColorStop(0, 'rgba(95,208,255,.9)'); g.addColorStop(1, 'rgba(95,208,255,0)');
+        x.fillStyle = g; x.fillRect(0, 40, 100, 60);
+        shaded(x, (p) => p.roundRect ? p.roundRect(10, 30, 80, 36, 8) : p.rect(10, 30, 80, 36), P.busGreen);
+        x.fillStyle = '#bfe6f5'; for (let wx = 16; wx < 80; wx += 16) x.fillRect(wx, 36, 11, 11);
+        for (const wx of [26, 74]) { circ(x, wx, 68, 8, '#3a343f'); circ(x, wx, 68, 3.5, '#c9d2db'); }
+      },
       roof: (x) => { shaded(x, (p) => p.rect(8, 58, 84, 9), '#6c6470'); shaded(x, (p) => p.rect(14, 66, 6, 18), '#6c6470'); shaded(x, (p) => p.rect(80, 66, 6, 18), '#6c6470'); for (let i = 0; i < 4; i++) lamp(x, 21 + i * 19.5, 46, 9, true); },
     },
     bumpers: {
@@ -206,7 +226,48 @@
     rims: (c) => (x) => { tyre(x, 42); rim(x, 28, c); },
   };
   const partPic = (kind, id, size = 128) => art('pt-' + kind + '-' + id, size, (PART_ART[kind] && PART_ART[kind][id]) || GENERIC_PART[kind](hashCol(id)));
+  // A little side view of each bus type, in the current paint colour (used when fleet.js has no preview).
+  function busSide(type, col) {
+    return (x) => {
+      const dbl = /double/.test(type), bendy = /bendy|artic/.test(type);
+      const top = dbl ? 14 : 34, w = bendy ? 88 : 80, x0 = bendy ? 6 : 10;
+      const body = (bx, bw) => shaded(x, (p) => p.roundRect ? p.roundRect(bx, top, bw, 78 - top, 8) : p.rect(bx, top, bw, 78 - top), col);
+      if (bendy) { body(x0, 46); body(x0 + 49, 39); x.fillStyle = '#4a4250'; x.fillRect(x0 + 45, top + 6, 5, 78 - top - 10); }
+      else body(x0, w);
+      x.fillStyle = '#bfe6f5';
+      const rows = dbl ? [top + 8, top + 34] : [top + 8];
+      for (const ry of rows) for (let wx = x0 + 6; wx < x0 + w - 12; wx += 14) if (!(bendy && wx > x0 + 38 && wx < x0 + 52)) x.fillRect(wx, ry, 10, 12);
+      x.fillStyle = '#2b2430'; x.fillRect(x0 + w - 14, top + 6, 10, 18);
+      x.fillStyle = '#ffb81f'; x.fillRect(x0 + w - 13, top + 9, 8, 5);
+      for (const wx of (bendy ? [x0 + 14, x0 + 36, x0 + 74] : [x0 + 18, x0 + w - 20])) { circ(x, wx, 80, 9, '#3a343f'); circ(x, wx, 80, 4, '#c9d2db'); }
+    };
+  }
+  function typePic(t, size = 128) {
+    const F = BB.fleet;
+    if (F && typeof F.preview === 'function') {
+      try {
+        const pv = F.preview(t, size, (BB.PAINTS.find((p) => p.id === S.paint) || {}).color);
+        if (pv && (pv.width || pv.naturalWidth)) { const c = mkCanvas(size); c.getContext('2d').drawImage(pv, 0, 0, size, size); return c; }
+      } catch (e) { console.error(e); }
+    }
+    const col = (BB.PAINTS.find((p) => p.id === S.paint) || {}).color || P.busGreen;
+    return art('bus-' + t + col, size, busSide(t, col));
+  }
+  function platePic(no, size = 128) {
+    return art('plate-' + no, size, (x) => {
+      shaded(x, (p) => p.roundRect ? p.roundRect(4, 26, 92, 48, 10) : p.rect(4, 26, 92, 48), '#2b2430');
+      x.fillStyle = '#ffb81f'; x.font = '800 34px "Courier New", monospace'; x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.shadowColor = 'rgba(255,184,31,.8)'; x.shadowBlur = 6; x.fillText(no, 50, 51);
+    });
+  }
+  const sidePic = (left) => art('side-' + left, 128, (x) => {
+    shaded(x, (p) => p.roundRect ? p.roundRect(8, 20, 84, 60, 10) : p.rect(8, 20, 84, 60), '#9cc7dc');
+    const cx = left ? 30 : 70;
+    shaded(x, (p) => p.arc(cx, 60, 15, 0, Math.PI * 2), '#fff6e0'); circ(x, cx, 60, 7, P.busGreen);
+    circ(x, left ? 72 : 28, 66, 6, '#fff6e0');
+  });
   const ICON_ART = {
+    bus: (x) => { busSide('single', P.busGreen)(x); },
     fuel: (x) => { x.drawImage(BB.pic('pump', 100), 0, 0); },
     paint: (x) => {   // a paint pot with a drip
       shaded(x, (p) => { p.moveTo(22, 36); p.lineTo(78, 36); p.lineTo(72, 88); p.quadraticCurveTo(50, 94, 28, 88); p.closePath(); }, '#cfd6de');
@@ -298,7 +359,7 @@
       for (const a of mt.stickers[i]) { const m = stickerMesh(id); m.position.z = 0.012; if (a.userData && a.userData.size) m.scale.setScalar(a.userData.size / 1.35); a.add(m); placed.push(m); }
     });
   };
-  D.afterBus = function () { D.applyLooks(); build3D(); };
+  D.afterBus = function () { if (S.busType || S.routeNo) applyType(); else D.applyLooks(); build3D(); };
 
   // ---------- 3D: the turntable lift and the fuel pump ----------
   let lift = null, pump = null, pumpScreen = null, liftY = 0, liftWant = 0, sway = 0, hop = 0, hopV = 0, pivot = new THREE.Vector3(), fill = 0;
@@ -383,6 +444,32 @@
   .bbd-tabs { display: flex; gap: 4px; flex: none; overflow-x: auto; overflow-y: hidden; touch-action: pan-x; scrollbar-width: none; padding: 2px 3px 6px; margin: -2px -3px -6px; }
   .bbd-tabs::-webkit-scrollbar { display: none; }
   .bbd-break { flex-basis: 100%; height: 0; }
+  .bbd-sec { flex-basis: 100%; display: flex; align-items: center; gap: 8px; height: 30px; margin-top: 4px; }
+  .bbd-sec canvas { width: 34px; height: 34px; opacity: .8; }
+  .bbd-sec::after { content: ''; flex: 1; height: 3px; border-radius: 2px; background: #ecd3a8; }
+  .bbd-tile.wide { width: 128px; } .bbd-tile.wide canvas { width: 84px; height: 84px; }
+  .bbd-go.start { animation: bbd-gopulse 1.3s ease-in-out infinite; }
+  @keyframes bbd-gopulse { 50% { box-shadow: 0 6px 0 #2f7fbc, 0 0 0 10px rgba(79,163,224,.35); transform: scale(1.02); } }
+  .bbd-padwrap { position: absolute; inset: 0; z-index: 55; background: rgba(40,30,50,.35); display: flex; align-items: center; justify-content: center;
+    pointer-events: auto; animation: bbd-fade .2s; font-family: 'Baloo 2', 'Fredoka', system-ui, sans-serif; }
+  @keyframes bbd-fade { from { opacity: 0; } }
+  .bbd-padcard { background: #fff6e0; border: 5px solid #d9b57f; border-radius: 30px; padding: 18px; display: flex; flex-direction: column; gap: 14px;
+    align-items: center; box-shadow: 0 10px 0 rgba(120,80,40,.2); animation: bbd-pop .3s cubic-bezier(.2,1.5,.5,1); }
+  .bbd-led { min-width: 200px; height: 84px; border-radius: 18px; background: #2b2430; color: #ffb81f; font: 800 64px/84px 'Courier New', monospace;
+    text-align: center; letter-spacing: 6px; text-shadow: 0 0 10px rgba(255,184,31,.8); padding: 0 16px; box-sizing: border-box; }
+  .bbd-led.typing { color: #ffd45c; }
+  .bbd-keys { display: grid; grid-template-columns: repeat(3, 76px); gap: 10px; }
+  .bbd-key { height: 76px; border-radius: 22px; border: 3px solid #ecd3a8; background: #fff; font: 800 40px 'Baloo 2', system-ui, sans-serif; color: #3a2a3c;
+    box-shadow: 0 5px 0 rgba(120,80,40,.15); cursor: pointer; touch-action: manipulation; display: flex; align-items: center; justify-content: center; padding: 0; }
+  .bbd-key.pressed { transform: translateY(3px); box-shadow: 0 2px 0 rgba(120,80,40,.15); }
+  .bbd-key.ok { background: #5cb85c; border-color: #3f913f; } .bbd-key.del { background: #fff1dc; }
+  @media (max-height: 560px) {
+    .bbd-padcard { flex-direction: row; padding: 12px; gap: 14px; }
+    .bbd-keys { grid-template-columns: repeat(3, 60px); gap: 7px; } .bbd-key { height: 60px; font-size: 32px; border-radius: 18px; }
+    .bbd-led { min-width: 150px; height: 70px; font-size: 50px; line-height: 70px; }
+    .bbd-tile.wide { width: 108px; } .bbd-tile.wide canvas { width: 70px; height: 70px; }
+    .bbd-sec { height: 24px; } .bbd-sec canvas { width: 26px; height: 26px; }
+  }
   .bbd-tab { flex: 1 0 56px; height: 64px; min-width: 56px; border-radius: 20px 20px 12px 12px; border: 3px solid #ecd3a8; background: #fffaf0;
     display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; touch-action: manipulation;
     box-shadow: 0 4px 0 rgba(120,80,40,.12); }
@@ -458,7 +545,7 @@
     + '<rect x="78" y="13" width="12" height="22" rx="3" fill="#2f7fbc"/><circle cx="26" cy="46" r="8" fill="#3a2a3c"/><circle cx="76" cy="46" r="8" fill="#3a2a3c"/>'
     + '<path d="M100 14 L118 28 L100 42 Z" fill="#fff6e0"/></svg>';
 
-  let panel = null, awning = null, tab = 'paint', preview = null, goalEl = null, cashSpan = null, cashBox = null, bodyEl = null;
+  let panel = null, awning = null, tab = 'bus', preview = null, goalEl = null, cashSpan = null, cashBox = null, bodyEl = null;
   const coinCv = (px) => cv(BB.pic('coin', 64), `width:${px}px;height:${px}px`);
 
   // first tap on something new: try it on, say its price and how to buy it
@@ -554,13 +641,69 @@
   }
 
   function tile(parent, picCanvas, opts) {
-    const t = BB.el('button', 'bbd-tile' + (opts.on ? ' on' : '') + (opts.preview ? ' preview' : ''), parent);
+    const t = BB.el('button', 'bbd-tile' + (opts.on ? ' on' : '') + (opts.preview ? ' preview' : '') + (opts.wide ? ' wide' : ''), parent);
     t.appendChild(cv(picCanvas));
     if (opts.price) { const pr = BB.el('span', 'bbd-price', t); pr.appendChild(coinCv(20)); BB.el('span', '', pr, String(opts.price)); }
     t.style.animationDelay = (opts.i || 0) * 40 + 'ms';
     BB.tap(t, () => opts.tap(t));
     return t;
   }
+
+  // a small picture heading for a group of tiles in the Bus tab
+  function sec(icon) { const d = BB.el('div', 'bbd-sec', bodyEl); d.appendChild(cv(icon === 'plate' ? platePic('123', 64) : iconPic(icon, 64))); }
+  // the lane helper: a bus between two lane lines, with a sparkle when it is on
+  const assistPic = () => art('assist-' + !!S.assist, 128, (x) => {
+    x.strokeStyle = '#9aa4b0'; x.lineWidth = 6; x.setLineDash([12, 10]); x.lineCap = 'round';
+    x.beginPath(); x.moveTo(20, 8); x.lineTo(20, 92); x.moveTo(80, 8); x.lineTo(80, 92); x.stroke(); x.setLineDash([]);
+    shaded(x, (p) => p.roundRect ? p.roundRect(34, 20, 32, 62, 10) : p.rect(34, 20, 32, 62), P.busGreen);
+    x.fillStyle = '#bfe6f5'; x.fillRect(39, 26, 22, 12);
+    if (S.assist) shaded(x, (p) => starPath(p, 84, 18, 14, 6, 4), P.honey);
+  });
+  // Apply the saved bus type and number (bus.js rebuilds its model for a new type, so the stickers go back on).
+  function applyType() {
+    if (BB.bus.setType && S.busType) {
+      try { BB.bus.setType(S.busType); } catch (e) { console.error(e); }
+      for (const m of placed) if (m.parent) m.parent.remove(m);
+      fallback = null; placed.length = 0;
+    }
+    D.applyLooks();
+    try { if (BB.bus.setRouteNumber) BB.bus.setRouteNumber(S.routeNo); } catch (e) { console.error(e); }
+    if (D.isOpen) placeProps();
+  }
+  D.applyType = applyType;
+  // the bus number keypad: digits are spoken as they are typed, OK says "Bus 190!"
+  let padEl = null;
+  function openPad() {
+    closePad();
+    let buf = '';
+    padEl = BB.el('div', 'bbd-padwrap', BB.ui.root);
+    const card = BB.el('div', 'bbd-padcard', padEl);
+    const led = BB.el('div', 'bbd-led', card, S.routeNo);
+    const keys = BB.el('div', 'bbd-keys', card);
+    const show = () => { led.textContent = buf || S.routeNo; led.classList.toggle('typing', !!buf); try { if (BB.bus.setRouteNumber) BB.bus.setRouteNumber(buf || S.routeNo); } catch (e) { /* ignore */ } };
+    const key = (label, fn, cls) => { const b = BB.el('button', 'bbd-key' + (cls ? ' ' + cls : ''), keys, label); BB.tap(b, fn); return b; };
+    for (const d of [1, 2, 3, 4, 5, 6, 7, 8, 9]) key(String(d), () => type(d));
+    key('<svg viewBox="0 0 24 24" width="34" height="34"><path d="M9 5 H20 V19 H9 L3 12 Z" fill="#f5a23d"/><path d="M12 9 l5 6 M17 9 l-5 6" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg>', () => { buf = buf.slice(0, -1); BB.sfx.click(); show(); }, 'del');
+    key('0', () => type(0));
+    key('<svg viewBox="0 0 24 24" width="38" height="38"><path d="M5 12.5l4.5 4.5 9.5-10" stroke="#fff" stroke-width="3.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>', done, 'ok');
+    function type(d) {
+      if (!buf && d === 0) { BB.sfx.wrong(); return; }
+      if (buf.length >= 3) { shake(led); BB.sfx.wrong(); return; }
+      buf += d; BB.sfx.click(); show();
+      BB.say(DIGITS[d] + (buf.length === 3 ? '!' : '...'));
+      if (buf.length === 3) BB.later(900, done);
+    }
+    function done() {
+      if (!padEl) return;
+      if (buf) { S.routeNo = buf; BB.saveNow(); }
+      closePad(); applyType(); D.hop(); BB.sfx.sparkle();
+      BB.say(`Bus ${S.routeNo}!`, { queue: true });
+      renderBody();
+    }
+    BB.tap(padEl, (e) => { if (e.target === padEl) done(); });
+    BB.say('Choose your bus number!');
+  }
+  function closePad() { if (padEl) padEl.remove(); padEl = null; }
 
   let autoFill = null;
   function renderBody(animate) {
@@ -590,17 +733,28 @@
         BB.bus.refuel(1);
         BB.later(1700, () => {
           D.hop();
-          if (auto) { BB.say('Glug glug! A full tank, free! Now make your bus beautiful!', { queue: true }); BB.later(1200, () => { if (panel && tab === 'fuel') setTab('paint', true); }); }
+          if (auto) { BB.say('Glug glug! A full tank, free! Now make your bus beautiful!', { queue: true }); BB.later(1200, () => { if (panel && tab === 'fuel') setTab('bus', true); }); }
           else { BB.say('Yum! A full tank!'); renderBody(); }
         });
       };
       BB.tap(btn, () => doFill(false));
       autoFill = () => doFill(true);
       if (!full) BB.later(300, () => { if (tab === 'fuel' && panel) btn.classList.add('shake'); });
-    } else if (tab === 'paint') {
+    } else if (tab === 'bus') {
+      // (a) the bus type: free to switch
+      sec('bus');
+      fleetTypes().forEach((t, i) => {
+        tile(bodyEl, typePic(t.id), { i, on: curType() === t.id, wide: true, tap: () => {
+          if (curType() === t.id) { BB.say(t.name + '!'); return; }
+          S.busType = t.id; BB.saveNow(); applyType(); BB.sfx.whoosh(); D.hop(); BB.say(t.name + '!');
+          BB.later(400, () => renderBody());
+        } });
+      });
+      // (b) the colour
+      sec('paint');
       BB.PAINTS.forEach((p, i) => {
         const own = S.paints.includes(p.id);
-        tile(bodyEl, paintPic(p.color), { i, on: S.paint === p.id && !preview, preview: isPrev('paint', p.id), price: own ? 0 : PAINT_PRICE, tap: (el) => {
+        tile(bodyEl, paintPic(p.color), { i: i + 3, on: S.paint === p.id && !preview, preview: isPrev('paint', p.id), price: own ? 0 : PAINT_PRICE, tap: (el) => {
           if (own) { setPreview(null); S.paint = p.id; BB.saveNow(); D.applyLooks(); BB.sfx.pop(); D.hop(); BB.say(PAINT_SAY[p.id] || 'Lovely!'); renderBody(); return; }
           if (!isPrev('paint', p.id)) { setPreview({ kind: 'paint', id: p.id }); BB.sfx.whoosh(); speakPrice(PAINT_SAY[p.id], PAINT_PRICE); renderBody(); return; }
           if (tooSoon()) return;
@@ -611,6 +765,12 @@
           BB.later(700, renderBody);
         } });
       });
+      // (c) the bus number, and the settings: lane helper, joystick side
+      sec('plate');
+      tile(bodyEl, platePic(S.routeNo), { i: 9, wide: true, tap: () => openPad() });
+      const as = tile(bodyEl, assistPic(), { i: 10, on: !!S.assist, tap: () => { BB.ui.setAssist(!S.assist); renderBody(); } });
+      as.classList.add('toggle');
+      tile(bodyEl, sidePic(!!S.leftHand), { i: 11, tap: () => { BB.ui.setLefty(!S.leftHand); renderBody(); } });
     } else if (tab === 'sticker') {
       STICKERS.forEach((st, i) => {
         const own = S.stickersOwned.includes(st.id), on = S.stickers.includes(st.id);
@@ -699,11 +859,14 @@
     BB.emit('depot:render', { panel });
   }
 
-  D.open = function () {
+  // opts.start: the game's start screen (the bus in its garage before the first drive): the Bus tab first, a bigger
+  // Drive button, and the welcome.
+  D.open = function (opts) {
     if (D.isOpen) return;
     D.isOpen = true;
+    D.isStart = !!(opts && opts.start);
     preview = null; goalEl = null;
-    tab = 'paint';
+    tab = 'bus';
     awning = BB.el('div', 'bbd-awning', BB.ui.root);
     panel = BB.el('div', 'bbd', BB.ui.root);
     render();
@@ -711,6 +874,12 @@
     BB.bus.setCamera('depot');
     BB.emit('depot:open');
     BB.sfx.whoosh();
+    if (D.isStart) {
+      if (BB.bus.fuel < 0.98) BB.bus.refuel(1);
+      panel.querySelector('.bbd-go').classList.add('start');
+      BB.say(D.welcome());
+      return;
+    }
     // fuel is free: every visit fills the tank, with the pump's gurgle as a little show
     const low = BB.bus.fuel < 0.98;
     if (low) { tab = 'fuel'; setTab('fuel', true); }
@@ -720,13 +889,16 @@
   D.close = function () {
     if (!D.isOpen) return;
     D.isOpen = false;
+    const start = D.isStart; D.isStart = false;
+    closePad();
     if (BB.bus.fuel < 0.98) BB.bus.refuel(1);   // never leave the garage hungry
     preview = null; D.applyLooks();
     for (const el of [panel, awning]) if (el) el.remove();
     panel = awning = bodyEl = cashBox = cashSpan = goalEl = null;
     BB.bus.setCamera('chase');
-    BB.emit('depot:closed');
+    BB.emit('depot:closed', { start });
   };
+  D.welcome = () => (BB.HUB ? 'Make your bus, then tap the blue button to drive!' : 'Welcome to the bus garage! Make your bus, then tap the blue button to drive!');
   D.render = () => { if (panel) renderBody(); };
   D.tab = () => tab;
   BB.on('cash:changed', () => { if (cashSpan) cashSpan.textContent = String(D.cash); });

@@ -51,25 +51,23 @@
     };
     BB.render = () => renderer.render(BB.scene, BB.camera);
 
-    // title screen: the bus at the depot, the camera slowly circling
-    BB.bus.setCamera('title', true);
-    BB.ui.showTitle();
-    // The welcome: tried at load (harmless if iOS blocks speech before a tap), and again on the first unlock if it
-    // wasn't heard and the title is still showing.
-    const welcome = BB.HUB ? 'Tap to drive!' : 'Hello! Tap to drive the bendy bus!';
-    BB.say(welcome);
-    // (deferred: when the unlocking tap is the title tap itself, title:start greets instead)
-    BB.on('audio:unlocked', () => BB.later(0, () => { if (BB.ui.titleShown() && !BB.heard(welcome)) BB.say(welcome); }));
-    let started = false;                 // once per title visit, however many taps arrive
-    BB.on('title:start', () => {
-      if (started) return;
+    // The game starts in the bus garage: the child makes their bus (type, colour, number, parts), then taps Drive.
+    safe(() => { if (BB.bus.placeAtDepot) BB.bus.placeAtDepot(); });
+    if (BB.ui.afterBus) BB.ui.afterBus();
+    BB.depot.open({ start: true });
+    safe(() => BB.bus.updateCamera && BB.bus.setCamera('depot', true));
+    // The welcome is said as the garage opens; iOS blocks speech before a first tap, so if it wasn't heard it is
+    // said (queued) after the first tap while the start garage is still open.
+    const welcome = BB.depot.welcome();
+    BB.on('audio:unlocked', () => BB.later(0, () => { if (BB.depot.isOpen && BB.depot.isStart && !BB.heard(welcome)) BB.say(welcome, { queue: true }); }));
+    let started = false;                 // once, however many taps arrive
+    BB.on('depot:closed', (d) => {
+      if (!d || !d.start || started || BB.bedtime) return;
       started = true;
-      BB.bus.setCamera('chase');
       BB.music.start();
-      // a short hello if the welcome was never heard (iOS blocks speech before the first tap), then the tips, queued
+      // a short hello if the welcome was never heard, then how to drive, queued so nothing cuts in
       if (!BB.heard(welcome)) BB.say('Hello, driver!');
-      BB.say('Hold the green button to go!', { queue: true });
-      BB.say('Use the arrows to steer!', { queue: true });
+      BB.say('Push up to go! Slide to steer!', { queue: true });
       if (BB.ui.showTips) BB.ui.showTips();
       BB.later(2200, () => { if (!BB.bedtime) BB.jobs.start(); });
     });
