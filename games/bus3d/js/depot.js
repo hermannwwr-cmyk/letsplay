@@ -242,15 +242,38 @@
       for (const wx of (bendy ? [x0 + 14, x0 + 36, x0 + 74] : [x0 + 18, x0 + w - 20])) { circ(x, wx, 80, 9, '#3a343f'); circ(x, wx, 80, 4, '#c9d2db'); }
     };
   }
+  // The bus-type tiles: a snapshot of fleet.js's 3D preview (rendered once per type, colour and number into an
+  // off-screen target), or a drawn side view when fleet.js or the renderer isn't there.
+  const snaps = {};
+  function snapshot(t, col) {
+    const key = t + col + S.routeNo;
+    if (snaps[key]) return snaps[key];
+    const R = BB.renderer, W = 256, H = 192;
+    const g = BB.fleet.preview(t, col, S.routeNo);
+    const scene = new THREE.Scene();
+    scene.add(new THREE.HemisphereLight(0xfff6e0, 0x8a7a60, 0.95));
+    const sun = new THREE.DirectionalLight(0xffffff, 0.75); sun.position.set(6, 10, 7); scene.add(sun);
+    scene.add(g);
+    const len = (g.userData && g.userData.length) || 12, ht = (g.userData && g.userData.height) || 3.2;
+    const cam = new THREE.PerspectiveCamera(28, W / H, 0.1, 500), d = len * 1.75 + 4;
+    cam.position.set(d * 0.92, ht * 0.75 + d * 0.22, d * 0.42); cam.lookAt(0, ht * 0.45, 0);
+    const rt = new THREE.WebGLRenderTarget(W, H), px = new Uint8Array(W * H * 4), old = R.getClearColor(new THREE.Color()), oldA = R.getClearAlpha();
+    try {
+      R.setRenderTarget(rt); R.setClearColor(0x000000, 0); R.clear(); R.render(scene, cam);
+      R.readRenderTargetPixels(rt, 0, 0, W, H, px);
+    } finally { R.setRenderTarget(null); R.setClearColor(old, oldA); rt.dispose(); try { g.userData.dispose && g.userData.dispose(); } catch (e) { /* ignore */ } }
+    const img = mkCanvas(W); img.height = H; const ix = img.getContext('2d'), id = ix.createImageData(W, H);
+    for (let y = 0; y < H; y++) id.data.set(px.subarray((H - 1 - y) * W * 4, (H - y) * W * 4), y * W * 4);   // flip
+    ix.putImageData(id, 0, 0);
+    const out = mkCanvas(128); out.getContext('2d').drawImage(img, 0, 16, 128, 96);
+    snaps[key] = out;
+    return out;
+  }
   function typePic(t, size = 128) {
-    const F = BB.fleet;
-    if (F && typeof F.preview === 'function') {
-      try {
-        const pv = F.preview(t, size, (BB.PAINTS.find((p) => p.id === S.paint) || {}).color);
-        if (pv && (pv.width || pv.naturalWidth)) { const c = mkCanvas(size); c.getContext('2d').drawImage(pv, 0, 0, size, size); return c; }
-      } catch (e) { console.error(e); }
-    }
     const col = (BB.PAINTS.find((p) => p.id === S.paint) || {}).color || P.busGreen;
+    if (BB.fleet && typeof BB.fleet.preview === 'function' && BB.renderer) {
+      try { return snapshot(t, col); } catch (e) { console.error(e); }
+    }
     return art('bus-' + t + col, size, busSide(t, col));
   }
   function platePic(no, size = 128) {

@@ -287,7 +287,7 @@
       roofY: m.roofY || m.height || 3.1, paintMats, setPaint: m.setPaint, setLights: m.setLights, dispose: m.dispose,
       mounts: { lights: pm.lights || pm.lightsFront, bumpersFront: pm.bumpersFront || pm.bumperFront, bumpersRear: pm.bumpersRear || pm.bumperRear, roof: pm.roofFront || null,
         glow: [pm.underglow, pm.underglowRear].filter(Boolean) } };
-    B.type = type; B.length = LF + GAP + LR;
+    B.type = type; B.length = LF + GAP + LR; lastRoofT = -1;
     // passengers, headlight beams, the (empty) old hat mount, sticker anchors
     B.front.add(B.paxGroup); seatPassengers();
     lightCones.position.set(0, 0, LF / 2); B.front.add(lightCones);
