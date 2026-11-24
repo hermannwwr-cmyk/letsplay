@@ -1,5 +1,5 @@
 /* Bendy Bus 3D: the bus.
-   A friendly articulated (bendy) bus: a front carriage with a smile and rosy cheeks (no eyes: the owner's choice),
+   An articulated (bendy) bus that reads as a real bus (no face: the owner's choice): a front carriage,
    an accordion joint and a rear carriage that follows the hitch like a trailer, so it bends on turns. Wheels spin and
    the front ones steer, doors slide, ten seats (two rows of five, a ten-frame) hold smiling passengers.
    Driving is FREE and gentle: BB.bus.input = {fwd, back, left, right} (the HUD and keys set it). Speed eases in and
@@ -40,7 +40,7 @@
   let fx = 0, fz = 0, h = 0, hr = 0, gy = 0;
   let settle = null;                    // {from:{fx,fz,h,hr}, to:{...}, t, stop}
   let wheelAngle = 0, doorT = 0, ribbonTimer = 0, saveTimer = 0, lowWarned = false, bumpCool = 0, wobble = 0;
-  let wrongLaneT = 0, lastTip = -99, clock = 0, blinkT = 3;
+  let wrongLaneT = 0, lastTip = -99, clock = 0;
   const fwdOf = (a) => ({ x: Math.sin(a), z: Math.cos(a) });
 
   // ---------- public: placing, targets, doors, controls ----------
@@ -90,15 +90,14 @@
     BB.save.fuel = B.fuel; BB.saveNow();
     BB.emit('fuel:changed', { fuel: B.fuel });
   };
-  B.horn = function () { BB.sfx.horn(!!BB.save.upgrades.horn); hornT = 0.6; BB.emit('bus:horn'); };
-  let hornT = 0;
+  B.horn = function () { BB.sfx.horn(!!BB.save.upgrades.horn); BB.emit('bus:horn'); };
   // World position of seat i (0..9).
   B.seatWorld = function (i, v) { v = v || new THREE.Vector3(); const s = B.seats[i]; v.set(s.x, s.y, s.z); return B.front.localToWorld(v); };
   B.doorWorld = function (v) { v = v || new THREE.Vector3(); v.set(1.6, 0, LF / 2 - 1.0); return B.front.localToWorld(v); };
   B.pathAhead = () => 0;
   B.isSettling = () => !!settle;
   B.isFacingAway = () => facingAway;
-  // Lights (the headlights and tail lights; off for the goodnight moment, which also closes the bus's eyes).
+  // Lights (the headlights and tail lights; off for the goodnight moment).
   // A gentle automatic turn-round (kid magic): the bus does a happy hop-and-spin on the spot and lands facing the
   // other way, in the left lane of the road it is on. The HUD shows a button for it while bus:facingAway is on.
   let spin = null;
@@ -133,10 +132,10 @@
     if (spin.t >= 1) { spin = null; spinHop = 0; collide(); camH = h; refreshRibbon(); }
   }
   let spinHop = 0, facingAway = false, awayT = 0, realMove = 0, jamT = 0, jamSide = 0;
-  B.setLights = function (on) { B.lightsOn = !!on; B.sleepy = !on; };
+  B.setLights = function (on) { B.lightsOn = !!on; };
 
   // ---------- model ----------
-  let paintMat, glassMat, lampMat, eyesF, pupils, wheelsF = [], wheelsR = [], steerWheels = [], doorF, doorR;
+  let paintMat, glassMat, lampMat, wheelsF = [], wheelsR = [], steerWheels = [], doorF, doorR;
   let heads, hair, shirts, lightCones, beacon, ribbon, ribbonTex, bayGlow, bayTex, wayArrow, jointF, jointR;
   // Rounded profile (in x-y) extruded along z: the bus body's soft paper-cut look.
   function profile(w, y0, y1, rt, rb) {
@@ -189,33 +188,56 @@
     paint.add(slab(2.5, 0.42, 1.32, 0.12, 0.18, L), '#ffffff');
     paint.add(slab(2.54, 0.4, 0.72, 0.1, 0.16, L + 0.04, 0.1), '#b9b9b9');             // darker skirt
     paint.add(slab(2.5, 2.36, 3.1, 0.5, 0.05, L), '#ffffff');
-    const nWin = isFront ? 4 : 3;
+    // side windows with dark frames (pillars and a frame along the top and bottom of the glass)
+    const nWin = isFront ? 4 : 3, FRAME = '#33303a';
     for (let k = 0; k <= nWin; k++) {
       const z = zb + 0.25 + (L - 0.5) * k / nWin;
       if (isFront && k === nWin) continue;
-      paint.box(2.48, 1.06, 0.2, '#ffffff', 0, 1.31, z);
+      det.box(2.5, 1.06, 0.16, FRAME, 0, 1.31, z);
     }
-    if (isFront) paint.box(2.48, 1.06, 0.25, '#ffffff', 0, 1.31, zf - 0.2);
+    if (isFront) det.box(2.5, 1.06, 0.3, FRAME, 0, 1.31, zf - 0.17);
+    for (const s of [1, -1]) { det.box(0.05, 0.08, L - 0.3, FRAME, s * 1.252, 1.3, 0); det.box(0.05, 0.08, L - 0.3, FRAME, s * 1.252, 2.32, 0); }
     det.box(1.4, 0.32, L * 0.34, '#f4ecdc', 0, 3.02, -L * 0.12);                    // roof pod (air-con)
     det.box(1.1, 0.1, L * 0.3, '#ffffff', 0, 3.34, -L * 0.12);
     det.box(2.3, 0.1, L - 0.3, '#6c6470', 0, 0.62, 0);                               // floor (seen through glass)
-    // a cream band along each side that stays cream whatever the paint
-    for (const s of [1, -1]) det.box(0.06, 0.16, L - 0.5, '#fff6e0', s * 1.255, 1.1, 0);
+    // a fleet-style stripe along each side that stays cream whatever the paint
+    for (const s of [1, -1]) { det.box(0.06, 0.16, L - 0.4, '#fff6e0', s * 1.255, 1.08, 0); det.box(0.06, 0.07, L - 0.4, '#3a3440', s * 1.256, 0.98, 0); }
     glass.box(2.42, 1.02, L - 0.3, '#ffffff', 0, 1.33, 0);
     // wheel arches (dark half discs on both sides)
     const axles = isFront ? [zf - FRONT_AXLE, zf - MID_AXLE] : [zf - REAR_AXLE];
     for (const z of axles) for (const s of [1, -1]) det.add(new THREE.CircleGeometry(0.72, 10, 0, Math.PI), '#4a3f4c', s * 1.262, 0.42, z, s * Math.PI / 2);
     for (let i = 0; i < 5 && isFront; i++) for (const x of [0.62, -0.62]) det.box(0.8, 0.72, 0.18, P.berry, x, 0.66, 1.9 - i * 1.15 - 0.42);
     if (isFront) {
-      det.box(2.3, 1.1, 0.1, '#3f5f7d', 0, 1.32, zf + 0.01);                        // windscreen
-      det.box(1.9, 0.3, 0.12, '#2b2430', 0, 2.48, zf + 0.0);                        // destination sign
-      for (let k = 0; k < 5; k++) det.box(0.22, 0.14, 0.14, P.honeyLight, -0.6 + k * 0.3, 2.56, zf + 0.02);
-      det.add(slab(2.6, 0.18, 0.55, 0.12, 0.12, 0.42, 0.06), '#5a5260', 0, 0, zf + 0.02);   // bumper
-      // the face: a smile and rosy cheeks on the front panel (eyes are their own meshes, so they can blink)
-      det.add(new THREE.TorusGeometry(0.34, 0.06, 4, 10, Math.PI), '#3a2a3c', 0, 0.96, zf + 0.03, 0, 0, Math.PI);
-      for (const x of [-0.72, 0.72]) det.add(new THREE.CircleGeometry(0.17, 10), '#ff8f9f', x, 0.88, zf + 0.045, 0, 0, 0, 1, 0.7, 1);
-      for (const x of [-0.88, 0.88]) { lamps.add(new THREE.CircleGeometry(0.2, 12), '#fff6c8', x, 0.75, zf + 0.06); det.add(new THREE.CircleGeometry(0.26, 12), '#e9e2d6', x, 0.75, zf + 0.05); lamps.box(0.22, 0.1, 0.06, P.honey, x * 1.22, 1.15, zf + 0.04); }
-      for (const s of [1, -1]) { det.box(0.08, 0.5, 0.08, '#5a5260', s * 1.32, 1.95, zf - 0.3); det.ball(0.2, '#5a5260', s * 1.42, 1.75, zf - 0.2, 0, 0.6, 1.2, 0.9); }   // mirrors
+      const FZ = zf + 0.01;
+      // a big windscreen in two panes split by a pillar, under a lit destination display
+      det.box(2.42, 1.2, 0.08, '#33303a', 0, 1.22, FZ);                              // frame
+      for (const x of [-0.6, 0.6]) det.box(1.12, 1.06, 0.1, '#46708f', x, 1.29, FZ + 0.01);
+      for (const x of [-0.9, 0.3]) det.box(0.22, 0.9, 0.11, '#6a93b0', x, 1.38, FZ + 0.015, 0, 0, 0.12);   // a glint
+      det.box(2.42, 0.4, 0.08, '#2a2630', 0, 2.36, FZ);                               // display housing
+      lamps.box(0.5, 0.26, 0.06, '#1c1a20', -0.82, 2.43, FZ + 0.05);                  // route number box, LED "10"
+      for (const [x, y, w, hh] of [[-0.96, 2.5, 0.04, 0.17], [-0.79, 2.5, 0.04, 0.17], [-0.66, 2.5, 0.04, 0.17], [-0.725, 2.58, 0.12, 0.03], [-0.725, 2.42, 0.12, 0.03]])
+        lamps.box(w, hh, 0.04, '#ffb43a', x, y - hh / 2, FZ + 0.08);
+      for (let k = 0; k < 9; k++) lamps.box(0.1, 0.06 + (k % 3) * 0.03, 0.04, '#ffb43a', -0.3 + k * 0.15, 2.46, FZ + 0.06);   // destination
+      // wipers resting at the bottom of the glass
+      for (const x of [-0.75, 0.45]) det.box(0.7, 0.04, 0.04, '#24222a', x, 1.33, FZ + 0.07, 0, 0, 0.18);
+      // lower front: grille, rectangular headlight clusters with indicators, bumper, a generic number plate
+      det.box(2.44, 0.34, 0.06, '#d9d4cb', 0, 0.58, FZ);
+      for (let k = 0; k < 3; k++) det.box(1.0, 0.04, 0.07, '#3a3440', 0, 0.63 + k * 0.08, FZ + 0.01);
+      for (const s of [1, -1]) {
+        det.box(0.62, 0.26, 0.06, '#33303a', s * 0.86, 0.6, FZ + 0.01);
+        lamps.box(0.36, 0.18, 0.05, '#fff6c8', s * 0.94, 0.64, FZ + 0.04);
+        lamps.box(0.16, 0.18, 0.05, '#ffae3a', s * 0.66, 0.64, FZ + 0.04);
+        lamps.box(0.08, 0.1, 0.3, '#ffae3a', s * 1.26, 0.72, zf - 0.25);              // side indicator
+      }
+      det.add(slab(2.6, 0.18, 0.5, 0.1, 0.1, 0.4, 0.06), '#46404e', 0, 0, zf + 0.04);   // bumper
+      det.box(0.7, 0.18, 0.04, '#fbf7ee', 0, 0.26, zf + 0.25); det.box(0.5, 0.06, 0.02, '#3a3440', 0, 0.32, zf + 0.27);
+      // wing mirrors on arms, hanging forward of the windscreen
+      for (const s of [1, -1]) {
+        det.box(0.06, 0.06, 0.55, '#33303a', s * 1.3, 2.25, zf + 0.15, s * 0.25);
+        det.box(0.06, 0.45, 0.06, '#33303a', s * 1.42, 1.85, zf + 0.42);
+        det.box(0.22, 0.5, 0.1, '#2b2830', s * 1.44, 1.45, zf + 0.42);
+        det.box(0.17, 0.42, 0.02, '#8fb6cf', s * 1.44, 1.49, zf + 0.37);
+      }
       // the driver sits on the RIGHT (-x), with a cap and a steering wheel
       det.box(0.7, 0.9, 0.5, '#4a4250', -0.62, 0.62, zf - 0.85);
       det.cyl(0.22, 0.28, 0.6, 6, '#4f7fe0', -0.62, 1.15, zf - 0.75);
@@ -223,28 +245,28 @@
       det.ball(0.26, '#2b5aa8', -0.62, 2.05, zf - 0.78, 0, 1, 0.55, 1); det.box(0.34, 0.05, 0.26, '#2b5aa8', -0.62, 2.03, zf - 0.55);
       det.add(new THREE.TorusGeometry(0.22, 0.04, 4, 10), '#3a2a3c', -0.62, 1.55, zf - 0.38, 0, -0.9);
     } else {
-      det.box(2.0, 0.9, 0.1, '#3f5f7d', 0, 1.4, zb - 0.01);                        // rear window
-      det.add(slab(2.6, 0.18, 0.55, 0.12, 0.12, 0.42, 0.06), '#5a5260', 0, 0, zb - 0.02);
-      for (const x of [-0.92, 0.92]) lamps.box(0.36, 0.42, 0.06, '#ff5a4a', x, 0.85, zb - 0.06);
-      det.box(1.6, 0.2, 0.08, '#fff6e0', 0, 2.62, zb - 0.02);
+      const BZ = zb - 0.01;
+      det.box(2.1, 0.8, 0.08, '#33303a', 0, 1.52, BZ); det.box(1.9, 0.66, 0.1, '#46708f', 0, 1.59, BZ - 0.01);   // rear window
+      det.box(1.3, 0.22, 0.08, '#2a2630', 0, 2.42, BZ); for (let k = 0; k < 2; k++) lamps.box(0.12, 0.14, 0.04, '#ffb43a', -0.12 + k * 0.2, 2.46, BZ - 0.05);   // route number
+      det.box(1.5, 0.62, 0.06, '#3a3440', 0, 0.62, BZ);                              // engine grille
+      for (let k = 0; k < 5; k++) det.box(1.4, 0.05, 0.08, '#6c6470', 0, 0.68 + k * 0.11, BZ - 0.01);
+      for (const s of [1, -1]) {                                                       // tail-light clusters
+        det.box(0.34, 0.9, 0.06, '#33303a', s * 1.0, 0.58, BZ);
+        lamps.box(0.26, 0.38, 0.05, '#ff4a3a', s * 1.0, 0.98, BZ - 0.03);
+        lamps.box(0.26, 0.16, 0.05, '#ffae3a', s * 1.0, 0.8, BZ - 0.03);
+        lamps.box(0.26, 0.14, 0.05, '#fbf3e0', s * 1.0, 0.63, BZ - 0.03);
+      }
+      det.add(slab(2.6, 0.18, 0.5, 0.1, 0.1, 0.4, 0.06), '#46404e', 0, 0, zb - 0.04);
+      det.box(0.7, 0.18, 0.04, '#fbf7ee', 0, 0.26, zb - 0.25); det.box(0.5, 0.06, 0.02, '#3a3440', 0, 0.32, zb - 0.27);
     }
     const pm = paint.mesh(paintMat), dm = det.mesh(), gm = glass.mesh(glassMat), lm = lamps.mesh(lampMat);
     gm.renderOrder = 3;
     g.add(pm, dm, gm, lm);
-    if (isFront) {
-      // big friendly eyes on the windscreen (whites; pupils move with the steering; they blink)
-      const eb = BB.mk.builder(), pb = BB.mk.builder();
-      for (const x of [-0.5, 0.5]) { eb.ball(0.36, '#ffffff', x, 0, 0, 1, 1, 1.18, 0.35); eb.ball(0.4, '#f0e8da', x, 0.02, -0.03, 1, 1, 1.18, 0.3); }
-      for (const x of [-0.5, 0.5]) { pb.ball(0.17, '#3a2a3c', x, -0.04, 0.1, 1, 1, 1.15, 0.4); pb.ball(0.06, '#ffffff', x + 0.06, 0.04, 0.16, 0, 1, 1, 0.5); }
-      eyesF = new THREE.Group(); eyesF.position.set(0, 1.62, LF / 2 + 0.08);
-      const em = eb.mesh(new THREE.MeshBasicMaterial({ vertexColors: true }));
-      pupils = pb.mesh(new THREE.MeshBasicMaterial({ vertexColors: true }));
-      eyesF.add(em, pupils); eyesF.visible = false; g.add(eyesF);   // the owner asked for no eyes on the bus
-    }
     // doors (kerb side, +x): front door near the nose, rear door on the rear carriage
     const db = BB.mk.builder();
-    db.box(0.08, 1.95, 0.55, P.glassDark, 0, 0, -0.29); db.box(0.08, 1.95, 0.55, P.glassDark, 0, 0, 0.29);
-    db.box(0.1, 0.12, 1.2, P.honey, 0, 1.95, 0); db.box(0.1, 1.95, 0.08, P.honey, 0, 0, 0);
+    db.box(0.08, 1.95, 0.55, '#5d86a3', 0, 0, -0.29); db.box(0.08, 1.95, 0.55, '#5d86a3', 0, 0, 0.29);
+    db.box(0.1, 0.1, 1.2, '#33303a', 0, 1.95, 0); db.box(0.1, 1.95, 0.08, '#33303a', 0, 0, 0);
+    for (const z of [-0.29, 0.29]) db.box(0.1, 0.06, 0.55, '#33303a', 0, 0.9, z);
     const door = db.mesh(); door.position.set(1.27, 0.5, isFront ? zf - 1.0 : zf - 1.6); door.userData.z = door.position.z;
     g.add(door);
     if (isFront) doorF = door; else doorR = door;
@@ -437,8 +459,12 @@
     b.add(slab(2.3, 1.2, 2.9, 0.45, 0.05, 2.4), '#ffb81f', 0, 0, 1.6);               // cab
     b.box(2.0, 0.9, 0.1, '#3f5f7d', 0, 1.6, 2.81);                                   // windscreen
     for (const s of [1, -1]) b.box(0.1, 0.8, 1.4, '#3f5f7d', s * 1.16, 1.65, 1.6);
-    b.add(new THREE.TorusGeometry(0.3, 0.06, 4, 10, Math.PI), '#3a2a3c', 0, 1.05, 2.82, 0, 0, Math.PI);
-    for (const x of [-0.8, 0.8]) { b.add(new THREE.CircleGeometry(0.18, 10), '#fff6c8', x, 0.8, 2.82); b.add(new THREE.CircleGeometry(0.15, 10), '#ff8f9f', x * 0.75, 1.0, 2.83, 0, 0, 0, 1, 0.7, 1); }
+    b.box(1.1, 0.5, 0.06, '#3a3440', 0, 0.72, 2.81);                                  // grille
+    for (let k = 0; k < 3; k++) b.box(1.0, 0.05, 0.08, '#8a8492', 0, 0.8 + k * 0.13, 2.82);
+    for (const s of [1, -1]) { b.box(0.4, 0.22, 0.06, '#fff6c8', s * 0.86, 0.9, 2.81); b.box(0.14, 0.22, 0.06, '#ffae3a', s * 1.1, 0.9, 2.815); }
+    b.box(0.6, 0.16, 0.04, '#fbf7ee', 0, 0.3, 3.13);                                   // number plate
+    for (const s of [1, -1]) { b.box(0.06, 0.4, 0.06, '#33303a', s * 1.25, 1.9, 2.5); b.box(0.16, 0.36, 0.08, '#2b2830', s * 1.32, 1.65, 2.55); }   // mirrors
+    for (const s of [1, -1]) b.box(0.3, 0.3, 0.06, '#ff4a3a', s * 0.85, 0.75, -3.42);  // tail lights
     b.add(slab(2.4, 0.2, 0.55, 0.1, 0.1, 0.35, 0.05), '#5a5260', 0, 0, 2.95);
     // the crane boom and hook
     b.box(1.8, 0.3, 3.4, '#e9e2d6', 0, 1.3, -1.6);
@@ -448,9 +474,8 @@
     b.add(new THREE.TorusGeometry(0.22, 0.07, 4, 8, Math.PI * 1.4), '#5a5260', 0, 1.85, -3.35, Math.PI / 2);
     for (let k = 0; k < 4; k++) b.box(0.3, 0.12, 0.2, k % 2 ? '#3a2a3c' : P.honey, -0.45 + k * 0.3, 0.75, -3.42);
     const body = b.mesh(); g.add(body);
-    // (no eyes: the owner's choice)
-    const beaconM = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.26, 0.3, 8), new THREE.MeshBasicMaterial({ color: '#ff8a3d' }));
-    beaconM.position.set(0, 3.05, 1.6); g.add(beaconM);
+    const beaconM = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.22, 0.4), new THREE.MeshBasicMaterial({ color: '#ff8a3d' }));   // light bar
+    beaconM.position.set(0, 3.0, 1.6); g.add(beaconM);
     const wheels = [];
     for (const z of [1.6, -1.8]) {
       const wb = BB.mk.builder();
@@ -466,7 +491,7 @@
         t += dt; spin += speed * dt / 0.48;
         for (const w of wheels) w.rotation.x = spin;
         const on = Math.sin(t * 9) > 0;
-        beaconM.material.color.set(on ? '#ffd45c' : '#ff6b2c'); beaconM.scale.setScalar(on ? 1.15 : 1);
+        beaconM.material.color.set(on ? '#ffd45c' : '#ff6b2c');
       },
     };
     return g;
@@ -946,7 +971,7 @@
   // ---------- per frame ----------
   B.update = function (dt) {
     if (!B.front) return;
-    clock += dt; bumpCool -= dt; wobble = Math.max(0, wobble - dt * 2.5); hornT -= dt;
+    clock += dt; bumpCool -= dt; wobble = Math.max(0, wobble - dt * 2.5);
     let ds = 0;
     if (spin) updateSpin(dt); else { ds = settle ? 0 : drive(dt); updateSettle(dt); }
     gy += (W().groundY(fx, fz) - gy) * Math.min(1, dt * 8);
@@ -973,14 +998,6 @@
     const n = BB.clamp(B.passengers | 0, 0, 10);
     if (heads.count !== n) heads.count = hair.count = shirts.count = n;
     B.paxGroup.position.y = Math.abs(B.speed) > 0.5 ? Math.abs(Math.sin(clock * 9)) * 0.04 : 0;
-    blinkT -= dt;
-    let open = 1;
-    if (B.sleepy) open = 0.1;
-    else if (blinkT < 0) { open = Math.min(1, Math.abs(blinkT + 0.08) / 0.08); if (blinkT < -0.16) blinkT = 2.5 + Math.random() * 3; }
-    if (hornT > 0) open = 1.15;
-    eyesF.scale.y += (open - eyesF.scale.y) * Math.min(1, dt * (B.sleepy ? 3 : 30));
-    pupils.visible = !B.sleepy;
-    pupils.position.x += (B.steer * 0.25 - pupils.position.x) * Math.min(1, dt * 8);
 
     // lights: on at dusk and night (and brighter with the upgrade); off for the goodnight moment
     const night = W().night ? W().night() : 0, up = !!(BB.save.upgrades && BB.save.upgrades.lights);

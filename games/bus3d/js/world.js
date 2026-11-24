@@ -1141,11 +1141,15 @@
     }
     for (const s of [-1, 1]) {                              // noses
       const nx = s * 15.6;
-      b.box(0.9, 2.9, 2.8, '#fbf8f1', nx, 0.4, 0);
-      b.box(0.9, 0.45, 2.85, P.coral, nx, 0.95, 0);
-      b.box(0.8, 1.4, 2.5, P.glassDark, nx + s * 0.1, 1.7, 0);
-      for (const z of [-0.6, 0.6]) { b.ball(0.32, '#ffffff', nx + s * 0.5, 2.5, z, 0, 0.4, 1, 1); b.ball(0.16, '#3a2a3c', nx + s * 0.6, 2.48, z, 0, 0.4, 1, 1); }
-      b.box(0.1, 0.12, 0.8, '#ffffff', nx + s * 0.48, 1.25, 0);
+      // a rounded driver's cab: a sloping nose with a big windscreen, headlights, the stripe carried round
+      b.box(1.2, 1.5, 2.8, '#fbf8f1', nx + s * 0.1, 0.4, 0);
+      b.box(1.25, 0.45, 2.85, P.coral, nx + s * 0.1, 0.95, 0);
+      b.box(1.25, 0.18, 2.85, P.honey, nx + s * 0.1, 1.4, 0);
+      b.box(0.7, 1.5, 2.6, '#fbf8f1', nx - s * 0.15, 1.9, 0);
+      b.box(0.2, 1.35, 2.3, '#3f5f7d', nx + s * 0.32, 1.95, 0, 0, 0, -s * 0.38);     // windscreen, raked back
+      b.box(0.22, 0.25, 2.3, '#e2ddd2', nx + s * 0.05, 3.25, 0, 0, 0, -s * 0.5);
+      for (const z of [-0.95, 0.95]) { b.box(0.08, 0.2, 0.42, '#fff6c8', nx + s * 0.72, 0.62, z); b.box(0.08, 0.12, 0.26, '#ff6a4a', nx + s * 0.72, 0.38, z * 0.85); }
+      b.box(0.1, 0.35, 0.9, '#5a5260', nx + s * 0.7, 0.1, 0);                         // coupler skirt
     }
     const m = b.mesh(); m.name = 'train';
     m.position.set(trainX, DECK_Y + 1.5, VIADUCT_Z + 1.4);
@@ -1178,7 +1182,9 @@
     b.box(1.65, 0.7, 2.2, '#ffffff', 0, 1.1, -0.2);               // cabin
     b.box(1.68, 0.48, 2.0, '#3c4a5a', 0, 1.18, -0.2);             // windows
     b.box(1.5, 0.5, 0.06, '#3c4a5a', 0, 1.18, 0.92, 0, -0.5);     // windscreen
-    for (const x of [-0.6, 0.6]) b.box(0.4, 0.22, 0.06, '#fff8d0', x, 0.68, 2.01);
+    b.box(1.5, 0.45, 0.06, '#3c4a5a', 0, 1.18, -1.32, 0, 0.45);   // rear window
+    for (const x of [-0.6, 0.6]) { b.box(0.42, 0.2, 0.06, '#ffffff', x, 0.7, 2.01); b.box(0.36, 0.18, 0.06, '#ff3020', x, 0.7, -2.01); }   // head and tail lights
+    b.box(0.5, 0.14, 0.04, '#f0f0f0', 0, 0.42, 2.03);           // number plate
     for (const [x, z] of [[-0.95, 1.3], [0.95, 1.3], [-0.95, -1.3], [0.95, -1.3]]) b.add(new THREE.CylinderGeometry(0.38, 0.38, 0.3, 8), '#3a3440', x, 0.38, z, 0, 0, Math.PI / 2);
     const mesh = new THREE.InstancedMesh(b.geometry(), new THREE.MeshLambertMaterial({ vertexColors: true }), CAR_N);
     const cols = [P.coral, P.berry, P.honey, P.teal, '#f4f1ea', P.plum, P.mint, P.rose, '#4fa3e0'];
