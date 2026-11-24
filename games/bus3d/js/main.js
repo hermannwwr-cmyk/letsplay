@@ -140,7 +140,13 @@
     BB.music.stop();
     BB.say('Time for bed, little bus!');
     for (let i = 0; i < 40 && B.speed > 0.2; i++) await BB.wait(100);
-    if ((B.passengers | 0) > 0) {
+    if ((B.passengers | 0) > 0 && J.allOff) {
+      // the last passengers really walk off and away (at most ~15 s, then carry on regardless)
+      await new Promise((res) => { let done = false; const fin = () => { if (!done) { done = true; res(); } }; BB.later(15000, fin); try { J.allOff(fin); } catch (e) { console.error(e); fin(); } });
+      BB.say('Bye bye! Thank you, bus!', { queue: true });
+      await BB.wait(500);
+      safe(() => B.closeDoors());
+    } else if ((B.passengers | 0) > 0) {
       B.openDoors();
       await BB.wait(700);
       BB.say('Bye bye! Thank you, bus!', { queue: true });

@@ -222,8 +222,14 @@
     BB.on('job:target', () => renderJob());
     BB.on('job:stopDone', () => renderJob());
     BB.on('job:done', () => { renderJob(); U.confetti(); });
-    BB.on('question:show', () => setDriving(false));
-    BB.on('question:hide', () => setDriving(true));
+    // driving controls only while driving: hidden from arrival at a stop (people boarding, the question) until the
+    // stop is finished
+    let qShown = false;
+    const syncDriving = () => setDriving(!qShown && !(BB.jobs.busy && BB.jobs.busy()));
+    BB.on('question:show', () => { qShown = true; syncDriving(); });
+    BB.on('question:hide', () => { qShown = false; syncDriving(); });
+    BB.on('jobs:busy', syncDriving);
+    BB.on('bus:arrived', (d) => { if (!d || !d.stop || d.stop.id !== 'depot') setDriving(false); BB.later(50, syncDriving); });
     BB.on('depot:open', () => { U.releaseAll(); hud.classList.add('off'); U.showExit(true); });
     BB.on('depot:closed', () => { U.showExit(false); if (!BB.bedtime) hud.classList.remove('off'); });
   };
