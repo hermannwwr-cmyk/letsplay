@@ -435,9 +435,7 @@
     b.add(new THREE.TorusGeometry(0.22, 0.07, 4, 8, Math.PI * 1.4), '#5a5260', 0, 1.85, -3.35, Math.PI / 2);
     for (let k = 0; k < 4; k++) b.box(0.3, 0.12, 0.2, k % 2 ? '#3a2a3c' : P.honey, -0.45 + k * 0.3, 0.75, -3.42);
     const body = b.mesh(); g.add(body);
-    const eb = BB.mk.builder();
-    for (const x of [-0.45, 0.45]) { eb.ball(0.28, '#ffffff', x, 1.95, 2.86, 1, 1, 1.15, 0.35); eb.ball(0.13, '#3a2a3c', x + 0.03, 1.92, 2.94, 0, 1, 1.1, 0.4); eb.ball(0.05, '#ffffff', x + 0.08, 1.99, 2.99, 0); }
-    g.add(eb.mesh(new THREE.MeshBasicMaterial({ vertexColors: true })));
+    // (no eyes: the owner's choice)
     const beaconM = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.26, 0.3, 8), new THREE.MeshBasicMaterial({ color: '#ff8a3d' }));
     beaconM.position.set(0, 3.05, 1.6); g.add(beaconM);
     const wheels = [];

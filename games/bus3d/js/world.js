@@ -1008,8 +1008,8 @@
     figure(b, 41, 0.37, -7.5, 0.3, false); figure(b, 49, 0.37, -6.6, -2.6, false);
   }
 
-  // Bus depot (block south-east): a big friendly garage with an arched teal roof, two round "eye" windows over a
-  // wide door (it smiles at the bus), a half-raised striped shutter, a fuel pump under a canopy and a washing brush.
+  // Bus depot (block south-east): a big friendly garage with an arched teal roof, two round windows over a
+  // wide door, a half-raised striped shutter, a fuel pump under a canopy and a washing brush.
   function depotShed(b, green) {
     const D = W.depot;
     W.addBox(DEPOT_X, D.pos.z, 7.4, 10.4, 0, 11);
@@ -1024,15 +1024,13 @@
       const front = new THREE.CircleGeometry(10, 12, 0, Math.PI);
       for (const z of [7.31, -7.31]) q.add(front, P.cream, 0, 7.6, z, z > 0 ? 0 : Math.PI, 0, 0, 1, 0.4, 1);
       bx(q, 20.6, 0.35, 0.3, P.teal, 0, 7.45, 7.2);
-      // the friendly face: eyes (round windows) above the door
+      // two round windows above the door (plain windows, no eyes: the owner's choice)
       for (const x of [-5, 5]) {
         q.add(new THREE.CircleGeometry(1.55, 14), P.honey, x, 9.1, 7.34);
-        q.add(new THREE.CircleGeometry(1.3, 14), '#ffffff', x, 9.1, 7.4);
-        q.add(new THREE.CircleGeometry(0.62, 12), '#3a2a3c', x + 0.15, 8.95, 7.46);
-        q.add(new THREE.CircleGeometry(0.22, 8), '#ffffff', x + 0.38, 9.2, 7.52);
+        q.add(new THREE.CircleGeometry(1.3, 14), '#9fd3e8', x, 9.1, 7.4);
+        q.add(QUAD, P.honey, x, 9.1, 7.46, 0, 0, 0, 2.6, 0.16, 1);
+        q.add(QUAD, P.honey, x, 9.1, 7.46, 0, 0, 0, 0.16, 2.6, 1);
       }
-      q.add(new THREE.CircleGeometry(0.9, 10), '#ff9f9f', -7.6, 7.9, 7.33, 0, 0, 0, 1, 0.6, 1);
-      q.add(new THREE.CircleGeometry(0.9, 10), '#ff9f9f', 7.6, 7.9, 7.33, 0, 0, 0, 1, 0.6, 1);
       // the big door: dark inside, a half-raised striped shutter, a honey frame
       q.add(QUAD, '#463a48', 0, 2.85, 7.02, 0, 0, 0, 11, 5.4, 1);
       for (let k = 0; k < 5; k++) bx(q, 11, 0.3, 0.2, k % 2 ? P.honeyLight : '#fff6e0', 0, 4.15 + k * 0.3, 7.08);

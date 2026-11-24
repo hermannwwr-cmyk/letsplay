@@ -267,8 +267,33 @@
   @keyframes bbq-hop { 40% { transform: translateY(-30%) scaleY(1.06); } 80% { transform: translateY(0) scaleY(.9); } }
   .bbq-bird.talk svg { animation: bbq-talk .5s ease-in-out infinite alternate; }
   @keyframes bbq-talk { to { transform: rotate(-6deg); } }
-  .bbq-side { display: flex; gap: 12px; align-items: center; padding-bottom: 6px; }
+  .bbq-side { display: flex; flex-direction: column; gap: 10px; align-items: center; padding-bottom: 6px; }
+  .bbq-row { display: flex; gap: 12px; align-items: center; }
   .bbq-ask { display: flex; gap: 12px; align-items: center; }
+  /* the written number sentence: 2 + 1 = ?  (each number over its own little group of people, so it can be counted) */
+  .bbq-sum { display: flex; align-items: flex-start; gap: 6px; min-height: 76px; font: 700 46px/1 'Fredoka', 'Baloo 2', system-ui, sans-serif; }
+  .bbq-term { display: flex; flex-direction: column; align-items: center; gap: 5px; opacity: 0; transform: scale(.4);
+    transition: opacity .3s, transform .35s cubic-bezier(.2,1.6,.5,1); }
+  .bbq-term.show { opacity: 1; transform: none; }
+  .bbq-term b { display: block; min-width: .9em; height: 54px; line-height: 56px; padding: 0 9px; border-radius: 16px; text-align: center;
+    box-sizing: border-box; transition: background .2s, transform .2s, box-shadow .2s; }
+  .bbq-term.lit b { background: #ffd45c; transform: scale(1.15); box-shadow: 0 0 0 4px #ffb81f; }
+  .bbq-term.op b { color: #a08a70; padding: 0 2px; }
+  .bbq-term.n1 b { color: #2f8f3a; }
+  .bbq-term.n2.add b { color: #19a79b; }
+  .bbq-term.n2.sub b { color: #ff6b5c; border: 3px dashed #ff6b5c; line-height: 50px; }
+  .bbq-term.ans b { min-width: 62px; border: 4px solid #ffb81f; background: #fff; color: #d98700; line-height: 48px; animation: bbq-ask 1.1s ease-in-out infinite alternate; }
+  @keyframes bbq-ask { to { box-shadow: 0 0 0 6px rgba(255,212,92,.6); transform: scale(1.06); } }
+  .bbq-term.ans.filled b { animation: bbq-pop .5s; background: #ffd45c; color: #fff; text-shadow: 0 2px 0 #d98700; border-color: #ffb81f; }
+  .bbq-term.ans { position: relative; }
+  .bbq-spark { position: absolute; left: 50%; top: 27px; width: 14px; height: 14px; margin: -7px; pointer-events: none;
+    background: #ffd45c; clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
+    animation: bbq-spark .7s ease-out forwards; }
+  @keyframes bbq-spark { from { transform: translate(0, 0) scale(.4); opacity: 1; } to { transform: translate(var(--dx), var(--dy)) scale(1.2) rotate(90deg); opacity: 0; } }
+  .bbq-dots { display: grid; grid-template-columns: repeat(5, 11px); gap: 3px; justify-content: center; }
+  .bbq-dots i { width: 11px; height: 11px; border-radius: 50%; background: #3fae49; box-shadow: inset -2px -2px 0 rgba(0,0,0,.15); }
+  .bbq-term.n2.add .bbq-dots i { background: #19a79b; }
+  .bbq-term.n2.sub .bbq-dots i { background: transparent; border: 2px dashed #ff6b5c; box-sizing: border-box; box-shadow: none; }
   .bbq-btn { width: 88px; height: 88px; border-radius: 26px; border: none; font: 700 50px/1 'Fredoka', 'Baloo 2', system-ui, sans-serif;
     color: #fff; background: #4fa3e0; box-shadow: inset -5px -6px 0 rgba(0,0,0,.12), 0 6px 0 #2f7fbc; cursor: pointer;
     touch-action: manipulation; padding: 0; transition: opacity .3s, transform .15s; }
@@ -295,6 +320,7 @@
   .bbj svg { width: 56px; height: 56px; animation: bbq-pop .5s both; }
   .bbj svg:nth-child(2) { animation-delay: .15s; } .bbj svg:nth-child(3) { animation-delay: .3s; }
   .bbj canvas { width: 52px; height: 52px; margin-left: 10px; }
+  @media (max-height: 380px) { .bbq-dots { display: none; } .bbq-sum { min-height: 40px; } }
   @media (max-height: 520px) {
     .bbq { left: max(10px, env(safe-area-inset-left), var(--padx, 0px)); bottom: max(8px, env(safe-area-inset-bottom)); transform: none;
       flex-direction: column; align-items: center; gap: 8px; padding: 6px 12px 12px; border-radius: 22px; --cell: 36px; --bird: 66px; }
@@ -304,8 +330,17 @@
     .bbq-frame { gap: 4px; padding: 6px; border-radius: 14px; }
     .bbq-seat { border-radius: 10px; }
     .bbq-seat .num { min-width: 22px; height: 22px; font-size: 16px; line-height: 22px; left: -6px; top: -8px; }
-    .bbq-side { gap: 8px; padding-bottom: 4px; }
-    .bbq-ask { gap: 8px; }
+    .bbq-side { gap: 6px; padding-bottom: 4px; }
+    .bbq-row, .bbq-ask { gap: 8px; }
+    .bbq-sum { font-size: 32px; min-height: 52px; gap: 4px; }
+    .bbq-term { gap: 3px; }
+    .bbq-term b { height: 38px; line-height: 40px; padding: 0 7px; border-radius: 12px; }
+    .bbq-term.n2.sub b { line-height: 34px; }
+    .bbq-term.ans b { min-width: 46px; line-height: 32px; border-width: 3px; }
+    .bbq-spark { top: 19px; }
+    .bbq-dots { grid-template-columns: repeat(5, 7px); gap: 2px; }
+    .bbq-dots i { width: 7px; height: 7px; }
+    .bbq-term.n2.sub .bbq-dots i { border-width: 1.5px; }
     .bbq-btn { width: 64px; height: 64px; font-size: 38px; border-radius: 20px; }
     .bbq-say { width: 56px; height: 56px; }
     .bbj { font-size: 36px; padding: 8px 20px; top: 20%; } .bbj svg { width: 42px; height: 42px; } .bbj canvas { width: 40px; height: 40px; }
@@ -342,7 +377,37 @@
   const SPEAKER = '<svg viewBox="0 0 40 40"><path d="M6 15 H13 L22 7 V33 L13 25 H6Z" fill="#19a79b"/><path d="M27 13 Q32 20 27 27 M30 9 Q38 20 30 31" stroke="#19a79b" stroke-width="3.2" fill="none" stroke-linecap="round"/></svg>';
   const STAR = '<svg viewBox="0 0 40 40"><path d="M20 3 L25 14.5 L37.5 15.5 L28 24 L31 36.5 L20 30 L9 36.5 L12 24 L2.5 15.5 L15 14.5Z" fill="#ffd45c"/><path d="M28 24 L31 36.5 L20 30Z" fill="#ffb81f"/></svg>';
 
-  let card = null, pic = null, frame = null, bird = null, seatEls = [], btnEls = [];
+  let card = null, pic = null, frame = null, bird = null, seatEls = [], btnEls = [], sumEl = null;
+
+  // ---------- the written number sentence ----------
+  // "2 + 1 = ?" / "8 − 2 = ?" (a real minus sign). Parts: n1 (on the bus), n2 (getting on: mint / getting off: dashed
+  // coral), ask (the pulsing "?" box). Each number sits over its own little group of dots to count. Parts appear as the
+  // story is told (showSum), light up when spoken or counted (litSum), and the "?" fills in after a right answer.
+  const MINUS = '\u2212';
+  function buildSum(q) {
+    if (!sumEl) return;
+    const dots = (n) => '<span class="bbq-dots">' + '<i></i>'.repeat(n) + '</span>';
+    sumEl.innerHTML =
+      `<span class="bbq-term n1" data-p="n1"><b>${q.n}</b>${dots(q.n)}</span>` +
+      `<span class="bbq-term op" data-p="n2"><b>${q.kind === 'add' ? '+' : MINUS}</b></span>` +
+      `<span class="bbq-term n2 ${q.kind}" data-p="n2"><b>${q.k}</b>${dots(q.k)}</span>` +
+      `<span class="bbq-term op" data-p="ask"><b>=</b></span>` +
+      `<span class="bbq-term ans" data-p="ask"><b>?</b></span>`;
+  }
+  function showSum(...parts) { if (sumEl) sumEl.querySelectorAll('.bbq-term').forEach((t) => { if (parts.includes(t.dataset.p)) t.classList.add('show'); }); }
+  // light one part (n1, n2 or ask), or none
+  function litSum(part) { if (sumEl) sumEl.querySelectorAll('.bbq-term').forEach((t) => t.classList.toggle('lit', !!part && t.dataset.p === part && !t.classList.contains('op'))); }
+  function fillSum(answer) {
+    if (!sumEl) return;
+    const t = sumEl.querySelector('.bbq-term.ans'); if (!t) return;
+    t.querySelector('b').textContent = String(answer);
+    t.classList.remove('filled'); void t.offsetWidth; t.classList.add('filled', 'show');
+    for (let i = 0; i < 8; i++) {
+      const sp = BB.el('i', 'bbq-spark', t), a = i / 8 * Math.PI * 2;
+      sp.style.setProperty('--dx', Math.round(Math.cos(a) * 48) + 'px'); sp.style.setProperty('--dy', Math.round(Math.sin(a) * 40) + 'px');
+      BB.later(800, () => sp.remove());
+    }
+  }
   let seq = 0;                      // bumps whenever a talking sequence (story, teaching) should stop
   let tapped = [];                  // seats the child has tapped to count, in order
 
@@ -400,8 +465,11 @@
     for (let i = 0; i < 10; i++) { const s = BB.el('div', 'bbq-seat', frame); s.dataset.i = i; seatEls.push(s); }
     bird = BB.el('div', 'bbq-bird', pic, BIRD);
     const side = BB.el('div', 'bbq-side', card);
-    const ask = BB.el('div', 'bbq-ask', side);
-    const sayBtn = BB.el('button', 'bbq-say', side, SPEAKER);
+    sumEl = BB.el('div', 'bbq-sum', side);
+    buildSum(q);
+    const row = BB.el('div', 'bbq-row', side);
+    const ask = BB.el('div', 'bbq-ask', row);
+    const sayBtn = BB.el('button', 'bbq-say', row, SPEAKER);
     sayBtn.setAttribute('aria-label', 'Say it again');
     BB.tap(sayBtn, () => { if (J.phase === 'question' && !J.teaching && !q.done) { seq++; sayNow(J.sentence(q)); } });
     btnEls = q.choices.map((v) => {
@@ -435,10 +503,12 @@
     light(i, true); badge(i, tapped.length); mark(i, tapped.length);
     BB.sfx.tick();
     sayNow(String(tapped.length));
+    const cq = J.question;
+    if (cq) litSum(cq.kind === 'add' && i >= cq.n ? 'n2' : 'n1');
     if (card && card.classList.contains('counting')) {
       birdTo(i);
       const all = seatEls.filter((el, j) => isFull(j)).length, q = J.question;
-      if (tapped.length === all && q) { card.classList.remove('counting'); say(q.kind === 'sub' ? 'So how many are left?' : 'So how many now?'); }
+      if (tapped.length === all && q) { card.classList.remove('counting'); BB.later(700, () => litSum('ask')); say(q.kind === 'sub' ? 'So how many are left?' : 'So how many now?').then(() => litSum(null)); }
     }
   }
 
@@ -447,7 +517,7 @@
     J.teaching = false;
     if (card) {
       const c = card;
-      card = null; bird = null; frame = null; pic = null; seatEls = []; btnEls = [];
+      card = null; bird = null; frame = null; pic = null; seatEls = []; btnEls = []; sumEl = null;
       if (now) c.remove(); else { c.classList.add('out'); BB.later(350, () => c.remove()); }
       BB.emit('question:hide');
     }
@@ -481,27 +551,34 @@
       await J.teach(demoFor(q), 'demo');
       if (!alive() || !card) return;
       showGroup(q.n);
+      buildSum(q);
       await wait(400);
       if (!alive()) return;
     }
     // the story, told while it happens
     for (let i = 0; i < q.n; i++) light(i, true);
+    showSum('n1'); litSum('n1');
     await say(nPhrase(q.n));
     for (let i = 0; i < q.n; i++) light(i, false);
+    litSum(null);
     if (!alive()) return;
+    showSum('n2'); litSum('n2');
     if (q.kind === 'add') {
       const list = J.waiting; J.waiting = [];
       await Promise.all([say(kPhrase(q)), boardPeople(list, (seat) => { if (card) setSeat(seat, 'new'); })]);
     } else {
       await Promise.all([say(kPhrase(q)), alightPeople(q.k, (seat) => { if (card) { setSeat(seat, 'gone'); seatEls[seat].classList.add('bye'); } })]);
     }
+    litSum(null);
     if (!alive() || !card) return;
     for (let i = 0; i < 10; i++) seatEls[i].classList.remove('bye');
     BB.bus.passengers = q.answer;
     setPhase('question');
     q.onRight = onRight;
     const s = ++seq;
+    showSum('ask'); litSum('ask');
     await say(askPhrase(q));
+    litSum(null);
     if (s !== seq || !card) return;
     card.classList.remove('wait');
   }
@@ -519,7 +596,8 @@
     return { kind: q.kind, n, k, answer: q.kind === 'add' ? n + k : n - k, demo: true };
   }
 
-  const PRAISE = [(a) => `Yes! ${a}! Well done!`, (a) => `That's right, ${a}!`, (a) => `${a}! Super counting!`, (a) => `Yes, ${a}! Hooray!`];
+  const PRAISE = ['Well done!', 'Super counting!', 'Hooray!', 'You got it!'];
+  const sumWords = (q) => q.kind === 'add' ? `${q.n} plus ${q.k} makes ${q.answer}!` : `${q.n} take away ${q.k} leaves ${q.answer}!`;
   async function answer(q, v, btn) {
     if (!card || J.teaching || q.done || card.classList.contains('wait')) return;
     seq++;                                       // stop any counting voice
@@ -535,7 +613,8 @@
       clearMarks();
       seatEls.forEach((el, i) => { if (isFull(i)) { el.classList.add('lit'); BB.later(160 + i * 60, () => el.classList.remove('lit')); } });
       const counted = flyCoins(btn, cash);
-      await Promise.all([say(BB.pick(PRAISE)(q.answer)), wait(1300), counted]);
+      showSum('n1', 'n2', 'ask'); litSum(null); fillSum(q.answer);
+      await Promise.all([say(`Yes! ${sumWords(q)} ${BB.pick(PRAISE)}`), wait(1500), counted]);
       hideQuestion();
       if (q.onRight) q.onRight(q, cash);
     } else {
@@ -552,6 +631,7 @@
   async function countTogether(q) {
     const s = ++seq;
     clearCounting();
+    litSum(null);
     card.classList.add('hint', 'counting');
     const first = seatEls.findIndex((el, i) => isFull(i));
     birdTo(first >= 0 ? first : null);
@@ -625,27 +705,34 @@
       for (let i = 0; i < 10; i++) setSeat(i, '');
       if (q.kind === 'add') { for (let i = 0; i < n; i++) setSeat(i, 'full'); for (let i = n; i < a; i++) setSeat(i, 'new'); }
       else { for (let i = 0; i < n; i++) setSeat(i, 'full'); for (let i = a; i < n; i++) setSeat(i, 'gone'); }
+      buildSum(q); showSum('n1', 'n2', 'ask');          // the example's own sentence, filled in at the end
     }
+    const done = () => { litSum(null); fillSum(a); };
     const run = async () => {
       const intro = mode === 'demo' ? (q.kind === 'add' ? 'Let me show you how to count on!' : 'Let me show you how to take away!') : "Let's count together!";
       if (!await step(intro)) return;
       if (q.kind === 'add') {
         for (let i = 0; i < n; i++) light(i, true);
         badge(n - 1, n, true); mark(n - 1, n); birdTo(n - 1);
+        litSum('n1');
         if (!await step(`We have ${n}.`, 700)) return;
+        litSum('n2');
         if (!await step(`${k} more got on. Let's count on!`, 300)) return;
         const last = full ? a : a - 1;
         for (let i = n; i < last; i++) if (!await countSeat(i, i + 1)) return;
-        if (full) { if (!await step(`${n} and ${k} more make ${a}!`, 400)) return; }
-        else quiz(a - 1);
+        if (full) { done(); if (!await step(`${n} and ${k} more make ${a}!`, 400)) return; }
+        else { quiz(a - 1); litSum('ask'); }
       } else {
         for (let i = 0; i < n; i++) light(i, true);
         badge(n - 1, n, true); mark(n - 1, n); birdTo(n - 1);
+        litSum('n1');
         if (!await step(`We had ${n}.`, 600)) return;
         clearCounting();
         for (let i = a; i < n; i++) { seatEls[i].classList.add('bye'); }
         birdTo(a < 10 ? a : null);
+        litSum('n2');
         if (!await step(`${k} got off. Bye bye!`, 600)) return;
+        litSum('ask');
         if (a === 0) { if (full && !await step('Nobody is left!', 300)) return; }
         else {
           if (!await step("Who is left? Let's count.", 200)) return;
@@ -660,7 +747,7 @@
           for (let i = from; i < last; i++) if (!await countSeat(i, i + 1)) return;
           if (!full) quiz(a - 1);
         }
-        if (full && !await step(`${n} take away ${k} leaves ${a}!`, 400)) return;
+        if (full) { done(); if (!await step(`${n} take away ${k} leaves ${a}!`, 400)) return; }
       }
       if (mode === 'demo') { await step("Now it's your turn!", 300); if (ok()) endTeach(); return; }
       if (ok()) await finishTeach(q);
@@ -672,6 +759,7 @@
     if (!card) return;
     J.teaching = false;
     card.classList.remove('teaching');
+    litSum(null);
     if (bird) bird.classList.remove('talk');
     seatEls.forEach((el) => el.classList.remove('bye'));
     const quizSeat = keepQuiz ? seatEls.findIndex((el) => { const b = el.querySelector('.num'); return b && b.textContent === '?'; }) : -1;
