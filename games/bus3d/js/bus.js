@@ -92,7 +92,42 @@
   B.doorWorld = function (v) { v = v || new THREE.Vector3(); v.set(1.6, 0, LF / 2 - 1.0); return B.front.localToWorld(v); };
   B.pathAhead = () => 0;
   B.isSettling = () => !!settle;
+  B.isFacingAway = () => facingAway;
   // Lights (the headlights and tail lights; off for the goodnight moment, which also closes the bus's eyes).
+  // A gentle automatic turn-round (kid magic): the bus does a happy hop-and-spin on the spot and lands facing the
+  // other way, in the left lane of the road it is on. The HUD shows a button for it while bus:facingAway is on.
+  let spin = null;
+  B.turnAround = function () {
+    if (spin || settle || B.atStop || B.doorsOpen || B.locked || B.noFuel || B.camMode !== 'chase') return false;
+    const m = midPoint(), h2 = wrapA(h + Math.PI), f2 = fwdOf(h2);
+    let sx = 0, sz = 0;
+    const near = nearestRoad(m.x, m.z);
+    if (near && near.d < C.roadHalf + 1) {
+      const dot = f2.x * near.dx + f2.z * near.dz;
+      if (Math.abs(dot) > 0.7) {
+        const s = Math.sign(dot), lx = near.dz * s, lz = -near.dx * s;          // left of the new way
+        const lat = (m.x - near.x) * lx + (m.z - near.z) * lz;
+        sx = lx * (C.lane - lat); sz = lz * (C.lane - lat);
+      }
+    }
+    spin = { t: 0, m, h0: h, bend: wrapA(hr - h), sx, sz };
+    B.speed = 0; B.steer = 0;
+    BB.sfx.whoosh(); BB.sfx.sparkle && BB.sfx.sparkle();
+    BB.emit('bus:turnAround', {});
+    if (facingAway) { facingAway = false; BB.emit('bus:facingAway', { on: false }); }
+    return true;
+  };
+  B.isSpinning = () => !!spin;
+  function updateSpin(dt) {
+    spin.t = Math.min(1, spin.t + dt / 1.5);
+    const k = BB.smooth(spin.t), a = spin.h0 + Math.PI * k;
+    h = wrapA(a); hr = wrapA(a + spin.bend * (1 - k));
+    const mx = spin.m.x + spin.sx * k, mz = spin.m.z + spin.sz * k, f = fwdOf(h);
+    fx = mx + f.x * ((LF + GAP + LR) / 2 - LF / 2); fz = mz + f.z * ((LF + GAP + LR) / 2 - LF / 2);
+    spinHop = Math.sin(Math.PI * spin.t) * 0.7;
+    if (spin.t >= 1) { spin = null; spinHop = 0; collide(); camH = h; refreshRibbon(); }
+  }
+  let spinHop = 0, facingAway = false, awayT = 0;
   B.setLights = function (on) { B.lightsOn = !!on; B.sleepy = !on; };
 
   // ---------- model ----------
@@ -480,7 +515,7 @@
     // Dijkstra over directed states (an edge driven one way, ending at its far junction). Turning round costs extra
     // (at the start if the bus faces the other way, and as a U-turn at a junction), so the ribbon prefers to carry
     // on the way the bus faces unless going round would be much longer.
-    const f = fwdOf(h), facing = f.x * here.dx + f.z * here.dz, TURN = 35, UTURN = 55;
+    const f = fwdOf(h), facing = f.x * here.dx + f.z * here.dz, TURN = 300, UTURN = 400;   // turning round is hard in a bendy bus: go round the block instead
     const key = (ed, d) => ed.id + (d > 0 ? '+' : '-'), endOf = (ed, d) => d > 0 ? ed.b : ed.a;
     const dist = {}, prev = {}, open = [];
     const seed = (d, c) => { const k = key(e, d); dist[k] = c; prev[k] = null; open.push({ ed: e, d, k }); };
@@ -543,16 +578,28 @@
       for (let k = 0; k <= 6; k++) { const t = k / 6, m = 1 - t; out.push({ x: m * m * A.x + 2 * m * t * p.x + t * t * Bp.x, z: m * m * A.z + 2 * m * t * p.z + t * t * Bp.z }); }
     }
     out.push(pts[pts.length - 1]);
-    return W().offsetLine(out, C.lane);
+    return W().offsetLine(out, C.lane + 0.25);           // a touch away from the centre line (and the viaduct piers)
   }
 
   // ---------- camera ----------
   const camPos = new THREE.Vector3(), camLook = new THREE.Vector3();
   let orbit = 0.6, camH = 0;
   function midPoint() { const r = B.rear.position; return { x: (fx + r.x) / 2, z: (fz + r.z) / 2 }; }
+  const _w1 = new THREE.Vector3(), _w2 = new THREE.Vector3();
+  // Move the wanted camera toward the bus (and a little up) until no building stands in the way.
+  function clearSight(m, maxUp) {
+    for (let k = 0; k < 5; k++) {
+      if (!W().blocksSight(camPos.x, camPos.y, camPos.z, m.x, 2.2, m.z)) return;
+      camPos.x = m.x + (camPos.x - m.x) * 0.8; camPos.z = m.z + (camPos.z - m.z) * 0.8;
+      camPos.y = Math.min(maxUp, camPos.y + 1.5);
+    }
+  }
+  // Under the MRT viaduct the camera stays below its deck.
+  function underViaduct(x, z) { const v = W().viaduct; return v && x > v.x0 && x < v.x1 && Math.abs(z - v.z) < 9; }
   function desiredCamera(dt) {
     const mode = B.camMode;
     const m = midPoint(), mx = m.x, mz = m.z;
+    let maxUp = 30;
     if (mode === 'title') {
       // swing gently on the road side of the bus (never through the buildings beside it)
       orbit += dt * 0.25;
@@ -560,20 +607,34 @@
       const a = 0.75 + Math.sin(orbit) * 0.35;
       camPos.set(mx + (f.x * Math.cos(a) - kx * Math.sin(a)) * 21, 8 + Math.sin(orbit * 0.7), mz + (f.z * Math.cos(a) - kz * Math.sin(a)) * 21);
       camLook.set(mx, 1.6, mz);
-    } else if (mode === 'depot') {
-      // from the road side, looking at the bus's door side, with the whole bus left of the depot panel
-      const hh = h + wrapA(hr - h) / 2, kx = Math.cos(hh), kz = -Math.sin(hh);
-      const d = 27, cam = BB.camera, vis = 2 * d * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2) * cam.aspect;
-      const panel = Math.min(440, innerWidth * 0.52) / Math.max(1, innerWidth);
-      const sh = vis * panel / 2;
-      camPos.set(mx - kx * d - kz * sh, 9, mz - kz * d + kx * sh);
-      camLook.set(mx - kz * sh, 1.4, mz + kx * sh);
+    } else if (mode === 'depot' || mode === 'depotClose') {
+      // the garage: depot.js may turn the bus on a turntable, so frame it from its real (world) position
+      B.front.getWorldPosition(_w1); B.rear.getWorldPosition(_w2);
+      const wx = (_w1.x + _w2.x) / 2, wz = (_w1.z + _w2.z) / 2;
+      if (mode === 'depot') {
+        // from the road side, looking at the bus's door side, with the whole bus left of the depot panel
+        const hh = h + wrapA(hr - h) / 2, kx = Math.cos(hh), kz = -Math.sin(hh);
+        const d = 21, cam = BB.camera, vis = 2 * d * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2) * cam.aspect;
+        const panel = Math.min(440, innerWidth * 0.52) / Math.max(1, innerWidth);
+        const sh = vis * panel / 2;
+        camPos.set(wx - kx * d - kz * sh, 8, wz - kz * d + kx * sh);
+        camLook.set(wx - kz * sh, 1.6, wz + kx * sh);
+      } else {
+        // close on the front and the roof (to show off a new hat), from ahead on the road side
+        const fw = B.front.localToWorld(_w2.set(0, 0, LF / 2)).clone(), c = _w1;
+        let dx = fw.x - c.x, dz = fw.z - c.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
+        const kx = dz, kz = -dx;                          // the bus's left (door side)
+        const cam = BB.camera, panel = Math.min(440, innerWidth * 0.52) / Math.max(1, innerWidth), sh = 9 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2) * cam.aspect * panel;
+        camPos.set(fw.x + dx * 7.5 - kx * 4.5, 6.2, fw.z + dz * 7.5 - kz * 4.5);
+        camLook.set(fw.x - dx * 1.8, 2.4, fw.z - dz * 1.8);
+        let vx = camLook.x - camPos.x, vz = camLook.z - camPos.z; const vl = Math.hypot(vx, vz) || 1; vx /= vl; vz /= vl;
+        camPos.x -= vz * sh; camPos.z += vx * sh; camLook.x -= vz * sh; camLook.z += vx * sh;   // bus left of the panel
+      }
     } else if (B.atStop || settle) {
-      // at a stop: from ahead of the bus, looking back along the kerb at the front door, the shelter and the people
+      // at a stop: from the road side, a little ahead, fairly low: the windows (seats), the door and the shelter
       const kx = Math.cos(h), kz = -Math.sin(h), f = fwdOf(h);
-      const nx = fx + f.x * LF / 2, nz = fz + f.z * LF / 2;
-      camPos.set(nx + f.x * 13 - kx * 7, 10, nz + f.z * 13 - kz * 7);
-      camLook.set(nx - f.x * 5 + kx * 1.5, -1.5, nz - f.z * 5 + kz * 1.5);
+      camPos.set(fx + f.x * 6 - kx * 13.5, 8.5, fz + f.z * 6 - kz * 13.5);
+      camLook.set(fx - f.x * 2 + kx * 1.2, 1.0, fz - f.z * 2 + kz * 1.2);
       // phones held sideways: the question card is a column on the left, so frame the bus toward the right
       if (innerHeight <= 500 && BB.jobs && BB.jobs.phase === 'question') {
         let dx = camLook.x - camPos.x, dz = camLook.z - camPos.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
@@ -585,7 +646,7 @@
       camH += wrapA(h - camH) * Math.min(1, dt * 2.2);
       const wide = BB.camera.aspect > 1.9, f = fwdOf(camH);
       let back = (wide ? 19 : 17) + Math.max(0, B.speed) * 0.25;
-      const up = wide ? 12.5 : 11.5;
+      let up = wide ? 12.5 : 11.5;
       // pull in a little if the camera would be inside a building
       for (let k = 0; k < 4; k++) {
         const px = fx - f.x * back, pz = fz - f.z * back, q = W().pushOut(px, pz, 1.5);
@@ -595,6 +656,9 @@
       camPos.set(fx - f.x * back, up, fz - f.z * back);
       camLook.set(fx + f.x * (wide ? 2 : 5), 0, fz + f.z * (wide ? 2 : 5));
     }
+    if (underViaduct(camPos.x, camPos.z) || underViaduct(mx, mz)) maxUp = 10.2;
+    camPos.y = Math.min(camPos.y, maxUp);
+    clearSight(m, maxUp);
   }
   function snapCamera() { camH = h; desiredCamera(0); BB.camera.position.copy(camPos); curLook.copy(camLook); BB.camera.lookAt(curLook); }
   const curLook = new THREE.Vector3();
@@ -610,7 +674,9 @@
     const a = a0 + wrapA(a1 - a0) * k;
     let r = r0 + (r1 - r0) * k;
     if (Math.abs(wrapA(a1 - a0)) > 0.3) r = Math.max(r, Math.min(r0, r1, 13));   // keep clear of the bus while swinging
-    cp.set(m.x + Math.sin(a) * r, cp.y + (camPos.y - cp.y) * k, m.z + Math.cos(a) * r);
+    let ny = cp.y + (camPos.y - cp.y) * k;
+    if (camPos.y <= 10.2 && (underViaduct(m.x + Math.sin(a) * r, m.z + Math.cos(a) * r) || underViaduct(m.x, m.z))) ny = Math.min(ny, 10.2);
+    cp.set(m.x + Math.sin(a) * r, ny, m.z + Math.cos(a) * r);
     curLook.lerp(camLook, Math.min(1, k * 1.4));
     BB.camera.lookAt(curLook);
   }
@@ -639,7 +705,8 @@
     const b = BB.mk.builder();
     b.add(new THREE.ConeGeometry(1.4, 2.8, 6), P.honey, 0, 0, 0, 0, Math.PI);
     b.add(new THREE.TorusGeometry(1.5, 0.28, 4, 12), P.honeyLight, 0, 2.0, 0, 0, Math.PI / 2);
-    beacon = new THREE.Mesh(b.geometry(), new THREE.MeshBasicMaterial({ vertexColors: true }));
+    beacon = new THREE.Mesh(b.geometry(), new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false }));
+    beacon.scale.setScalar(0.55);
     beacon.name = 'beacon'; beacon.visible = false;
     BB.scene.add(beacon);
   }
@@ -754,7 +821,7 @@
     if (push.d > 0.01) {
       const nx = push.x / push.d, nz = push.z / push.d, mv = Math.sign(v) || 1;
       const head = -(nx * f1.x + nz * f1.z) * mv;          // > 0 when driving into it
-      if (head > 0.35) B.speed *= Math.max(0.3, 1 - head * 0.9 * Math.min(1, push.d * 6));
+      if (head > 0.35) { const v0 = Math.abs(B.speed), v1 = Math.max(Math.min(v0, 1.5), v0 * Math.max(0.3, 1 - head * 0.9 * Math.min(1, push.d * 6))); B.speed = Math.sign(B.speed) * v1; }   // keeps a crawl, so it slides along
       if (bumpCool <= 0 && Math.abs(v) > 1.2 && head > 0.3) { bumpCool = 0.8; wobble = 1; BB.emit('bus:bump', { strength: Math.min(1, Math.abs(v) / MAX_FWD) }); }
     }
     return Math.abs(ds);
@@ -836,10 +903,11 @@
   B.update = function (dt) {
     if (!B.front) return;
     clock += dt; bumpCool -= dt; wobble = Math.max(0, wobble - dt * 2.5); hornT -= dt;
-    const ds = settle ? 0 : drive(dt);
-    updateSettle(dt);
+    let ds = 0;
+    if (spin) updateSpin(dt); else { ds = settle ? 0 : drive(dt); updateSettle(dt); }
     gy += (W().groundY(fx, fz) - gy) * Math.min(1, dt * 8);
     placeModel();
+    if (spinHop) { B.front.position.y += spinHop; B.rear.position.y += spinHop; jointF.position.y += spinHop; jointR.position.y += spinHop; }
     laneCheck(dt);
 
     // fuel
@@ -886,7 +954,9 @@
     if (t && !settle) {
       const bay = W().bayOf(t);
       beacon.visible = true;
-      beacon.position.set(bay.x, 6.4 + Math.abs(Math.sin(clock * 3)) * 1.1, bay.z);
+      beacon.position.set(bay.x, 5.6 + Math.abs(Math.sin(clock * 3)) * 0.7, bay.z);
+      const dB = Math.hypot(bay.x - fx, bay.z - fz);
+      beacon.material.opacity = BB.clamp((dB - 12) / 22, 0.12, 0.9);
       beacon.rotation.y = clock * 1.5;
       bayGlow.visible = true;
       bayGlow.position.set(bay.x, 0.1, bay.z); bayGlow.rotation.set(-Math.PI / 2, bay.heading + Math.PI, 0);
@@ -900,7 +970,11 @@
   };
   // A small arrow over the bus pointing the way, when it is off the route or facing away from it.
   function updateWayArrow() {
-    if (!routePts || !B.target || B.atStop || settle || B.camMode !== 'chase') { wayArrow.visible = false; return; }
+    if (!routePts || !B.target || B.atStop || settle || spin || B.camMode !== 'chase') {
+      wayArrow.visible = false;
+      if (facingAway && !spin) { facingAway = false; awayT = 0; BB.emit('bus:facingAway', { on: false }); }
+      return;
+    }
     // the route point ~12 ahead of the point nearest the bus
     let bi = 0, bd = Infinity;
     // (the route starts at the road point nearest the bus, so only look near its start: a U-turn's way back may pass close by)
@@ -911,8 +985,13 @@
     let j = bi, acc = 0;
     while (j < routePts.length - 1 && acc < 12) { acc += Math.hypot(routePts[j + 1].x - routePts[j].x, routePts[j + 1].z - routePts[j].z); j++; }
     const tx = routePts[j].x - fx, tz = routePts[j].z - fz, ang = Math.atan2(tx, tz);
-    const off = bd > 7 || Math.abs(wrapA(ang - h)) > 1.6;
+    const away = Math.abs(wrapA(ang - h));
+    const off = bd > 7 || away > 1.6;
     wayArrow.visible = off;
+    // facing away from the way (and on the route's road): offer the turn-round button
+    if (!facingAway && away > 2.0 && bd < 10 && !spin) { awayT += 1 / 30; if (awayT > 0.7) { facingAway = true; BB.emit('bus:facingAway', { on: true }); } }
+    else if (facingAway && (away < 1.5 || bd >= 12)) { facingAway = false; awayT = 0; BB.emit('bus:facingAway', { on: false }); }
+    else if (!facingAway) awayT = 0;
     if (off) {
       const f = fwdOf(h);
       wayArrow.position.set(fx + f.x * 1.5, 5.2 + gy + Math.abs(Math.sin(clock * 4)) * 0.4, fz + f.z * 1.5);

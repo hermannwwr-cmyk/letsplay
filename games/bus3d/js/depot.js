@@ -29,21 +29,21 @@
   };
 
   // ---------- the shop ----------
-  const PAINT_PRICE = 5;
+  const PAINT_PRICE = 3;               // cheap enough that the first garage visit can buy something
   const STICKERS = [
-    { id: 'star', say: 'A star sticker!', price: 6 }, { id: 'heart', say: 'A heart sticker!', price: 6 },
-    { id: 'flower', say: 'A flower sticker!', price: 6 }, { id: 'rainbow', say: 'A rainbow sticker!', price: 8 },
-    { id: 'cat', say: 'A cat sticker!', price: 8 }, { id: 'otter', say: 'An otter sticker!', price: 8 },
+    { id: 'star', say: 'A star sticker!', price: 4, name: 'star' }, { id: 'heart', say: 'A heart sticker!', price: 4, name: 'heart' },
+    { id: 'flower', say: 'A flower sticker!', price: 4, name: 'flower' }, { id: 'rainbow', say: 'A rainbow sticker!', price: 5, name: 'rainbow' },
+    { id: 'cat', say: 'A cat sticker!', price: 5, name: 'cat' }, { id: 'otter', say: 'An otter sticker!', price: 5, name: 'otter' },
   ];
   const HATS = [
-    { id: 'party', say: 'A party hat!', price: 6 }, { id: 'flowers', say: 'A flower crown!', price: 8 },
-    { id: 'bunny', say: 'Bunny ears!', price: 10 }, { id: 'crown', say: 'A golden crown!', price: 12 },
+    { id: 'party', say: 'A party hat!', price: 5, love: 'I love my party hat!' }, { id: 'flowers', say: 'A flower crown!', price: 6, love: 'I love my flower crown!' },
+    { id: 'bunny', say: 'Bunny ears!', price: 8, love: 'I love my bunny ears!' }, { id: 'crown', say: 'A golden crown!', price: 10, love: 'I love my golden crown!' },
   ];
   // Upgrades are fun, never needed.
   const UPGRADES = [
-    { id: 'horn', say: 'A horn that plays a tune!', price: 15 },
-    { id: 'lights', say: 'Super bright headlights!', price: 20 },
-    { id: 'sticker3', say: 'A super sticker spot! Now the bus can wear three stickers.', price: 25 },
+    { id: 'horn', say: 'A horn that plays a tune!', price: 12, love: 'I love my new horn! Toot toot!' },
+    { id: 'lights', say: 'Super bright headlights!', price: 15, love: 'I love my bright lights!' },
+    { id: 'sticker3', say: 'A super sticker spot! Now the bus can wear three stickers.', price: 20, love: 'I love my super sticker spot!' },
   ];
   const PAINT_SAY = { green: 'Green!', red: 'Red!', blue: 'Blue!', yellow: 'Yellow!', purple: 'Purple!', pink: 'Pink!' };
   const TABS = [
@@ -404,7 +404,10 @@
   .bbd-price { position: absolute; bottom: -9px; right: -9px; display: flex; align-items: center; gap: 1px; background: #ffd45c; border: 2px solid #d98700;
     border-radius: 14px; font-size: 18px; font-weight: 800; padding: 0 7px 0 2px; color: #7a4a00; line-height: 24px; }
   .bbd-price canvas { width: 20px; height: 20px; }
-  .bbd-tile.preview .bbd-price { background: #5cb85c; border-color: #3f913f; color: #fff; transform: scale(1.15); }
+  .bbd-tile.preview .bbd-price { background: #5cb85c; border-color: #3f913f; color: #fff; font-size: 22px; line-height: 30px; padding: 0 9px 0 4px;
+    bottom: -14px; right: -14px; box-shadow: 0 3px 0 #2f7a2f; animation: bbd-buy .8s ease-in-out infinite; }
+  .bbd-tile.preview .bbd-price canvas { width: 24px; height: 24px; }
+  @keyframes bbd-buy { 50% { transform: scale(1.18); } }
   .bbd-tile.preview .bbd-price::before { content: ''; width: 18px; height: 18px; margin-right: 2px;
     background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 12.5l4 4 8-9' stroke='white' stroke-width='3.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat; }
   .bbd-tile .slotdots { position: absolute; top: 4px; left: 6px; font-size: 13px; }
@@ -457,8 +460,20 @@
   let panel = null, awning = null, tab = 'paint', preview = null, goalEl = null, cashSpan = null, cashBox = null, bodyEl = null;
   const coinCv = (px) => cv(BB.pic('coin', 64), `width:${px}px;height:${px}px`);
 
-  function speakPrice(text, price) { BB.say(price ? `${text} ${price} coins.` : text); }
-  function setPreview(p) { preview = p; showLook(); }
+  // first tap on something new: try it on, say its price and how to buy it
+  function speakPrice(text, price) { BB.say(price ? `${text} ${price} ${price === 1 ? 'coin' : 'coins'}. Tap again to buy!` : text); }
+  let previewAt = 0;
+  function setPreview(p) { preview = p; previewAt = performance.now(); showLook(); }
+  // a second tap within 400 ms is an accidental double tap, not "buy"
+  const tooSoon = () => performance.now() - previewAt < 400;
+  // after buying: the bus shows off its new thing and says how much it loves it
+  function showOff(kind, id, line) {
+    BB.later(900, () => {
+      try { if (BB.bus.showOff) BB.bus.showOff(kind, id); } catch (e) { console.error(e); }
+      BB.emit('depot:showOff', { kind, id });
+      BB.say(line, { queue: true });
+    });
+  }
   function showLook() {
     const look = {};
     if (preview) {
@@ -550,22 +565,21 @@
       row.appendChild(cv(BB.pic('pump', 128)));
       const gauge = BB.el('div', 'bbd-gauge', row), bar = BB.el('i', '', gauge);
       bar.style.width = Math.round(BB.bus.fuel * 100) + '%';
-      const full = BB.bus.fuel >= 0.98, price = Math.max(1, Math.ceil((1 - BB.bus.fuel) * 10)), pay = Math.min(price, D.cash);
+      const full = BB.bus.fuel >= 0.98, pay = 0;   // fuel is always free: the coins are for the fun things
       const btn = BB.el('button', 'bbd-fill' + (full ? ' full' : ''), row);
       if (full) btn.innerHTML = '<svg viewBox="0 0 24 24" width="40" height="40"><path d="M5 12.5l4.5 4.5 9.5-10" stroke="#3f913f" stroke-width="3.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-      else { btn.appendChild(coinCv(30)); BB.el('span', '', btn, pay ? String(pay) : '0'); }
+      else btn.innerHTML = '<svg viewBox="0 0 24 24" width="44" height="44"><path d="M12 2.5C9 7 6 10.2 6 14a6 6 0 0 0 12 0c0-3.8-3-7-6-11.5z" fill="#fff6e0"/><path d="M9.2 14.5a3 3 0 0 0 2.6 2.9" stroke="#5cb85c" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>';
       BB.tap(btn, () => {
         if (BB.bus.fuel >= 0.98) { BB.say('The tank is full! Yum!'); return; }
         if (btn.dataset.busy) return;
         btn.dataset.busy = '1';
-        if (pay) { D.spend(pay); flyCoins(btn, pay); bumpCash(); }
         BB.sfx.gurgle(1.6); fill = 1.8;
         // the gauge fills with bubbles
         const from = BB.bus.fuel;
         bar.animate([{ width: Math.round(from * 100) + '%' }, { width: '100%' }], { duration: 1600, easing: 'ease-in-out', fill: 'forwards' });
         for (let i = 0; i < 10; i++) BB.later(i * 150, () => { const b = BB.el('b', '', gauge); b.style.left = (Math.max(from, i / 10) * 90 + 3) + '%'; BB.later(1000, () => b.remove()); });
         BB.bus.refuel(1);
-        BB.later(1700, () => { BB.say(pay < price ? 'Yum! Free fuel today!' : 'Yum! A full tank!'); D.hop(); renderBody(); });
+        BB.later(1700, () => { BB.say('Yum! A full tank!'); D.hop(); renderBody(); });
       });
       if (!full) BB.later(300, () => { if (tab === 'fuel' && panel) btn.classList.add('shake'); });
     } else if (tab === 'paint') {
@@ -574,9 +588,11 @@
         tile(bodyEl, paintPic(p.color), { i, on: S.paint === p.id && !preview, preview: isPrev('paint', p.id), price: own ? 0 : PAINT_PRICE, tap: (el) => {
           if (own) { setPreview(null); S.paint = p.id; BB.saveNow(); D.applyLooks(); BB.sfx.pop(); D.hop(); BB.say(PAINT_SAY[p.id] || 'Lovely!'); renderBody(); return; }
           if (!isPrev('paint', p.id)) { setPreview({ kind: 'paint', id: p.id }); BB.sfx.whoosh(); speakPrice(PAINT_SAY[p.id], PAINT_PRICE); renderBody(); return; }
+          if (tooSoon()) return;
           if (!buy(el, PAINT_PRICE)) return;
           S.paints.push(p.id); S.paint = p.id; BB.saveNow(); preview = null; D.applyLooks();
           BB.say(['Shiny!', 'So pretty!', 'Lovely!'][Math.floor(Math.random() * 3)]);
+          showOff('paint', p.id, `I love my ${p.id} paint!`);
           BB.later(700, renderBody);
         } });
       });
@@ -591,9 +607,11 @@
             BB.saveNow(); D.applyLooks(); renderBody(); return;
           }
           if (!isPrev('sticker', st.id)) { setPreview({ kind: 'sticker', id: st.id }); BB.sfx.whoosh(); speakPrice(st.say, st.price); renderBody(); return; }
+          if (tooSoon()) return;
           if (!buy(el, st.price)) return;
           S.stickersOwned.push(st.id); S.stickers = nextStickers(st.id); BB.saveNow(); preview = null; D.applyLooks();
           BB.say('Stuck on! Cool!');
+          showOff('sticker', st.id, `I love my ${st.name} sticker!`);
           BB.later(700, renderBody);
         } });
       });
@@ -607,9 +625,11 @@
             BB.saveNow(); D.applyLooks(); renderBody(); return;
           }
           if (!isPrev('hat', h.id)) { setPreview({ kind: 'hat', id: h.id }); BB.sfx.whoosh(); speakPrice(h.say, h.price); renderBody(); return; }
+          if (tooSoon()) return;
           if (!buy(el, h.price)) return;
           S.hatsOwned.push(h.id); S.hat = h.id; BB.saveNow(); preview = null; D.applyLooks();
           BB.say('What a smart bus!');
+          showOff('hat', h.id, h.love);
           BB.later(700, renderBody);
         } });
       });
@@ -620,9 +640,11 @@
           const demo = () => { if (u.id === 'horn') BB.later(500, () => BB.sfx.horn(true)); };
           if (own) { BB.say(u.say); demo(); return; }
           if (!isPrev('upgrade', u.id)) { setPreview({ kind: 'upgrade', id: u.id }); BB.sfx.whoosh(); speakPrice(u.say, u.price); demo(); renderBody(); return; }
+          if (tooSoon()) return;
           if (!buy(el, u.price)) return;
           S.upgrades[u.id] = true; BB.saveNow(); preview = null; D.applyLooks();
-          BB.sfx.cheer(); BB.say('Hooray! ' + u.say);
+          BB.sfx.cheer(); BB.say('Hooray!');
+          showOff('upgrade', u.id, u.love);
           if (u.id === 'horn') BB.later(1200, () => BB.bus.horn());
           BB.later(700, renderBody);
         } });
@@ -669,7 +691,7 @@
     BB.bus.setCamera('depot');
     BB.emit('depot:open');
     BB.sfx.whoosh();
-    BB.say(BB.bus.fuel < 0.6 ? 'Welcome to the garage! Tap the pump for yummy fuel.' : 'Welcome to the garage! Make your bus beautiful!');
+    BB.say(BB.bus.fuel < 0.6 ? 'Welcome to the garage! Tap the pump for free fuel. Then make your bus beautiful!' : 'Welcome to the garage! Make your bus beautiful!');
   };
   D.close = function () {
     if (!D.isOpen) return;

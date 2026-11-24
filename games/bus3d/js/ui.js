@@ -102,10 +102,26 @@
   .bbu-fade { position: absolute; inset: 0; background: #fff6e0; opacity: 0; transition: opacity .6s; pointer-events: auto; }
   .bbu-confetti { position: absolute; top: -20px; width: 12px; height: 18px; border-radius: 3px; pointer-events: none; animation: bbu-fall linear forwards; }
   @keyframes bbu-fall { to { transform: translateY(110vh) rotate(720deg); } }
-  .bbu-turn { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 16px;
+  .bbu-turn { position: absolute; inset: 0; z-index: 60; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 16px;
     background: #fdebc8; pointer-events: auto; font-size: 30px; font-weight: 800; text-align: center; }
-  .bbu-turn .phone { width: 80px; height: 130px; border: 8px solid #3a2a3c; border-radius: 18px; animation: bbu-rot 2s ease-in-out infinite; }
-  @keyframes bbu-rot { 40%, 100% { transform: rotate(-90deg); } }
+  .bbu-turn .phone { width: 150px; height: 150px; }
+  .bbu-turn .phone .dev { transform-origin: 60px 60px; animation: bbu-rot 2.4s ease-in-out infinite; }
+  @keyframes bbu-rot { 0%, 20% { transform: rotate(0deg); } 55%, 100% { transform: rotate(-90deg); } }
+  .bbu-turn .phone .arc { animation: bbu-arc 2.4s ease-in-out infinite; }
+  @keyframes bbu-arc { 0%, 15% { opacity: 1; } 55%, 100% { opacity: .25; } }
+  /* turn-around button (bus:facingAway) */
+  .bbu-uturn { position: absolute; right: calc(var(--sr) + 6px + 26px); bottom: calc(var(--sb) + 136px + 18px); width: 84px; height: 84px; border-radius: 26px;
+    background: #fff6e0; border: 4px solid #d9b57f; padding: 0; pointer-events: auto; cursor: pointer; touch-action: manipulation; display: none;
+    box-shadow: inset -4px -5px 0 rgba(217,181,127,.45), 0 6px 0 rgba(120,80,40,.22); animation: bbu-pop .3s cubic-bezier(.2,1.5,.5,1), bbu-glow 1s .3s infinite alternate; }
+  .bbu-uturn.on { display: flex; align-items: center; justify-content: center; }
+  .bbu-uturn svg { width: 64px; height: 64px; }
+  .bbu-uturn.pressed { transform: translateY(4px); }
+  @keyframes bbu-glow { to { box-shadow: inset -4px -5px 0 rgba(217,181,127,.45), 0 6px 0 rgba(120,80,40,.22), 0 0 0 9px rgba(255,212,92,.6); } }
+  /* first-drive tips: bouncing arrows pointing at the GO pedal and the steering buttons */
+  .bbu-tip { position: absolute; width: 64px; height: 64px; pointer-events: none; animation: bbu-tipb .8s ease-in-out infinite; z-index: 3; }
+  .bbu-tip.go { right: calc(var(--sr) + 6px + 36px); bottom: calc(var(--sb) + 136px + 10px); }
+  .bbu-tip.steer { left: calc(var(--sl) + 6px + 75px); bottom: calc(var(--sb) + 100px + 8px); }
+  @keyframes bbu-tipb { 50% { transform: translateY(-14px); } }
   @media (orientation: portrait) { .bbu-turn.standalone { display: flex; } }
   /* narrower screens: the clock moves under the coins, the fuel gauge gets shorter */
   @media (max-width: 1000px) { .bbu-fuel .bar { width: 70px; } }
@@ -119,6 +135,10 @@
     .bbu-go { width: 112px; height: 112px; } .bbu-back { width: 68px; height: 68px; right: calc(var(--sr) + 6px + 112px + 12px); }
     .bbu-steer { width: 76px; height: 76px; border-radius: 24px; } .bbu-steer.r { left: calc(var(--sl) + 6px + 76px + 12px); }
     .bbu-horn { width: 56px; height: 56px; font-size: 28px; bottom: calc(var(--sb) + 76px + 12px); }
+    .bbu-uturn { width: 64px; height: 64px; border-radius: 20px; right: calc(var(--sr) + 6px + 24px); bottom: calc(var(--sb) + 112px + 14px); }
+    .bbu-uturn svg { width: 48px; height: 48px; }
+    .bbu-tip { width: 50px; height: 50px; } .bbu-tip.go { right: calc(var(--sr) + 6px + 31px); bottom: calc(var(--sb) + 112px + 6px); }
+    .bbu-tip.steer { left: calc(var(--sl) + 6px + 57px); bottom: calc(var(--sb) + 76px + 6px); }
   }`);
 
   function darkHex(c, t = 0.22) {
@@ -134,6 +154,7 @@
     back: '<svg viewBox="0 0 64 64"><path d="M32 58 L58 30 L42 30 L42 6 L22 6 L22 30 L6 30 Z" fill="#fff"/></svg>',
   };
 
+  let uturnBtn, facing = false, driving = true, tips = [];
   let hud, cashEl, fuelEl, fuelBars, jobEl, jobPic, jobDots, goBtn, ctlEls, titleEl, soundBtn, musicBtn, exitBtn;
 
   U.init = function () {
@@ -181,13 +202,25 @@
     goBtn = mk('bbu-go', 'go');
     const horn = BB.el('button', 'bbu-round bbu-horn', hud, '📯');
     BB.tap(horn, () => BB.bus.horn());
+    // turn around: offered while the bus faces away from where it should go (bus.js emits bus:facingAway)
+    uturnBtn = BB.el('button', 'bbu-uturn', hud, '<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M18 56 V28 a14 14 0 0 1 28 0 V34" stroke="#19a79b" stroke-width="9" fill="none" stroke-linecap="round"/>'
+      + '<path d="M33 32 L46 48 L59 32 Z" fill="#19a79b"/></svg>');
+    uturnBtn.setAttribute('aria-label', 'turn around');
+    BB.tap(uturnBtn, () => { if (BB.bus.turnAround) { BB.sfx.whoosh(); BB.bus.turnAround(); facing = false; syncUturn(); } });
+    BB.on('bus:facingAway', (d) => { facing = !!(d && d.on); syncUturn(); });
 
     // title
     titleEl = BB.el('div', 'bbu-title', U.root, '<div class="bbu-logo">Bendy <span>Bus</span></div><div class="bbu-tap">Tap to drive!</div>');
     titleEl.style.display = 'none';
     BB.tap(titleEl, () => { if (BB.bedtime) return; U.hideTitle(); BB.emit('title:start'); });
     // standalone portrait hint (the hub shows its own card in hub mode)
-    BB.el('div', 'bbu-turn' + (BB.HUB ? '' : ' standalone'), U.root, '<div class="phone"></div><div>Turn me sideways!</div>');
+    BB.el('div', 'bbu-turn' + (BB.HUB ? '' : ' standalone'), U.root, '<svg class="phone" viewBox="0 0 120 120" aria-hidden="true">'
+      + '<path class="arc" d="M100 48 A44 44 0 0 0 60 16" stroke="#19a79b" stroke-width="8" fill="none" stroke-linecap="round"/><path class="arc" d="M50 6 L64 16 L50 27Z" fill="#19a79b"/>'
+      + '<g class="dev"><rect x="34" y="24" width="52" height="76" rx="12" fill="#c84a3c"/><rect x="31" y="21" width="52" height="76" rx="12" fill="#f26b5b"/>'
+      + '<rect x="37" y="29" width="40" height="58" rx="6" fill="#fff6e0"/>'
+      + '<rect x="45" y="48" width="24" height="15" rx="4" fill="#3fae49"/><rect x="48" y="51" width="7" height="5" rx="1.5" fill="#bfe6f5"/><rect x="58" y="51" width="7" height="5" rx="1.5" fill="#bfe6f5"/>'
+      + '<circle cx="50" cy="64" r="2.6" fill="#3a2a3c"/><circle cx="64" cy="64" r="2.6" fill="#3a2a3c"/><circle cx="57" cy="92" r="2.4" fill="#fff6e0"/></g></svg>'
+      + '<div>Turn me sideways!</div>');
     // the shared "all games" button (hub mode): on the title and garage screens only
     if (BB.HUB) {
       const CARD = [['#f26b5b', 17.3, 17.3], ['#f5b83d', 35.85, 17.3], ['#5cb85c', 17.3, 35.85], ['#4fa3e0', 35.85, 35.85]];
@@ -237,7 +270,20 @@
     soundBtn.textContent = BB.audio.mute ? '🔇' : '🔊';
     musicBtn.classList.toggle('offx', !BB.audio.music || BB.audio.mute);
   }
+  function syncUturn() { const on = facing && driving && !!BB.bus.turnAround; if (uturnBtn) uturnBtn.classList.toggle('on', on); if (on && U.hideTips) U.hideTips('go'); }
+  // first-drive tips: arrows pointing at the GO pedal and the steering buttons (until used, or 12 s)
+  const TIP = '<svg viewBox="0 0 64 64"><path d="M22 4 H42 V34 H56 L32 60 L8 34 H22 Z" fill="#ffb81f" stroke="#fff6e0" stroke-width="4" stroke-linejoin="round" paint-order="stroke"/><path d="M26 8 H38 V38 H48 L32 55" fill="none" stroke="#ffd45c" stroke-width="3" stroke-linejoin="round" opacity=".8"/></svg>';
+  U.showTips = function () {
+    U.hideTips();
+    tips = [BB.el('div', 'bbu-tip go', hud, TIP), BB.el('div', 'bbu-tip steer', hud, TIP)];
+    BB.later(12000, U.hideTips);
+  };
+  U.hideTips = function (which) {
+    tips = tips.filter((t) => { if (!which || t.classList.contains(which)) { t.remove(); return false; } return true; });
+  };
   function setDriving(on) {
+    driving = on; syncUturn();
+    if (!on) U.hideTips();
     for (const k in ctlEls) ctlEls[k].style.display = on ? '' : 'none';
     if (!on) U.releaseAll();
     hud.querySelector('.bbu-horn').style.display = on ? '' : 'none';
@@ -257,7 +303,8 @@
   function press(src, key, on) {
     held[src][key] = on;
     if (ctlEls[key]) ctlEls[key].classList.toggle('down', !!(held.btn[key] || held.key[key]));
-    if (on && key === 'go') goBtn.classList.remove('nudge');
+    if (on && key === 'go') { goBtn.classList.remove('nudge'); U.hideTips('go'); }
+    if (on && (key === 'left' || key === 'right')) U.hideTips('steer');
     applyInput();
   }
   const isOn = (k) => !!(held.btn[k] || held.key[k]);

@@ -54,11 +54,17 @@
     // title screen: the bus at the depot, the camera slowly circling
     BB.bus.setCamera('title', true);
     BB.ui.showTitle();
-    BB.say(BB.HUB ? 'Tap to drive!' : 'Hello! Tap to drive the bendy bus!');
+    // The welcome: tried at load (harmless if iOS blocks speech before a tap), and again on the first unlock if it
+    // wasn't heard and the title is still showing.
+    const welcome = BB.HUB ? 'Tap to drive!' : 'Hello! Tap to drive the bendy bus!';
+    BB.say(welcome);
+    BB.on('audio:unlocked', () => { if (BB.ui.titleShown() && !BB.heard(welcome)) BB.say(welcome); });
     BB.on('title:start', () => {
       BB.bus.setCamera('chase');
       BB.music.start();
-      BB.say("Let's drive! Hold the GO button.");
+      BB.say('Hold the green button to go!');
+      BB.say('Use the arrows to steer!', { queue: true });
+      if (BB.ui.showTips) BB.ui.showTips();
       BB.later(2200, () => { if (!BB.bedtime) BB.jobs.start(); });
     });
     BB.on('audio:unlocked', () => { if (BB.music.on) BB.music.start(); });

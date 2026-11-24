@@ -457,6 +457,8 @@
   // Hold-aware: while held nothing is spoken (requests wait for the release); a line cut off by a hold is said
   // again afterwards and its promise only resolves then, so flows that await speech carry on exactly where they were.
   let lastSay = null;
+  const heard = new Set();                // lines that really started speaking (iOS blocks speech before a tap)
+  BB.heard = (text) => heard.has(String(text));
   const active = new Set();              // items being spoken (or queued in speechSynthesis)
   let heldItems = [], waiting = [];      // cut off by a hold / asked for during a hold
   const sayLen = (t) => String(t).length;
@@ -477,6 +479,7 @@
       const u = new SpeechSynthesisUtterance(item.text);
       u.rate = 0.95; u.pitch = 1.15; u.lang = 'en-GB';
       u.onend = done; u.onerror = done;
+      u.onstart = () => { heard.add(item.text); };
       lastSay = item.text;
       active.add(item);
       item.safety = BB.later(1500 + sayLen(item.text) * 90, done);
