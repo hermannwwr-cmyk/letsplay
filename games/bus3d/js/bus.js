@@ -114,7 +114,8 @@
         sx = lx * (C.lane - lat); sz = lz * (C.lane - lat);
       }
     }
-    spin = { t: 0, m, h0: h, bend: wrapA(hr - h), sx, sz };
+    const land = clearLanding(m.x + sx, m.z + sz, h2);
+    spin = { t: 0, m, h0: h, bend: wrapA(hr - h), sx: land.x - m.x, sz: land.z - m.z, turn: Math.PI, dur: 1.8, lift: 7.5 };
     B.speed = 0; B.steer = 0;
     BB.sfx.whoosh(); BB.sfx.sparkle && BB.sfx.sparkle();
     BB.emit('bus:turnAround', {});
@@ -122,16 +123,40 @@
     return true;
   };
   B.isSpinning = () => !!spin;
+  // The hop: up above the lamp posts, trees and shelters, turn while high (so it never sweeps through them), land.
   function updateSpin(dt) {
-    spin.t = Math.min(1, spin.t + dt / 1.5);
-    const k = BB.smooth(spin.t), a = spin.h0 + Math.PI * k;
+    spin.t = Math.min(1, spin.t + dt / spin.dur);
+    const k = BB.smooth(BB.clamp((spin.t - 0.22) / 0.56, 0, 1)), a = spin.h0 + spin.turn * k;
     h = wrapA(a); hr = wrapA(a + spin.bend * (1 - k));
     const mx = spin.m.x + spin.sx * k, mz = spin.m.z + spin.sz * k, f = fwdOf(h);
     fx = mx + f.x * ((LF + GAP + LR) / 2 - LF / 2); fz = mz + f.z * ((LF + GAP + LR) / 2 - LF / 2);
-    spinHop = Math.sin(Math.PI * spin.t) * 0.7;
-    if (spin.t >= 1) { spin = null; spinHop = 0; collide(); camH = h; refreshRibbon(); }
+    const pz = collide(true); spin.m.x += pz.x; spin.m.z += pz.z;   // tall buildings: slide the whole hop away from them
+    spinHop = Math.sin(Math.PI * spin.t) * spin.lift;
+    if (spin.t >= 1) { spin = null; spinHop = 0; collide(); collide(); collide(); camH = h; refreshRibbon(); }
   }
-  let spinHop = 0, facingAway = false, awayT = 0, realMove = 0, jamT = 0, jamSide = 0;
+  let spinHop = 0, facingAway = false, awayT = 0, realMove = 0, jamT = 0, jamSide = 0, jamFlipped = false;
+  // Where a straight bus with heading hh, centred at (mx,mz), comes to rest clear of everything (checked before a hop,
+  // so it never lands overlapping anything).
+  function clearLanding(mx, mz, hh) {
+    const s0 = { fx, fz, h, hr }, f = fwdOf(hh), off = (LF + GAP + LR) / 2 - LF / 2;
+    h = hr = hh; fx = mx + f.x * off; fz = mz + f.z * off;
+    collide();
+    const out = { x: fx - f.x * off, z: fz - f.z * off };
+    fx = s0.fx; fz = s0.fz; h = s0.h; hr = s0.hr;
+    return out;
+  }
+  // Hop (same magic as the turn-round, without turning) into the left lane of the nearest road, facing along it.
+  function hopFree() {
+    const m = midPoint(), near = nearestRoad(m.x, m.z);
+    if (!near) return;
+    const f = fwdOf(h), s = (f.x * near.dx + f.z * near.dz) >= 0 ? 1 : -1, tx = near.dx * s, tz = near.dz * s;
+    const ht = Math.atan2(tx, tz), lx = tz, lz = -tx;
+    const land = clearLanding(near.x + lx * (C.lane + 0.25), near.z + lz * (C.lane + 0.25), ht);
+    spin = { t: 0, m, h0: h, bend: wrapA(hr - h), sx: land.x - m.x, sz: land.z - m.z, turn: wrapA(ht - h), dur: 1.4, lift: 7 };
+    B.speed = 0; B.steer = 0;
+    BB.sfx.whoosh(); BB.sfx.sparkle && BB.sfx.sparkle();
+    BB.emit('bus:hopFree', {});
+  }
   B.setLights = function (on) { B.lightsOn = !!on; };
 
   // ---------- model ----------
@@ -882,13 +907,25 @@
     return circles;
   }
   // Push the whole bus out of anything it overlaps; returns the push vector length and direction.
-  function collide() {
+  function collide(rigid) {
     let tx = 0, tz = 0;
-    for (let it = 0; it < 4; it++) {
+    // front circles move the whole bus; a rear circle swings the rear carriage about the hitch (like a trailer
+    // brushing a post), and only moves the bus when the bend limit is reached
+    for (let it = 0; it < 6; it++) {
       let moved = false;
-      for (const c of busCircles()) {
-        const q = W().pushOut(c[0], c[1], c[2]);
-        if (q.hit > 0.001) { const dx = q.x - c[0], dz = q.z - c[1]; fx += dx; fz += dz; tx += dx; tz += dz; moved = true; }
+      const cs = busCircles();
+      for (let i = 0; i < cs.length; i++) {
+        const c = cs[i], q = W().pushOut(c[0], c[1], c[2]);
+        if (q.hit <= 0.001) continue;
+        let dx = q.x - c[0], dz = q.z - c[1];
+        moved = true;
+        if (i >= 8 && !rigid) {
+          const f = fwdOf(h), hx = fx - f.x * HITCH, hz = fz - f.z * HITCH, vx = c[0] - hx, vz = c[1] - hz, l2 = vx * vx + vz * vz || 1;
+          const want = (dx * vz - dz * vx) / l2, nb = wrapA(hr + want - h);
+          if (Math.abs(nb) <= MAX_BEND) { hr = wrapA(hr + want); continue; }
+          dx *= 0.6; dz *= 0.6;
+        }
+        fx += dx; fz += dz; tx += dx; tz += dz;
       }
       if (!moved) break;
     }
@@ -950,7 +987,9 @@
         fx += lx * jamSide * 1.6 * dt; fz += lz * jamSide * 1.6 * dt;
         collide();
       }
-    } else if (got > wantD * 0.6 || wantD <= 0.004) { jamT = 0; jamSide = 0; }
+      if (jamT > 2.4 && !jamFlipped) { jamFlipped = true; jamSide = -jamSide; }   // that way is blocked: try the other
+      if (jamT > 5) { jamT = 0; jamSide = 0; jamFlipped = false; hopFree(); }   // still hemmed in: a happy hop onto the road
+    } else if (got > wantD * 0.6 || wantD <= 0.004) { jamT = 0; jamSide = 0; jamFlipped = false; }
     // speed, fuel and wheels follow how far the bus really moved (not how hard it pushes)
     const moved = (fx - sx0) * f1.x + (fz - sz0) * f1.z, real = Math.abs(moved) / Math.max(dt, 1e-4);
     if (Math.abs(B.speed) > real + 0.6) B.speed = Math.sign(B.speed) * (real + 0.6);
@@ -1086,13 +1125,13 @@
       bayGlow.material.color.set(t.id === 'depot' ? '#5fe0d0' : P.honeyLight);
       bayGlow.material.opacity = 0.55 + 0.35 * Math.sin(clock * 4);
     } else { beacon.visible = false; bayGlow.visible = false; }
-    updateWayArrow();
+    updateWayArrow(dt);
 
     BB.sfx.engine(B.camMode === 'chase' ? Math.abs(B.speed) / MAX_FWD : 0);
     updateCamera(dt);
   };
   // A small arrow over the bus pointing the way, when it is off the route or facing away from it.
-  function updateWayArrow() {
+  function updateWayArrow(dt) {
     if (!routePts || !B.target || B.atStop || settle || spin || B.camMode !== 'chase') {
       wayArrow.visible = false;
       if (facingAway && !spin) { facingAway = false; awayT = 0; BB.emit('bus:facingAway', { on: false }); }
@@ -1112,7 +1151,7 @@
     const off = bd > 7 || away > 1.6;
     wayArrow.visible = off;
     // facing away from the way (and on the route's road): offer the turn-round button
-    if (!facingAway && away > 2.0 && bd < 10 && !spin) { awayT += 1 / 30; if (awayT > 0.7) { facingAway = true; BB.emit('bus:facingAway', { on: true }); } }
+    if (!facingAway && away > 2.0 && bd < 10 && !spin) { awayT += dt; if (awayT > 0.7) { facingAway = true; BB.emit('bus:facingAway', { on: true }); } }
     else if (facingAway && (away < 1.5 || bd >= 12)) { facingAway = false; awayT = 0; BB.emit('bus:facingAway', { on: false }); }
     else if (!facingAway) awayT = 0;
     if (off) {
