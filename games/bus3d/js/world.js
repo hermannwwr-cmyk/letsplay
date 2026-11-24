@@ -139,7 +139,7 @@
   let TREES = null;                        // trees and lamp posts (their own mesh, so they can fade out of the way)
   // Props (trees, lamp posts) between the camera and the bus, or right by the camera, are hidden whole: each
   // prop's vertices carry its centre and size (aCenter) and the vertex shader drops the entire prop off screen.
-  const fadeU = { uCam: { value: new THREE.Vector3(0, -999, 0) }, uBus: { value: new THREE.Vector3(0, -999, 0) } };
+  const fadeU = { uCam: { value: new THREE.Vector3(0, -999, 0) }, uBus: { value: new THREE.Vector3(0, -999, 0) }, uWedge: { value: 0 } };
   const PROPS = new Map();                 // builder -> [{s, e, x, z, r}] part ranges
   function propStart(b) { return b.parts.length; }
   function propEnd(b, s, x, z, r) { if (!PROPS.has(b)) PROPS.set(b, []); PROPS.get(b).push({ s, e: b.parts.length, x, z, r }); }
@@ -158,14 +158,20 @@
   }
   function fadeMat(m) {
     m.onBeforeCompile = (sh) => {
-      sh.uniforms.uCam = fadeU.uCam; sh.uniforms.uBus = fadeU.uBus;
-      sh.vertexShader = 'attribute vec3 aCenter; uniform vec3 uCam; uniform vec3 uBus;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
+      sh.uniforms.uCam = fadeU.uCam; sh.uniforms.uBus = fadeU.uBus; sh.uniforms.uWedge = fadeU.uWedge;
+      sh.vertexShader = 'attribute vec3 aCenter; uniform vec3 uCam; uniform vec3 uBus; uniform float uWedge;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
         if (aCenter.x < 9e4) {
           vec2 c = aCenter.xy; float rr = aCenter.z; bool hideMe = distance(c, uCam.xz) < rr + 3.0;
           vec3 ab = uBus - uCam; float l2 = max(dot(ab, ab), 1e-3);
           for (int k = 0; k < 2; k++) {
             vec3 p = vec3(c.x, k == 0 ? 2.0 : 5.0, c.y); float tt = clamp(dot(p - uCam, ab) / l2, 0.0, 1.0);
             if (tt > 0.02 && tt < 0.97 && distance(p, uCam + ab * tt) < rr + 1.2) hideMe = true;
+          }
+          // the stop view: everything standing in the wedge between the camera and the bus's near side goes
+          if (uWedge > 0.0) {
+            vec2 a2 = uBus.xz - uCam.xz; float L = max(length(a2), 1e-3); vec2 u = a2 / L, pc = c - uCam.xz;
+            float al = dot(pc, u), lat = abs(pc.x * u.y - pc.y * u.x);
+            if (al > -rr && al < L - 1.6 && lat < max(al, 0.0) * uWedge + rr + 1.0) hideMe = true;
           }
           if (hideMe) gl_Position = vec4(0.0, 0.0, -2.0, 1.0);
         }`);
@@ -1554,6 +1560,10 @@
     if (Bs && Bs.front && BB.camera) {
       fadeU.uCam.value.copy(BB.camera.position);
       fadeU.uBus.value.set((Bs.front.position.x + Bs.rear.position.x) / 2, 1.8, (Bs.front.position.z + Bs.rear.position.z) / 2);
+      // at a stop (side view) the props between the camera and the bus are hidden across the whole view, not
+      // just on the line to the bus's middle
+      const stopView = (Bs.atStop || (Bs.isSettling && Bs.isSettling())) && Bs.camMode === 'chase';
+      fadeU.uWedge.value = stopView ? Math.tan(THREE.MathUtils.degToRad(BB.camera.fov) / 2) * BB.camera.aspect * 1.1 : 0;
     }
     clock += dt;
     // the day clock and the weather (the colour table, then the weather mixed in) - repainted a few times a second

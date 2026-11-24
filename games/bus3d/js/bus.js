@@ -898,6 +898,111 @@
   }
   // Under the MRT viaduct the camera stays below its deck.
   function underViaduct(x, z) { const v = W().viaduct; return v && x > v.x0 && x < v.x1 && Math.abs(z - v.z) < 9; }
+  // ---------- the stop camera ----------
+  // The screen space left for the bus at a stop: tablets have the question card along the bottom, phones held
+  // sideways (500 px tall or less) a column on the left; the coins/fuel HUD runs along the top.
+  function stopFrameRect() {
+    const w = innerWidth, hh = innerHeight;
+    if (hh <= 520) return { x0: Math.min(352, w * 0.56) + 6, y0: 60, x1: w - 10, y1: hh - 10 };
+    return { x0: 14, y0: 80, x1: w - 14, y1: hh - Math.min(250, hh * 0.34) - 10 };
+  }
+  const fitCam = new THREE.PerspectiveCamera(50, 1, 0.5, 900), _p = new THREE.Vector3(), _q = new THREE.Vector3();
+  // Plan the stop view for stop st: the points that must show (every seat with its head and number bubble, both doors),
+  // the ones that should (the pavement by the exit door where people wave, the first person in the queue), a true
+  // side-on view first; where a building blocks it, a steeper look from higher up, then a little along the kerb.
+  function planStopCam(st, key) {
+    const P0 = settle && settle.stop === st ? settle.to : { fx, fz, h };
+    const c = Math.cos(P0.h), s = Math.sin(P0.h), kx = c, kz = -s, f = fwdOf(P0.h), g0 = W().groundY(P0.fx, P0.fz);
+    const lw = (lx, ly, lz) => new THREE.Vector3(P0.fx + c * lx + s * lz, ly + g0, P0.fz - s * lx + c * lz);
+    const heads = [], req = [], wave = [], queue = [];
+    for (let i = 0; i < 10; i++) {
+      const q = B.seats[i];
+      heads.push(lw(q.x, q.y + 1.0, q.z)); req.push(lw(q.x, q.y + 2.25, q.z), lw(q.x, q.y - 0.4, q.z));
+    }
+    const dl = M ? M.doorLocal : { x: 1.6, z: LF / 2 - 1 };
+    req.push(lw(dl.x, 0, dl.z), lw(dl.x, 2.5, dl.z));
+    // the exit door in the front carriage's frame (a bendy's is on the rear carriage, straight behind at the bay)
+    let ex = { x: dl.x, z: dl.z };
+    const d1 = doors[1] || doors[0];
+    if (d1 && d1.parent) {
+      d1.parent.updateMatrixWorld(true); B.front.updateMatrixWorld(true);
+      d1.parent.localToWorld(_p.set(Math.abs(d1.userData.x) + 0.35, 0, d1.userData.z));
+      const rearSide = ART && (function (o) { for (; o; o = o.parent) { if (o === B.rear) return true; if (o === B.front) return false; } return false; })(d1);
+      if (rearSide) {           // rear carriage: its frame straight behind the hitch
+        B.rear.worldToLocal(_p); ex = { x: _p.x, z: _p.z - (HITCH + R_CTR) };
+      } else { B.front.worldToLocal(_p); ex = { x: _p.x, z: _p.z }; }
+    }
+    req.push(lw(ex.x, 0, ex.z), lw(ex.x, 2.5, ex.z));
+    for (const al of [1.2, -1.6]) wave.push(lw(ex.x + 2.6, 0, ex.z + al), lw(ex.x + 2.6, 2.3, ex.z + al));
+    if (st.pos) {                                   // the first one in the queue at the shelter (jobs.js puts it there)
+      const qx = st.pos.x + st.fwd.x * 3.4 - st.side.x, qz = st.pos.z + st.fwd.z * 3.4 - st.side.z;
+      queue.push(new THREE.Vector3(qx, g0, qz), new THREE.Vector3(qx, g0 + 2.1, qz));
+    }
+    const cam = BB.camera, R = stopFrameRect(), Wd = innerWidth, Hd = innerHeight;
+    fitCam.fov = cam.fov; fitCam.aspect = cam.aspect; fitCam.updateProjectionMatrix();
+    const aw = Math.max(80, R.x1 - R.x0), ah = Math.max(80, R.y1 - R.y0), rx = (R.x0 + R.x1) / 2, ry = (R.y0 + R.y1) / 2;
+    const tanV = Math.tan(THREE.MathUtils.degToRad(fitCam.fov) / 2);
+    const proj = (v) => { _q.copy(v).project(fitCam); return [(_q.x + 1) / 2 * Wd, (1 - _q.y) / 2 * Hd, _q.z]; };
+    const box = (pts) => { let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; for (const v of pts) { const p = proj(v); x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]); } return { x0, y0, x1, y1, w: x1 - x0, h: y1 - y0 }; };
+    // the centre of what must show
+    let tx = 0, ty = 0, tz = 0; for (const v of req) { tx += v.x; ty += v.y; tz += v.z; } tx /= req.length; ty /= req.length; tz /= req.length;
+    const T = new THREE.Vector3(tx, ty, tz), right = new THREE.Vector3(), up = new THREE.Vector3(), dir = new THREE.Vector3();
+    // a camera looking along (yaw from straight at the kerb side, pitch down) from distance d, slid in its own
+    // picture plane so the box of pts sits in the middle of the free space
+    function place(yaw, pitch, d, pts) {
+      const hx = -(kx * Math.cos(yaw) - f.x * Math.sin(yaw)), hz = -(kz * Math.cos(yaw) - f.z * Math.sin(yaw));
+      dir.set(hx * Math.cos(pitch), -Math.sin(pitch), hz * Math.cos(pitch));
+      fitCam.position.copy(T).addScaledVector(dir, -d);
+      fitCam.lookAt(T); fitCam.updateMatrixWorld(true);
+      const look = T.clone();
+      for (let it = 0; it < 3; it++) {
+        const bx = box(pts), u = d * tanV / (Hd / 2);           // world units per pixel at the bus
+        right.setFromMatrixColumn(fitCam.matrixWorld, 0); up.setFromMatrixColumn(fitCam.matrixWorld, 1);
+        const mx = -((rx - (bx.x0 + bx.x1) / 2) * u), my = (ry - (bx.y0 + bx.y1) / 2) * u;
+        fitCam.position.addScaledVector(right, mx).addScaledVector(up, my); look.addScaledVector(right, mx).addScaledVector(up, my);
+        if (fitCam.position.y < g0 + 1.3) { const dy = g0 + 1.3 - fitCam.position.y; fitCam.position.y += dy; look.y += dy; }
+        fitCam.updateMatrixWorld(true);
+      }
+      return look;
+    }
+    // the distance at which pts fill the free space (to 88%), and at which neighbouring heads are 36 px apart
+    function fitD(yaw, pitch, pts) {
+      let d = 14;
+      for (let it = 0; it < 4; it++) { place(yaw, pitch, d, pts); const bx = box(pts); d = BB.clamp(d * Math.max(bx.w / (aw * 0.88), bx.h / (ah * 0.88)), 4, 60); }
+      return d;
+    }
+    function spacingD(yaw, pitch) {
+      const d = 14; place(yaw, pitch, d, req);
+      const hp = heads.map(proj); let mn = 1e9;
+      for (let i = 0; i < 10; i++) for (let j = i + 1; j < 10; j++) mn = Math.min(mn, Math.hypot(hp[i][0] - hp[j][0], hp[i][1] - hp[j][1]));
+      return d * mn / 36;
+    }
+    const minD = Hd <= 520 ? 9 : 12;
+    function plan(yaw, pitch) {
+      const dReq = fitD(yaw, pitch, req), dSp = spacingD(yaw, pitch), lim = Math.max(dReq, dSp);
+      let pts = req, d = dReq;
+      for (const more of [req.concat(wave), req.concat(wave, queue)]) { const dm = fitD(yaw, pitch, more); if (dm <= lim) { pts = more; d = dm; } else break; }
+      d = Math.max(d, minD);
+      const look = place(yaw, pitch, d, pts);
+      return { pos: fitCam.position.clone(), look, d };
+    }
+    const mid = lw(0, 2.2, -frontOff());
+    const checks = [heads[0], heads[4], heads[9], req[20], req[21], req[22], req[23], mid];
+    const clear = (p) => {
+      if (W().insideTall(p.pos.x, p.pos.y, p.pos.z) || W().pushOut(p.pos.x, p.pos.z, 1.4).hit > 0.01) return false;
+      for (const v of checks) if (W().blocksSight(p.pos.x, p.pos.y, p.pos.z, v.x, v.y, v.z)) return false;
+      if (underViaduct(p.pos.x, p.pos.z) && p.pos.y > 10.2) return false;
+      return true;
+    };
+    const D2R = Math.PI / 180;
+    const cands = [];
+    for (const pitch of [15, 22, 30, 38]) cands.push([0, pitch]);
+    for (const yaw of [10, -10, 18, -18]) for (const pitch of [15, 24, 34]) cands.push([yaw, pitch]);
+    let pick = null;
+    for (const [yaw, pitch] of cands) { const p = plan(yaw * D2R, pitch * D2R); if (clear(p)) { pick = p; break; } }
+    if (!pick) pick = plan(0, 40 * D2R);
+    return { key, pos: pick.pos, look: pick.look };
+  }
   function desiredCamera(dt) {
     const mode = B.camMode;
     const m = midPoint(), mx = m.x, mz = m.z;
@@ -943,35 +1048,12 @@
         camPos.x -= vz * sh; camPos.z += vx * sh; camLook.x -= vz * sh; camLook.z += vx * sh;   // bus left of the panel
       }
     } else if (B.atStop || settle) {
-      // at a stop: side-on from the pavement, about 17 degrees down, looking at the kerb side (the doors): the kerb
-      // wall fades (dollhouse), so both rows of seats, the door, the path and the queue at the shelter are in view.
-      // The shelter, trees and lamps in the way are hidden by the world; buildings pull the camera in.
-      const kx = Math.cos(h), kz = -Math.sin(h), f = fwdOf(h), H = M ? M.height : 3.3;
-      const D = (LF > 9 ? 16 : 14.5) + (H > 4 ? 1.5 : 0), cy = H * 0.45, sx = fx + f.x * 0.3, sz = fz + f.z * 0.3;
-      // try side-on first; where a building stands on the pavement side, from ahead or behind along the pavement
-      if (!stopCam || stopCam.stop !== (B.atStop || (settle && settle.stop))) {
-        // [along, out from the kerb side, degrees down]: further and flatter first; closer and steeper where a building
-        // stands on the pavement; ahead/behind diagonals last
-        const cands = [[0.3, D, 17], [0.3, D * 0.8, 17], [0.3, D * 0.62, 20], [D * 0.5, D * 0.8, 17], [-D * 0.45, D * 0.82, 17], [0.3, 7.5, 27], [D * 0.95, 5, 18], [-D * 0.95, 5, 18], [0.3, 6, 35]];
-        let pick = cands[cands.length - 1];
-        for (const c of cands) {
-          const [al, sd, deg] = c, cx = sx + f.x * al + kx * sd, cz = sz + f.z * al + kz * sd, y = cy + Math.hypot(al, sd) * Math.tan(deg * Math.PI / 180);
-          if (W().insideTall(cx, y, cz) || W().blocksSight(cx, y, cz, sx, 1.6, sz) || W().blocksSight(cx, y, cz, sx + f.x * 3, 1.6, sz + f.z * 3)) continue;
-          pick = c; break;
-        }
-        stopCam = { stop: B.atStop || (settle && settle.stop), al: pick[0], sd: pick[1], tan: Math.tan(pick[2] * Math.PI / 180) };
-      }
-      const dd = Math.hypot(stopCam.al, stopCam.sd);
-      camPos.set(sx + f.x * stopCam.al + kx * stopCam.sd, cy + dd * stopCam.tan, sz + f.z * stopCam.al + kz * stopCam.sd);
-      camLook.set(sx + kx * 0.4, cy, sz + kz * 0.4);
-      // tablets: the question card is a strip along the bottom, so look a little lower (the bus sits higher)
-      if (innerHeight > 500) camLook.y -= 1.6;
-      // phones held sideways: the question card is a column on the left, so frame the bus toward the right
-      if (innerHeight <= 500) {                         // (always at a stop, so the view stays put when the card comes)
-        let dx = camLook.x - camPos.x, dz = camLook.z - camPos.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
-        const sh = Math.hypot(camLook.x - camPos.x, camLook.z - camPos.z) * (innerWidth <= 700 ? 0.55 : 0.42);   // move the camera to its left: the scene slides right
-        camPos.x += dz * sh; camPos.z -= dx * sh; camLook.x += dz * sh; camLook.z -= dx * sh;
-      }
+      // at a stop: side-on from the pavement, looking at the kerb side (the doors): the kerb wall fades (dollhouse),
+      // so both rows of seats, both doors and the pavement are in view. Worked out once per stop (and screen size)
+      // from this bus's seats and doors and the screen space beside the question card, then held still.
+      const st = B.atStop || (settle && settle.stop), key = st.id + '|' + B.type + '|' + innerWidth + 'x' + innerHeight + '|' + (B.atStop ? 1 : 0);
+      if (!stopCam || stopCam.key !== key) stopCam = planStopCam(st, key);
+      camPos.copy(stopCam.pos); camLook.copy(stopCam.look);
     } else {
       // chase: behind and above the front carriage, trailing its heading smoothly
       camH += wrapA(h - camH) * Math.min(1, dt * 2.2);
