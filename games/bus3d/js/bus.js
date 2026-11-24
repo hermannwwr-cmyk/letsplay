@@ -85,7 +85,7 @@
     BB.save.fuel = B.fuel; BB.saveNow();
     BB.emit('fuel:changed', { fuel: B.fuel });
   };
-  B.horn = function () { BB.sfx.horn(!!BB.save.upgrades.horn); hornT = 0.6; };
+  B.horn = function () { BB.sfx.horn(!!BB.save.upgrades.horn); hornT = 0.6; BB.emit('bus:horn'); };
   let hornT = 0;
   // World position of seat i (0..9).
   B.seatWorld = function (i, v) { v = v || new THREE.Vector3(); const s = B.seats[i]; v.set(s.x, s.y, s.z); return B.front.localToWorld(v); };
