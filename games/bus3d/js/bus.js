@@ -1394,7 +1394,10 @@
     // wipers sweep while it rains
     const raining = W().isRaining && W().isRaining();
     wipePh = raining ? wipePh + dt * (W().isStormy && W().isStormy() ? 6 : 4) : wipePh;
-    for (const wp of wipers) { const rest = wp.userData.rest || 0; wp.rotation.z = raining ? rest + (0.5 - 0.5 * Math.cos(wipePh)) * 1.35 : rest + (wp.rotation.z - rest) * 0.9; }
+    for (const wp of wipers) {
+      const sw = wp.userData.sweep, rest = sw ? sw[0] : (wp.userData.rest || 0), span = sw ? sw[1] - sw[0] : 1.35;
+      wp.rotation.z = raining ? rest + (0.5 - 0.5 * Math.cos(wipePh)) * span : rest + (wp.rotation.z - rest) * 0.9;
+    }
     const n = BB.clamp(B.passengers | 0, 0, 10);
     if (heads.count !== n) heads.count = hair.count = shirts.count = n;
     B.paxGroup.position.y = Math.abs(B.speed) > 0.5 ? Math.abs(Math.sin(clock * 9)) * 0.04 : 0;
