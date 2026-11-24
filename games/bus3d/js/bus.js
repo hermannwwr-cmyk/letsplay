@@ -382,28 +382,30 @@
     }
   };
   // ---------- parts: lights, bumpers, wheels, rims (the garage sells them; depot.js sets the prices) ----------
+  // (ids match depot.js; the first of each kind is the bus's own part)
   B.PARTS = {
-    lights: [{ id: 'standard', name: 'Headlights' }, { id: 'led', name: 'LED strip' }, { id: 'fog', name: 'Fog lamps' },
-      { id: 'lightbar', name: 'Roof light bar' }, { id: 'underglow', name: 'Underglow' }],
-    bumpers: [{ id: 'standard', name: 'Standard' }, { id: 'chrome', name: 'Chrome' }, { id: 'sporty', name: 'Sporty' }, { id: 'tough', name: 'Tough' }],
-    wheels: [{ id: 'standard', name: 'Standard' }, { id: 'chunky', name: 'Big chunky' }, { id: 'whitewall', name: 'Whitewall' }],
-    rims: [{ id: 'standard', name: 'Honey hub' }, { id: 'silver', name: 'Silver star' }, { id: 'gold', name: 'Gold' }, { id: 'red', name: 'Red sporty' }, { id: 'blue', name: 'Blue chrome' }],
+    lights: [{ id: 'std', name: 'Round lamps' }, { id: 'fog', name: 'Fog lamps' }, { id: 'led', name: 'Light strip' },
+      { id: 'roof', name: 'Roof lamps' }, { id: 'underglow', name: 'Underglow' }],
+    bumpers: [{ id: 'std', name: 'Bus bumper' }, { id: 'chrome', name: 'Shiny bumper' }, { id: 'sport', name: 'Sport bumper' }, { id: 'bull', name: 'Big bumper' }],
+    wheels: [{ id: 'std', name: 'Bus wheels' }, { id: 'big', name: 'Big wheels' }, { id: 'chunky', name: 'Chunky tyres' }, { id: 'white', name: 'White-wall tyres' }],
+    rims: [{ id: 'std', name: 'Silver rims' }, { id: 'gold', name: 'Gold rims' }, { id: 'red', name: 'Red rims' }, { id: 'blue', name: 'Blue rims' }, { id: 'star', name: 'Star rims' }],
   };
+  const PART_ALIAS = { standard: 'std', lightbar: 'roof', sporty: 'sport', tough: 'bull', whitewall: 'white', silver: 'std' };
   B.GLOW_COLORS = ['#5fd0ff', '#ff5fd0', '#7dff8a', '#ffd45c', '#b58cff'];
-  B.parts = { lights: 'standard', bumpers: 'standard', wheels: 'standard', rims: 'standard', glow: '#5fd0ff' };
+  B.parts = { lights: 'std', bumpers: 'std', wheels: 'std', rims: 'std', glow: '#5fd0ff' };
   let bumperF = null, bumperR = null, lightPart = null;
   const glows = [];
-  const tyreR = () => B.parts.wheels === 'chunky' ? 0.57 : 0.52;
+  const tyreR = () => B.parts.wheels === 'big' ? 0.62 : B.parts.wheels === 'chunky' ? 0.57 : 0.52;
   // One axle's two wheels (tyres + rims), merged; the wheel spins about x.
   function wheelGeometry() {
-    const w = B.parts.wheels, rim = B.parts.rims, b = BB.mk.builder(), R = tyreR(), Wd = w === 'chunky' ? 0.46 : 0.36;
-    const RIM = { standard: [P.honeyLight, '#f4ecdc', 1], silver: ['#dfe3ea', '#aab2bf', 5], gold: ['#ffd45c', '#d99a1c', 6], red: ['#3a3440', '#ff4a3a', 8], blue: ['#7fb2ff', '#e6f0ff', 6] }[rim] || [P.honeyLight, '#f4ecdc', 1];
+    const w = B.parts.wheels, rim = B.parts.rims, b = BB.mk.builder(), R = tyreR(), Wd = w === 'chunky' ? 0.46 : w === 'big' ? 0.42 : 0.36;
+    const RIM = { std: ['#dfe3ea', '#aab2bf', 1], star: ['#4a4552', '#e6e9ef', 5], gold: ['#ffd45c', '#d99a1c', 6], red: ['#3a3440', '#ff4a3a', 8], blue: ['#7fb2ff', '#e6f0ff', 6] }[rim] || ['#dfe3ea', '#aab2bf', 1];
     for (const s of [-1, 1]) {
       const x = s * 1.08, face = x + s * (Wd / 2 + 0.01);
       b.add(new THREE.CylinderGeometry(R, R, Wd, 14), '#2f2a33', x, 0, 0, 0, 0, Math.PI / 2);
       if (w === 'chunky') for (let k = 0; k < 12; k++) { const a = k / 12 * Math.PI * 2; b.add(new THREE.BoxGeometry(Wd + 0.02, 0.1, 0.16), '#3a3440', x, Math.cos(a) * R, Math.sin(a) * R, 0, a, 0); }
-      if (w === 'whitewall') b.add(new THREE.CylinderGeometry(R * 0.82, R * 0.82, Wd + 0.02, 14), '#fbf7ee', x, 0, 0, 0, 0, Math.PI / 2);
-      const rr = R * (w === 'whitewall' ? 0.6 : 0.55);
+      if (w === 'white') b.add(new THREE.CylinderGeometry(R * 0.82, R * 0.82, Wd + 0.02, 14), '#fbf7ee', x, 0, 0, 0, 0, Math.PI / 2);
+      const rr = R * (w === 'white' ? 0.6 : 0.55);
       b.add(new THREE.CylinderGeometry(rr, rr, Wd + 0.04, 10), RIM[0], x, 0, 0, 0, 0, Math.PI / 2);
       if (RIM[2] === 1) b.add(new THREE.BoxGeometry(0.05, rr * 1.6, 0.12), RIM[1], face, 0, 0);
       else for (let k = 0; k < RIM[2]; k++) { const a = k / RIM[2] * Math.PI * 2; b.add(new THREE.BoxGeometry(0.05, rr * 0.9, rim === 'red' ? 0.05 : 0.09), RIM[1], face + s * 0.01, Math.cos(a) * rr * 0.45, Math.sin(a) * rr * 0.45, 0, a, 0); }
@@ -414,14 +416,14 @@
   // Front or rear bumper with a generic number plate.
   function bumperGeometry(kind, isFront) {
     const b = BB.mk.builder(), L = isFront ? LF : LR, z = isFront ? L / 2 + 0.04 : -L / 2 - 0.04, s = isFront ? 1 : -1;
-    const col = { standard: '#46404e', chrome: '#dfe3ea', sporty: '#2b2830', tough: '#3a3440' }[kind] || '#46404e';
+    const col = { std: '#46404e', chrome: '#dfe3ea', sport: '#2b2830', bull: '#3a3440' }[kind] || '#46404e';
     b.add(slab(2.6, 0.18, 0.5, 0.1, 0.1, 0.4, 0.06), col, 0, 0, z);
     if (kind === 'chrome') { b.box(2.5, 0.08, 0.06, '#ffffff', 0, 0.4, z + s * 0.2); b.box(2.5, 0.05, 0.06, '#aab2bf', 0, 0.22, z + s * 0.2); }
-    if (kind === 'sporty') {
+    if (kind === 'sport') {
       b.add(new THREE.BoxGeometry(2.62, 0.08, 0.5), P.coral, 0, 0.16, z + s * 0.12);          // lip spoiler
       for (const x of [-0.9, 0.9]) b.box(0.4, 0.12, 0.06, '#1c1a20', x, 0.28, z + s * 0.21);   // vents
     }
-    if (kind === 'tough') {
+    if (kind === 'bull') {
       for (const x of [-1.0, -0.35, 0.35, 1.0]) b.box(0.12, 0.85, 0.12, '#55505e', x, 0.2, z + s * 0.38);
       b.box(2.3, 0.12, 0.12, '#55505e', 0, 0.95, z + s * 0.38); b.box(2.4, 0.14, 0.14, '#55505e', 0, 0.55, z + s * 0.38);
       for (const x of [-1.0, 1.0]) b.box(0.12, 0.12, 0.4, '#55505e', x, 0.55, z + s * 0.2);
@@ -434,7 +436,7 @@
     const b = BB.mk.builder(), zf = LF / 2 + 0.06;
     if (kind === 'led') { b.box(2.2, 0.07, 0.04, '#ffffff', 0, 1.14, zf); b.box(2.24, 0.03, 0.04, '#cfeaff', 0, 1.1, zf); }
     else if (kind === 'fog') for (const x of [-0.7, 0.7]) { b.add(new THREE.CylinderGeometry(0.12, 0.12, 0.06, 10), '#33303a', x, 0.34, LF / 2 + 0.25, 0, Math.PI / 2); b.add(new THREE.CylinderGeometry(0.09, 0.09, 0.07, 10), '#ffc23a', x, 0.34, LF / 2 + 0.27, 0, Math.PI / 2); }
-    else if (kind === 'lightbar') {
+    else if (kind === 'roof') {
       b.box(2.0, 0.12, 0.3, '#33303a', 0, 3.1, LF / 2 - 0.35);
       for (let k = 0; k < 6; k++) b.box(0.26, 0.14, 0.06, k % 2 ? '#fff6c8' : '#ffffff', -0.85 + k * 0.34, 3.1, LF / 2 - 0.18);
     }
@@ -455,7 +457,8 @@
   // colour ('#rrggbb', or pick from B.GLOW_COLORS). Rebuilds only that part's small mesh(es).
   B.setPart = function (kind, id, opt) {
     if (!B.PARTS[kind]) return false;
-    if (!B.PARTS[kind].some((p) => p.id === id)) id = 'standard';
+    id = PART_ALIAS[id] || id;
+    if (!B.PARTS[kind].some((p) => p.id === id)) id = B.PARTS[kind][0].id;
     B.parts[kind] = id;
     if (kind === 'lights' && typeof opt === 'string') B.parts.glow = opt;
     if (!B.front) return true;
@@ -481,7 +484,7 @@
     }
     const ps = save.parts || {};
     for (const k of ['lights', 'bumpers', 'wheels', 'rims']) {
-      const want = ps[k] || 'standard', glow = k === 'lights' ? ps.glow || B.parts.glow : undefined;
+      const want = PART_ALIAS[ps[k]] || ps[k] || B.PARTS[k][0].id, glow = k === 'lights' ? ps.glow || B.parts.glow : undefined;
       if (B.parts[k] !== want || (k === 'lights' && glow !== B.parts.glow) || !partsApplied) B.setPart(k, want, glow);
     }
     partsApplied = true;
@@ -690,24 +693,34 @@
       const a = 0.75 + Math.sin(orbit) * 0.35;
       camPos.set(mx + (f.x * Math.cos(a) - kx * Math.sin(a)) * 21, 8 + Math.sin(orbit * 0.7), mz + (f.z * Math.cos(a) - kz * Math.sin(a)) * 21);
       camLook.set(mx, 1.6, mz);
-    } else if (mode === 'depot' || mode === 'depotClose') {
+    } else if (mode === 'depot' || mode === 'depotClose' || mode === 'depotSide') {
       // the garage: depot.js may turn the bus on a turntable, so frame it from its real (world) position
       B.front.getWorldPosition(_w1); B.rear.getWorldPosition(_w2);
       const wx = (_w1.x + _w2.x) / 2, wz = (_w1.z + _w2.z) / 2;
       if (mode === 'depot') {
         // from the road side, looking at the bus's door side, with the whole bus left of the depot panel
         const hh = Math.atan2(_w1.x - _w2.x, _w1.z - _w2.z), kx = Math.cos(hh), kz = -Math.sin(hh);
-        const d = 24, cam = BB.camera, vis = 2 * d * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2) * cam.aspect;
-        const panel = Math.min(440, innerWidth * 0.52) / Math.max(1, innerWidth);
+        const d = innerHeight > 500 ? 28 : 24, cam = BB.camera, vis = 2 * d * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2) * cam.aspect;
+        const panel = Math.min(480, innerWidth * 0.56) / Math.max(1, innerWidth);
         const sh = vis * panel / 2;
         camPos.set(wx - kx * d - kz * sh, 8, wz - kz * d + kx * sh);
         camLook.set(wx - kz * sh, 1.6, wz + kx * sh);
+      } else if (mode === 'depotSide') {
+        // low and side-on at the front wheels (to show off wheels and rims), bus left of the panel
+        const fw = B.front.localToWorld(_w2.set(0, 0, 0)).clone(), fr = B.front.localToWorld(new THREE.Vector3(0, 0, 1));
+        let dx = fr.x - fw.x, dz = fr.z - fw.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
+        const kx = dz, kz = -dx, cam = BB.camera;
+        const panel = Math.min(480, innerWidth * 0.56) / Math.max(1, innerWidth), sh = (innerHeight > 500 ? 10 : 12.5) * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2) * cam.aspect * panel;
+        const sd = innerHeight > 500 ? 10 : 12.5;
+        camPos.set(fw.x - kx * sd, 2.4, fw.z - kz * sd);
+        camLook.set(fw.x, 0.8, fw.z);
+        camPos.x += dx * sh; camPos.z += dz * sh; camLook.x += dx * sh; camLook.z += dz * sh;
       } else {
-        // close on the front and the roof (to show off a new hat), from ahead on the road side
+        // close on the front and the roof, from ahead on the road side
         const fw = B.front.localToWorld(_w2.set(0, 0, LF / 2)).clone(), c = _w1;
         let dx = fw.x - c.x, dz = fw.z - c.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
         const kx = dz, kz = -dx;                          // the bus's left (door side)
-        const cam = BB.camera, panel = Math.min(440, innerWidth * 0.52) / Math.max(1, innerWidth), sh = 9 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2) * cam.aspect * panel;
+        const cam = BB.camera, panel = Math.min(480, innerWidth * 0.56) / Math.max(1, innerWidth), sh = 9 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2) * cam.aspect * panel;
         camPos.set(fw.x + dx * 7.5 - kx * 4.5, 6.2, fw.z + dz * 7.5 - kz * 4.5);
         camLook.set(fw.x - dx * 1.8, 2.4, fw.z - dz * 1.8);
         let vx = camLook.x - camPos.x, vz = camLook.z - camPos.z; const vl = Math.hypot(vx, vz) || 1; vx /= vl; vz /= vl;
@@ -775,6 +788,7 @@
     BB.camera.lookAt(curLook);
   }
   B.setCamera = function (mode, snap) { B.camMode = mode; if (snap) snapCamera(); };
+  B.hasCamera = (mode) => ['title', 'chase', 'depot', 'depotClose', 'depotSide'].indexOf(mode) >= 0;
 
   // ---------- guidance: ribbon (left lane), target marker, glowing bay, way arrow ----------
   const RIB_MAX = 320;
