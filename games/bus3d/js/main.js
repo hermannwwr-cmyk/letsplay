@@ -75,7 +75,8 @@
       if (!BB.heard(welcome)) BB.say('Hello, driver!');
       BB.say(BB.ui.driveTip ? BB.ui.driveTip() : 'Push up to go! Slide to steer!', { queue: true });
       if (BB.ui.showTips) BB.ui.showTips();
-      BB.later(2200, () => { if (!BB.bedtime) BB.jobs.start(); });
+      // (not if the child went Home to the garage meanwhile: jobs.js starts the job when the garage closes)
+      BB.later(2200, () => { if (!BB.bedtime && !BB.depot.isOpen) BB.jobs.start(); });
     });
     BB.on('audio:unlocked', () => { if (BB.music.on) BB.music.start(); });
 

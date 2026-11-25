@@ -242,70 +242,339 @@
     return m;
   };
 
-  // ---------- pictures (flat paper-style icons on canvas; used by stop signs and the HUD) ----------
-  // BB.pic(name, size) -> canvas. Names: bowl (hawker centre), slide (playground), train (MRT), tree (park),
-  // shop (shophouses), depot (bus garage), coin, pump.
-  // TODO(world/ui polish): richer pictures in the paper-cut style (darker crescent lower right, deeper rims).
+  // ---------- the paper-cut art kit (shared by the HUD, the garage, the family room and the stop signs) ----------
+  // One look everywhere: flat shapes, a darker crescent on the lower right, a rim in a deeper tone of the same colour,
+  // no black outlines, rounded lettering (Fredoka, built into index.html).
+  BB.FONT = "'Fredoka', 'Baloo 2', ui-rounded, system-ui, sans-serif";
+  const hexN = (c) => { c = String(c || '#000000').replace('#', ''); if (c.length === 3) c = c.replace(/./g, '$&$&'); return parseInt(c.slice(0, 6), 16) || 0; };
+  const toHex = (r, g, b) => '#' + [r, g, b].map((v) => Math.round(BB.clamp(v, 0, 255)).toString(16).padStart(2, '0')).join('');
+  BB.mixHex = (a, b, t) => { const A = hexN(a), Z = hexN(b), m = (s) => ((A >> s) & 255) * (1 - t) + ((Z >> s) & 255) * t; return toHex(m(16), m(8), m(0)); };
+  BB.dark = (c, t = 0.22) => { if (!/^#/.test(c)) return c; const n = hexN(c); return toHex(((n >> 16) & 255) * (1 - t), ((n >> 8) & 255) * (1 - t), (n & 255) * (1 - t)); };
+  BB.light = (c, t = 0.35) => (/^#/.test(c) ? BB.mixHex(c, '#ffffff', t) : c);
+  // Fill a shape the paper-cut way on a 100x100 board: the shape in a deeper tone, then again nudged up-left (so a
+  // darker crescent shows on the lower right), then its rim. build: a Path2D or fn(path). o: {depth, rim, rimW, rimColor}
+  BB.paper = function (x, build, fill, o = {}) {
+    let p = build;
+    if (!(build instanceof Path2D)) { p = new Path2D(); build(p); }
+    const d = o.depth == null ? 1 : o.depth;
+    x.fillStyle = BB.dark(fill, 0.18); x.fill(p);
+    x.save(); x.clip(p); x.translate(-3.6 * d, -4.4 * d); x.fillStyle = fill; x.fill(p); x.restore();
+    if (o.rim !== false) {
+      x.save(); x.lineJoin = 'round'; x.lineWidth = o.rimW || 2.4; x.strokeStyle = o.rimColor || BB.dark(fill, 0.3); x.stroke(p); x.restore();
+    }
+    return p;
+  };
+  // A coloured stroke the paper way (a deeper tone underneath, a little lower right).
+  BB.paperStroke = function (x, build, color, w) {
+    const p = new Path2D(); build(p);
+    x.save(); x.lineCap = x.lineJoin = 'round'; x.lineWidth = w;
+    x.translate(1.4, 1.8); x.strokeStyle = BB.dark(color, 0.3); x.stroke(p);
+    x.translate(-1.4, -1.8); x.strokeStyle = color; x.stroke(p); x.restore();
+    return p;
+  };
+  const rrP = (p, X, Y, W, H, R) => { if (p.roundRect) p.roundRect(X, Y, W, H, R); else p.rect(X, Y, W, H); };
+  const arcP = (p, X, Y, R) => { p.moveTo(X + R, Y); p.arc(X, Y, R, 0, Math.PI * 2); };
+  const starP = (p, cx, cy, R, r, n = 5) => {
+    for (let i = 0; i < n * 2; i++) { const a = -Math.PI / 2 + i * Math.PI / n, rad = i % 2 ? r : R; if (i) p.lineTo(cx + Math.cos(a) * rad, cy + Math.sin(a) * rad); else p.moveTo(cx + Math.cos(a) * rad, cy + Math.sin(a) * rad); }
+    p.closePath();
+  };
+  const heartP = (p, cx, cy, s) => { p.moveTo(cx, cy + 30 * s); p.bezierCurveTo(cx - 44 * s, cy + 2 * s, cx - 30 * s, cy - 36 * s, cx, cy - 16 * s); p.bezierCurveTo(cx + 30 * s, cy - 36 * s, cx + 44 * s, cy + 2 * s, cx, cy + 30 * s); p.closePath(); };
+  BB.paths = { rr: rrP, arc: arcP, star: starP, heart: heartP };
+  function board(size, draw) {
+    const c = document.createElement('canvas'); c.width = c.height = size;
+    const x = c.getContext('2d'); x.scale(size / 100, size / 100); x.lineJoin = 'round'; x.lineCap = 'round';
+    draw(x);
+    return c;
+  }
+  const dot = (x, X, Y, R, fill) => { x.beginPath(); x.arc(X, Y, R, 0, Math.PI * 2); x.fillStyle = fill; x.fill(); };
+  const shine = (x, X, Y, RX, RY, rot = -0.6, a = 0.5) => { x.beginPath(); x.ellipse(X, Y, RX, RY, rot, 0, Math.PI * 2); x.fillStyle = `rgba(255,255,255,${a})`; x.fill(); };
+  // a little bus seen from the side, facing right, about 84*s wide, top-left at (ox, oy)
+  function sideBus(x, ox, oy, s, col, type) {
+    x.save(); x.translate(ox, oy); x.scale(s, s);
+    const dbl = type === 'double', bendy = type === 'bendy', top = dbl ? -6 : 14;
+    const body = (bx, bw) => BB.paper(x, (p) => rrP(p, bx, top, bw, 60 - top, 9), col, { rimW: 2.4 / s });
+    if (bendy) { body(0, 46); body(50, 38); x.fillStyle = '#5a5260'; x.fillRect(45, top + 6, 6, 60 - top - 12); } else body(0, 86);
+    x.fillStyle = '#d4eef8';
+    for (const ry of dbl ? [top + 7, top + 31] : [top + 8]) for (let wx = 6; wx < 72; wx += 15) if (!(bendy && wx > 38 && wx < 52)) { x.beginPath(); rrP(x, wx, ry, 11, 13, 3); x.fill(); }
+    x.beginPath(); rrP(x, 74, top + 6, 9, 22, 3); x.fill();
+    for (const wx of bendy ? [16, 36, 74] : [18, 68]) { BB.paper(x, (p) => arcP(p, wx, 62, 9), '#3a343f', { depth: 0.5, rim: false }); dot(x, wx, 62, 4, '#c9d2db'); }
+    x.restore();
+  }
+  BB.sideBus = sideBus;
+
+  // ---------- pictures: BB.pic(name, size) -> canvas (stop signs, the job card, coins) ----------
+  // bowl (hawker centre), slide (playground), train (MRT), tree (park), shop (shophouses), depot (bus garage), coin, pump.
   const picCache = {};
   BB.pic = function (name, size = 128) {
     const key = name + size;
     if (picCache[key]) return picCache[key];
-    const c = document.createElement('canvas'); c.width = c.height = size;
-    const x = c.getContext('2d'); x.scale(size / 100, size / 100);
-    x.lineJoin = 'round'; x.lineCap = 'round';
-    const P = BB.P;
-    const rr = (X, Y, W, H, R, fill) => { x.beginPath(); x.roundRect ? x.roundRect(X, Y, W, H, R) : x.rect(X, Y, W, H); x.fillStyle = fill; x.fill(); };
-    const circ = (X, Y, R, fill) => { x.beginPath(); x.arc(X, Y, R, 0, Math.PI * 2); x.fillStyle = fill; x.fill(); };
-    switch (name) {
-      case 'bowl':
-        x.strokeStyle = '#fff'; x.lineWidth = 4;
-        for (const sx of [38, 50, 62]) { x.beginPath(); x.moveTo(sx, 34); x.bezierCurveTo(sx - 6, 26, sx + 6, 20, sx, 12); x.stroke(); }
-        x.strokeStyle = P.woodDark; x.lineWidth = 4; x.beginPath(); x.moveTo(60, 50); x.lineTo(86, 22); x.moveTo(66, 52); x.lineTo(92, 28); x.stroke();
-        circ(50, 50, 30, P.honeyLight); x.fillStyle = P.honeyLight;
-        x.beginPath(); x.moveTo(16, 50); x.lineTo(84, 50); x.arc(50, 50, 34, 0, Math.PI); x.fillStyle = P.coral; x.fill();
-        x.beginPath(); x.arc(50, 50, 34, 0.15, Math.PI - 0.15); x.lineTo(30, 70); x.fillStyle = '#d94c40'; x.globalAlpha = 0.35; x.fill(); x.globalAlpha = 1;
-        rr(14, 46, 72, 7, 3.5, '#ffd9a0');
-        break;
-      case 'slide':
-        rr(18, 30, 8, 58, 3, P.berry); rr(40, 30, 8, 58, 3, P.berry);
-        for (let i = 0; i < 4; i++) rr(20, 42 + i * 12, 26, 4, 2, P.honeyLight);
-        rr(14, 24, 40, 10, 4, P.coral);
-        x.beginPath(); x.moveTo(48, 30); x.quadraticCurveTo(70, 38, 90, 84); x.lineTo(80, 88); x.quadraticCurveTo(64, 50, 46, 42); x.closePath(); x.fillStyle = P.honey; x.fill();
-        break;
-      case 'train':
-        rr(10, 26, 80, 46, 14, '#f4f1ea'); rr(10, 56, 80, 8, 2, P.coral);
-        rr(18, 34, 18, 16, 4, P.glassDark); rr(41, 34, 18, 16, 4, P.glassDark); rr(64, 34, 18, 16, 4, P.glassDark);
-        circ(28, 78, 6, '#555'); circ(72, 78, 6, '#555');
-        rr(4, 84, 92, 6, 3, '#8a8290');
-        break;
-      case 'tree':
-        rr(44, 54, 12, 36, 4, P.woodDark);
-        circ(50, 40, 26, P.leaf); circ(30, 52, 16, P.leaf); circ(70, 52, 16, P.leaf); circ(58, 48, 18, P.grassDark);
-        circ(42, 34, 10, '#93d97a');
-        break;
-      case 'shop':
-        rr(14, 30, 72, 60, 4, P.mint); x.beginPath(); x.moveTo(8, 32); x.lineTo(50, 10); x.lineTo(92, 32); x.closePath(); x.fillStyle = P.coral; x.fill();
-        for (let i = 0; i < 6; i++) { x.fillStyle = i % 2 ? '#fff' : P.coral; x.fillRect(14 + i * 12, 46, 12, 12); }
-        rr(22, 64, 18, 26, 3, P.woodDark); rr(52, 64, 26, 16, 3, P.glass);
-        break;
-      case 'depot':
-        x.beginPath(); x.moveTo(6, 40); x.lineTo(50, 12); x.lineTo(94, 40); x.closePath(); x.fillStyle = P.teal; x.fill();
-        rr(12, 38, 76, 52, 3, P.cream); rr(22, 50, 56, 40, 3, '#5a4a5c');
-        rr(26, 62, 48, 22, 5, P.busGreen); rr(30, 66, 30, 8, 2, P.glass); circ(36, 86, 5, '#333'); circ(64, 86, 5, '#333');
-        break;
-      case 'coin':
-        circ(50, 50, 44, P.honeyDark); circ(48, 48, 40, P.honey); circ(48, 48, 28, P.honeyLight);
-        x.fillStyle = P.honeyDark; x.font = 'bold 40px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('$', 48, 50);
-        break;
-      case 'pump':
-        rr(18, 14, 46, 78, 8, P.coral); rr(26, 24, 30, 22, 4, P.cream); rr(10, 86, 62, 8, 4, '#8a8290');
-        x.strokeStyle = '#555'; x.lineWidth = 6; x.beginPath(); x.moveTo(64, 30); x.quadraticCurveTo(86, 34, 82, 60); x.lineTo(82, 70); x.stroke();
-        rr(76, 64, 12, 18, 3, '#555');
-        break;
-      default:
-        circ(50, 50, 40, P.plum);
-    }
+    const P = BB.P, paper = BB.paper;
+    const c = board(size, (x) => {
+      switch (name) {
+        case 'bowl':
+          for (const sx of [38, 50, 62]) BB.paperStroke(x, (p) => { p.moveTo(sx, 34); p.bezierCurveTo(sx - 7, 26, sx + 7, 20, sx, 10); }, '#eaf4fb', 4.5);
+          BB.paperStroke(x, (p) => { p.moveTo(58, 48); p.lineTo(86, 20); p.moveTo(65, 50); p.lineTo(93, 26); }, P.woodDark, 4);
+          paper(x, (p) => p.ellipse(50, 50, 32, 9, 0, 0, Math.PI * 2), P.honeyLight, { depth: 0.4 });
+          paper(x, (p) => { p.moveTo(14, 50); p.lineTo(86, 50); p.arc(50, 50, 36, 0, Math.PI); p.closePath(); }, P.coral);
+          paper(x, (p) => rrP(p, 30, 84, 40, 7, 3.5), '#d94c40', { depth: 0.3 });
+          x.fillStyle = '#fff6e0'; for (const wx of [32, 50, 68]) dot(x, wx, 64, 3.2, '#fff6e0');
+          break;
+        case 'slide':
+          paper(x, (p) => rrP(p, 16, 28, 9, 62, 3), P.berry, { depth: 0.4 }); paper(x, (p) => rrP(p, 40, 28, 9, 62, 3), P.berry, { depth: 0.4 });
+          for (let i = 0; i < 4; i++) paper(x, (p) => rrP(p, 22, 40 + i * 12, 22, 5, 2.5), P.honeyLight, { depth: 0.2, rimW: 1.6 });
+          paper(x, (p) => rrP(p, 12, 20, 42, 11, 5), P.coral, { depth: 0.5 });
+          paper(x, (p) => { p.moveTo(48, 28); p.quadraticCurveTo(72, 36, 92, 84); p.lineTo(80, 89); p.quadraticCurveTo(64, 50, 46, 42); p.closePath(); }, P.honey, { depth: 0.6 });
+          break;
+        case 'train':
+          paper(x, (p) => rrP(p, 4, 84, 92, 7, 3.5), '#8a8290', { depth: 0.3 });
+          paper(x, (p) => rrP(p, 10, 24, 80, 50, 15), '#f4f1ea');
+          paper(x, (p) => rrP(p, 10, 58, 80, 8, 2), P.coral, { depth: 0.3, rimW: 1.6 });
+          for (const wx of [18, 41, 64]) paper(x, (p) => rrP(p, wx, 32, 18, 17, 4), P.glassDark, { depth: 0.3, rimW: 1.4 });
+          for (const wx of [28, 72]) { paper(x, (p) => arcP(p, wx, 78, 7), '#555059', { depth: 0.4, rim: false }); dot(x, wx, 78, 2.6, '#c9d2db'); }
+          break;
+        case 'tree':
+          paper(x, (p) => rrP(p, 43, 54, 14, 38, 4), P.woodDark, { depth: 0.5 });
+          paper(x, (p) => { arcP(p, 50, 38, 26); arcP(p, 29, 52, 16); arcP(p, 71, 52, 16); }, P.leaf);
+          shine(x, 40, 28, 9, 6, -0.5, 0.35);
+          break;
+        case 'shop':
+          paper(x, (p) => rrP(p, 14, 32, 72, 58, 4), P.mint);
+          paper(x, (p) => { p.moveTo(8, 34); p.lineTo(50, 10); p.lineTo(92, 34); p.closePath(); }, P.coral);
+          for (let i = 0; i < 6; i++) { x.fillStyle = i % 2 ? '#fff6e0' : P.coral; x.beginPath(); x.moveTo(14 + i * 12, 44); x.lineTo(26 + i * 12, 44); x.lineTo(26 + i * 12, 54); x.arc(20 + i * 12, 54, 6, 0, Math.PI); x.closePath(); x.fill(); }
+          paper(x, (p) => rrP(p, 22, 64, 18, 26, 3), P.woodDark, { depth: 0.4 }); paper(x, (p) => rrP(p, 50, 64, 28, 16, 3), P.glass, { depth: 0.3 });
+          break;
+        case 'depot':
+          paper(x, (p) => rrP(p, 12, 38, 76, 52, 4), P.cream);
+          paper(x, (p) => { p.moveTo(4, 42); p.lineTo(50, 12); p.lineTo(96, 42); p.closePath(); }, P.teal);
+          paper(x, (p) => rrP(p, 22, 50, 56, 40, 4), '#5a4a5c', { depth: 0.4 });
+          paper(x, (p) => rrP(p, 27, 62, 46, 22, 6), P.busGreen, { depth: 0.5 });
+          x.fillStyle = '#d4eef8'; x.beginPath(); rrP(x, 31, 66, 30, 7, 2); x.fill();
+          for (const wx of [37, 63]) dot(x, wx, 86, 5, '#3a343f');
+          break;
+        case 'coin':
+          paper(x, (p) => arcP(p, 50, 50, 44), P.honey, { depth: 1.2, rimColor: P.honeyDark, rimW: 3.5 });
+          paper(x, (p) => arcP(p, 48, 48, 28), P.honeyLight, { depth: -0.5, rim: false });
+          paper(x, (p) => starP(p, 48, 49, 19, 8.5), P.honey, { depth: 0.4, rimColor: P.honeyDark, rimW: 2 });
+          shine(x, 30, 28, 9, 5, -0.7, 0.55);
+          break;
+        case 'pump':
+          paper(x, (p) => rrP(p, 10, 86, 60, 8, 4), '#8a8290', { depth: 0.3 });
+          paper(x, (p) => rrP(p, 18, 14, 44, 76, 9), P.coral);
+          paper(x, (p) => rrP(p, 25, 23, 30, 21, 4), P.cream, { depth: 0.3 });
+          BB.paperStroke(x, (p) => { p.moveTo(62, 32); p.quadraticCurveTo(86, 34, 82, 60); p.lineTo(82, 68); }, '#5a5260', 6);
+          paper(x, (p) => rrP(p, 75, 62, 13, 20, 4), '#5a5260', { depth: 0.4 });
+          dot(x, 40, 60, 6, BB.dark(P.coral, 0.25));
+          break;
+        default:
+          paper(x, (p) => arcP(p, 50, 50, 40), P.plum);
+      }
+    });
     picCache[key] = c;
+    return c;
+  };
+
+  // ---------- UI icons: BB.icon(name, size) -> canvas (the HUD, the garage, the cards) ----------
+  // home, garage, music, musicOff, sound, soundOff, horn, helper, helperOn, uturn, joystick, wheel, handR, handL,
+  // mybus (in the current paint), shop, settings, together, lights, bumpers, wheels, stickers, extras, colour,
+  // check, cross, speak, back (delete), fuel, coin, number, clock.
+  const iconCache = {};
+  BB.icon = function (name, size = 96) {
+    const paint = (BB.PAINTS.find((p) => p.id === BB.save.paint) || BB.PAINTS[0]).color;
+    const key = name + ':' + size + (name === 'mybus' || name === 'together' ? paint : '');
+    if (iconCache[key]) return iconCache[key];
+    const P = BB.P, paper = BB.paper;
+    const c = board(size, (x) => {
+      const house = (roof, door = P.wood) => {
+        paper(x, (p) => rrP(p, 64, 18, 11, 22, 2), BB.dark(roof, 0.1), { depth: 0.4 });
+        paper(x, (p) => rrP(p, 20, 44, 60, 46, 6), P.cream);
+        paper(x, (p) => { p.moveTo(10, 50); p.lineTo(50, 13); p.lineTo(90, 50); p.closePath(); }, roof);
+        paper(x, (p) => rrP(p, 42, 62, 16, 28, 5), door, { depth: 0.4 });
+        for (const wx of [27, 62]) paper(x, (p) => rrP(p, wx, 56, 11, 11, 2.5), P.glass, { depth: 0.25, rimW: 1.6 });
+      };
+      const noteP = (p) => {
+        p.ellipse(31, 74, 13, 10, -0.4, 0, Math.PI * 2); p.moveTo(84, 65); p.ellipse(71, 66, 13, 10, -0.4, 0, Math.PI * 2);
+        p.moveTo(37, 74); p.lineTo(37, 26); p.lineTo(84, 14); p.lineTo(84, 66); p.lineTo(77, 66); p.lineTo(77, 30); p.lineTo(44, 38); p.lineTo(44, 74); p.closePath();
+      };
+      const speaker = (col) => {
+        paper(x, (p) => { rrP(p, 10, 37, 20, 26, 5); p.moveTo(26, 38); p.lineTo(52, 18); p.quadraticCurveTo(56, 16, 56, 22); p.lineTo(56, 78); p.quadraticCurveTo(56, 84, 52, 82); p.lineTo(26, 62); p.closePath(); }, col);
+      };
+      const slash = () => {     // "off": a coral paper strip across
+        x.save(); x.translate(50, 50); x.rotate(Math.PI / 4);
+        paper(x, (p) => rrP(p, -52, -7, 104, 14, 7), P.coral, { depth: 0.4 }); x.restore();
+      };
+      const helperBus = (on) => {
+        BB.paperStroke(x, (p) => { p.moveTo(16, 8); p.lineTo(16, 92); }, '#a9b3be', 6); BB.paperStroke(x, (p) => { p.moveTo(84, 8); p.lineTo(84, 92); }, '#a9b3be', 6);
+        x.save(); x.globalCompositeOperation = 'destination-out'; x.fillStyle = '#000';
+        for (let y = 20; y < 92; y += 22) { x.fillRect(10, y, 12, 9); x.fillRect(78, y, 12, 9); } x.restore();
+        paper(x, (p) => rrP(p, 33, 16, 34, 68, 11), P.busGreen);
+        paper(x, (p) => rrP(p, 38, 22, 24, 13, 4), '#d4eef8', { depth: 0.2, rimW: 1.5 });
+        if (on) paper(x, (p) => starP(p, 80, 20, 17, 7, 4), P.honey, { depth: 0.5 });
+      };
+      const wheelArt = () => {
+        BB.paperStroke(x, (p) => p.arc(50, 50, 37, 0, Math.PI * 2), '#5a5260', 12);
+        BB.paperStroke(x, (p) => { p.moveTo(15, 47); p.lineTo(36, 47); p.moveTo(64, 47); p.lineTo(85, 47); p.moveTo(50, 62); p.lineTo(50, 86); }, '#6c6470', 9);
+        paper(x, (p) => arcP(p, 50, 50, 16), '#f26b5b');
+        paper(x, (p) => rrP(p, 46, 6, 8, 12, 3), P.honey, { depth: 0.3 });
+      };
+      const joyArt = (cx = 50, cy = 52, s = 1) => {
+        paper(x, (p) => arcP(p, cx, cy, 40 * s), '#f1dfb8', { rimColor: '#d9b57f' });
+        x.fillStyle = '#3fae49'; x.beginPath(); x.moveTo(cx, cy - 35 * s); x.lineTo(cx + 7 * s, cy - 26 * s); x.lineTo(cx - 7 * s, cy - 26 * s); x.fill();
+        x.fillStyle = '#f5a23d'; x.beginPath(); x.moveTo(cx, cy + 35 * s); x.lineTo(cx + 7 * s, cy + 26 * s); x.lineTo(cx - 7 * s, cy + 26 * s); x.fill();
+        x.fillStyle = '#19a79b'; x.beginPath(); x.moveTo(cx - 35 * s, cy); x.lineTo(cx - 26 * s, cy - 7 * s); x.lineTo(cx - 26 * s, cy + 7 * s); x.fill();
+        x.beginPath(); x.moveTo(cx + 35 * s, cy); x.lineTo(cx + 26 * s, cy - 7 * s); x.lineTo(cx + 26 * s, cy + 7 * s); x.fill();
+        paper(x, (p) => arcP(p, cx, cy, 18 * s), '#3fae49');
+        shine(x, cx - 6 * s, cy - 7 * s, 6 * s, 3.5 * s, -0.6, 0.5);
+      };
+      const tabletWithJoy = (left) => {
+        paper(x, (p) => rrP(p, 6, 22, 88, 58, 12), '#5a5260');
+        paper(x, (p) => rrP(p, 13, 29, 74, 44, 6), '#bfe0f0', { depth: 0.2, rim: false });
+        x.fillStyle = '#9cc7dc'; x.fillRect(13, 58, 74, 15);
+        const jx = left ? 28 : 72;
+        paper(x, (p) => arcP(p, jx, 56, 13), '#fff6e0', { depth: 0.3, rimColor: '#d9b57f', rimW: 2 });
+        paper(x, (p) => arcP(p, jx, 56, 6.5), '#3fae49', { depth: 0.3, rimW: 1.4 });
+        paper(x, (p) => rrP(p, left ? 62 : 26, 40, 13, 9, 3), P.busGreen, { depth: 0.2, rimW: 1.4 });
+      };
+      switch (name) {
+        case 'home': house(P.coral); break;
+        case 'garage': x.drawImage(BB.pic('depot', 200), 0, 0, 100, 100); break;
+        case 'music': paper(x, noteP, P.plum); break;
+        case 'musicOff': x.globalAlpha = 0.55; paper(x, noteP, '#a99bb8'); x.globalAlpha = 1; slash(); break;
+        case 'sound':
+          speaker(P.teal);
+          for (const r of [16, 30]) BB.paperStroke(x, (p) => p.arc(58, 50, r, -0.75, 0.75), P.teal, 7);
+          break;
+        case 'soundOff':
+          x.globalAlpha = 0.6; speaker('#8fb8b4'); x.globalAlpha = 1;
+          paper(x, (p) => arcP(p, 74, 50, 19), P.coral);
+          BB.paperStroke(x, (p) => { p.moveTo(67, 43); p.lineTo(81, 57); p.moveTo(81, 43); p.lineTo(67, 57); }, '#ffffff', 6);
+          break;
+        case 'horn':
+          paper(x, (p) => arcP(p, 15, 50, 13), P.coral);
+          paper(x, (p) => rrP(p, 25, 45, 14, 10, 3), P.honeyDark, { depth: 0.3 });
+          paper(x, (p) => { p.moveTo(37, 45); p.lineTo(64, 24); p.quadraticCurveTo(70, 50, 64, 76); p.lineTo(37, 55); p.closePath(); }, P.honey);
+          paper(x, (p) => p.ellipse(65, 50, 6, 26, 0, 0, Math.PI * 2), P.honeyDark, { depth: 0.3 });
+          for (const r of [17, 26]) BB.paperStroke(x, (p) => p.arc(66, 50, r, -0.55, 0.55), P.coral, 4.5);
+          break;
+        case 'helper': helperBus(false); break;
+        case 'helperOn': helperBus(true); break;
+        case 'uturn':
+          BB.paperStroke(x, (p) => { p.moveTo(28, 88); p.lineTo(28, 44); p.arc(50, 44, 22, Math.PI, 0); p.lineTo(72, 50); }, P.teal, 14);
+          paper(x, (p) => { p.moveTo(54, 48); p.lineTo(90, 48); p.lineTo(72, 74); p.closePath(); }, P.teal, { depth: 0.5 });
+          break;
+        case 'joystick': joyArt(); break;
+        case 'wheel': wheelArt(); break;
+        case 'handR': tabletWithJoy(false); break;
+        case 'handL': tabletWithJoy(true); break;
+        case 'mybus': sideBus(x, 6, 18, 1.04, paint, 'single'); break;
+        case 'shop':
+          BB.paperStroke(x, (p) => { p.moveTo(34, 38); p.lineTo(34, 30); p.arc(50, 30, 16, Math.PI, 0); p.lineTo(66, 38); }, BB.dark(P.coral, 0.15), 6);
+          paper(x, (p) => { p.moveTo(18, 36); p.lineTo(82, 36); p.lineTo(88, 90); p.lineTo(12, 90); p.closePath(); }, P.coral);
+          paper(x, (p) => starP(p, 50, 63, 19, 8.5), P.honeyLight, { depth: 0.4 });
+          break;
+        case 'settings': {
+          const g = (p) => {
+            const n = 8;
+            for (let i = 0; i < n * 2; i++) {
+              const a0 = (i / (n * 2)) * Math.PI * 2, a1 = ((i + 1) / (n * 2)) * Math.PI * 2, r = i % 2 ? 30 : 41;
+              if (!i) p.moveTo(50 + Math.cos(a0) * r, 50 + Math.sin(a0) * r); else p.lineTo(50 + Math.cos(a0) * r, 50 + Math.sin(a0) * r);
+              p.lineTo(50 + Math.cos(a1) * r, 50 + Math.sin(a1) * r);
+            }
+            p.closePath();
+          };
+          paper(x, g, P.teal);
+          paper(x, (p) => arcP(p, 50, 50, 15), P.cream, { depth: -0.6 });
+          break;
+        }
+        case 'together':
+          sideBus(x, 2, 44, 0.6, paint === '#3d8fe0' ? '#3fae49' : '#3d8fe0', 'single');
+          sideBus(x, 42, 54, 0.6, paint, 'single');
+          paper(x, (p) => heartP(p, 50, 26, 0.55), '#ef5a4b');
+          break;
+        case 'lights':
+          x.fillStyle = 'rgba(255,200,60,.7)';
+          for (let i = 0; i < 7; i++) { x.save(); x.translate(50, 42); x.rotate(-Math.PI / 2 + (i - 3) * 0.48); x.beginPath(); rrP(x, -3, -46, 6, 12, 3); x.fill(); x.restore(); }
+          paper(x, (p) => { p.arc(50, 42, 24, Math.PI * 0.8, Math.PI * 2.2); p.lineTo(60, 66); p.lineTo(40, 66); p.closePath(); }, P.honeyLight);
+          paper(x, (p) => rrP(p, 38, 64, 24, 20, 5), '#9aa4b0', { depth: 0.4 });
+          x.fillStyle = '#7a838e'; x.fillRect(38, 70, 24, 3); x.fillRect(38, 76, 24, 3);
+          shine(x, 41, 33, 6, 9, 0.5, 0.75);
+          break;
+        case 'bumpers':
+          paper(x, (p) => rrP(p, 18, 10, 64, 64, 13), P.busGreen);
+          paper(x, (p) => rrP(p, 25, 17, 50, 26, 6), '#d4eef8', { depth: 0.25, rimW: 1.6 });
+          for (const wx of [31, 69]) paper(x, (p) => arcP(p, wx, 57, 6), '#fff1a8', { depth: 0.3, rimW: 1.4 });
+          paper(x, (p) => rrP(p, 8, 70, 84, 16, 8), '#b8c2cc');
+          shine(x, 30, 75, 14, 2.5, 0, 0.85);
+          break;
+        case 'wheels':
+          paper(x, (p) => arcP(p, 50, 50, 42), '#3a343f', { rim: false });
+          paper(x, (p) => arcP(p, 50, 50, 25), '#f5b83d');
+          for (let i = 0; i < 5; i++) { const a = i * Math.PI * 0.4 - Math.PI / 2; dot(x, 50 + Math.cos(a) * 14, 50 + Math.sin(a) * 14, 4.2, BB.dark('#f5b83d', 0.28)); }
+          dot(x, 50, 50, 5.5, BB.dark('#f5b83d', 0.38));
+          shine(x, 40, 40, 6, 3.5, -0.6, 0.5);
+          break;
+        case 'stickers': {
+          const s = new Path2D(); starP(s, 50, 53, 42, 19);
+          x.save(); x.lineJoin = 'round'; x.lineWidth = 12; x.strokeStyle = '#ffffff'; x.shadowColor = 'rgba(80,50,30,.25)'; x.shadowOffsetX = 1.5; x.shadowOffsetY = 2.5; x.shadowBlur = 2; x.stroke(s); x.restore();
+          x.fillStyle = '#ffffff'; x.fill(s);
+          paper(x, s, P.honey);
+          break;
+        }
+        case 'extras':
+          paper(x, (p) => rrP(p, 16, 42, 68, 48, 6), P.coral);
+          paper(x, (p) => rrP(p, 10, 32, 80, 16, 5), BB.light(P.coral, 0.12));
+          paper(x, (p) => rrP(p, 43, 32, 14, 58, 2), P.honey, { depth: 0.3 });
+          paper(x, (p) => { p.ellipse(38, 24, 13, 9, -0.5, 0, Math.PI * 2); p.moveTo(75, 24); p.ellipse(62, 24, 13, 9, 0.5, 0, Math.PI * 2); }, P.honey, { depth: 0.4 });
+          break;
+        case 'colour':
+          paper(x, (p) => { p.moveTo(22, 40); p.lineTo(78, 40); p.lineTo(72, 90); p.quadraticCurveTo(50, 96, 28, 90); p.closePath(); }, '#cfd6de');
+          paper(x, (p) => p.ellipse(50, 40, 29, 9, 0, 0, Math.PI * 2), P.coral, { depth: 0.3 });
+          paper(x, (p) => { p.moveTo(30, 42); p.lineTo(40, 42); p.lineTo(40, 62); p.arc(35, 62, 5, 0, Math.PI); p.closePath(); }, P.coral, { depth: 0.3 });
+          paper(x, (p) => { p.moveTo(64, 6); p.lineTo(82, 14); p.lineTo(70, 40); p.lineTo(58, 34); p.closePath(); }, P.woodLight, { depth: 0.4 });
+          paper(x, (p) => { p.moveTo(58, 34); p.lineTo(70, 40); p.lineTo(66, 50); p.lineTo(54, 44); p.closePath(); }, P.teal, { depth: 0.3 });
+          break;
+        case 'number':
+          paper(x, (p) => rrP(p, 4, 26, 92, 48, 10), '#2b2430');
+          x.fillStyle = '#ffb81f'; x.font = '800 34px "Courier New", monospace'; x.textAlign = 'center'; x.textBaseline = 'middle';
+          x.shadowColor = 'rgba(255,184,31,.8)'; x.shadowBlur = 6; x.fillText(String(BB.save.routeNo || '88'), 50, 51);
+          break;
+        case 'check':
+          paper(x, (p) => arcP(p, 50, 50, 44), '#5cb85c');
+          BB.paperStroke(x, (p) => { p.moveTo(28, 52); p.lineTo(44, 67); p.lineTo(73, 35); }, '#ffffff', 11);
+          break;
+        case 'cross':
+          paper(x, (p) => arcP(p, 50, 50, 44), '#f26b5b');
+          BB.paperStroke(x, (p) => { p.moveTo(34, 34); p.lineTo(66, 66); p.moveTo(66, 34); p.lineTo(34, 66); }, '#ffffff', 10);
+          break;
+        case 'speak':
+          speaker('#4fa3e0');
+          for (const r of [16, 30]) BB.paperStroke(x, (p) => p.arc(58, 50, r, -0.75, 0.75), '#4fa3e0', 7);
+          break;
+        case 'back':
+          paper(x, (p) => { p.moveTo(36, 22); p.lineTo(90, 22); p.lineTo(90, 78); p.lineTo(36, 78); p.lineTo(10, 50); p.closePath(); }, '#f5a23d');
+          BB.paperStroke(x, (p) => { p.moveTo(50, 37); p.lineTo(74, 63); p.moveTo(74, 37); p.lineTo(50, 63); }, '#ffffff', 8);
+          break;
+        case 'fuel': x.drawImage(BB.pic('pump', 200), 0, 0, 100, 100); break;
+        case 'coin': x.drawImage(BB.pic('coin', 200), 0, 0, 100, 100); break;
+        case 'clock':
+          paper(x, (p) => rrP(p, 40, 4, 20, 10, 4), P.coral, { depth: 0.3 });
+          paper(x, (p) => arcP(p, 50, 54, 40), P.coral);
+          paper(x, (p) => arcP(p, 50, 54, 30), '#fffdf6', { depth: -0.5, rim: false });
+          BB.paperStroke(x, (p) => { p.moveTo(50, 54); p.lineTo(50, 34); p.moveTo(50, 54); p.lineTo(63, 62); }, '#3a2a3c', 6);
+          break;
+        default:
+          paper(x, (p) => arcP(p, 50, 50, 40), P.plum);
+      }
+    });
+    iconCache[key] = c;
+    return c;
+  };
+  // forget cached icons that show the bus's colour or number (after the child changes them)
+  BB.iconRefresh = () => { for (const k in iconCache) if (/^(mybus|together|number):/.test(k)) delete iconCache[k]; };
+  // A fresh canvas copy of an icon, sized by CSS (several elements can't share one canvas).
+  BB.iconEl = function (name, size = 96, pic) {
+    const src = pic ? BB.pic(name, size) : BB.icon(name, size);
+    const c = document.createElement('canvas'); c.width = src.width; c.height = src.height;
+    c.getContext('2d').drawImage(src, 0, 0); c.setAttribute('aria-hidden', 'true');
     return c;
   };
 

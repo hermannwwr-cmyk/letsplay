@@ -4,7 +4,7 @@
    other (a friend's bus is ghosted when it is close to ours or near our stop), and each device keeps its own jobs,
    questions and coins. No names, no chat, no free text: only bus state, the bus's looks and the room code are sent.
 
-   Kid flow: the "Play together" tile in the garage -> Make a room (a PICTURE CODE of 5 pictures is shown and spoken)
+   Kid flow: the garage's "Together" section (depot.js) -> Make a room (a PICTURE CODE of 5 pictures is shown and spoken)
    or Join a room (tap the same 5 pictures). Anyone with the code joins (the owner left out an accept step); up to 10
    buses in a room. Offline, from a blocked network or when the connection service can't be reached: "Playing
    together needs the internet." (spoken, with a cloud picture). Single-player never needs any of this.
@@ -42,7 +42,8 @@
       ONE instanced mesh for all their wheels, one for all their blob shadows and one for all their floating
       route-number badges: ~12 draw calls for 9 friends. Interpolated ~200 ms behind.
    The HUD shows the friends in the room as little bus pictures with their numbers, top right under the buttons.
-   Exposes BB.net = { init, update(dt), open(), leave(why), goodnight(), state, remotes, code, transports }. */
+   Exposes BB.net = { init, update(dt), open(), make(), join(), leave(why), goodnight(), fillFriends(el, withMe), pic(name),
+   state, remotes, code, transports }; emits net:changed when the room or its members change. */
 (function () {
   'use strict';
   const BB = window.BB, P = BB.P;
@@ -510,7 +511,7 @@
     N.state = 'solo'; N.code = null; N.self = -1;
     syncFriends(); refreshPanel();
   };
-  N.goodnight = function () { lastKey = ''; tick(); hidePanel(); if (tile) tile.style.display = 'none'; };
+  N.goodnight = function () { lastKey = ''; tick(); hidePanel(); };
 
   // ================= friends' buses (low detail) =================
   const MAXB = 12;                                        // atlas slots (9 friends need 9)
@@ -823,6 +824,7 @@
   // ================= pictures (paper-cut: flat shapes, a darker crescent lower right) =================
   const picCache = {};
   function shaded(x, build, f) {
+    if (BB.paper) { BB.paper(x, build, f); return; }                 // the shared kit: crescent and rim
     const p = new Path2D(); build(p);
     x.fillStyle = darkHex(f, 0.2); x.fill(p);
     x.save(); x.clip(p); x.translate(-4, -5); x.fillStyle = f; x.fill(p); x.restore();
@@ -965,34 +967,32 @@
   }
   const cv = (canvas) => { const c = document.createElement('canvas'); c.width = canvas.width; c.height = canvas.height; c.getContext('2d').drawImage(canvas, 0, 0); return c; };
 
-  // ================= the room panel, the garage tile, the friends strip =================
+  // ================= the room cards and the friends strip =================
+  // (the way in is the garage's Together section, depot.js: New room / Join room, or Our room / Leave)
   BB.css(`
-  .bbn-tile { position: absolute; z-index: 12; left: calc(var(--sl) + 4px); bottom: var(--sb); width: 112px; height: 112px; border-radius: 30px; padding: 0;
-    background: #fff6e0; border: 4px solid #d9b57f; box-sizing: border-box; pointer-events: auto; cursor: pointer; touch-action: manipulation;
-    box-shadow: inset -5px -6px 0 rgba(217,181,127,.45), 0 6px 0 rgba(120,80,40,.2); display: none; align-items: center; justify-content: center;
-    animation: bbn-pop .4s cubic-bezier(.2,1.5,.5,1), bbn-bob 2.6s ease-in-out .4s infinite; }
-  .bbn-tile canvas { width: 92px; height: 92px; }
-  .bbn-tile.on { display: flex; }
-  .bbn-tile.pressed { transform: translateY(4px); }
-  .bbn-tile .n { position: absolute; top: -10px; right: -10px; min-width: 34px; height: 34px; border-radius: 17px; background: #5cb85c; color: #fff;
-    font: 800 22px/34px 'Baloo 2', system-ui, sans-serif; text-align: center; box-shadow: 0 3px 0 #3f913f; display: none; }
-  .bbn-tile.room .n { display: block; }
-  @keyframes bbn-bob { 50% { translate: 0 -4px; } }
-  @keyframes bbn-pop { from { transform: scale(.3); opacity: 0; } }
   .bbn-wrap { position: absolute; inset: 0; z-index: 58; background: rgba(40,30,50,.38); display: flex; align-items: center; justify-content: center;
-    pointer-events: auto; animation: bbn-fade .2s; font-family: 'Baloo 2', 'Fredoka', system-ui, sans-serif; padding: var(--st) var(--sr) var(--sb) var(--sl); box-sizing: border-box; }
+    pointer-events: auto; animation: bbn-fade .2s; font-family: ${BB.FONT}; padding: var(--st) var(--sr) var(--sb) var(--sl); box-sizing: border-box; }
   @keyframes bbn-fade { from { opacity: 0; } }
-  .bbn-card { position: relative; background: linear-gradient(#fff6e0, #fdebc8); border: 5px solid #d9b57f; border-radius: 34px; padding: 22px 22px 18px;
-    display: flex; flex-direction: column; align-items: center; gap: 16px; box-shadow: 0 10px 0 rgba(120,80,40,.2); max-width: 100%; max-height: 100%; box-sizing: border-box;
-    animation: bbn-pop .3s cubic-bezier(.2,1.5,.5,1); }
+  @keyframes bbn-pop { from { transform: scale(.3); opacity: 0; } }
+  .bbn-card { position: relative; background: linear-gradient(#fff6e0, #fdebc8); border: 5px solid #d9b57f; border-radius: 34px; padding: 18px 22px 18px;
+    display: flex; flex-direction: column; align-items: center; gap: 14px; max-width: 100%; max-height: 100%; box-sizing: border-box;
+    box-shadow: inset -6px -8px 0 rgba(217,181,127,.35), 0 10px 0 rgba(120,80,40,.2); animation: bbn-pop .3s cubic-bezier(.2,1.5,.5,1); }
   .bbn-card canvas { display: block; }
-  .bbn-x { position: absolute; top: -18px; right: -18px; width: 60px; height: 60px; border-radius: 50%; border: none; padding: 0; background: none; cursor: pointer; touch-action: manipulation; }
-  .bbn-x canvas, .bbn-btn canvas { width: 100%; height: 100%; }
-  .bbn-row { display: flex; gap: 14px; align-items: center; justify-content: center; flex-wrap: nowrap; }
-  .bbn-big { width: 170px; height: 170px; border-radius: 34px; border: 4px solid #ecd3a8; background: #fff; padding: 8px; cursor: pointer; touch-action: manipulation;
+  .bbn-title { font: 700 30px/1.1 ${BB.FONT}; color: #3a2a3c; text-align: center; }
+  .bbn-row { display: flex; gap: 14px; align-items: flex-end; justify-content: center; flex-wrap: nowrap; }
+  /* every button: a picture and its word */
+  .bbn-big, .bbn-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; cursor: pointer; touch-action: manipulation;
+    font: 700 16px/1 ${BB.FONT}; color: #4a3424; box-sizing: border-box; flex: none; }
+  .bbn-big { width: 176px; height: 186px; border-radius: 30px; border: 4px solid #ecd3a8; background: #fff; padding: 8px 8px 12px; font-size: 22px;
     box-shadow: 0 6px 0 rgba(120,80,40,.15); }
-  .bbn-big canvas { width: 100%; height: 100%; }
-  .bbn-btn { width: 76px; height: 76px; border-radius: 50%; border: none; background: none; padding: 0; cursor: pointer; touch-action: manipulation; flex: none; }
+  .bbn-big canvas { width: 130px; height: 130px; }
+  .bbn-btn { width: 84px; height: 92px; border-radius: 24px; border: 3px solid #ecd3a8; background: #fff; padding: 4px 2px 7px; box-shadow: 0 4px 0 rgba(120,80,40,.13); }
+  .bbn-btn canvas { width: 58px; height: 58px; }
+  .bbn-btn .lb, .bbn-big .lb { white-space: nowrap; }
+  .bbn-x { position: absolute; z-index: 3; top: -18px; right: -18px; width: 64px; height: 64px; border-radius: 50%; border: none; padding: 0; background: none; cursor: pointer; touch-action: manipulation;
+    display: flex; flex-direction: column; align-items: center; }
+  .bbn-x canvas { width: 60px; height: 60px; flex: none; }
+  .bbn-x .lb { font: 700 13px/1 ${BB.FONT}; color: #4a3424; background: #fff6e0; border: 2px solid #d9b57f; border-radius: 9px; padding: 1px 6px 2px; margin-top: -6px; }
   .bbn-big.pressed, .bbn-btn.pressed, .bbn-key.pressed, .bbn-x.pressed { transform: translateY(4px); }
   .bbn-code { --s: clamp(64px, min(14vw, 24vh), 128px); display: flex; gap: 10px; }
   .bbn-code > div { width: var(--s); height: var(--s); border-radius: 24px; background: #fff; border: 4px solid #ecd3a8; box-sizing: border-box; padding: 6px;
@@ -1003,11 +1003,12 @@
   .bbn-slots > div { width: var(--s); height: var(--s); border-radius: 18px; background: #f3e4c6; border: 3px dashed #d9b57f; box-sizing: border-box; padding: 4px; }
   .bbn-slots > div.full { background: #fff; border: 3px solid #ecd3a8; animation: bbn-pop .25s cubic-bezier(.2,1.5,.5,1); }
   .bbn-slots > div canvas { width: 100%; height: 100%; }
-  .bbn-slots .bbn-btn { width: calc(var(--s) + 6px); height: calc(var(--s) + 6px); margin-left: 6px; }
+  .bbn-slots .bbn-btn { margin-left: 8px; }
   .bbn-keys { --k: clamp(60px, min(11.5vw, 19vh), 100px); display: grid; grid-template-columns: repeat(6, var(--k)); gap: 10px; }
-  .bbn-key { width: var(--k); height: var(--k); border-radius: 22px; border: 3px solid #ecd3a8; background: #fff; padding: 6px; cursor: pointer; touch-action: manipulation;
-    box-shadow: 0 5px 0 rgba(120,80,40,.15); }
-  .bbn-key canvas { width: 100%; height: 100%; }
+  .bbn-key { width: var(--k); height: var(--k); border-radius: 22px; border: 3px solid #ecd3a8; background: #fff; padding: 4px 4px 3px; cursor: pointer; touch-action: manipulation;
+    box-shadow: 0 5px 0 rgba(120,80,40,.15); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+    font: 700 max(12px, calc(var(--k) * .17))/1 ${BB.FONT}; color: #6b5440; box-sizing: border-box; }
+  .bbn-key canvas { width: 76%; height: 76%; flex: none; }
   .bbn-card .shake { animation: bbn-shake .45s; }
   @keyframes bbn-shake { 25% { transform: translateX(-9px); } 75% { transform: translateX(9px); } }
   .bbn-wait { width: 180px; height: 120px; animation: bbn-hop .7s ease-in-out infinite; }
@@ -1015,37 +1016,35 @@
   .bbn-dots { display: flex; gap: 10px; } .bbn-dots i { width: 16px; height: 16px; border-radius: 50%; background: #d9b57f; animation: bbn-dot 1.2s infinite; }
   .bbn-dots i:nth-child(2) { animation-delay: .2s; } .bbn-dots i:nth-child(3) { animation-delay: .4s; }
   @keyframes bbn-dot { 50% { background: #ffb81f; transform: scale(1.3); } }
-  .bbn-friends { position: absolute; z-index: 6; right: var(--sr); top: calc(var(--st) + 68px); display: flex; flex-wrap: wrap; justify-content: flex-end;
+  .bbn-friends { position: absolute; z-index: 6; right: var(--sr); top: calc(var(--st) + var(--hudh, 80px) + 10px); display: flex; flex-wrap: wrap; justify-content: flex-end;
     max-width: 46vw; gap: 6px; pointer-events: none; }
   .bbn-friends.hide { display: none; }
   .bbn-friend { pointer-events: auto; display: flex; flex-direction: column; align-items: center; background: #fff6e0; border: 3px solid #d9b57f; border-radius: 18px;
-    padding: 2px 6px 0; box-shadow: 0 3px 0 rgba(120,80,40,.15); cursor: pointer; touch-action: manipulation; animation: bbn-pop .3s cubic-bezier(.2,1.5,.5,1); }
+    padding: 2px 6px 0; box-shadow: inset -3px -4px 0 rgba(217,181,127,.35), 0 3px 0 rgba(120,80,40,.15); cursor: pointer; touch-action: manipulation; animation: bbn-pop .3s cubic-bezier(.2,1.5,.5,1); }
   .bbn-friend canvas { width: 44px; height: 29px; }
   .bbn-friend b { font: 800 14px/15px 'Courier New', monospace; color: #3a2a3c; margin-bottom: 2px; }
   .bbn-friends.many { gap: 4px; } .bbn-friends.many .bbn-friend { padding: 1px 3px 0; border-radius: 14px; border-width: 2px; }
   .bbn-friends.many .bbn-friend canvas { width: 34px; height: 23px; } .bbn-friends.many .bbn-friend b { font-size: 12px; line-height: 13px; }
   .bbn-friend.me { border-color: #19a79b; }
-  .bbn-card .bbn-friends { position: static; max-width: none; flex-wrap: nowrap; }
+  .bbn-card .bbn-friends, .bbd .bbn-friends { position: static; max-width: none; flex-wrap: wrap; }
+  .bbd-friends .bbn-friend canvas { width: 54px; height: 36px; }
   @media (max-height: 520px) {
-    .bbn-card { padding: 14px 14px 12px; gap: 10px; border-radius: 28px; }
-    .bbn-big { width: 130px; height: 130px; }
-    .bbn-btn { width: 62px; height: 62px; } .bbn-x { width: 54px; height: 54px; top: -14px; right: -14px; }
-    .bbn-tile { width: 88px; height: 88px; border-radius: 24px; } .bbn-tile canvas { width: 72px; height: 72px; }
+    .bbn-card { padding: 12px 14px 12px; gap: 10px; border-radius: 28px; }
+    .bbn-title { font-size: 24px; }
+    .bbn-big { width: 140px; height: 150px; font-size: 19px; } .bbn-big canvas { width: 100px; height: 100px; }
+    .bbn-btn { width: 70px; height: 76px; border-radius: 20px; font-size: 13px; } .bbn-btn canvas { width: 46px; height: 46px; }
+    .bbn-x { width: 56px; height: 56px; top: -14px; right: -14px; } .bbn-x canvas { width: 52px; height: 52px; }
     .bbn-wait { width: 130px; height: 86px; }
-    .bbn-friends { top: calc(var(--st) + 62px); } .bbn-friend canvas { width: 40px; height: 27px; }
+    .bbn-friend canvas { width: 40px; height: 27px; }
   }
   `);
 
-  let tile = null, wrap = null, card = null, panelKind = null, friendsEl = null;
+  let wrap = null, card = null, panelKind = null, friendsEl = null;
   N.init = function () {
     const root = BB.ui.root;
-    tile = BB.el('button', 'bbn-tile', root);
-    tile.appendChild(cv(pic('together', 128)));
-    BB.el('span', 'n', tile);
-    BB.tap(tile, () => { BB.sfx.pop(); BB.say('Play together!'); N.open(); });
     friendsEl = BB.el('div', 'bbn-friends hide', root);
-    BB.on('depot:open', () => { if (!BB.bedtime) tile.classList.add('on'); syncFriends(); });
-    BB.on('depot:closed', () => { tile.classList.remove('on'); hidePanel(); sendHi(); syncFriends(); });
+    BB.on('depot:open', () => syncFriends());
+    BB.on('depot:closed', () => { hidePanel(); sendHi(); syncFriends(); });
     BB.on('bus:type', () => { if (N.state === 'room') BB.later(100, () => sendHi()); });
     BB.on('bus:horn', () => {
       if (N.state !== 'room') return;
@@ -1055,21 +1054,19 @@
     BB.on('hub:pause', () => N.leave('home'));
     addEventListener('pagehide', () => N.leave('home'));
     document.addEventListener('visibilitychange', () => { if (!document.hidden) { lastKey = ''; tick(); } else tick(); });
-    // the together picture shows our own bus colour: repaint it when that changes
-    BB.on('depot:closed', () => { delete picCache['together:128']; if (tile.firstChild) tile.replaceChild(cv(pic('together', 128)), tile.firstChild); });
   };
   function syncFriends() {
-    if (!tile) return;
+    if (!friendsEl) return;
     const n = [...N.remotes.values()].filter((r) => !r.leaving).length;
-    tile.classList.toggle('room', N.state === 'room');
-    tile.querySelector('.n').textContent = String(n + 1);
     friendsEl.innerHTML = '';
     const show = N.state === 'room' && n > 0 && !(BB.depot && BB.depot.isOpen) && !BB.bedtime;
     friendsEl.classList.toggle('hide', !show);
     friendsEl.classList.toggle('many', n > 4);
     if (show) fillFriends(friendsEl, false);
     if (panelKind === 'code' && card) { const f = card.querySelector('.bbn-friends'); if (f) { f.innerHTML = ''; fillFriends(f, true); } }
+    BB.emit('net:changed', { state: N.state, friends: n });
   }
+  N.fillFriends = (el, withMe) => fillFriends(el, withMe);
   function fillFriends(el, withMe) {
     const list = [...N.remotes.values()].filter((r) => !r.leaving).map((r) => r.look);
     if (withMe) list.unshift(Object.assign(myLook(), { me: true }));
@@ -1088,14 +1085,19 @@
     wrap = BB.el('div', 'bbn-wrap', BB.ui.root);
     card = BB.el('div', 'bbn-card', wrap);
     if (closable) {
-      const x = BB.el('button', 'bbn-x', card); x.appendChild(cv(pic('cross', 96)));
+      const x = BB.el('button', 'bbn-x', card); x.appendChild(cv(pic('cross', 96))); BB.el('span', 'lb', x, 'Close'); x.setAttribute('aria-label', 'Close');
       BB.tap(x, () => { BB.sfx.click(); if (N.state === 'opening') N.leave('home'); hidePanel(); });
     }
     BB.tap(wrap, (e) => { if (e.target === wrap && closable) { if (N.state === 'opening') N.leave('home'); hidePanel(); } });
     return card;
   }
   function refreshPanel() { if (panelKind === 'code' && N.state !== 'room') hidePanel(); }
-  const btn = (parent, name, fn, cls) => { const b = BB.el('button', cls || 'bbn-btn', parent); b.appendChild(cv(pic(name, 128))); BB.tap(b, fn); return b; };
+  // a button: a picture and its word (spoken by its own action)
+  const btn = (parent, name, fn, cls, word) => {
+    const b = BB.el('button', cls || 'bbn-btn', parent); b.type = 'button'; b.appendChild(cv(pic(name, 160)));
+    if (word) { BB.el('span', 'lb', b, word); b.setAttribute('aria-label', word); }
+    BB.tap(b, fn); return b;
+  };
 
   // "Play together": offline -> the cloud card; in a room -> its code and friends; otherwise Make or Join.
   N.open = function () {
@@ -1103,15 +1105,20 @@
     if (N.state === 'room') { showCode(false); return; }
     if (!N.canTry()) { showOffline(); return; }
     const c = panel('menu');
+    BB.el('div', 'bbn-title', c, 'Play together');
     const row = BB.el('div', 'bbn-row', c);
-    btn(row, 'make', () => { BB.sfx.pop(); makeRoom(); }, 'bbn-big');
-    btn(row, 'join', () => { BB.sfx.pop(); showEnter(); }, 'bbn-big');
+    btn(row, 'make', () => { BB.sfx.pop(); BB.say('A new room!'); makeRoom(); }, 'bbn-big', 'New room');
+    btn(row, 'join', () => { BB.sfx.pop(); showEnter(); }, 'bbn-big', 'Join room');
     BB.say('Make a new room, or join your friend\'s room?', { queue: true });
   };
+  // straight to making a room / typing a friend's code (the garage's Together tiles)
+  N.make = function () { if (BB.bedtime) return; if (N.state === 'room') { showCode(false); return; } if (!N.canTry()) { showOffline(); return; } makeRoom(); };
+  N.join = function () { if (BB.bedtime) return; if (N.state === 'room') { showCode(false); return; } if (!N.canTry()) { showOffline(); return; } showEnter(); };
   function showOffline() {
     const c = panel('offline');
     const p = cv(pic('cloud', 192)); p.style.cssText = 'width:150px;height:150px'; c.appendChild(p);
-    btn(BB.el('div', 'bbn-row', c), 'tick', () => { BB.sfx.click(); hidePanel(); });
+    BB.el('div', 'bbn-title', c, 'Needs the internet');
+    btn(BB.el('div', 'bbn-row', c), 'tick', () => { BB.sfx.click(); hidePanel(); }, null, 'OK');
     BB.sfx.wrong();
     BB.say('Playing together needs the internet.');
   }
@@ -1144,10 +1151,10 @@
     const row = BB.el('div', 'bbn-code', c);
     const cells = code.map((i, k) => { const d = BB.el('div', '', row); d.style.animationDelay = k * 90 + 'ms'; d.appendChild(cv(pic(PICS[i], 160))); return d; });
     const bottom = BB.el('div', 'bbn-row', c);
-    btn(bottom, 'speak', () => sayCode(cells));
+    btn(bottom, 'speak', () => sayCode(cells), null, 'Say it');
     fillFriends(BB.el('div', 'bbn-friends', bottom), true);
-    btn(bottom, 'home', () => { BB.sfx.click(); BB.say('Bye bye, friends!'); N.leave('home'); hidePanel(); });
-    btn(bottom, 'tick', () => { BB.sfx.click(); hidePanel(); });
+    btn(bottom, 'home', () => { BB.sfx.click(); BB.say('Bye bye, friends!'); N.leave('home'); hidePanel(); }, null, 'Leave');
+    btn(bottom, 'tick', () => { BB.sfx.click(); hidePanel(); }, null, 'OK');
     if (first) { BB.sfx.cheer(); sayCode(cells, 'Your room is open! The code is: ', ' Show it to your friend!'); }
     else sayCode(cells, 'The room code is: ');
   }
@@ -1166,16 +1173,15 @@
     const entered = [];
     const top = BB.el('div', 'bbn-slots', c);
     const slots = []; for (let i = 0; i < CODE_LEN; i++) slots.push(BB.el('div', '', top));
-    btn(top, 'del', () => { if (!entered.length) return; entered.pop(); BB.sfx.click(); show(); });
+    btn(top, 'del', () => { if (!entered.length) return; entered.pop(); BB.sfx.click(); BB.say('Delete!'); show(); }, null, 'Delete');
     const keys = BB.el('div', 'bbn-keys', c);
     const show = () => slots.forEach((s, i) => { s.innerHTML = ''; s.classList.toggle('full', i < entered.length); if (i < entered.length) s.appendChild(cv(pic(PICS[entered[i]], 96))); });
     PICS.forEach((name, i) => {
-      const k = btn(keys, name, () => {
+      btn(keys, name, () => {
         if (entered.length >= CODE_LEN || joining) return;
         entered.push(i); BB.sfx.pop(); show(); BB.say(name[0].toUpperCase() + name.slice(1) + '!');
         if (entered.length === CODE_LEN) { joining = true; BB.later(700, () => { joining = false; if (panelKind === 'enter') tryJoin(entered.slice()); }); }
-      }, 'bbn-key');
-      k.setAttribute('aria-label', name);
+      }, 'bbn-key', name[0].toUpperCase() + name.slice(1));
     });
     let joining = false;
     if (again) { top.classList.add('shake'); BB.sfx.wrong(); BB.say('No room found. Let\'s try again!'); }
@@ -1191,7 +1197,7 @@
         return;
       }
       if (err === 'noroom' || err === 'failed') showEnter(true);
-      else if (err === 'full') { const c = panel('full'); const p = cv(pic('make', 160)); p.style.cssText = 'width:140px;height:140px'; c.appendChild(p); btn(BB.el('div', 'bbn-row', c), 'tick', () => hidePanel()); BB.say('That room is full! Let\'s play on our own for now.'); }
+      else if (err === 'full') { const c = panel('full'); const p = cv(pic('make', 160)); p.style.cssText = 'width:140px;height:140px'; c.appendChild(p); BB.el('div', 'bbn-title', c, 'The room is full'); btn(BB.el('div', 'bbn-row', c), 'tick', () => hidePanel(), null, 'OK'); BB.say('That room is full! Let\'s play on our own for now.'); }
       else showOffline();
     });
   }

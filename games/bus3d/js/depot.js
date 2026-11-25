@@ -1,15 +1,17 @@
-/* Bendy Bus 3D: the depot ("garage") and the economy.
+/* Little Bus Captain: the depot ("garage") and the economy.
    Cash (bus3d.cash, never taken away except when the child buys something), the saved progress (BB.save, stored as
-   bus3d.save by core.js) and the garage screen, opened when the bus pulls in at the depot:
+   bus3d.save by core.js) and the garage screen, which the game starts in and which opens when the bus pulls in:
    - the bus rises on a striped turntable lift that sways gently, a 3D fuel pump in front of it, a striped awning;
-   - a paper panel with big picture tabs: Fuel, Paint, Stickers, Lights, Bumpers, Wheels & rims, Extras (spoken on tap);
+   - a paper panel with four big labelled sections: My bus (type, colour, number), Shop (Stickers, Lights, Bumpers,
+     Wheels, Extras), Settings (joystick or steering wheel, which hand, lane helper) and Together (the family room,
+     net.js); every tile has a picture and a word, and everything is spoken on tap;
    - the first tap on something new previews it live on the bus and says its price, a second tap buys it
      (coin jingle, coins fly from the counter); too few coins -> "Let's do more jobs!" and a coin goal to aim for;
-   - fuel is free: every visit fills the tank (with the pump's gurgle), and the bus never leaves hungry.
+   - fuel is free: every visit fills the tank (the little tank over the 3D view, the pump's gurgle).
    Stickers are built here and hung on BB.bus.stickerAnchors (or fallback spots on the carriages); parts (lights,
    bumpers, wheels, rims) are drawn by bus.js (B.setPart / applyCustom with save.parts) and only sold here.
    Saved: bus3d.save.parts {kind: id} and partsOwned ['kind:id'].
-   Exposes BB.depot = { open(), close(), cash, add(n), spend(n), save, applyLooks(), update(dt) };
+   Exposes BB.depot = { open(), close(), cash, add(n), spend(n), save, applyLooks(), update(dt), setTab(id, shopId) };
    emits cash:changed, depot:open, depot:closed. */
 (function () {
   'use strict';
@@ -61,10 +63,6 @@
     { id: 'sticker3', say: 'A super sticker spot! Now the bus can wear three stickers.', price: 20, love: 'I love my super sticker spot!' },
   ];
   const PAINT_SAY = { green: 'Green!', red: 'Red!', blue: 'Blue!', yellow: 'Yellow!', purple: 'Purple!', pink: 'Pink!' };
-  const TABS = [
-    { id: 'bus', say: 'Your bus!' }, { id: 'fuel', say: 'Fuel!' }, { id: 'sticker', say: 'Stickers!' },
-    { id: 'lights', say: 'Lights!' }, { id: 'bumpers', say: 'Bumpers!' }, { id: 'wheels', say: 'Wheels and rims!' }, { id: 'upgrade', say: 'Super extras!' },
-  ];
   const slots = () => (S.upgrades.sticker3 ? 3 : 2);
   // Bus types come from js/fleet.js (BB.fleet.TYPES / NAMES / preview) when it is there; switching is free.
   const MY_TYPES = [{ id: 'bendy', name: 'Bendy bus' }, { id: 'double', name: 'Double-decker' }, { id: 'single', name: 'Single-decker' }];
@@ -114,6 +112,7 @@
   // Paper-cut shading: the shape in a deeper tone, then the shape again nudged up-left, so a darker crescent shows
   // on its lower right.
   function shaded(x, build, f) {
+    if (BB.paper) { BB.paper(x, build, f, { depth: 1.25 }); return; }   // the shared kit: crescent and rim
     const p = new Path2D(); build(p);
     x.fillStyle = dark(f, 0.2); x.fill(p);
     x.save(); x.clip(p); x.translate(-5, -6); x.fillStyle = f; x.fill(p); x.restore();
@@ -283,27 +282,6 @@
       x.shadowColor = 'rgba(255,184,31,.8)'; x.shadowBlur = 6; x.fillText(no, 50, 51);
     });
   }
-  // the two ways to drive: a joystick pad with its green knob, or a steering wheel
-  const controlPic = (mode) => art('ctl-' + mode, 128, (x) => {
-    if (mode === 'wheel') {
-      x.lineWidth = 12; x.strokeStyle = '#4a4250'; x.beginPath(); x.arc(50, 50, 38, 0, Math.PI * 2); x.stroke();
-      x.strokeStyle = '#3a3440'; x.beginPath(); x.arc(50, 50, 38, -0.3, Math.PI * 0.8); x.stroke();
-      x.strokeStyle = '#5a5260'; x.lineWidth = 9; x.lineCap = 'round'; x.beginPath(); x.moveTo(16, 47); x.lineTo(36, 47); x.moveTo(64, 47); x.lineTo(84, 47); x.moveTo(50, 62); x.lineTo(50, 86); x.stroke();
-      shaded(x, (p) => p.arc(50, 50, 15, 0, Math.PI * 2), '#f26b5b');
-    } else {
-      shaded(x, (p) => p.arc(50, 52, 40, 0, Math.PI * 2), '#f1dfb8');
-      x.fillStyle = '#3fae49'; x.beginPath(); x.moveTo(50, 16); x.lineTo(57, 25); x.lineTo(43, 25); x.fill();
-      x.fillStyle = '#f5a23d'; x.beginPath(); x.moveTo(50, 88); x.lineTo(57, 79); x.lineTo(43, 79); x.fill();
-      x.fillStyle = '#19a79b'; x.beginPath(); x.moveTo(14, 52); x.lineTo(23, 45); x.lineTo(23, 59); x.fill(); x.beginPath(); x.moveTo(86, 52); x.lineTo(77, 45); x.lineTo(77, 59); x.fill();
-      shaded(x, (p) => p.arc(50, 52, 18, 0, Math.PI * 2), '#3fae49');
-    }
-  });
-  const sidePic = (left) => art('side-' + left, 128, (x) => {
-    shaded(x, (p) => p.roundRect ? p.roundRect(8, 20, 84, 60, 10) : p.rect(8, 20, 84, 60), '#9cc7dc');
-    const cx = left ? 30 : 70;
-    shaded(x, (p) => p.arc(cx, 60, 15, 0, Math.PI * 2), '#fff6e0'); circ(x, cx, 60, 7, P.busGreen);
-    circ(x, left ? 72 : 28, 66, 6, '#fff6e0');
-  });
   const ICON_ART = {
     bus: (x) => { busSide('single', P.busGreen)(x); },
     fuel: (x) => { x.drawImage(BB.pic('pump', 100), 0, 0); },
@@ -461,146 +439,185 @@
   D.hop = () => { hopV = 7; };
 
   // ---------- the garage screen (DOM) ----------
+  // A paper panel on the right with four big labelled sections: My bus (type, colour, number), Shop (Stickers, Lights,
+  // Bumpers, Wheels, Extras), Settings (joystick or wheel, which hand, lane helper) and Together (the family room).
+  // Tiles have a picture and a word; unowned ones a price chip; the chosen one a teal rim and a tick; one being tried
+  // on glows, with a green "tap again to buy" chip. Over the 3D view, top left: Coins and Fuel (filled free on every
+  // visit) and, in hub mode, the all-games button and the clock. One big "Drive!" button at the bottom.
   BB.css(`
-  .bbd { position: absolute; top: 0; right: 0; bottom: 0; width: min(480px, 56vw); pointer-events: auto; z-index: 10;
+  #ui { --pw: min(500px, 56vw); --tw: 84px; --th: 98px; --tic: 56px; --tlb: 14px; }
+  @media (min-height: 700px) and (min-width: 1000px) { #ui { --tw: 96px; --th: 108px; --tic: 64px; --tlb: 15px; } }
+  @media (max-height: 520px) { #ui { --tw: 62px; --th: 80px; --tic: 44px; --tlb: 13px; } }
+  .bbd { position: absolute; top: 0; right: 0; bottom: 0; width: var(--pw); pointer-events: auto; z-index: 10;
     background: linear-gradient(#fff6e0, #fdebc8); border-left: 5px solid #d9b57f; box-shadow: -8px 0 0 rgba(120,80,40,.12);
     padding: var(--st) var(--sr) var(--sb) 14px; box-sizing: border-box;
-    display: flex; flex-direction: column; gap: 10px; font-family: 'Baloo 2', 'Fredoka', system-ui, sans-serif;
-    color: #3a2a3c; animation: bbd-in .35s ease-out; }
+    display: flex; flex-direction: column; gap: 10px; font-family: ${BB.FONT}; color: #3a2a3c; animation: bbd-in .35s ease-out; }
   @keyframes bbd-in { from { transform: translateX(100%); } }
   .bbd canvas { display: block; }
-  .bbd-head { display: flex; align-items: center; gap: 8px; flex: none; min-height: 56px; }
-  .bbd-cash { display: flex; align-items: center; gap: 6px; font-size: 32px; font-weight: 800; height: 56px; box-sizing: border-box;
-    background: #fff; border: 3px solid #d9b57f; border-radius: 30px; padding: 0 16px 0 6px; }
-  .bbd-cash canvas { width: 42px; height: 42px; }
-  .bbd-cash.bump { animation: bbd-bump .5s; } @keyframes bbd-bump { 40% { transform: scale(1.15); } }
-  .bbd-goal { display: flex; align-items: center; gap: 6px; font-size: 22px; font-weight: 800; color: #b06e00; animation: bbd-pop .3s; }
-  .bbd-goal canvas { width: 34px; height: 34px; }
-  .bbd-goal .bar { width: 70px; height: 14px; border-radius: 8px; background: #eadfca; overflow: hidden; }
-  .bbd-goal .bar i { display: block; height: 100%; background: #ffb81f; }
-  .bbd-head .bbu-clock { margin-left: auto; }
-  .bbd-tabs { display: flex; gap: 4px; flex: none; overflow-x: auto; overflow-y: hidden; touch-action: pan-x; scrollbar-width: none; padding: 2px 3px 6px; margin: -2px -3px -6px; }
-  .bbd-tabs::-webkit-scrollbar { display: none; }
-  .bbd-break { flex-basis: 100%; height: 0; }
-  .bbd-sec { flex-basis: 100%; display: flex; align-items: center; gap: 8px; height: 30px; margin-top: 4px; }
-  .bbd-sec canvas { width: 34px; height: 34px; opacity: .8; }
+  /* the four sections */
+  .bbd-tabs { display: flex; gap: 8px; flex: none; }
+  .bbd-tab { position: relative; flex: 1 1 0; min-width: 0; height: 86px; border-radius: 22px; border: 3px solid #e4c99a; background: #fffaf0; color: #6b5440;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; cursor: pointer; padding: 4px 2px 6px; touch-action: manipulation;
+    box-shadow: inset -3px -4px 0 rgba(217,181,127,.3), 0 4px 0 rgba(120,80,40,.12); font: 700 16px/1 ${BB.FONT}; box-sizing: border-box; }
+  .bbd-tab canvas { width: 46px; height: 46px; }
+  .bbd-tab .lb { white-space: nowrap; }
+  .bbd-tab.on { background: #fff; border-color: #19a79b; color: #127a71; box-shadow: 0 0 0 4px #8fe0c4, 0 4px 0 rgba(20,110,100,.2); }
+  .bbd-tab .n { position: absolute; top: -9px; right: -6px; min-width: 28px; height: 28px; border-radius: 14px; background: #5cb85c; color: #fff;
+    font: 700 18px/28px ${BB.FONT}; text-align: center; box-shadow: 0 3px 0 #3f913f; }
+  /* the shop's kinds of things */
+  .bbd-subs { display: flex; gap: 6px; flex: none; }
+  .bbd-sub { flex: 1 1 0; min-width: 0; height: 64px; border-radius: 18px; border: 3px solid #ecd3a8; background: #fffaf0; color: #6b5440; padding: 3px 1px 5px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; cursor: pointer; touch-action: manipulation; box-sizing: border-box;
+    box-shadow: 0 3px 0 rgba(120,80,40,.1); font: 700 14px/1 ${BB.FONT}; }
+  .bbd-sub canvas { width: 32px; height: 32px; }
+  .bbd-sub .lb { white-space: nowrap; }
+  .bbd-sub.on { background: #fff4d6; border-color: #ffb81f; color: #9a5d00; box-shadow: 0 0 0 3px rgba(255,212,92,.6); }
+  .bbd-tab.pressed, .bbd-sub.pressed, .bbd-tile.pressed { transform: translateY(3px); }
+  /* the tiles */
+  .bbd-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 12px 16px;
+    padding: 10px 6px 12px; margin: -4px -6px 0; -webkit-overflow-scrolling: touch; touch-action: pan-y; }
+  .bbd-body::after { content: ''; flex-basis: 100%; height: 4px; }
+  .bbd-body.more { -webkit-mask-image: linear-gradient(#000 calc(100% - 34px), transparent); mask-image: linear-gradient(#000 calc(100% - 34px), transparent); }
+  /* a group: its heading (a little picture and a word) over its tiles; groups sit side by side when they fit */
+  .bbd-grp { display: flex; flex-direction: column; gap: 8px; flex: 0 1 auto; max-width: 100%; min-width: 0; }
+  .bbd-grp.full { flex-basis: 100%; }
+  .bbd-tiles { display: flex; flex-wrap: wrap; gap: 12px 10px; }
+  .bbd-sec { display: flex; align-items: center; gap: 8px; height: 30px; font: 700 18px/1 ${BB.FONT}; color: #8a6a48; white-space: nowrap; }
+  .bbd-sec canvas { width: 30px; height: 30px; }
   .bbd-sec::after { content: ''; flex: 1; height: 3px; border-radius: 2px; background: #ecd3a8; }
-  .bbd-tile.wide { width: 128px; } .bbd-tile.wide canvas { width: 84px; height: 84px; }
-  .bbd-body.bustab { gap: 10px 8px; } .bbd-body.bustab .bbd-sec { height: 24px; margin-top: 0; } .bbd-body.bustab .bbd-sec canvas { width: 26px; height: 26px; }
-  @media (min-height: 700px) and (min-width: 1000px) {
-    .bbd-body.bustab .bbd-tile { width: 80px; height: 80px; border-radius: 22px; } .bbd-body.bustab .bbd-tile canvas { width: 62px; height: 62px; }
-    .bbd-body.bustab .bbd-tile.wide { width: 124px; } .bbd-body.bustab .bbd-tile.wide canvas { width: 84px; height: 84px; }
-  }
-  /* the start screen's hero: a bigger Drive button that glows and nudges, with a shine sweeping across it */
-  .bbd-go.start { height: 88px; background: linear-gradient(#5db4f0, #3d93d6); box-shadow: 0 7px 0 #2370ad; position: relative; overflow: hidden;
-    animation: bbd-gopulse 1.3s ease-in-out infinite; }
-  .bbd-go.start svg { height: 58px; }
+  .bbd-tile { position: relative; width: var(--tw); height: var(--th); border-radius: 22px; border: 3px solid #ecd3a8; background: #fff; color: #4a3424;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; cursor: pointer; padding: 4px 2px 6px; touch-action: manipulation;
+    flex: none; box-shadow: 0 4px 0 rgba(120,80,40,.12); box-sizing: border-box; font: 700 var(--tlb)/1 ${BB.FONT}; }
+  .bbd-tile canvas { width: var(--tic); height: var(--tic); }
+  .bbd-tile .lb { white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .bbd-tile.wide { width: calc(var(--tw) * 1.42); } .bbd-tile.wide canvas { width: calc(var(--tic) * 1.33); }
+  .bbd-tile.big { width: calc(var(--tw) * 1.7); height: calc(var(--th) * 1.3); } .bbd-tile.big canvas { width: calc(var(--tic) * 1.5); height: calc(var(--tic) * 1.5); }
+  .bbd-body.anim .bbd-tile { animation: bbd-pop .3s cubic-bezier(.2,1.5,.5,1) both; }
+  .bbd-tile.on { border-color: #19a79b; background: #f1fcf8; color: #127a71; box-shadow: 0 0 0 4px #8fe0c4, 0 4px 0 rgba(20,110,100,.15); }
+  .bbd-tile.on::after { content: ''; position: absolute; top: -10px; right: -10px; width: 30px; height: 30px; border-radius: 50%; box-shadow: 0 2px 0 #127a71;
+    background: #19a79b url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 12.5l4 4 8-9' stroke='white' stroke-width='3.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/80% no-repeat; }
+  .bbd-tile.preview { border-color: #ffb81f; background: #fff8e0; animation: bbd-glow 1s infinite alternate; }
+  @keyframes bbd-glow { to { box-shadow: 0 0 0 7px rgba(255,212,92,.7); } }
+  @keyframes bbd-pop { from { transform: scale(.4); opacity: 0; } }
+  .bbd-price { position: absolute; top: -10px; right: -10px; display: flex; align-items: center; gap: 1px; background: #ffd45c; border: 2px solid #d98700;
+    border-radius: 14px; font: 700 18px/24px ${BB.FONT}; padding: 0 7px 0 2px; color: #7a4a00; box-shadow: 0 2px 0 rgba(150,90,0,.3); }
+  .bbd-price canvas { width: 20px; height: 20px; }
+  .bbd-tile.preview .bbd-price { background: #5cb85c; border-color: #3f913f; color: #fff; font-size: 22px; line-height: 30px; padding: 0 9px 0 4px;
+    top: -14px; right: -14px; box-shadow: 0 3px 0 #2f7a2f; animation: bbd-buy .8s ease-in-out infinite; }
+  .bbd-tile.preview .bbd-price canvas { width: 24px; height: 24px; }
+  @keyframes bbd-buy { 50% { transform: scale(1.16); } }
+  .bbd-tile.preview .bbd-price::before { content: ''; width: 18px; height: 18px; margin-right: 2px;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 12.5l4 4 8-9' stroke='white' stroke-width='3.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat; }
+  .bbd-hint { flex-basis: 100%; font: 700 15px/1.2 ${BB.FONT}; color: #9a7a58; text-align: center; margin-top: -4px; }
+  .bbd-goal { flex-basis: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font: 700 20px/1 ${BB.FONT}; color: #b06e00; animation: bbd-pop .3s; }
+  .bbd-goal canvas { width: 30px; height: 30px; }
+  .bbd-goal .bar { width: 110px; height: 14px; border-radius: 8px; background: #eadfca; overflow: hidden; }
+  .bbd-goal .bar i { display: block; height: 100%; background: #ffb81f; }
+  .bbd-friends { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+  /* the big Drive button */
+  .bbd-go { flex: none; height: 80px; margin-top: 2px; border-radius: 28px; border: none; background: linear-gradient(#5db4f0, #3d93d6); box-shadow: inset -5px -6px 0 rgba(0,0,0,.08), 0 7px 0 #2370ad;
+    cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 14px; touch-action: manipulation; position: relative; overflow: hidden;
+    font: 700 38px/1 ${BB.FONT}; color: #fff; text-shadow: 0 3px 0 #2370ad; }
+  .bbd-go svg { height: 50px; width: auto; flex: none; }
+  .bbd-go.pressed { transform: translateY(4px); box-shadow: 0 2px 0 #2370ad; }
+  /* the start screen's hero: the Drive button glows and nudges, with a shine sweeping across it */
+  .bbd-go.start { height: 90px; animation: bbd-gopulse 1.3s ease-in-out infinite; }
   .bbd-go.start::after { content: ''; position: absolute; top: 0; bottom: 0; width: 60px; left: -80px; background: linear-gradient(100deg, transparent, rgba(255,255,255,.55), transparent);
     animation: bbd-shine 2.6s ease-in-out infinite; }
   @keyframes bbd-shine { 60%, 100% { left: 110%; } }
-  @keyframes bbd-gopulse { 50% { box-shadow: 0 7px 0 #2370ad, 0 0 0 12px rgba(79,163,224,.35); transform: scale(1.025); } }
+  @keyframes bbd-gopulse { 50% { box-shadow: 0 7px 0 #2370ad, 0 0 0 12px rgba(79,163,224,.35); transform: scale(1.02); } }
   .bbd-go.start.call { animation: bbd-gopulse 1.3s ease-in-out infinite, bbd-wiggle .9s ease-in-out 2; }
   @keyframes bbd-wiggle { 20% { rotate: -2deg; } 40% { rotate: 2deg; } 60% { rotate: -1.5deg; } 80% { rotate: 1deg; } }
-  /* the tab content scrolls above the Drive button; a soft fade shows there is more below */
-  .bbd-body.more { -webkit-mask-image: linear-gradient(#000 calc(100% - 34px), transparent); mask-image: linear-gradient(#000 calc(100% - 34px), transparent); }
-  .bbd-body::after { content: ''; flex-basis: 100%; height: 6px; }
+  /* over the 3D view, top left: coins, fuel (and the clock in hub mode) */
+  .bbd-status { position: absolute; z-index: 12; top: var(--st); left: var(--sl); display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px;
+    max-width: calc(100% - var(--pw) - var(--sl) - 12px); pointer-events: none; }
+  html.hub .bbd-status { left: calc(var(--sl) + 76px); max-width: calc(100% - var(--pw) - var(--sl) - 88px); }
+  .bbd-status > * { pointer-events: auto; }
+  .bbd-status .bbd-cash .row b { font-size: calc(var(--ic) * .74); line-height: 1; color: #3a2a3c; }
+  .bbd-status .row canvas { width: var(--ic); height: var(--ic); }
+  .bbd-cash.bump { animation: bbd-bump .5s; } @keyframes bbd-bump { 40% { transform: scale(1.15); } }
+  .bbd-fuel { animation: bbd-pop .35s cubic-bezier(.2,1.5,.5,1); } .bbd-fuel.gone { display: none; }
+  .bbd-tank { position: relative; width: calc(var(--ic) * 1.5); height: calc(var(--ic) * .5); border-radius: 10px; background: #eadfca; overflow: hidden;
+    box-shadow: inset 0 2px 0 rgba(120,80,40,.15); }
+  .bbd-tank i { display: block; height: 100%; width: 0; border-radius: 10px; background: linear-gradient(90deg, #ff6b5c, #ffb81f 35%, #5cb85c 70%); }
+  .bbd-tank b { position: absolute; bottom: 2px; width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,.85); animation: bbd-bubble 1s ease-out forwards; }
+  @keyframes bbd-bubble { to { transform: translateY(-18px) scale(.4); opacity: 0; } }
+  .bbd-status .bbu-clock { margin-top: calc((var(--bh) - 56px) / 2); }
+  .bbd-awning { position: absolute; left: 0; top: 0; right: var(--pw); height: 30px; pointer-events: none; z-index: 5;
+    background: repeating-linear-gradient(90deg, #19a79b 0 44px, #fff6e0 44px 88px);
+    -webkit-mask: radial-gradient(circle at 22px 15px, #000 15px, transparent 15.5px) 0 15px / 44px 100% repeat-x, linear-gradient(#000, #000) 0 0 / 100% 16px no-repeat;
+            mask: radial-gradient(circle at 22px 15px, #000 15px, transparent 15.5px) 0 15px / 44px 100% repeat-x, linear-gradient(#000, #000) 0 0 / 100% 16px no-repeat;
+    filter: drop-shadow(0 3px 0 rgba(0,0,0,.12)); animation: bbd-drop .5s ease-out; }
+  @keyframes bbd-drop { from { transform: translateY(-100%); } }
+  .bbd-coin { position: absolute; width: 34px; height: 34px; z-index: 40; pointer-events: none; }
+  .bbd-spark { position: absolute; z-index: 40; pointer-events: none; width: 14px; height: 14px; border-radius: 50%; }
+  .bbd .shake { animation: bbd-shake .4s; }
+  @keyframes bbd-shake { 25% { transform: translateX(-7px); } 75% { transform: translateX(7px); } }
+  /* the bus number keypad */
   .bbd-padwrap { position: absolute; inset: 0; z-index: 55; background: rgba(40,30,50,.35); display: flex; align-items: center; justify-content: center;
-    pointer-events: auto; animation: bbd-fade .2s; font-family: 'Baloo 2', 'Fredoka', system-ui, sans-serif; }
+    pointer-events: auto; animation: bbd-fade .2s; font-family: ${BB.FONT}; }
   @keyframes bbd-fade { from { opacity: 0; } }
-  .bbd-padcard { background: #fff6e0; border: 5px solid #d9b57f; border-radius: 30px; padding: 18px; display: flex; flex-direction: column; gap: 14px;
-    align-items: center; box-shadow: 0 10px 0 rgba(120,80,40,.2); animation: bbd-pop .3s cubic-bezier(.2,1.5,.5,1); }
+  .bbd-padcard { background: linear-gradient(#fff6e0, #fdebc8); border: 5px solid #d9b57f; border-radius: 30px; padding: 18px; display: flex; flex-direction: column; gap: 14px;
+    align-items: center; box-shadow: inset -6px -8px 0 rgba(217,181,127,.35), 0 10px 0 rgba(120,80,40,.2); animation: bbd-pop .3s cubic-bezier(.2,1.5,.5,1); }
+  .bbd-padhead { display: flex; flex-direction: column; align-items: center; gap: 8px; font: 700 22px/1 ${BB.FONT}; color: #8a6a48; }
   .bbd-led { min-width: 200px; height: 84px; border-radius: 18px; background: #2b2430; color: #ffb81f; font: 800 64px/84px 'Courier New', monospace;
     text-align: center; letter-spacing: 6px; text-shadow: 0 0 10px rgba(255,184,31,.8); padding: 0 16px; box-sizing: border-box; }
   .bbd-led.typing { color: #ffd45c; }
   .bbd-keys { display: grid; grid-template-columns: repeat(3, 76px); gap: 10px; }
-  .bbd-key { height: 76px; border-radius: 22px; border: 3px solid #ecd3a8; background: #fff; font: 800 40px 'Baloo 2', system-ui, sans-serif; color: #3a2a3c;
-    box-shadow: 0 5px 0 rgba(120,80,40,.15); cursor: pointer; touch-action: manipulation; display: flex; align-items: center; justify-content: center; padding: 0; }
+  .bbd-key { height: 76px; border-radius: 22px; border: 3px solid #ecd3a8; background: #fff; font: 700 40px ${BB.FONT}; color: #3a2a3c;
+    box-shadow: 0 5px 0 rgba(120,80,40,.15); cursor: pointer; touch-action: manipulation; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0; }
+  .bbd-key small { font: 700 13px/1 ${BB.FONT}; margin-top: 1px; }
   .bbd-key.pressed { transform: translateY(3px); box-shadow: 0 2px 0 rgba(120,80,40,.15); }
-  .bbd-key.ok { background: #5cb85c; border-color: #3f913f; } .bbd-key.del { background: #fff1dc; }
-  @media (max-height: 560px) {
-    .bbd-padcard { flex-direction: row; padding: 12px; gap: 14px; }
-    .bbd-keys { grid-template-columns: repeat(3, 60px); gap: 7px; } .bbd-key { height: 60px; font-size: 32px; border-radius: 18px; }
-    .bbd-led { min-width: 150px; height: 70px; font-size: 50px; line-height: 70px; }
-    .bbd-tile.wide { width: 108px; } .bbd-tile.wide canvas { width: 70px; height: 70px; }
-    .bbd-sec { height: 24px; } .bbd-sec canvas { width: 26px; height: 26px; }
-  }
-  .bbd-tab { flex: 1 0 56px; height: 64px; min-width: 56px; border-radius: 20px 20px 12px 12px; border: 3px solid #ecd3a8; background: #fffaf0;
-    display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; touch-action: manipulation;
-    box-shadow: 0 4px 0 rgba(120,80,40,.12); }
-  .bbd-tab canvas { width: 48px; height: 48px; }
-  .bbd-tab.on { background: #fff; border-color: #19a79b; box-shadow: 0 0 0 3px #8fe0c4; }
-  .bbd-tab.pressed, .bbd-tile.pressed { transform: translateY(3px); }
-  .bbd-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 10px;
-    padding: 6px 2px 10px; -webkit-overflow-scrolling: touch; touch-action: pan-y; }
-  .bbd-tile { position: relative; width: 84px; height: 84px; border-radius: 24px; border: 3px solid #ecd3a8; background: #fff;
-    display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; touch-action: manipulation; flex: none;
-    box-shadow: 0 4px 0 rgba(120,80,40,.12); }
-  .bbd-body.anim .bbd-tile { animation: bbd-pop .3s cubic-bezier(.2,1.5,.5,1) both; }
-  .bbd-tile canvas { width: 66px; height: 66px; }
-  .bbd-tile.on { border-color: #19a79b; box-shadow: 0 0 0 4px #8fe0c4; }
-  .bbd-tile.on::after { content: ''; position: absolute; top: -8px; right: -8px; width: 26px; height: 26px; border-radius: 50%;
-    background: #19a79b url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 12.5l4 4 8-9' stroke='white' stroke-width='3.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/80% no-repeat; }
-  .bbd-tile.preview { border-color: #ffb81f; background: #fff8e0; animation: bbd-glow 1s infinite alternate; }
-  @keyframes bbd-glow { to { box-shadow: 0 0 0 6px rgba(255,212,92,.7); } }
-  @keyframes bbd-pop { from { transform: scale(.4); opacity: 0; } }
-  .bbd-price { position: absolute; bottom: -9px; right: -9px; display: flex; align-items: center; gap: 1px; background: #ffd45c; border: 2px solid #d98700;
-    border-radius: 14px; font-size: 18px; font-weight: 800; padding: 0 7px 0 2px; color: #7a4a00; line-height: 24px; }
-  .bbd-price canvas { width: 20px; height: 20px; }
-  .bbd-tile.preview .bbd-price { background: #5cb85c; border-color: #3f913f; color: #fff; font-size: 22px; line-height: 30px; padding: 0 9px 0 4px;
-    bottom: -14px; right: -14px; box-shadow: 0 3px 0 #2f7a2f; animation: bbd-buy .8s ease-in-out infinite; }
-  .bbd-tile.preview .bbd-price canvas { width: 24px; height: 24px; }
-  @keyframes bbd-buy { 50% { transform: scale(1.18); } }
-  .bbd-tile.preview .bbd-price::before { content: ''; width: 18px; height: 18px; margin-right: 2px;
-    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 12.5l4 4 8-9' stroke='white' stroke-width='3.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat; }
-  .bbd-tile .slotdots { position: absolute; top: 4px; left: 6px; font-size: 13px; }
-  .bbd-fuel { display: flex; align-items: center; gap: 12px; width: 100%; background: #fff; border-radius: 24px; padding: 10px 12px; border: 3px solid #ecd3a8; box-sizing: border-box; }
-  .bbd-fuel > canvas { width: 70px; height: 70px; flex: none; }
-  .bbd-gauge { flex: 1; height: 34px; border-radius: 18px; background: #eadfca; overflow: hidden; position: relative; }
-  .bbd-gauge i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #ff6b5c, #ffb81f 30%, #5cb85c 60%); }
-  .bbd-gauge b { position: absolute; bottom: 4px; width: 10px; height: 10px; border-radius: 50%; background: rgba(255,255,255,.8); animation: bbd-bubble 1s ease-out forwards; }
-  @keyframes bbd-bubble { to { transform: translateY(-24px) scale(.4); opacity: 0; } }
-  .bbd-fill { min-width: 96px; height: 72px; border-radius: 24px; border: none; background: #5cb85c; color: #fff; box-shadow: 0 6px 0 #3f913f;
-    font: 800 26px 'Baloo 2', system-ui, sans-serif; display: flex; align-items: center; justify-content: center; gap: 4px; padding: 0 12px; cursor: pointer;
-    touch-action: manipulation; flex: none; }
-  .bbd-fill canvas { width: 30px; height: 30px; }
-  .bbd-fill.pressed { transform: translateY(4px); box-shadow: 0 2px 0 #3f913f; }
-  .bbd-fill.full { background: #d6efd2; box-shadow: none; }
-  .bbd-go { flex: none; height: 72px; margin-top: 4px; border-radius: 26px; border: none; background: #4fa3e0; box-shadow: 0 6px 0 #2f7fbc; cursor: pointer;
-    display: flex; align-items: center; justify-content: center; gap: 10px; touch-action: manipulation; }
-  .bbd-go svg { height: 46px; width: auto; }
-  .bbd-go.pressed { transform: translateY(4px); box-shadow: 0 2px 0 #2f7fbc; }
-  .bbd .shake { animation: bbd-shake .4s; }
-  @keyframes bbd-shake { 25% { transform: translateX(-7px); } 75% { transform: translateX(7px); } }
-  .bbd-awning { position: absolute; left: 0; top: 0; right: min(480px, 56vw); height: 46px; pointer-events: none; z-index: 5;
-    background: repeating-linear-gradient(90deg, #19a79b 0 44px, #fff6e0 44px 88px);
-    -webkit-mask: radial-gradient(circle at 22px 24px, #000 22px, transparent 22.5px) 0 22px / 44px 100% repeat-x, linear-gradient(#000, #000) 0 0 / 100% 24px no-repeat;
-            mask: radial-gradient(circle at 22px 24px, #000 22px, transparent 22.5px) 0 22px / 44px 100% repeat-x, linear-gradient(#000, #000) 0 0 / 100% 24px no-repeat;
-    filter: drop-shadow(0 4px 0 rgba(0,0,0,.12)); animation: bbd-drop .5s ease-out; }
-  @keyframes bbd-drop { from { transform: translateY(-100%); } }
-  .bbd-coin { position: absolute; width: 34px; height: 34px; z-index: 40; pointer-events: none; }
-  .bbd-spark { position: absolute; z-index: 40; pointer-events: none; width: 14px; height: 14px; border-radius: 50%; }
+  .bbd-key.ok { background: #5cb85c; border-color: #3f913f; color: #fff; } .bbd-key.del { background: #fff1dc; color: #a8601a; }
   @media (min-height: 700px) and (min-width: 1000px) {
-    .bbd-tile { width: 100px; height: 100px; border-radius: 28px; } .bbd-tile canvas { width: 80px; height: 80px; } .bbd-body { gap: 14px; }
+    .bbd-body { gap: 10px 18px; } .bbd-sec { height: 26px; }
   }
   @media (max-height: 560px) {
     .bbd { gap: 6px; padding-left: 10px; }
-    .bbd-head { min-height: 52px; } .bbd-cash { height: 52px; font-size: 26px; } .bbd-cash canvas { width: 34px; height: 34px; }
-    .bbd-tab { height: 56px; } .bbd-tab canvas { width: 40px; height: 40px; }
-    .bbd-tile { width: 72px; height: 72px; border-radius: 20px; } .bbd-tile canvas { width: 54px; height: 54px; }
-    .bbd-body { gap: 9px; }
-    .bbd-go { height: 60px; } .bbd-go svg { height: 38px; }
-    .bbd-go.start { height: 64px; } .bbd-go.start svg { height: 42px; }
-    .bbd-fuel { padding: 6px 10px; } .bbd-fuel > canvas { width: 56px; height: 56px; } .bbd-fill { height: 62px; }
-    .bbd-awning { height: 34px; }
-    .bbd-head .bbu-clock { height: 56px; font-size: 24px; padding: 0 12px 0 8px; } .bbd-head .bbu-clock svg { width: 30px; height: 30px; }
+    .bbd-tab { height: 62px; font-size: 13px; border-radius: 18px; gap: 2px; } .bbd-tab canvas { width: 32px; height: 32px; }
+    .bbd-subs { gap: 4px; } .bbd-sub { height: 56px; font-size: 12px; border-radius: 16px; } .bbd-sub canvas { width: 26px; height: 26px; }
+    .bbd-body { gap: 8px 12px; padding-top: 8px; } .bbd-grp { gap: 5px; } .bbd-tiles { gap: 8px; }
+    .bbd-sec { height: 20px; font-size: 15px; } .bbd-sec canvas { width: 22px; height: 22px; }
+    .bbd-tile.wide { width: calc(var(--tw) * 1.5); } .bbd-tile.wide .lb { font-size: 12px; letter-spacing: -.2px; }
+    .bbd-go { height: 58px; font-size: 28px; border-radius: 22px; } .bbd-go svg { height: 36px; }
+    .bbd-go.start { height: 62px; }
+    .bbd-padcard { flex-direction: row; padding: 12px; gap: 14px; }
+    .bbd-keys { grid-template-columns: repeat(3, 60px); gap: 7px; } .bbd-key { height: 60px; font-size: 32px; border-radius: 18px; }
+    .bbd-led { min-width: 150px; height: 70px; font-size: 50px; line-height: 70px; }
+    .bbd-awning { height: 24px; }
+    .bbd-status .bbu-clock { font-size: 25px; padding: 0 14px 0 9px; margin-top: 0; } .bbd-status .bbu-clock svg { width: 30px; height: 30px; }
   }`);
 
   const BUS_SVG = '<svg viewBox="0 0 120 56" aria-hidden="true"><rect x="4" y="6" width="92" height="38" rx="10" fill="#fff6e0"/>'
     + '<rect x="12" y="13" width="18" height="14" rx="3" fill="#2f7fbc"/><rect x="34" y="13" width="18" height="14" rx="3" fill="#2f7fbc"/><rect x="56" y="13" width="18" height="14" rx="3" fill="#2f7fbc"/>'
     + '<rect x="78" y="13" width="12" height="22" rx="3" fill="#2f7fbc"/><circle cx="26" cy="46" r="8" fill="#3a2a3c"/><circle cx="76" cy="46" r="8" fill="#3a2a3c"/>'
     + '<path d="M100 14 L118 28 L100 42 Z" fill="#fff6e0"/></svg>';
+  const SECTIONS = [
+    { id: 'bus', icon: 'mybus', label: 'My bus', say: 'My bus! Choose your bus, its colour and its number.' },
+    { id: 'shop', icon: 'shop', label: 'Shop', say: 'The shop! Buy cool things with your coins.' },
+    { id: 'settings', icon: 'settings', label: 'Settings', say: 'Settings! How do you like to drive?' },
+    { id: 'together', icon: 'together', label: 'Together', say: 'Play together!' },
+  ];
+  const SHOP = [
+    { id: 'sticker', icon: 'stickers', label: 'Stickers', say: 'Stickers!' },
+    { id: 'lights', icon: 'lights', label: 'Lights', say: 'Lights!' },
+    { id: 'bumpers', icon: 'bumpers', label: 'Bumpers', say: 'Bumpers!' },
+    { id: 'wheels', icon: 'wheels', label: 'Wheels', say: 'Wheels and rims!' },
+    { id: 'upgrade', icon: 'extras', label: 'Extras', say: 'Super extras!' },
+  ];
+  // short words for the tiles (the full name is spoken)
+  const SHORT = {
+    lights: { std: 'Round', fog: 'Fog', led: 'Strip', roof: 'Roof', underglow: 'Glow' },
+    bumpers: { std: 'Plain', chrome: 'Shiny', sport: 'Sport', bull: 'Big' },
+    wheels: { std: 'Plain', big: 'Big', chunky: 'Chunky', white: 'White' },
+    rims: { std: 'Silver', gold: 'Gold', red: 'Red', blue: 'Blue', star: 'Star' },
+  };
+  const shortOf = (pt) => (SHORT[pt.kind] && SHORT[pt.kind][pt.id]) || String(pt.name).split(/[\s-]/)[0];
+  const UPGRADE_WORD = { horn: 'Horn tune', sticker3: '3 stickers' };
+  const PAINT_WORD = { green: 'Green', red: 'Red', blue: 'Blue', yellow: 'Yellow', purple: 'Purple', pink: 'Pink' };
+  const TYPE_WORD = { bendy: 'Bendy', double: 'Double-decker', single: 'Single-decker' };
 
-  let panel = null, awning = null, tab = 'bus', preview = null, goalEl = null, cashSpan = null, cashBox = null, bodyEl = null;
+  let fuelBtn = null, panel = null, awning = null, statusEl = null, tab = 'bus', shopTab = 'sticker', preview = null, goalEl = null, cashSpan = null, cashBox = null, bodyEl = null, tankEl = null;
   const coinCv = (px) => cv(BB.pic('coin', 64), `width:${px}px;height:${px}px`);
 
   // first tap on something new: try it on, say its price and how to buy it
@@ -674,17 +691,17 @@
   }
   function bumpCash() { if (cashBox) { cashBox.classList.remove('bump'); void cashBox.offsetWidth; cashBox.classList.add('bump'); } }
   function shake(el) { el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake'); }
-  // Not enough coins: gentle, and a coin goal to aim for.
+  // Not enough coins: gentle, and a coin goal to aim for (at the top of the tiles).
   function notYet(el, price) {
     shake(el); BB.sfx.wrong();
     const need = price - D.cash;
     BB.say(`Let's do more jobs! ${need} more ${need === 1 ? 'coin' : 'coins'}.`);
     if (goalEl) goalEl.remove();
     goalEl = BB.el('div', 'bbd-goal', null);
-    goalEl.appendChild(coinCv(34));
-    BB.el('span', '', goalEl, `${D.cash}/${price}`);
+    goalEl.appendChild(coinCv(30));
+    BB.el('span', '', goalEl, `${D.cash} / ${price}`);
     const bar = BB.el('div', 'bar', goalEl); BB.el('i', '', bar).style.width = Math.round(100 * D.cash / price) + '%';
-    cashBox.after(goalEl);
+    if (bodyEl) bodyEl.prepend(goalEl);
   }
   // Pay and celebrate. Returns false (and says so gently) when there aren't enough coins.
   function buy(el, price) {
@@ -695,25 +712,25 @@
     return true;
   }
 
+  // a tile: a picture and its word, plus a price chip (not owned yet), a tick (chosen) or a glow (being tried on)
   function tile(parent, picCanvas, opts) {
-    const t = BB.el('button', 'bbd-tile' + (opts.on ? ' on' : '') + (opts.preview ? ' preview' : '') + (opts.wide ? ' wide' : ''), parent);
+    const t = BB.el('button', 'bbd-tile' + (opts.on ? ' on' : '') + (opts.preview ? ' preview' : '') + (opts.wide ? ' wide' : '') + (opts.big ? ' big' : ''), parent);
+    t.type = 'button';
     t.appendChild(cv(picCanvas));
+    if (opts.label) { BB.el('span', 'lb', t, opts.label); t.setAttribute('aria-label', opts.label); }
     if (opts.price) { const pr = BB.el('span', 'bbd-price', t); pr.appendChild(coinCv(20)); BB.el('span', '', pr, String(opts.price)); }
-    t.style.animationDelay = (opts.i || 0) * 40 + 'ms';
+    t.style.animationDelay = (opts.i || 0) * 35 + 'ms';
     BB.tap(t, () => opts.tap(t));
     return t;
   }
-
-  // a small picture heading for a group of tiles in the Bus tab
-  function sec(icon) { const d = BB.el('div', 'bbd-sec', bodyEl); d.appendChild(cv(icon === 'plate' ? platePic('123', 64) : iconPic(icon, 64))); }
+  // a heading for a group of tiles: a little picture and a word
+  function sec(icon, word, full) {
+    const g = BB.el('div', 'bbd-grp' + (full ? ' full' : ''), bodyEl);
+    const d = BB.el('div', 'bbd-sec', g); d.appendChild(BB.iconEl(icon, 64)); BB.el('span', '', d, word);
+    return BB.el('div', 'bbd-tiles', g);
+  }
   // the lane helper: a bus between two lane lines, with a sparkle when it is on
-  const assistPic = () => art('assist-' + !!S.assist, 128, (x) => {
-    x.strokeStyle = '#9aa4b0'; x.lineWidth = 6; x.setLineDash([12, 10]); x.lineCap = 'round';
-    x.beginPath(); x.moveTo(20, 8); x.lineTo(20, 92); x.moveTo(80, 8); x.lineTo(80, 92); x.stroke(); x.setLineDash([]);
-    shaded(x, (p) => p.roundRect ? p.roundRect(34, 20, 32, 62, 10) : p.rect(34, 20, 32, 62), P.busGreen);
-    x.fillStyle = '#bfe6f5'; x.fillRect(39, 26, 22, 12);
-    if (S.assist) shaded(x, (p) => starPath(p, 84, 18, 14, 6, 4), P.honey);
-  });
+  const assistPic = (on) => BB.icon(on ? 'helperOn' : 'helper', 128);
   // Apply the saved bus type and number (bus.js rebuilds its model for a new type, so the stickers go back on).
   function applyType() {
     if (BB.bus.setType && S.busType) {
@@ -733,14 +750,17 @@
     let buf = '';
     padEl = BB.el('div', 'bbd-padwrap', BB.ui.root);
     const card = BB.el('div', 'bbd-padcard', padEl);
-    const led = BB.el('div', 'bbd-led', card, S.routeNo);
+    const head = BB.el('div', 'bbd-padhead', card);
+    BB.el('span', '', head, 'Bus number');
+    const led = BB.el('div', 'bbd-led', head, S.routeNo);
     const keys = BB.el('div', 'bbd-keys', card);
     const show = () => { led.textContent = buf || S.routeNo; led.classList.toggle('typing', !!buf); try { if (BB.bus.setRouteNumber) BB.bus.setRouteNumber(buf || S.routeNo); } catch (e) { /* ignore */ } };
-    const key = (label, fn, cls) => { const b = BB.el('button', 'bbd-key' + (cls ? ' ' + cls : ''), keys, label); BB.tap(b, fn); return b; };
+    const key = (label, fn, cls, aria) => { const b = BB.el('button', 'bbd-key' + (cls ? ' ' + cls : ''), keys, label); if (aria) b.setAttribute('aria-label', aria); BB.tap(b, fn); return b; };
     for (const d of [1, 2, 3, 4, 5, 6, 7, 8, 9]) key(String(d), () => type(d));
-    key('<svg viewBox="0 0 24 24" width="34" height="34"><path d="M9 5 H20 V19 H9 L3 12 Z" fill="#f5a23d"/><path d="M12 9 l5 6 M17 9 l-5 6" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg>', () => { buf = buf.slice(0, -1); BB.sfx.click(); show(); }, 'del');
+    key('<svg viewBox="0 0 24 24" width="32" height="32" aria-hidden="true"><path d="M9 5 H20 V19 H9 L3 12 Z" fill="#f5a23d"/><path d="M12 9 l5 6 M17 9 l-5 6" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg><small>Delete</small>',
+      () => { buf = buf.slice(0, -1); BB.sfx.click(); BB.say('Delete!'); show(); }, 'del', 'Delete');
     key('0', () => type(0));
-    key('<svg viewBox="0 0 24 24" width="38" height="38"><path d="M5 12.5l4.5 4.5 9.5-10" stroke="#fff" stroke-width="3.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>', done, 'ok');
+    key('<svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true"><path d="M5 12.5l4.5 4.5 9.5-10" stroke="#fff" stroke-width="3.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg><small>OK</small>', done, 'ok', 'OK');
     function type(d) {
       if (!buf && d === 0) { BB.sfx.wrong(); return; }
       if (buf.length >= 3) { shake(led); BB.sfx.wrong(); return; }
@@ -752,6 +772,7 @@
       if (!padEl) return;
       if (buf) { S.routeNo = buf; BB.saveNow(); }
       closePad(); applyType(); D.hop(); BB.sfx.sparkle();
+      if (BB.iconRefresh) BB.iconRefresh();
       BB.say(`Bus ${S.routeNo}!`, { queue: true });
       renderBody();
     }
@@ -760,9 +781,9 @@
   }
   function closePad() { if (padEl) padEl.remove(); padEl = null; }
 
-  // the fade at the bottom of the tab content only while there is more to scroll to
+  // the fade at the bottom of the tiles only while there is more to scroll to
   function syncMore() { if (bodyEl) bodyEl.classList.toggle('more', bodyEl.scrollHeight - bodyEl.scrollTop - bodyEl.clientHeight > 8); }
-  // Start screen, nothing tapped for a while: "Tap the blue bus to drive!" (after ~10 s, once more after ~25 s).
+  // Start screen, nothing tapped for a while: "Tap the blue Drive button!" (after ~10 s, once more after ~25 s).
   let lastTap = 0, calls = 0, idleT = null;
   addEventListener('pointerup', () => { lastTap = performance.now(); }, { passive: true });
   function idleCheck() {
@@ -773,90 +794,110 @@
       calls++; lastTap = performance.now();
       const go = panel && panel.querySelector('.bbd-go');
       if (go) { go.classList.remove('call'); void go.offsetWidth; go.classList.add('call'); }
-      BB.say('Tap the blue bus to drive!');
+      BB.say('Tap the blue Drive button to go!');
     }
     if (calls < 2) idleT = BB.later(1000, idleCheck);
   }
 
-  let autoFill = null;
+  // ---------- fuel: free, filled on every visit (the pump's gurgle; a little tank shows over the 3D view only while
+  // it fills, then goes away) ----------
+  let filling = false;
+  function syncTank() { if (tankEl && !filling) tankEl.firstChild.style.width = Math.round(BB.bus.fuel * 100) + '%'; }
+  function fillUp(auto) {
+    if (BB.bus.fuel >= 0.98) { if (!auto) BB.say('The tank is full! Yum!'); syncTank(); return; }
+    if (filling) return;
+    filling = true;
+    if (fuelBtn) fuelBtn.classList.remove('gone');
+    BB.sfx.gurgle(1.6); fill = 1.8;
+    const from = BB.bus.fuel, bar = tankEl && tankEl.firstChild;
+    if (bar && bar.animate) bar.animate([{ width: Math.round(from * 100) + '%' }, { width: '100%' }], { duration: 1600, easing: 'ease-in-out', fill: 'forwards' });
+    for (let i = 0; i < 8; i++) BB.later(i * 180, () => { if (!tankEl) return; const b = BB.el('b', '', tankEl); b.style.left = (Math.max(from, i / 8) * 85 + 4) + '%'; BB.later(1000, () => b.remove()); });
+    BB.bus.refuel(1);
+    BB.later(1700, () => {
+      filling = false; syncTank(); D.hop();
+      BB.say(auto ? 'Glug glug! A full tank, free! Now make your bus beautiful!' : 'Yum! A full tank!', { queue: !!auto });
+      BB.later(2500, () => { if (fuelBtn && !filling) fuelBtn.classList.add('gone'); });
+    });
+  }
+
   function renderBody(animate) {
     if (!bodyEl) return;
-    autoFill = null;
     bodyEl.innerHTML = '';
+    if (goalEl) { goalEl.remove(); goalEl = null; }
     bodyEl.classList.toggle('anim', !!animate);
-    bodyEl.classList.toggle('bustab', tab === 'bus');
     BB.later(0, syncMore);
     const isPrev = (kind, id) => preview && preview.kind === kind && preview.id === id;
-    if (tab === 'fuel') {
-      const row = BB.el('div', 'bbd-fuel', bodyEl);
-      row.appendChild(cv(BB.pic('pump', 128)));
-      const gauge = BB.el('div', 'bbd-gauge', row), bar = BB.el('i', '', gauge);
-      bar.style.width = Math.round(BB.bus.fuel * 100) + '%';
-      const full = BB.bus.fuel >= 0.98, pay = 0;   // fuel is always free: the coins are for the fun things
-      const btn = BB.el('button', 'bbd-fill' + (full ? ' full' : ''), row);
-      if (full) btn.innerHTML = '<svg viewBox="0 0 24 24" width="40" height="40"><path d="M5 12.5l4.5 4.5 9.5-10" stroke="#3f913f" stroke-width="3.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-      else btn.innerHTML = '<svg viewBox="0 0 24 24" width="44" height="44"><path d="M12 2.5C9 7 6 10.2 6 14a6 6 0 0 0 12 0c0-3.8-3-7-6-11.5z" fill="#fff6e0"/><path d="M9.2 14.5a3 3 0 0 0 2.6 2.9" stroke="#5cb85c" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>';
-      const doFill = (auto) => {
-        if (BB.bus.fuel >= 0.98) { if (!auto) BB.say('The tank is full! Yum!'); return; }
-        if (btn.dataset.busy) return;
-        btn.dataset.busy = '1';
-        BB.sfx.gurgle(1.6); fill = 1.8;
-        // the gauge fills with bubbles
-        const from = BB.bus.fuel;
-        bar.animate([{ width: Math.round(from * 100) + '%' }, { width: '100%' }], { duration: 1600, easing: 'ease-in-out', fill: 'forwards' });
-        for (let i = 0; i < 10; i++) BB.later(i * 150, () => { const b = BB.el('b', '', gauge); b.style.left = (Math.max(from, i / 10) * 90 + 3) + '%'; BB.later(1000, () => b.remove()); });
-        BB.bus.refuel(1);
-        BB.later(1700, () => {
-          D.hop();
-          if (auto) { BB.say('Glug glug! A full tank, free! Now make your bus beautiful!', { queue: true }); BB.later(1200, () => { if (panel && tab === 'fuel') setTab('bus', true); }); }
-          else { BB.say('Yum! A full tank!'); renderBody(); }
-        });
-      };
-      BB.tap(btn, () => doFill(false));
-      autoFill = () => doFill(true);
-      if (!full) BB.later(300, () => { if (tab === 'fuel' && panel) btn.classList.add('shake'); });
-    } else if (tab === 'bus') {
+    const subs = panel.querySelector('.bbd-subs');
+    subs.style.display = tab === 'shop' ? '' : 'none';
+    subs.querySelectorAll('.bbd-sub').forEach((b) => b.classList.toggle('on', b.dataset.sub === shopTab));
+    let n = 0;
+    if (tab === 'bus') {
       // (a) the bus type: free to switch
-      sec('bus');
-      fleetTypes().forEach((t, i) => {
-        tile(bodyEl, typePic(t.id), { i, on: curType() === t.id, wide: true, tap: () => {
+      let box = sec('mybus', 'Bus');
+      fleetTypes().forEach((t) => {
+        tile(box, typePic(t.id), { i: n++, on: curType() === t.id, wide: true, label: TYPE_WORD[t.id] || t.name, tap: () => {
           if (curType() === t.id) { BB.say(t.name + '!'); return; }
           S.busType = t.id; BB.saveNow(); applyType(); BB.sfx.whoosh(); D.hop(); BB.say(t.name + '!');
           BB.later(400, () => renderBody());
         } });
       });
+      // (c) the bus number (next to the types when there is room)
+      box = sec('number', 'Number');
+      tile(box, platePic(S.routeNo), { i: n++, wide: true, label: 'Change', tap: () => openPad() });
       // (b) the colour
-      sec('paint');
-      BB.PAINTS.forEach((p, i) => {
+      box = sec('colour', 'Colour', true);
+      BB.PAINTS.forEach((p) => {
         const own = S.paints.includes(p.id);
-        tile(bodyEl, paintPic(p.color), { i: i + 3, on: S.paint === p.id && !preview, preview: isPrev('paint', p.id), price: own ? 0 : PAINT_PRICE, tap: (el) => {
-          if (own) { setPreview(null); S.paint = p.id; BB.saveNow(); D.applyLooks(); BB.sfx.pop(); D.hop(); BB.say(PAINT_SAY[p.id] || 'Lovely!'); renderBody(); return; }
+        tile(box, paintPic(p.color), { i: n++, on: S.paint === p.id && !preview, preview: isPrev('paint', p.id), price: own ? 0 : PAINT_PRICE, label: PAINT_WORD[p.id] || p.id, tap: (el) => {
+          if (own) { setPreview(null); S.paint = p.id; BB.saveNow(); D.applyLooks(); BB.sfx.pop(); D.hop(); BB.say(PAINT_SAY[p.id] || 'Lovely!'); paintChanged(); return; }
           if (!isPrev('paint', p.id)) { setPreview({ kind: 'paint', id: p.id }); BB.sfx.whoosh(); speakPrice(PAINT_SAY[p.id], PAINT_PRICE); renderBody(); return; }
           if (tooSoon()) return;
           if (!buy(el, PAINT_PRICE)) return;
           S.paints.push(p.id); S.paint = p.id; BB.saveNow(); preview = null; D.applyLooks();
           BB.say(['Shiny!', 'So pretty!', 'Lovely!'][Math.floor(Math.random() * 3)]);
           showOff('paint', p.id, `I love my ${p.id} paint!`);
-          BB.later(700, renderBody);
+          BB.later(700, paintChanged);
         } });
       });
-      // (c) the bus number, and the settings: lane helper, joystick side
-      sec('plate');
-      tile(bodyEl, platePic(S.routeNo), { i: 9, tap: () => openPad() });
-      const as = tile(bodyEl, assistPic(), { i: 10, on: !!S.assist, tap: () => { BB.ui.setAssist(!S.assist); renderBody(); } });
-      as.classList.add('toggle');
-      tile(bodyEl, sidePic(!!S.leftHand), { i: 11, tap: () => { BB.ui.setLefty(!S.leftHand); renderBody(); } });
-      // controls: joystick or steering wheel
-      for (const [mode, i] of [['joystick', 12], ['wheel', 13]]) {
-        tile(bodyEl, controlPic(mode), { i, on: (S.control || 'joystick') === mode, tap: () => {
-          if ((S.control || 'joystick') === mode) { BB.say(mode === 'wheel' ? 'Steering wheel!' : 'Joystick!'); return; }
+    } else if (tab === 'settings') {
+      const ctl = S.control || 'joystick', wheelMode = ctl === 'wheel';
+      let box = sec('joystick', 'Drive with');
+      for (const [mode, word] of [['joystick', 'Joystick'], ['wheel', 'Wheel']]) {
+        tile(box, BB.icon(mode === 'wheel' ? 'wheel' : 'joystick', 128), { i: n++, on: ctl === mode, label: word, tap: () => {
+          if (ctl === mode) { BB.say(mode === 'wheel' ? 'Steering wheel!' : 'Joystick!'); return; }
           BB.ui.setControl(mode); renderBody();
         } });
       }
-    } else if (tab === 'sticker') {
-      STICKERS.forEach((st, i) => {
+      box = sec(S.leftHand ? 'handL' : 'handR', wheelMode ? 'Pedals on' : 'Joystick on');
+      for (const [left, word] of [[false, 'Right'], [true, 'Left']]) {
+        tile(box, BB.icon(left ? 'handL' : 'handR', 128), { i: n++, on: !!S.leftHand === left, label: word, tap: () => {
+          if (!!S.leftHand === left) { BB.say(wheelMode ? (left ? 'Pedals on the left!' : 'Pedals on the right!') : (left ? 'Joystick on the left!' : 'Joystick on the right!')); return; }
+          BB.ui.setLefty(left); renderBody();
+        } });
+      }
+      box = sec('helperOn', 'Lane helper');
+      for (const [on, word] of [[false, 'Off'], [true, 'On']]) {
+        tile(box, assistPic(on), { i: n++, on: !!S.assist === on, label: word, tap: () => {
+          if (!!S.assist === on) { BB.say(on ? 'Lane helper on!' : 'Lane helper off!'); return; }
+          BB.ui.setAssist(on); renderBody();
+        } });
+      }
+    } else if (tab === 'together') {
+      const N = BB.net, inRoom = N.state === 'room';
+      if (inRoom) {
+        const fr = BB.el('div', 'bbd-friends', bodyEl);
+        if (N.fillFriends) N.fillFriends(fr, true);
+        tile(bodyEl, N.pic('together', 160), { i: n++, big: true, label: 'Our room', tap: () => { BB.sfx.pop(); N.open(); } });
+        tile(bodyEl, N.pic('home', 160), { i: n++, big: true, label: 'Leave', tap: () => { BB.sfx.click(); BB.say('Bye bye, friends!'); N.leave('home'); } });
+      } else {
+        tile(bodyEl, N.pic('make', 160), { i: n++, big: true, label: 'New room', tap: () => { BB.sfx.pop(); BB.say('A new room!'); N.make(); } });
+        tile(bodyEl, N.pic('join', 160), { i: n++, big: true, label: 'Join room', tap: () => { BB.sfx.pop(); N.join(); } });
+        BB.el('div', 'bbd-hint', bodyEl, 'Drive in the same town as your friends!');
+      }
+    } else if (tab === 'shop' && shopTab === 'sticker') {
+      STICKERS.forEach((st) => {
         const own = S.stickersOwned.includes(st.id), on = S.stickers.includes(st.id);
-        tile(bodyEl, stickerPic(st.id), { i, on: on && !preview, preview: isPrev('sticker', st.id), price: own ? 0 : st.price, tap: (el) => {
+        tile(bodyEl, stickerPic(st.id), { i: n++, on: on && !preview, preview: isPrev('sticker', st.id), price: own ? 0 : st.price, label: st.name[0].toUpperCase() + st.name.slice(1), tap: (el) => {
           if (own) {
             setPreview(null);
             if (on) { S.stickers = S.stickers.filter((s) => s !== st.id); BB.sfx.pop(); BB.say('Peeled off!'); }
@@ -872,14 +913,13 @@
           BB.later(700, renderBody);
         } });
       });
-    } else if (tab === 'lights' || tab === 'bumpers' || tab === 'wheels') {
-      const kinds = tab === 'wheels' ? ['wheels', 'rims'] : [tab];
-      let n = 0;
+    } else if (tab === 'shop' && (shopTab === 'lights' || shopTab === 'bumpers' || shopTab === 'wheels')) {
+      const kinds = shopTab === 'wheels' ? ['wheels', 'rims'] : [shopTab];
       for (const kind of kinds) {
-        if (kinds.length > 1) BB.el('div', 'bbd-break', bodyEl);        // wheels on one row, rims on the next
+        const box = kinds.length > 1 ? sec(kind === 'wheels' ? 'wheels' : 'colour', kind === 'wheels' ? 'Tyres' : 'Rims', true) : bodyEl;
         partsOf(kind).forEach((pt, i) => {
           const own = partOwned(kind, pt.id, i), on = partOn(kind, pt.id);
-          tile(bodyEl, partPic(kind, pt.id), { i: n++, on: on && !preview, preview: isPrev(kind, pt.id), price: own ? 0 : pt.price, tap: (el) => {
+          tile(box, partPic(kind, pt.id), { i: n++, on: on && !preview, preview: isPrev(kind, pt.id), price: own ? 0 : pt.price, label: shortOf(pt), tap: (el) => {
             if (own) {
               setPreview(null);
               if (!on) { S.parts[kind] = pt.id; BB.saveNow(); D.applyLooks(); BB.sfx.pop(); D.hop(); }
@@ -895,10 +935,10 @@
           } });
         });
       }
-    } else if (tab === 'upgrade') {
-      UPGRADES.forEach((u, i) => {
+    } else if (tab === 'shop' && shopTab === 'upgrade') {
+      UPGRADES.forEach((u) => {
         const own = !!S.upgrades[u.id];
-        tile(bodyEl, iconPic(u.id), { i, on: own, preview: isPrev('upgrade', u.id), price: own ? 0 : u.price, tap: (el) => {
+        tile(bodyEl, iconPic(u.id), { i: n++, wide: true, on: own, preview: isPrev('upgrade', u.id), price: own ? 0 : u.price, label: UPGRADE_WORD[u.id] || u.id, tap: (el) => {
           const demo = () => { if (u.id === 'horn') BB.later(500, () => BB.sfx.horn(true)); };
           if (own) { BB.say(u.say); demo(); return; }
           if (!isPrev('upgrade', u.id)) { setPreview({ kind: 'upgrade', id: u.id }); BB.sfx.whoosh(); speakPrice(u.say, u.price); demo(); renderBody(); return; }
@@ -913,44 +953,89 @@
       });
     }
   }
+  // the My bus tab's picture shows the bus's colour: repaint it after a new paint
+  function paintChanged() {
+    if (BB.iconRefresh) BB.iconRefresh();
+    for (const [id, icon] of [['bus', 'mybus'], ['together', 'together']]) {
+      const b = panel && panel.querySelector(`.bbd-tab[data-tab="${id}"] canvas`);
+      if (b) b.replaceWith(BB.iconEl(icon, 128));
+    }
+    renderBody();
+  }
   function setTab(id, quiet) {
+    if (id === 'together' && !BB.net) id = 'bus';
     tab = id;
     if (preview) { preview = null; D.applyLooks(); }
-    if (goalEl) { goalEl.remove(); goalEl = null; }
     panel.querySelectorAll('.bbd-tab').forEach((b) => b.classList.toggle('on', b.dataset.tab === id));
     bodyEl.scrollTop = 0;
     renderBody(true);
-    if (!quiet) { BB.sfx.click(); BB.say((TABS.find((t) => t.id === id) || {}).say || ''); }
+    if (!quiet) {
+      BB.sfx.click();
+      const sct = SECTIONS.find((t) => t.id === id) || {};
+      if (id === 'shop') BB.say(sct.say + ' ' + ((SHOP.find((t) => t.id === shopTab) || {}).say || ''));
+      else if (id === 'together') BB.say(BB.net.state === 'room' ? 'Play together! You are in a room with your friends.' : 'Play together! Make a new room, or join your friend\'s room?');
+      else BB.say(sct.say || '');
+    }
+  }
+  function setShop(id, quiet) {
+    shopTab = id;
+    if (preview) { preview = null; D.applyLooks(); }
+    bodyEl.scrollTop = 0;
+    renderBody(true);
+    if (!quiet) { BB.sfx.click(); BB.say((SHOP.find((t) => t.id === id) || {}).say || ''); }
+  }
+  function syncNetBadge() {
+    const t = panel && panel.querySelector('.bbd-tab[data-tab="together"]'); if (!t) return;
+    let n = t.querySelector('.n');
+    const N = BB.net, on = N && N.state === 'room';
+    if (!on) { if (n) n.remove(); return; }
+    if (!n) n = BB.el('span', 'n', t);
+    n.textContent = String(1 + [...N.remotes.values()].filter((r) => !r.leaving).length);
   }
 
   function render() {
     panel.innerHTML = '';
-    const head = BB.el('div', 'bbd-head', panel);
-    cashBox = BB.el('div', 'bbd-cash', head); cashBox.appendChild(coinCv(42)); cashSpan = BB.el('span', '', cashBox, String(D.cash));
-    BB.tap(cashBox, () => BB.say(D.cash === 1 ? 'You have 1 coin.' : `You have ${D.cash} coins.`));
-    if (BB.HUB && BB.ui.makeClock) head.appendChild(BB.ui.makeClock());
     const tabs = BB.el('div', 'bbd-tabs', panel);
-    for (const t of TABS) {
-      const b = BB.el('button', 'bbd-tab', tabs); b.dataset.tab = t.id; b.appendChild(cv(iconPic(t.id, 96)));
+    for (const t of SECTIONS) {
+      if (t.id === 'together' && !BB.net) continue;
+      const b = BB.el('button', 'bbd-tab', tabs); b.type = 'button'; b.dataset.tab = t.id;
+      b.appendChild(BB.iconEl(t.icon, 128)); BB.el('span', 'lb', b, t.label); b.setAttribute('aria-label', t.label);
       BB.tap(b, () => setTab(t.id));
+    }
+    const subs = BB.el('div', 'bbd-subs', panel);
+    for (const t of SHOP) {
+      const b = BB.el('button', 'bbd-sub', subs); b.type = 'button'; b.dataset.sub = t.id;
+      b.appendChild(BB.iconEl(t.icon, 96)); BB.el('span', 'lb', b, t.label); b.setAttribute('aria-label', t.label);
+      BB.tap(b, () => setShop(t.id));
     }
     bodyEl = BB.el('div', 'bbd-body', panel);
     bodyEl.addEventListener('scroll', syncMore, { passive: true });
-    const go = BB.el('button', 'bbd-go', panel, BUS_SVG);
+    const go = BB.el('button', 'bbd-go', panel, BUS_SVG + '<span>Drive!</span>');
+    go.type = 'button'; go.setAttribute('aria-label', 'Drive');
     BB.tap(go, () => { BB.sfx.pop(); D.close(); });
     setTab(tab, true);
+    syncNetBadge();
+    // over the 3D view: coins, fuel, (the clock)
+    statusEl.innerHTML = '';
+    cashBox = BB.ui.btn(statusEl, null, 'Coins', () => BB.say(D.cash === 1 ? 'You have 1 coin.' : `You have ${D.cash} coins.`), 'bbd-cash');
+    const crow = BB.el('span', 'row', null); cashBox.prepend(crow); crow.appendChild(coinCv(42)); cashSpan = BB.el('b', '', crow, String(D.cash));
+    fuelBtn = BB.ui.btn(statusEl, null, 'Fuel', () => fillUp(false), 'bbd-fuel' + (BB.bus.fuel >= 0.98 ? ' gone' : ''));
+    const frow = BB.el('span', 'row', null); fuelBtn.prepend(frow); frow.appendChild(BB.iconEl('fuel', 96));
+    tankEl = BB.el('span', 'bbd-tank', frow); BB.el('i', '', tankEl); syncTank();
+    if (BB.HUB && BB.ui.makeClock) statusEl.appendChild(BB.ui.makeClock());
     BB.emit('depot:render', { panel });
   }
 
-  // opts.start: the game's start screen (the bus in its garage before the first drive): the Bus tab first, a bigger
-  // Drive button, and the welcome.
+  // opts.start: the game's start screen (the bus in its garage before the first drive, or after Home): My bus first,
+  // a bigger Drive button, and the welcome.
   D.open = function (opts) {
     if (D.isOpen) return;
     D.isOpen = true;
     D.isStart = !!(opts && opts.start);
-    preview = null; goalEl = null;
+    preview = null; goalEl = null; filling = false;
     tab = 'bus';
     awning = BB.el('div', 'bbd-awning', BB.ui.root);
+    statusEl = BB.el('div', 'bbd-status', BB.ui.root);
     panel = BB.el('div', 'bbd', BB.ui.root);
     render();
     placeProps(); tt = 0;
@@ -958,7 +1043,8 @@
     BB.emit('depot:open');
     BB.sfx.whoosh();
     if (D.isStart) {
-      if (BB.bus.fuel < 0.98) BB.bus.refuel(1);
+      if (BB.bus.fuel < 0.98) { BB.bus.refuel(1); syncTank(); }
+      if (fuelBtn) fuelBtn.classList.add('gone');
       panel.querySelector('.bbd-go').classList.add('start');
       BB.say(D.welcome());
       lastTap = performance.now(); calls = 0; if (!idleT) idleT = BB.later(1000, idleCheck);
@@ -966,9 +1052,8 @@
     }
     // fuel is free: every visit fills the tank, with the pump's gurgle as a little show
     const low = BB.bus.fuel < 0.98;
-    if (low) { tab = 'fuel'; setTab('fuel', true); }
     BB.say(low ? 'Welcome to the garage! Let\'s fill up the tank.' : 'Welcome to the garage! Make your bus beautiful!');
-    if (low) BB.later(900, () => { if (D.isOpen && autoFill) autoFill(); else if (D.isOpen) BB.bus.refuel(1); });
+    if (low) BB.later(900, () => { if (D.isOpen) fillUp(true); });
   };
   D.close = function () {
     if (!D.isOpen) return;
@@ -977,15 +1062,17 @@
     closePad();
     if (BB.bus.fuel < 0.98) BB.bus.refuel(1);   // never leave the garage hungry
     preview = null; D.applyLooks();
-    for (const el of [panel, awning]) if (el) el.remove();
-    panel = awning = bodyEl = cashBox = cashSpan = goalEl = null;
+    for (const el of [panel, awning, statusEl]) if (el) el.remove();
+    panel = awning = statusEl = bodyEl = cashBox = cashSpan = goalEl = tankEl = fuelBtn = null;
     BB.bus.setCamera('chase');
     BB.emit('depot:closed', { start });
   };
-  D.welcome = () => (BB.HUB ? 'Make your bus, then tap the blue button to drive!' : 'Welcome, Little Bus Captain! Make your bus, then tap the blue button to drive!');
+  D.welcome = () => (BB.HUB ? 'Make your bus, then tap the blue Drive button!' : 'Welcome, Little Bus Captain! Make your bus, then tap the blue Drive button!');
   D.render = () => { if (panel) renderBody(); };
   D.tab = () => tab;
+  D.setTab = (id, sub) => { if (!panel) return; if (sub) shopTab = sub; setTab(id, true); };
   BB.on('resize', () => BB.later(50, syncMore));
   BB.on('cash:changed', () => { if (cashSpan) cashSpan.textContent = String(D.cash); });
+  BB.on('net:changed', () => { if (!panel) return; syncNetBadge(); if (tab === 'together') renderBody(); });
   D.init = function () { /* the 3D props are built once the bus exists (D.afterBus) */ };
 })();
