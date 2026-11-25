@@ -979,6 +979,8 @@
       tone(N(24), 0.25, { type: 'sine', vol: 0.08, at: sec }); tone(N(31), 0.35, { type: 'sine', vol: 0.07, at: sec + 0.12 });
     },
     whoosh() { tone(N(5), 0.35, { type: 'triangle', vol: 0.05, slide: N(29) }); },
+    // the turbo isn't ready: a short sputter going down (quiet)
+    fizz() { tone(N(17), 0.12, { type: 'square', vol: 0.04, slide: N(10) }); tone(N(12), 0.18, { type: 'triangle', vol: 0.06, slide: N(2), at: 0.1 }); },
     // the secret turbo: a whoosh and a tone rising fast (quiet: peak 0.08)
     turbo() { tone(N(5), 0.35, { type: 'triangle', vol: 0.05, slide: N(29) }); tone(N(12), 0.6, { type: 'square', vol: 0.04, slide: N(36), at: 0.08 }); tone(N(19), 0.5, { type: 'triangle', vol: 0.08, slide: N(43), at: 0.2 }); },
     sparkle() { [31, 35, 38, 43].forEach((s, i) => tone(N(s), 0.14, { type: 'sine', vol: 0.05, at: i * 0.06 })); },

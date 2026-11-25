@@ -149,6 +149,11 @@
     v.set(Math.abs(d.userData.x) + 0.35, 0, d.userData.z); return d.parent.localToWorld(v);
   };
   B.isSettling = () => !!settle;
+  // B.holdArrival(seconds): for up to 8 s the bus won't settle into its target bay (it rolls on slowly, the bay keeps
+  // glowing), e.g. while an event plays; B.holdArrival(0) releases it. Game clock (hold-aware). Ignored at a stop.
+  let arrivalHold = 0;
+  B.holdArrival = function (sec) { arrivalHold = B.atStop ? 0 : BB.clamp(+sec || 0, 0, 8); return arrivalHold > 0; };
+  B.arrivalHeld = () => arrivalHold > 0;
   B.isFacingAway = () => facingAway;
   // Lights (the headlights and tail lights; off for the goodnight moment).
   // A gentle automatic turn-round (kid magic): the bus does a happy hop-and-spin on the spot and lands facing the
@@ -267,8 +272,8 @@
   function boostBlocked() {
     if (B.atStop || settle || spin || B.doorsOpen || B.locked || B.noFuel || B.camMode !== 'chase') return true;
     if (BB.jobs && BB.jobs.busy && BB.jobs.busy()) return true;
-    if (B.inDepot && B.inDepot()) return true;
-    if (B.target) { const bay = W().bayOf(B.target); if (Math.hypot(bay.x - fx, bay.z - fz) < 50) return true; }
+    if (B.inDepot && B.inDepot() && Math.abs(B.speed) < 3) return true;   // (in the yard: not from a standstill; on the way out, fine)
+    if (B.target) { const bay = W().bayOf(B.target); if (Math.hypot(bay.x - fx, bay.z - fz) < 20) return true; }
     return false;
   }
   // a sharp bend on the route within ~40 ahead
@@ -311,7 +316,10 @@
       if (boostBlocked()) boostT = 0;
       if (boostT <= 0) { boostT = 0; boostCool = 20; BB.emit('bus:boost', { on: false }); }
     } else if (boostCool > 0) boostCool -= dt;
-    const want = boostT > 0 && !bendAhead() ? 1 : 0;
+    // (eases off by itself nearing the target bay, so the stop's braking takes over smoothly)
+    let nearT = false;
+    if (B.target) { const bay = W().bayOf(B.target); nearT = Math.hypot(bay.x - fx, bay.z - fz) < 55; }
+    const want = boostT > 0 && !bendAhead() && !nearT ? 1 : 0;
     boostK += BB.clamp(want - boostK, -dt / 0.7, dt / 0.8);
     // the camera's view widens a little
     const cam = BB.camera;
@@ -543,6 +551,8 @@
     B.type = type; B.length = LF + GAP + LR; lastRoofT = -1; lastWallT = -1;
     // passengers, headlight beams, the (empty) old hat mount, sticker anchors
     B.front.add(B.paxGroup); seatPassengers();
+    // paint keeps its colour at night and in the rain (a lift on the painted parts only, so a yellow taxi stays yellow)
+    for (const mat of (m.materials || []).filter(Boolean)) paintLift(mat);
     // the seated people glow with this model's cabin lights at night (the same materials across a swap: unpatched and
     // patched again onto the new model's light)
     if (typeof m.lightUp === 'function') for (const pm of [heads.material, hair.material, shirts.material]) {
@@ -581,6 +591,22 @@
   // Patch a fleet body material so its side windows can look solid: uniform uSolid (1 = side-facing glass panes are
   // opaque, tinted like the bendy's rear carriage windows; 0 = the model's own see-through glass). The windscreen and
   // the rear window (facing along the bus) keep their glass, so the driver still shows.
+  const paintLiftU = { value: 0 };
+  function paintLift(mat) {
+    if (mat.userData.paintLift) return;
+    mat.userData.paintLift = true;
+    const prev = mat.onBeforeCompile;
+    mat.onBeforeCompile = function (sh, r) {
+      if (prev) prev.call(this, sh, r);
+      if (sh.fragmentShader.indexOf('varying float vPaint') < 0) return;
+      sh.uniforms.uPaintLift = paintLiftU;
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uPaintLift;')
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * vPaint * uPaintLift;');
+    };
+    const key = mat.customProgramCacheKey ? mat.customProgramCacheKey.bind(mat) : () => '';
+    mat.customProgramCacheKey = () => key() + '|paintLift';
+    mat.needsUpdate = true;
+  }
   function solidGlass(mat) {
     if (mat.userData.solidU) return mat.userData.solidU;
     const u = mat.userData.solidU = { value: 1 }, tint = new THREE.Color('#86a3b6'), prev = mat.onBeforeCompile;
@@ -1842,7 +1868,7 @@
     } else if (got > wantD * 0.6 || wantD <= 0.004) { jamT = 0; jamSide = 0; jamFlipped = false; }
     // the slow watchdog: pedal held for 2.5 s with the bus rocking on the spot (pinned against something, which the
     // jam check above can miss when it moves to and fro): the same happy hop onto the road
-    if (Math.abs(thr) > 0.3 && canDrive) {
+    if (Math.abs(thr) > 0.3 && canDrive && arrivalHold <= 0) {
       if (!stuckRef) stuckRef = { x: fx, z: fz, t: 0 };
       stuckRef.t += dt;
       if (Math.hypot(fx - stuckRef.x, fz - stuckRef.z) > 1.2) stuckRef = { x: fx, z: fz, t: 0 };
@@ -1992,7 +2018,7 @@
     const m2 = Math.sign((f.x * bay.fwd.x + f.z * bay.fwd.z) * mv) || 1;
     const prog = (dx * bay.fwd.x + dz * bay.fwd.z) * m2;
     if (prog < -26 || prog > 7) return Infinity;
-    return 2.0 + Math.sqrt(13 * Math.max(0, 2 - prog));      // (brakes later and a little firmer, still gentle)
+    return (arrivalHold > 0 ? 0.5 : 2.0) + Math.sqrt(13 * Math.max(0, 2 - prog));   // (held: creeps in the bay)      // (brakes later and a little firmer, still gentle)
   }
   // Is the bus roughly in the target bay? (mid point within the box, heading within 45 degrees either way round)
   function bayCheck() {
@@ -2008,8 +2034,9 @@
     return false;
   }
   function updateSettle(dt) {
+    if (arrivalHold > 0) arrivalHold = Math.max(0, arrivalHold - dt);
     if (!settle) {
-      const which = bayCheck();
+      const which = arrivalHold > 0 ? false : bayCheck();
       if (which && Math.abs(B.speed) < 2.6) {
         settle = { from: { fx, fz, h, hr }, to: poseAtBay(B.target, which === 'reversed'), t: 0, stop: B.target };
         B.speed = 0; ribbon.geometry.setDrawRange(0, 0);
@@ -2142,6 +2169,7 @@
     lightCones.visible = lit > 0.05;
     lightCones.material.opacity = 0.22 * lit * (up ? 1.2 : 0.8);
     lampMat.color.setScalar(B.lightsOn ? 1 : 0.45);
+    { const wx = W().weatherState || {}; paintLiftU.value = 0.32 * night + 0.2 * BB.clamp(+wx.rain || 0, 0, 1) + 0.08 * BB.clamp(+wx.cloud || 0, 0, 1); }
     // cabin lights: from dusk, full at night (off for the goodnight moment), eased
     if (M && M.setCabin) {
       const want = B.lightsOn ? BB.clamp((night - 0.15) / 0.55, 0, 1) : 0;

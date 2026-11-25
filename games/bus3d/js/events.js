@@ -65,6 +65,9 @@
     const B = Bs(), w = W(), st = B && B.target; if (!st || !w.bayOf) return false;
     const bay = safe(() => w.bayOf(st)); return !!(bay && Math.hypot(bay.x - B.pos.x, bay.z - B.pos.z) < R);
   }
+  // the bus builder's BB.bus.holdArrival(seconds): delays settling into the next bay while an event plays
+  const holdable = () => { const B = Bs(); return !!(B && typeof B.holdArrival === 'function'); };
+  function holdArrival(sec) { const B = Bs(); if (holdable()) safe(() => B.holdArrival(Math.min(8, sec))); }
   const pullingIn = () => { const B = Bs(); return !!(B && (B.atStop || (B.isSettling && B.isSettling()))); };
   // may a new event start?
   function canStart() {
@@ -74,7 +77,7 @@
     if (B.atStop || (B.isSettling && B.isSettling()) || (B.isSpinning && B.isSpinning()) || (B.isWashing && B.isWashing()) || B.inWash) return false;
     if (B.inDepot && B.inDepot()) return false;
     if (ui().asking && ui().asking()) return false;
-    if (targetNear(85)) return false;            // (the bus is about to pull into its stop)
+    if (targetNear(holdable() ? 40 : 60)) return false;   // (the bus is about to pull into its stop)
     return true;
   }
   // no event speech, prompts or bubbles right now (a stop, a question, a card, ...)
@@ -730,8 +733,10 @@
   const stopList = () => { const w = W(); return (w.stops || []).concat([w.depot, w.washBay]).filter(Boolean); };
   function spotOK(x, z, rad = 2) {
     const w = W();
+    const tgt = Bs() && Bs().target;
     for (const st of stopList()) {
-      const R = st.minor ? 12 : 18;               // (minor stops: just keep their bay and shelter clear)
+      if (st.minor && st !== tgt) continue;       // events may pass beside the little stops the bus isn't going to
+      const R = 18;
       if (st.pos && Math.hypot(st.pos.x - x, st.pos.z - z) < R) return false;
       const bay = w.bayOf ? safe(() => w.bayOf(st)) : null; if (bay && Math.hypot(bay.x - x, bay.z - z) < R) return false;
     }
@@ -1688,7 +1693,7 @@
       return {};
     },
     start() {
-      let t = 0, next = 0.5, n = 0; me4.live = 0;
+      let t = 0, next = 0.5, n = 0; me4.live = 0; me4.said = false;
       const B0 = Bs(), aim = { x: B0.pos.x + Math.sin(B0.heading) * 65, y: 22, z: Math.max(seaZ() + 20, B0.pos.z + Math.cos(B0.heading) * 65) };
       const lk = lookUp(() => (me4.live > 0 ? { x: me4.x, y: me4.y, z: me4.z } : aim), 16);
       const total = 6, rockets = [];
@@ -1725,6 +1730,7 @@
                 emit({ x: rk.x, y: rk.y, z: rk.z, vx: Math.cos(a) * rr * spd, vy: u * spd, vz: Math.sin(a) * rr * spd, grav: 3.2, drag: 0.8, life: rand(1.8, 2.6), size: 2.4 * big, size1: 1.0 * big, color: k % 3 ? rk.c1 : rk.c2, glow: true, fin: 0.01 });
               }
               SND.pop(near(rk.x, rk.z, 280));
+              if (!me4.said) { me4.said = true; talk('Ooh! Fireworks!', true, true); if (E.current) { E.current.saidIntro = true; E.current.seen = true; E.current.spotted.fireworks = true; } E.spot('fireworks'); }
             }
           }
           return n < total || rockets.length > 0 || t < 3;
@@ -1836,7 +1842,7 @@
   const ALIAS = { fireTruck: 'fire', towTruck: 'breakdown', tow: 'breakdown', ice: 'iceCream', icecream: 'iceCream', milkVan: 'milk', rubbishTruck: 'rubbish', santa: 'parade', lion: 'parade', otter: 'otters', ducks: 'otters', firework: 'fireworks', puddle: 'splash', puddles: 'splash', rainbow: 'splash' };
   const lastStart = {};
   const fresh = (id) => lastStart[id] == null || clock - lastStart[id] > 480;
-  let gap = rand(55, 80), clock = 0, lastEnd = -1e9, recent = [], nightId = 0, wasNight = false, fwNight = -1, lastPlane = -1e9, started = false;
+  let gap = rand(30, 45), clock = 0, pulledOutAt = -1e9, wasAtStop = false, lastEnd = -1e9, recent = [], nightId = 0, wasNight = false, fwNight = -1, lastPlane = -1e9, started = false;
   function begin(id, plan) {
     for (const k in me2) delete me2[k]; for (const k in me3) delete me3[k];
     const inst = safe(() => EV[id].start(plan || {}));
@@ -1872,13 +1878,16 @@
   function schedule(dt) {
     const w = W(), n = w.night ? w.night() : 0;
     const isNight = n > 0.55; if (isNight && !wasNight) nightId++; wasNight = isNight;
+    const B = Bs(), atStopNow = !!(B && (B.atStop || (B.isSettling && B.isSettling())));
+    if (wasAtStop && !atStopNow) pulledOutAt = clock;              // just pulled out: the road ahead is free for a while
+    wasAtStop = atStopNow;
     if (E.current || !canStart()) return;
-    const B = Bs();
     // the sky shows come when they can be seen (once per night / now and then near the airport)
     if (clock - lastEnd > 30 && fwNight !== nightId && isNight && fresh('fireworks')) { const pl = safe(() => EV.fireworks.plan()); if (pl) { fwNight = nightId; begin('fireworks', pl); return; } }
     if (clock - lastEnd > 30 && clock - lastPlane > 480) { const pl = safe(() => EV.plane.plan()); if (pl) { lastPlane = clock; begin('plane', pl); return; } }
     gap -= dt * (Math.abs(B.speed) > 0.5 ? 1 : 0.35);
-    if (gap > 0) return;
+    // due: best right after pulling out of a stop; otherwise wait up to 25 s for that moment, then any calm moment
+    if (gap > 0 || (clock - pulledOutAt > 8 && gap > -25)) return;
     const opts = [];
     for (const id of ORDER) {
       const ev = EV[id]; if (!ev.weight || recent.slice(0, 2).indexOf(id) >= 0 || !fresh(id)) continue;
@@ -1888,7 +1897,7 @@
     let r = Math.random() * opts.reduce((a, o) => a + o.w, 0), ch = opts[0];
     for (const o of opts) { r -= o.w; if (r <= 0) { ch = o; break; } }
     begin(ch.id, ch.pl);
-    gap = rand(110, 170);
+    gap = rand(55, 80);
   }
   function spotting(dt) {
     const c = E.current; if (!c || !c.spots) return;
@@ -1929,6 +1938,13 @@
         const keep = safe(() => c.update(dt));
         const a = c.at ? safe(() => c.at()) : null;
         if (a && !busNear(a.x, a.z, 260)) c.far += dt; else c.far = 0;
+        if (clock - c.t0 < 25 && !c.doneTalk && targetNear(55)) {
+          if (holdable()) { if (!c.held || clock - c.held > 6) { c.held = clock; holdArrival(8); } }
+          else if (!c.heldUntil) c.heldUntil = clock + 8;
+        }
+        if (c.heldUntil && clock < c.heldUntil && targetNear(45) && !targetNear(16) && !jobBusy()) {
+          const B = Bs(); if (B.speed > 3) B.speed = Math.max(3, B.speed - dt * 5);   // (no holdArrival yet: a slow roll in)
+        }
         if (c.slowT > 0) {                       // the gentle look: never below 6.5, never at a stop or a question
           c.slowT -= dt; const B = Bs();
           if (B.speed > 6.5 && !jobBusy() && !pullingIn()) B.speed = Math.max(6.5, B.speed - dt * 5);

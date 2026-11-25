@@ -111,7 +111,16 @@
     -webkit-text-stroke: 3px #d98700; paint-order: stroke fill; text-shadow: 0 4px 0 #b06e00, 0 0 18px rgba(255,212,92,.8); animation: bbu-turbo 1.6s ease-out forwards; }
   @keyframes bbu-turbo { 0% { transform: translate(-50%, 20px) scale(.4) rotate(-8deg); opacity: 0; } 18% { transform: translate(-50%, 0) scale(1.15) rotate(-4deg); opacity: 1; }
     75% { opacity: 1; } 100% { transform: translate(-50%, -50px) scale(1) rotate(-4deg); opacity: 0; } }
-  @media (max-height: 520px) { .bbu-turbo { font-size: 38px; } }
+  @media (max-height: 520px) { .bbu-turbo { font-size: 38px; top: 54%; } }
+  /* a refused turbo: a tiny puff of grey-gold sparks over the bus */
+  .bbu-fizz { position: absolute; left: 50%; top: 56%; width: 0; height: 0; z-index: 21; pointer-events: none; }
+  .bbu-fizz i { position: absolute; left: -7px; top: -7px; width: 14px; height: 14px; border-radius: 50%; background: #ffb81f; opacity: 0;
+    box-shadow: 0 0 6px rgba(255,184,31,.8); animation: bbu-fizz .75s ease-out forwards; }
+  .bbu-fizz i:nth-child(2n) { background: #ff8a3d; width: 10px; height: 10px; }
+  .bbu-fizz i:nth-child(3n) { background: #fff6e0; }
+  .bbu-fizz b { position: absolute; left: -26px; top: -26px; width: 52px; height: 52px; border-radius: 50%; background: rgba(236,230,220,.85); animation: bbu-puff .8s ease-out forwards; }
+  @keyframes bbu-puff { 0% { transform: scale(.3); opacity: .9; } 100% { transform: scale(1.4); opacity: 0; } }
+  @keyframes bbu-fizz { 0% { opacity: 1; transform: rotate(var(--a)) translateX(6px) scale(1); } 100% { opacity: 0; transform: rotate(var(--a)) translateX(54px) scale(.3); } }
   .bbu-ask .price { display: flex; align-items: center; gap: 6px; font: 700 34px/1 ${BB.FONT}; color: #7a4a00; background: #ffd45c; border: 3px solid #d98700;
     border-radius: 24px; padding: 2px 16px 2px 6px; box-shadow: 0 3px 0 rgba(150,90,0,.3); }
   .bbu-ask .price canvas { width: 40px; height: 40px; }
@@ -561,10 +570,11 @@
   function secretTurbo() {
     const B = BB.bus;
     if (!B || typeof B.boost !== 'function' || !driving || BB.bedtime) return;
-    if (typeof B.boostReady === 'function' && !B.boostReady()) return;         // (cooling down, or near a stop: just the horn)
     if (typeof B.isLooking === 'function' && B.isLooking()) return;           // (an event's look-up: just the horn)
-    let r = false; try { r = B.boost(); } catch (e) { console.error(e); }
-    if (r === false) return;
+    // not now (cooling down, near a stop): a little fizz and a puff of sparks, so it doesn't seem broken
+    let r = false;
+    if (typeof B.boostReady !== 'function' || B.boostReady()) { try { r = B.boost(); } catch (e) { console.error(e); } }
+    if (r === false) { turboFizz(); return; }
     if (BB.sfx.turbo) BB.sfx.turbo(); else BB.sfx.whoosh();
     BB.say('Turbo!');
     const t = BB.el('div', 'bbu-turbo', U.root, 'TURBO!'); BB.later(1700, () => t.remove());
@@ -572,8 +582,17 @@
     if (!m.turbo) {                                        // found for the first time: a sticker for the book
       m.turbo = 1; BB.saveNow();
       BB.say('You found a secret!', { queue: true });
-      gotSticker('turbo', 'Secret turbo', () => BB.spotPic('turbo', 128));
+      BB.later(1800, () => gotSticker('turbo', 'Secret turbo', () => BB.spotPic('turbo', 128)));   // (after TURBO! has gone)
     }
+  }
+  let fizzSaid = -1e9;
+  function turboFizz() {
+    if (BB.sfx.fizz) BB.sfx.fizz();
+    const p = BB.el('div', 'bbu-fizz', U.root); BB.el('b', '', p);
+    for (let i = 0; i < 9; i++) { const sp = BB.el('i', '', p); sp.style.setProperty('--a', (i / 9 * 360 + Math.random() * 30) + 'deg'); sp.style.animationDelay = (Math.random() * 0.1) + 's'; }
+    BB.later(900, () => p.remove());
+    const now = performance.now();
+    if (now - fizzSaid > 30000 && !BB.speaking()) { fizzSaid = now; BB.say('Not yet, Captain!'); }
   }
   U.secretTurbo = secretTurbo;
   // ---------- the other rides ----------

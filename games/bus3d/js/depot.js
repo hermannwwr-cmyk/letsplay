@@ -704,6 +704,12 @@
   }
   @keyframes bbd-gopulse-s { 50% { box-shadow: inset -4px -5px 0 rgba(0,0,0,.08), 0 5px 0 #2370ad, 0 0 0 5px rgba(79,163,224,.4); } }
   @media (max-height: 430px) and (max-width: 640px) { .bbd { padding-left: 8px; } .bbd-subs { gap: 3px; } .bbd-sub { padding: 3px 0 5px; } .bbd-tabs { gap: 6px; } }
+  /* small phones: the padlock and the price chip stay small and apart, and rows leave room for them */
+  @media (max-height: 430px) {
+    .bbd-tiles { gap: 15px 9px; } .bbd-body { padding-top: 13px; }
+    .bbd-tile.locked::before { width: 22px; height: 22px; top: -8px; left: -7px; }
+    .bbd-price { font-size: 15px; line-height: 20px; padding: 0 5px 0 1px; top: -9px; right: -7px; } .bbd-price canvas { width: 16px; height: 16px; }
+  }
   @media (max-height: 340px) { #ui { --tw: 60px; --th: 72px; --tic: 38px; } .bbd-body { gap: 6px 10px; } .bbd-tiles { gap: 8px; } }`);
 
   const BUS_SVG = '<svg viewBox="0 0 120 56" aria-hidden="true"><rect x="4" y="6" width="92" height="38" rx="10" fill="#fff6e0"/>'

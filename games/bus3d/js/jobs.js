@@ -1419,7 +1419,9 @@
           const T = THEMES[job.theme], g = Math.min(job.groupOn, all);
           let popped = false;
           const style = { prop: T.prop, kid: !!T.kid, onPop: () => { if (!popped && BB.ui && BB.ui.confetti) { popped = true; BB.ui.confetti(); } } };
-          await Promise.all([say(T.drop), alightPeople(g, null, false, style).then(() => all - g > 0 ? alightPeople(all - g) : null)]);
+          let dropLine = T.drop;
+          if (job.theme === 'airport' && !/city/i.test(((stop && stop.id) || '') + ' ' + ((stop && stop.name) || ''))) dropLine = 'Bye bye! Have a lovely trip!';
+          await Promise.all([say(dropLine), alightPeople(g, null, false, style).then(() => all - g > 0 ? alightPeople(all - g) : null)]);
         } else {
           await Promise.all([say('Last stop! Everybody off. Thank you, bus!'), alightPeople(all)]);
         }
@@ -1530,6 +1532,7 @@
       const g = legGen, alive = () => g === legGen && !BB.bedtime && !!J.current && J.phase !== 'home';
       (async () => {
         buildCard(q); J.question = q;
+        if (q.scene) { try { q.scene.show(q.n); scnFrame(q.scene.points(Math.max(q.n, q.kind === 'add' ? q.n + q.k : q.n))); } catch (e) { console.error(e); } }
         await wait(350); if (!alive()) return;
         for (let i = 0; i < q.n; i++) light(i, true);
         showSum('n1'); litSum('n1');
@@ -1541,6 +1544,7 @@
         for (let j = 0; j < q.k; j++) pops.push(wait(250 + j * 380).then(() => {
           if (!card) return;
           if (q.kind === 'add') setSeat(q.n + j, 'new'); else { const i = q.n - 1 - j; setSeat(i, 'gone'); seatEls[i].classList.add('bye'); }
+          if (q.scene) { try { if (q.kind === 'add') q.scene.add(q.n + j); else q.scene.remove(q.n - 1 - j); } catch (e) { console.error(e); } }
           BB.sfx.pop();
         }));
         await Promise.all([say(q.text.k), ...pops]);
@@ -1579,6 +1583,154 @@
       J.waiting.push(m);
     }
   }
+  // ---------- the vehicle scenes in 3D: what's counted, matching the card ----------
+  // Cheap merged meshes in a "tray" of two rows of five on the pavement beside the vehicle (like the card's
+  // ten-frame): cars in the depot yard, bags behind the taxi's boot, teddy bears on a kit box, firefighters and a
+  // kiosk's smoky windows. They pop in / drive off / hop away / clear as the story is told, and the scene camera is
+  // asked to frame them (target.frame + BB.bus.reframe()).
+  const SCN = { items: [], extra: [], target: null, n: 0 };
+  let SGEO = null, frameNo = 0;
+  function sceneGeos() {
+    if (SGEO) return SGEO;
+    const mk = (fn) => { const b = BB.mk.builder(); fn(b); return b.geometry(); };
+    const car = (c) => mk((b) => {
+      b.box(1.7, 0.7, 3.6, c, 0, 0.3, 0); b.box(1.5, 0.6, 1.8, '#cfe9f5', 0, 1.0, -0.2); b.box(1.56, 0.12, 1.86, c, 0, 1.58, -0.2);
+      for (const x of [-0.82, 0.82]) for (const z of [-1.2, 1.2]) b.cyl(0.34, 0.34, 0.24, 8, '#3a2a3c', x, 0.34, z, 0, 0, Math.PI / 2);
+    });
+    SGEO = {
+      cars: ['#4fa3e0', '#f5b83d', '#5cb85c', '#ef5a4b', '#8e62c8'].map(car),
+      bag: mk((b) => { b.box(0.62, 0.72, 0.36, P.berry, 0, 0, 0); b.box(0.63, 0.09, 0.37, P.honeyLight, 0, 0.34, 0); b.box(0.09, 0.26, 0.09, '#3a2a3c', 0, 0.72, 0); }),
+      teddy: mk((b) => {
+        b.ball(0.3, '#b5793e', 0, 0.3, 0); b.ball(0.24, '#c58a55', 0, 0.76, 0); b.ball(0.1, '#b5793e', -0.18, 0.95, 0); b.ball(0.1, '#b5793e', 0.18, 0.95, 0);
+        b.ball(0.09, '#e2b07c', 0, 0.72, 0.2); b.ball(0.09, '#ff8fab', 0, 0.42, 0.26);
+      }),
+      kit: mk((b) => { b.box(4.4, 0.5, 2.0, '#fbf7ee', 0, 0, 0); b.box(4.44, 0.12, 2.04, '#ff8fab', 0, 0.36, 0); b.box(0.6, 0.03, 0.2, '#ef5a4b', 1.75, 0.5, 0.6); b.box(0.2, 0.03, 0.6, '#ef5a4b', 1.75, 0.5, 0.6); }),
+      fighter: friendGeo({ shirt: '#3d5a80', skin: '#d9a679', hair: '#ef5a4b' }),          // red helmet
+      jet: mk((b) => { b.cyl(0.06, 0.11, 2.4, 5, '#bfe6f5', 0, 0, 0); }),
+      kiosk: mk((b) => {
+        b.box(6.8, 4.0, 3.0, '#fbf1dc', 0, 0, 0); b.box(7.2, 0.4, 3.4, '#ef5a4b', 0, 4.0, 0); b.box(6.82, 0.5, 3.02, '#e2c08d', 0, 0, 0);
+      }),
+      win: mk((b) => { b.box(0.95, 0.85, 0.08, '#4d6f8a', 0, 0, 0); b.box(1.1, 0.1, 0.1, '#c84a3c', 0, -0.06, 0); }),
+      smoke: mk((b) => { b.ball(0.5, '#8a8290', 0, 0.45, 0); b.ball(0.4, '#a8a0ae', 0.35, 0.95, 0); b.ball(0.32, '#bdb6c2', -0.2, 1.35, 0); }),
+    };
+    return SGEO;
+  }
+  // a tray of slots: 'out' units onto the pavement, 'along' units along the vehicle from its front door, sp apart
+  function tray(out, along, sp, rowSp, y = 0) {
+    const f = doorFrame(false);
+    const fn = (i) => { const r = Math.floor(i / 5), c = i % 5; return new THREE.Vector3(f.d.x + f.ox * (out + r * rowSp) + f.fx * (along - c * sp), GROUND + y, f.d.z + f.oz * (out + r * rowSp) + f.fz * (along - c * sp)); };
+    fn.f = f; fn.face = Math.atan2(f.ox, f.oz);        // facing the stop camera (out onto the pavement)
+    return fn;
+  }
+  function scnMesh(geo, pos, rotY, pop) {
+    const m = new THREE.Mesh(geo, BB.mk.mat); m.position.copy(pos); m.rotation.y = rotY || 0; m.name = 'sceneItem';
+    BB.scene.add(m);
+    if (pop) { m.scale.setScalar(0.01); tween(0.3, (t) => m.scale.setScalar(Math.max(0.01, t < 0.7 ? t / 0.7 * 1.15 : 1.15 - (t - 0.7) / 0.3 * 0.15))); }
+    return m;
+  }
+  const scnDrop = (m) => { if (m && m.parent) m.parent.remove(m); };
+  function scnClear() {
+    for (const m of SCN.items.concat(SCN.extra)) scnDrop(m);
+    SCN.items = []; SCN.extra = [];
+    if (SCN.target) { delete SCN.target.frame; delete SCN.target.frameKey; SCN.target = null; vcall(['reframe']); }
+  }
+  J._scnClear = scnClear;
+  // ask the scene camera to show these world points too
+  function scnFrame(pts) {
+    const job = J.current, t = job && job.legs && job.legs[job.index] && job.legs[job.index].to;
+    if (!t || !pts.length) return;
+    t.frame = pts.map((p) => ({ x: p.x, y: 0, z: p.z })).concat(pts.map((p) => ({ x: p.x, y: 2.4, z: p.z })));
+    t.frameKey = 'scn' + (++frameNo);
+    SCN.target = t;
+    vcall(['reframe']);
+  }
+  // Scene kinds: { show(n) (make sure n are there), add(i) (one more arrives), remove(i) (one goes), points(count) }
+  function yardScene() {
+    const G = sceneGeos(), slot = tray(3.8, -1.5, 2.5, 4.6);
+    const make = (i, pop) => scnMesh(G.cars[i % 5], slot(i), slot.face, pop);
+    return {
+      show(n) { while (SCN.items.length < n) SCN.items.push(make(SCN.items.length, false)); },
+      add(i) {          // drives in from the pavement side
+        const m = make(i, false), to = slot(i), from = to.clone().add(new THREE.Vector3(slot.f.ox * 9, 0, slot.f.oz * 9));
+        m.position.copy(from); m.rotation.y = slot.face + Math.PI; SCN.items[i] = m;
+        tween(0.9, (t) => { const e = 1 - (1 - t) * (1 - t); m.position.lerpVectors(from, to, e); if (t >= 1) m.rotation.y = slot.face; });
+      },
+      remove(i) {       // fixed: drives away
+        const m = SCN.items[i]; if (!m) return; SCN.items[i] = null;
+        const from = m.position.clone(), to = from.clone().add(new THREE.Vector3(slot.f.ox * 12, 0, slot.f.oz * 12));
+        tween(1.1, (t) => { m.position.lerpVectors(from, to, t * t); }).then(() => scnDrop(m));
+      },
+      points: (c) => Array.from({ length: Math.max(1, c) }, (_, i) => slot(i)),
+    };
+  }
+  function bagScene() {
+    const G = sceneGeos(), slot = tray(2.5, -2.2, 0.85, 0.95), from = kerbSpot(3.2, 2.0, false);
+    const make = (i, pop) => scnMesh(G.bag, slot(i), slot.face, pop);
+    return {
+      show(n) { while (SCN.items.length < n) SCN.items.push(make(SCN.items.length, false)); },
+      add(i) {          // swung from the family into the boot
+        const m = make(i, false), to = slot(i); m.position.copy(from); SCN.items[i] = m;
+        tween(0.7, (t) => { m.position.lerpVectors(from, to, t); m.position.y = GROUND + Math.sin(t * Math.PI) * 1.6; });
+      },
+      remove(i) {       // lifted out onto the pavement
+        const m = SCN.items[i]; if (!m) return; SCN.items[i] = null; SCN.extra.push(m);
+        const a = m.position.clone(), to = a.clone().add(new THREE.Vector3(slot.f.ox * 2.2, 0, slot.f.oz * 2.2));
+        tween(0.6, (t) => { m.position.lerpVectors(a, to, t); m.position.y = GROUND + Math.sin(t * Math.PI) * 1.0; });
+      },
+      points: (c) => Array.from({ length: Math.max(1, c) }, (_, i) => slot(i)).concat([from]),
+    };
+  }
+  function teddyScene() {
+    const G = sceneGeos(), slot = tray(2.7, -0.9, 0.8, 0.85, 0.5);
+    if (!SCN.extra.some((m) => m.userData.kit)) {        // the kit box under the teddies
+      const c = slot(2).clone().add(new THREE.Vector3(slot.f.ox * 0.42, -0.5, slot.f.oz * 0.42));
+      const kit = scnMesh(G.kit, c, Math.atan2(slot.f.fx, slot.f.fz) + Math.PI / 2, false); kit.userData.kit = true; SCN.extra.push(kit);
+    }
+    const make = (i, pop) => scnMesh(G.teddy, slot(i), slot.face, pop);
+    return {
+      show(n) { while (SCN.items.length < n) SCN.items.push(make(SCN.items.length, false)); },
+      add(i) { SCN.items[i] = make(i, true); },
+      remove(i) {       // a teddy hops off to a child at the clinic
+        const m = SCN.items[i]; if (!m) return; SCN.items[i] = null;
+        const a = m.position.clone(), to = a.clone().add(new THREE.Vector3(slot.f.ox * 3, -0.5, slot.f.oz * 3));
+        tween(0.7, (t) => { m.position.lerpVectors(a, to, t); m.position.y += Math.sin(t * Math.PI) * 1.2; }).then(() => scnDrop(m));
+      },
+      points: (c) => Array.from({ length: Math.max(1, c) }, (_, i) => slot(i)),
+    };
+  }
+  // the fire: a kiosk with a 2x5 grid of windows (the smoky ones puff smoke) and firefighters spraying water
+  function fireScene(smoky) {
+    const G = sceneGeos(), f = doorFrame(false);
+    const face = Math.atan2(f.ox, f.oz), base = kerbSpot(7.5, 9.5, false);
+    const kiosk = scnMesh(G.kiosk, base, face, false); SCN.extra.push(kiosk);
+    const winPos = (i) => { const r = Math.floor(i / 5), c = i % 5, side = (c - 2) * 1.25; return new THREE.Vector3(base.x + f.ox * 1.55 + f.fx * side, GROUND + (r ? 1.25 : 2.55), base.z + f.oz * 1.55 + f.fz * side); };
+    const smoke = [];
+    for (let i = 0; i < 10; i++) {
+      SCN.extra.push(scnMesh(G.win, winPos(i), face, false));
+      if (i < smoky) { const s2 = scnMesh(G.smoke, winPos(i).add(new THREE.Vector3(f.ox * 0.2, 0.2, f.oz * 0.2)), face, false); smoke[i] = s2; SCN.extra.push(s2); }
+    }
+    const slot = tray(3.2, 6.5, 1.1, 1.1);
+    const fighter = (i, pop) => {
+      const m = scnMesh(G.fighter, slot(i), Math.atan2(f.fx, f.fz), pop);          // facing the kiosk
+      const jet = new THREE.Mesh(G.jet, BB.mk.mat); jet.position.set(0.2, 1.1, 0.3); jet.rotation.x = 1.05; m.add(jet);
+      return m;
+    };
+    return {
+      fighters: {
+        show(n) { while (SCN.items.length < n) SCN.items.push(fighter(SCN.items.length, false)); },
+        add(i) { SCN.items[i] = fighter(i, true); },
+        remove() {},
+        points: (c) => Array.from({ length: Math.max(1, c) }, (_, i) => slot(i)).concat([base, winPos(0), winPos(4)]),
+      },
+      windows: {
+        show() {},
+        add() {},
+        remove(i) { const s2 = smoke[i]; if (!s2) return; smoke[i] = null; tween(0.8, (t) => s2.scale.setScalar(Math.max(0.01, 1 - t))).then(() => scnDrop(s2)); },
+        points: () => [base, winPos(0), winPos(4), winPos(5), winPos(9)],
+      },
+    };
+  }
+
   // the broken-down car for the tow truck: our own little car, or the bus.js hook helper's
   let towCar = null;
   function brokenCar() {
@@ -1601,19 +1753,22 @@
       L.push({ to: spot, start: `Taxi job! A family is waiting${where(spot)}. Let's go!`, run: async (ok) => {
         await say(plural(fam, 'Hello, taxi! In I get!', 'Hello, taxi! In we get!')); if (!ok()) return;
         hatch(true); await hopIn(fam); if (!ok()) return;
-        const q = sceneQ('add', null, WORDS.bagsIn, 'bags'); await askScene(q); carry.bags = q.answer; hatch(false);
+        const q = sceneQ('add', null, WORDS.bagsIn, 'bags'); q.scene = bagScene(); await askScene(q); carry.bags = q.answer; hatch(false);
       } });
       L.push({ to: landmark, go: `Now drive to ${sayOf(landmark)}!`, run: async (ok) => {
         hatch(true);
-        await askScene(sceneQ('sub', carry.bags, WORDS.bagsIn, 'bags')); if (!ok()) return;
+        const qb = sceneQ('sub', carry.bags, WORDS.bagsIn, 'bags'); qb.scene = bagScene(); await askScene(qb); if (!ok()) return;
         hatch(false); hopOut(fam); await say('Thank you, taxi! Bye bye!');
       } });
     } else if (kind === 'fire') {
       const station = place('fireStation', W.depot);
       L.push({ to: spot, start: `Fire engine! There's smoke${where(spot)}! Siren on, let's go!`, onGo: () => siren(true), run: async (ok) => {
+        const subOk = LEVELS[level()].sub > 0, qw = subOk ? sceneQ('sub', null, WORDS.windows, 'window') : null;
+        const fs = fireScene(qw ? qw.n : 4);
         await say("We're here! Ladder up!"); ladder(true); if (!ok()) return;
-        await askScene(sceneQ('add', null, WORDS.fighters, 'fighter')); if (!ok()) return;
-        if (LEVELS[level()].sub > 0) { await askScene(sceneQ('sub', null, WORDS.windows, 'window')); if (!ok()) return; }
+        const qf = sceneQ('add', null, WORDS.fighters, 'fighter'); qf.scene = fs.fighters;
+        await askScene(qf); if (!ok()) return;
+        if (qw) { qw.scene = fs.windows; await askScene(qw); if (!ok()) return; }
         siren(false); ladder(false); BB.sfx.cheer(); if (BB.ui && BB.ui.confetti) BB.ui.confetti();
         await say('The fire is out! Hooray!');
       } });
@@ -1625,10 +1780,10 @@
         siren(false);
         await say('Hello, Auntie! Hop in!'); if (!ok()) return;
         await hopIn(1, auntie); if (!ok()) return;
-        const q = sceneQ('add', null, WORDS.teddies, 'teddy'); await askScene(q); carry.teddies = q.answer;
+        const q = sceneQ('add', null, WORDS.teddies, 'teddy'); q.scene = teddyScene(); await askScene(q); carry.teddies = q.answer;
       } });
       L.push({ to: clinic, go: 'Off to the clinic!', run: async (ok) => {
-        await askScene(sceneQ('sub', carry.teddies, WORDS.teddies, 'teddy')); if (!ok()) return;
+        const qt = sceneQ('sub', carry.teddies, WORDS.teddies, 'teddy'); qt.scene = teddyScene(); await askScene(qt); if (!ok()) return;
         hopOut(1, auntie); await say('All better! Thank you!');
       } });
     } else if (kind === 'icecream') {
@@ -1661,8 +1816,9 @@
         if (typeof BB.bus.hookOn === 'function') vcall(['hookOn'], null);
         if (towCar && towCar.parent) towCar.parent.remove(towCar);                    // the car stays in the yard (out of view)
         await say('Here we are! The car is safe in the yard.'); if (!ok()) return;
-        const q = sceneQ('add', null, WORDS.yard, 'car'); await askScene(q); if (!ok()) return;
-        if (LEVELS[level()].sub > 0) await askScene(sceneQ('sub', q.answer, WORDS.yard, 'car'));
+        const ys = yardScene();
+        const q = sceneQ('add', null, WORDS.yard, 'car'); q.scene = ys; await askScene(q); if (!ok()) return;
+        if (LEVELS[level()].sub > 0) { const q2 = sceneQ('sub', q.answer, WORDS.yard, 'car'); q2.scene = ys; await askScene(q2); }
       } });
     }
     return L;
@@ -1696,7 +1852,8 @@
     if (!ok()) return;
     try { await leg.run(ok); } catch (e) { console.error(e); }
     if (!ok()) return;
-    await wait(500);
+    await wait(1200);
+    scnClear();
     job.index++;
     if (job.index >= job.legs.length) { jobDone(); return; }
     if (timeUp()) { bedtime(); return; }
@@ -1872,7 +2029,7 @@
   J.update = function (dt) {
     if (J.phase === 'home') {
       if (J.stopStart) rewindStop();
-      if (J.current && J.current.vehicle && J.stopStart !== false) { legGen++; clearWaiting(); for (const m of J.extras) removePerson(m); J.extras = []; J.walkers = []; }
+      if (J.current && J.current.vehicle && J.stopStart !== false) { legGen++; clearWaiting(); scnClear(); for (const m of J.extras) removePerson(m); J.extras = []; J.walkers = []; }
       return;                                  // nothing walks or boards while the home screen is up
     }
     for (let i = J.walkers.length - 1; i >= 0; i--) {
