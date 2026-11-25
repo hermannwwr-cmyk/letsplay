@@ -84,10 +84,10 @@
   const N = (s) => 440 * Math.pow(2, (s - 9) / 12);
   const live = () => !!(A && A.ctx && A.ctx.state === 'running' && !A.mute && !BB.held);
   const duck = () => (jobBusy() ? 0.35 : 1);
-  function tone(f, dur, o) { if (live() && BB.tone) BB.tone(f, dur, o); }
+  function tone(f, dur, o) { if (!live() || !BB.tone || (o && o.vol != null && !(o.vol >= 0.002))) return; try { BB.tone(f, dur, o); } catch (e) { /* no sound */ } }
   let noiseBuf = null;
   function noise(dur, o = {}) {
-    if (!live()) return null;
+    if (!live() || (o.vol != null && !(o.vol >= 0.002) && !o.hold)) return null;
     const ctx = A.ctx;
     try {
       if (!noiseBuf) { const n = ctx.sampleRate; noiseBuf = ctx.createBuffer(1, n, n); const d = noiseBuf.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1; }
@@ -1239,7 +1239,7 @@
     plan() {
       if (W().night && W().night() > 0.3) return null;
       if (W().isRaining && W().isRaining()) return null;
-      if (!nearStop(['park', 'playground', 'gardens', 'beach', 'wheel'], 230)) return null;
+      if (!nearStop(['park', 'playground', 'gardens', 'beach', 'wheel'], 170)) return null;
       const r = oncoming(140, 80); if (!r || r.bus < 110) return null;
       const d = findPark(r, 40, 85, VEH.iceCream.len + 2, VEH.iceCream.w); if (d == null) return null;
       return { r, d };
