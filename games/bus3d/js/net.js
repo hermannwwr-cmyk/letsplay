@@ -21,12 +21,14 @@
         t.onClose = (why)             after open: 'ended' (the room is gone) | 'lost' (our link dropped)
         t.send(msg)                   to everyone else in the room;  t.close()  leave (quietly, no callbacks)
         connect(code, { rejoin: true }) after a dropped link: join or (re)make the room, whichever applies.
-      wsTransport(url) (the DEFAULT once RELAY below is filled in): the Cloudflare relay in /relay (a Worker and one
+      wsTransport(url) (the DEFAULT): the Cloudflare relay in /relay (a Worker and one
       Durable Object per room, no device hosts, the room lives while anyone is in it): a WebSocket to
       <RELAY>/room/lbc-<code>; it answers welcome {id, members}, join/leave, full; passes our JSON objects on with
       {from}; we ping every 20 s (mobile networks). It has no "create" step, so: making a room that already has members
       counts as 'taken' (a new code is drawn), and joining an empty room counts as 'noroom'.
-      starTransport(endpoint) (the fallback while RELAY is still the placeholder) implements it over peer-to-peer endpoints: the room's creator owns the PeerJS id
+      chainTransport([...]) tries the relay first and PeerJS when the relay can't be reached (and, when joining, when the
+      relay has no such room: the friend's device may have fallen back to PeerJS too).
+      starTransport(endpoint) (the PeerJS fallback) implements it over peer-to-peer endpoints: the room's creator owns the PeerJS id
       'lbcap-q7k2-<code>', the others connect to it and it forwards everyone's messages, batched every 50 ms. It also
       enforces the 10-bus limit. When the creator leaves, the room ends (a relay could keep it going).
    2. Endpoints for the star: PeerJS (the free public PeerJS cloud server, default STUN/TURN), or, ONLY with the test
@@ -51,11 +53,11 @@
   const PICS = ['bus', 'star', 'cat', 'sun', 'flower', 'fish', 'heart', 'moon', 'tree', 'kite', 'ball', 'boat'];
   const CODE_LEN = 5;
   const MODE = (location.search.match(/[?&]net=(local|off)\b/) || [])[1] || 'peer';
-  // The family-room relay (relay/worker.js on Cloudflare). While this is the placeholder, PeerJS is used instead.
-  const RELAY = 'wss://bus-captain-rooms.REPLACE.workers.dev';
+  // The family-room relay (relay/worker.js, deployed on Cloudflare). PeerJS is only the fallback when it can't be reached.
+  const RELAY = 'wss://bus-captain-rooms.hermannwwr.workers.dev';
   // test only: ?relay=ws://127.0.0.1:8787 (a local `wrangler dev`); only localhost addresses are accepted
   const RELAY_TEST = (location.search.match(/[?&]relay=(wss?:\/\/(?:127\.0\.0\.1|localhost)(?::\d{2,5})?)(?=[&#/]|$)/) || [])[1] || null;
-  const RELAY_URL = MODE !== 'peer' ? null : RELAY_TEST || (/REPLACE/.test(RELAY) ? null : RELAY);
+  const RELAY_URL = MODE !== 'peer' ? null : RELAY_TEST || RELAY;
   const wrapA = (a) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
   const randId = (n = 10) => { const a = new Uint8Array(n); crypto.getRandomValues(a); return Array.from(a, (v) => (v % 36).toString(36)).join(''); };
 
@@ -310,13 +312,44 @@
     return T;
   }
 
-  const makeTransport = () => (RELAY_URL ? wsTransport(RELAY_URL)
-    : starTransport(MODE === 'local' ? bcEndpoint : MODE === 'off' ? offEndpoint : pjEndpoint));
-  N.transports = { relay: wsTransport, star: starTransport, peerjs: pjEndpoint, local: bcEndpoint, make: makeTransport };
+  // Try transports in turn: the next one is tried when one can't be reached ('offline' / 'failed'), and, when joining,
+  // also when one has no such room (the friend's device may have fallen back too). 'taken' and 'full' answer at once;
+  // a "no room" from any of them wins over "can't reach" (so a wrong code still says "No room found").
+  function chainTransport(makers) {
+    const T = {};
+    let cur = null, done = false;
+    const pass = (fn) => (...a) => { if (!done && T[fn]) T[fn](...a); };
+    T.connect = function (code, opts) {
+      let i = 0, best = null;
+      const next = () => {
+        if (done) return;
+        if (i >= makers.length) { if (T.onError) T.onError(best || 'offline'); return; }
+        const t = cur = makers[i++]();
+        t.onOpen = pass('onOpen'); t.onPeerJoin = pass('onPeerJoin'); t.onPeerLeave = pass('onPeerLeave');
+        t.onMessage = pass('onMessage'); t.onClose = pass('onClose');
+        t.onError = (k) => {
+          if (done || t !== cur) return;
+          const on = k === 'offline' || k === 'failed' || (k === 'noroom' && !(opts && opts.create));
+          if (k === 'noroom') best = 'noroom'; else if (!best) best = k;
+          if (on) next(); else if (T.onError) T.onError(k);
+        };
+        t.connect(code, opts);
+      };
+      next();
+    };
+    T.send = (m) => { if (cur) cur.send(m); };
+    T.close = () => { done = true; if (cur) cur.close(); };
+    return T;
+  }
+  const makeTransport = () => (MODE === 'local' ? starTransport(bcEndpoint) : MODE === 'off' ? starTransport(offEndpoint)
+    : RELAY_URL && typeof WebSocket === 'function' && typeof window.Peer === 'function'
+      ? chainTransport([() => wsTransport(RELAY_URL), () => starTransport(pjEndpoint)])
+      : RELAY_URL ? wsTransport(RELAY_URL) : starTransport(pjEndpoint));
+  N.transports = { relay: wsTransport, chain: chainTransport, star: starTransport, peerjs: pjEndpoint, local: bcEndpoint, make: makeTransport };
   N.via = RELAY_URL ? 'relay' : MODE === 'peer' ? 'peerjs' : MODE;
   // Can we even try? (the device thinks it is online, and WebSocket / PeerJS and WebRTC are there.) Test modes skip it.
-  N.canTry = () => MODE !== 'peer' || (navigator.onLine !== false && (RELAY_URL ? typeof WebSocket === 'function'
-    : typeof window.Peer === 'function' && typeof window.RTCPeerConnection === 'function'));
+  N.canTry = () => MODE !== 'peer' || (navigator.onLine !== false && ((RELAY_URL && typeof WebSocket === 'function')
+    || (typeof window.Peer === 'function' && typeof window.RTCPeerConnection === 'function')));
 
   // ================= room logic (transport-agnostic) =================
   let T = null, members = new Set(), tickT = 0, retries = 0, lastHi = '';
