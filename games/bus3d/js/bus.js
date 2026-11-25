@@ -256,6 +256,94 @@
     lookSlow = 1 - BB.smooth(lookK) * (1 - look.slow);
     if (look.out && lookK <= 0) { look = null; lookSlow = 1; BB.emit('bus:look', { on: false }); }
   }
+  // ---------- the hidden speed boost ----------
+  // B.boost(): about 4 s at up to 1.6x the normal top speed (eased in and out), a sparkly trail of speed lines behind
+  // and the chase camera pulled back a little with a slightly wider view; then a 20 s rest (B.boostReady()). Refused
+  // (false) at or near a stop (within ~50 of the target bay), settling, during a question/stop/tow, in the depot yard,
+  // with the doors open or off the chase camera; it eases off for sharp bends and near the target, and stops early
+  // when any of those starts. Collisions still slide, the lane helper still steers. Emits 'bus:boost' {on}. Runs on
+  // the game clock (hold-aware).
+  let boostT = 0, boostK = 0, boostCool = 0, boostFov0 = null, trail = null, trailI = 0, trailEmit = 0;
+  function boostBlocked() {
+    if (B.atStop || settle || spin || B.doorsOpen || B.locked || B.noFuel || B.camMode !== 'chase') return true;
+    if (BB.jobs && BB.jobs.busy && BB.jobs.busy()) return true;
+    if (B.inDepot && B.inDepot()) return true;
+    if (B.target) { const bay = W().bayOf(B.target); if (Math.hypot(bay.x - fx, bay.z - fz) < 50) return true; }
+    return false;
+  }
+  // a sharp bend on the route within ~40 ahead
+  function bendAhead() {
+    const r = routePts; if (!r || r.length < 3) return false;
+    let bi = 0, bd = 1e9;
+    for (let i = 0, acc = 0; i < r.length && acc < 20; i++) { if (i) acc += Math.hypot(r[i].x - r[i - 1].x, r[i].z - r[i - 1].z); const d = Math.hypot(r[i].x - fx, r[i].z - fz); if (d < bd) { bd = d; bi = i; } }
+    let acc = 0, th0 = null;
+    for (let j = bi; j < r.length - 1 && acc < 40; j++) {
+      const sl = Math.hypot(r[j + 1].x - r[j].x, r[j + 1].z - r[j].z); if (sl < 0.3) continue;
+      const th = Math.atan2(r[j + 1].x - r[j].x, r[j + 1].z - r[j].z);
+      if (th0 == null) th0 = th; else if (Math.abs(wrapA(th - th0)) > 0.35) return true;
+      acc += sl;
+    }
+    return false;
+  }
+  B.boostReady = () => boostT <= 0 && boostCool <= 0 && !boostBlocked();
+  B.isBoosting = () => boostT > 0;
+  B.boost = function () {
+    if (boostT > 0 || boostCool > 0 || boostBlocked()) return false;
+    boostT = 4; BB.emit('bus:boost', { on: true });
+    return true;
+  };
+  function buildTrail() {
+    const N = 90, g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 3).fill(-999), 3));
+    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(N * 3), 3));
+    const c = document.createElement('canvas'); c.width = c.height = 32;
+    const x = c.getContext('2d'), gr = x.createRadialGradient(16, 16, 1, 16, 16, 15);
+    gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.4, 'rgba(255,255,255,.6)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = gr; x.fillRect(0, 0, 32, 32);
+    trail = new THREE.Points(g, new THREE.PointsMaterial({ size: 0.9, map: new THREE.CanvasTexture(c), vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+    trail.name = 'boostTrail'; trail.frustumCulled = false; trail.userData = { life: new Float32Array(N), vel: new Float32Array(N * 3), N };
+    BB.scene.add(trail);
+  }
+  const TRAIL_COLS = [[1, 0.85, 0.35], [0.4, 0.9, 1], [1, 0.55, 0.8], [1, 1, 1]];
+  function updateBoost(dt) {
+    if (boostT > 0) {
+      boostT -= dt;
+      if (boostBlocked()) boostT = 0;
+      if (boostT <= 0) { boostT = 0; boostCool = 20; BB.emit('bus:boost', { on: false }); }
+    } else if (boostCool > 0) boostCool -= dt;
+    const want = boostT > 0 && !bendAhead() ? 1 : 0;
+    boostK += BB.clamp(want - boostK, -dt / 0.7, dt / 0.8);
+    // the camera's view widens a little
+    const cam = BB.camera;
+    if (boostK > 0.001) { if (boostFov0 == null) boostFov0 = cam.fov; cam.fov = boostFov0 + 7 * BB.smooth(boostK); cam.updateProjectionMatrix(); }
+    else if (boostFov0 != null) { cam.fov = boostFov0; cam.updateProjectionMatrix(); boostFov0 = null; }
+    // the sparkly trail: speed lines streaming from the back corners while boosting
+    if (!trail && BB.scene && (boostK > 0 || boostT > 0)) buildTrail();
+    if (!trail) return;
+    const ud = trail.userData, pos = trail.geometry.attributes.position.array, col = trail.geometry.attributes.color.array;
+    if (boostK > 0.2 && Math.abs(B.speed) > 2) {
+      trailEmit += dt * 70 * boostK;
+      const r = fwdOf(ART ? hr : h), back = ART ? B.rear.position : B.front.position, tl = ART ? LR / 2 : LF / 2;
+      while (trailEmit >= 1) {
+        trailEmit -= 1; const i = trailI++ % ud.N, sd = (trailI % 2 ? 1 : -1) * (0.6 + Math.random() * 0.7);
+        pos[i * 3] = back.x - r.x * (tl + 0.3) + r.z * sd; pos[i * 3 + 1] = gy + 0.4 + Math.random() * 1.8; pos[i * 3 + 2] = back.z - r.z * (tl + 0.3) - r.x * sd;
+        ud.vel[i * 3] = -r.x * 2 + (Math.random() - 0.5); ud.vel[i * 3 + 1] = 0.6 + Math.random(); ud.vel[i * 3 + 2] = -r.z * 2 + (Math.random() - 0.5);
+        ud.life[i] = 0.7; const c = TRAIL_COLS[trailI % TRAIL_COLS.length]; col[i * 3] = c[0]; col[i * 3 + 1] = c[1]; col[i * 3 + 2] = c[2];
+      }
+    }
+    let alive = false;
+    for (let i = 0; i < ud.N; i++) {
+      if (ud.life[i] <= 0) continue;
+      ud.life[i] -= dt; alive = true;
+      if (ud.life[i] <= 0) { pos[i * 3 + 1] = -999; continue; }
+      const f = ud.life[i] / 0.7;
+      pos[i * 3] += ud.vel[i * 3] * dt; pos[i * 3 + 1] += ud.vel[i * 3 + 1] * dt; pos[i * 3 + 2] += ud.vel[i * 3 + 2] * dt;
+      col[i * 3] *= 0.97 + 0.03 * f; col[i * 3 + 1] *= 0.97 + 0.03 * f; col[i * 3 + 2] *= 0.97 + 0.03 * f;
+    }
+    trail.visible = alive;
+    trail.geometry.attributes.position.needsUpdate = true; trail.geometry.attributes.color.needsUpdate = true;
+  }
+
   // ---------- the special vehicles (fleet.js: taxi, fire engine, ambulance, ice cream van, tow truck) ----------
   // B.kind: 'bus' or the vehicle's kind (BB.fleet.KIND[type]). B.siren(on): the light bar flashes and a quiet,
   // original two-tone plays (fire engine and ambulance; on the game clock, so a hold silences it). B.raiseLadder(on)
@@ -1433,7 +1521,7 @@
       // chase: behind and above the front carriage, trailing its heading smoothly
       camH += wrapA(h - camH) * Math.min(1, dt * 2.2);
       const wide = BB.camera.aspect > 1.9;
-      let back = (wide ? 19 : 17) + Math.max(0, B.speed) * 0.25;
+      let back = (wide ? 19 : 17) + Math.max(0, B.speed) * 0.25 + 3 * BB.smooth(boostK);
       let up = wide ? 12.5 : 11.5;
       // a look at something (B.lookAt): swing round toward it (up to ~65 degrees) and tilt up for things in the sky
       let ch = camH, lk = null;
@@ -1669,7 +1757,8 @@
       kidSteer = canDrive ? (inp.left && !inp.right ? 1 : inp.right && !inp.left ? -1 : 0) : 0;
     }
     // speed: ease toward the wanted speed; braking when the pedal points the other way
-    const top = thr > 0 ? cruiseTop() : MAX_FWD;
+    let top = thr > 0 ? cruiseTop() : MAX_FWD;
+    if (boostK > 0 && thr > 0) top = Math.max(top, top + (MAX_FWD * 1.6 - top) * BB.smooth(boostK));   // (B.boost)
     let want = thr > 0 ? thr * top : thr * MAX_BACK;
     // assist also eases off for bends and turns (like a careful driver), unless the child is steering
     // In the last stretch before the target bay (lined up with it) the parking logic takes over: steer along the
@@ -1976,7 +2065,7 @@
     if (!B.front) return;
     clock += dt; bumpCool -= dt; wobble = Math.max(0, wobble - dt * 2.5);
     let ds = 0;
-    updateLook(dt); moveParts(dt);
+    updateLook(dt); moveParts(dt); updateBoost(dt);
     if (spin) updateSpin(dt); else { ds = settle ? 0 : drive(dt); updateSettle(dt); }
     gy += (W().groundY(fx, fz) - gy) * Math.min(1, dt * 8);
     placeModel();

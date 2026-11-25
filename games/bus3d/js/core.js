@@ -849,6 +849,11 @@
             dot(x, fx2, fy, 3, '#fff6e0');
           }
           break;
+        case 'turbo':                 // the secret turbo: a lightning bolt on a golden star
+          paper(x, (p) => starP(p, 50, 52, 46, 24), P.honey, { rimColor: P.honeyDark });
+          paper(x, (p) => { p.moveTo(56, 14); p.lineTo(30, 56); p.lineTo(48, 56); p.lineTo(40, 88); p.lineTo(70, 44); p.lineTo(52, 44); p.closePath(); }, '#4fa3e0', { depth: 0.4 });
+          shine(x, 38, 34, 6, 4, -0.6, 0.6);
+          break;
         case 'plane':
           x.fillStyle = '#bfe6f7'; x.beginPath(); rrP(x, 4, 4, 92, 92, 18); x.fill();
           paper(x, (p) => { arcP(p, 24, 74, 10); arcP(p, 38, 70, 12); arcP(p, 52, 76, 9); }, '#ffffff', { rimColor: '#c9dceb' });
@@ -999,6 +1004,8 @@
       tone(N(24), 0.25, { type: 'sine', vol: 0.08, at: sec }); tone(N(31), 0.35, { type: 'sine', vol: 0.07, at: sec + 0.12 });
     },
     whoosh() { tone(N(5), 0.35, { type: 'triangle', vol: 0.05, slide: N(29) }); },
+    // the secret turbo: a whoosh and a tone rising fast (quiet: peak 0.08)
+    turbo() { tone(N(5), 0.35, { type: 'triangle', vol: 0.05, slide: N(29) }); tone(N(12), 0.6, { type: 'square', vol: 0.04, slide: N(36), at: 0.08 }); tone(N(19), 0.5, { type: 'triangle', vol: 0.08, slide: N(43), at: 0.2 }); },
     sparkle() { [31, 35, 38, 43].forEach((s, i) => tone(N(s), 0.14, { type: 'sine', vol: 0.05, at: i * 0.06 })); },
     // goodnight: a slow, soft falling lullaby phrase
     lullaby() {

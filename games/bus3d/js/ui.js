@@ -126,6 +126,12 @@
   .ctl-wheel.lefty .bbu-ctl { left: auto; right: calc(var(--sr) + 6px); }
   .bbu-joy.hi, .bbu-wheel.hi { animation: bbu-hi .65s ease-in-out 2; }
   @keyframes bbu-hi { 50% { transform: scale(1.08); filter: drop-shadow(0 0 14px rgba(255,212,92,.95)); } }
+  /* "TURBO!" over the bus for a moment (the secret turbo) */
+  .bbu-turbo { position: absolute; left: 50%; top: 46%; z-index: 21; pointer-events: none; font: 700 52px/1 ${BB.FONT}; color: #ffd45c; letter-spacing: 2px;
+    -webkit-text-stroke: 3px #d98700; paint-order: stroke fill; text-shadow: 0 4px 0 #b06e00, 0 0 18px rgba(255,212,92,.8); animation: bbu-turbo 1.6s ease-out forwards; }
+  @keyframes bbu-turbo { 0% { transform: translate(-50%, 20px) scale(.4) rotate(-8deg); opacity: 0; } 18% { transform: translate(-50%, 0) scale(1.15) rotate(-4deg); opacity: 1; }
+    75% { opacity: 1; } 100% { transform: translate(-50%, -50px) scale(1) rotate(-4deg); opacity: 0; } }
+  @media (max-height: 520px) { .bbu-turbo { font-size: 38px; } }
   .bbu-ask .price { display: flex; align-items: center; gap: 6px; font: 700 34px/1 ${BB.FONT}; color: #7a4a00; background: #ffd45c; border: 3px solid #d98700;
     border-radius: 24px; padding: 2px 16px 2px 6px; box-shadow: 0 3px 0 rgba(150,90,0,.3); }
   .bbu-ask .price canvas { width: 40px; height: 40px; }
@@ -464,7 +470,14 @@
       return b;
     };
     pedBack = pedal('back', 'back', 'Back'); pedGo = pedal('go', 'go', 'Go');
-    hornEl = U.btn(hud, 'horn', 'Horn', () => BB.bus.horn(), 'drv bbu-horn');
+    // Horn. A secret: three quick honks (within about a second) while driving fire the turbo, when bus.js has one
+    // ready (BB.bus.boost / boostReady); otherwise it is just the horn
+    const honks = [];
+    hornEl = U.btn(hud, 'horn', 'Horn', () => {
+      BB.bus.horn();
+      const now = performance.now(); honks.push(now); while (honks.length && now - honks[0] > 1100) honks.shift();
+      if (honks.length >= 3) { honks.length = 0; secretTurbo(); }
+    }, 'drv bbu-horn');
     assistEl = U.btn(hud, 'helper', 'Helper', () => U.setAssist(!BB.save.assist), 'drv bbu-assist');
     // Controls: swap the joystick and the steering wheel at once (the new one glows for a moment where it appears)
     ctlEl = U.btn(hud, 'controls', 'Controls', () => {
@@ -594,6 +607,24 @@
   }
   U.syncWash = syncWash;
   setInterval(() => { if (hud && !hud.classList.contains('off')) { syncWash(); syncSiren(); } }, 1000);
+  // ---------- the secret turbo (three quick honks) ----------
+  function secretTurbo() {
+    const B = BB.bus;
+    if (!B || typeof B.boost !== 'function' || !driving || BB.bedtime) return;
+    if (typeof B.boostReady === 'function' && !B.boostReady()) return;         // (cooling down, or near a stop: just the horn)
+    let r = false; try { r = B.boost(); } catch (e) { console.error(e); }
+    if (r === false) return;
+    if (BB.sfx.turbo) BB.sfx.turbo(); else BB.sfx.whoosh();
+    BB.say('Turbo!');
+    const t = BB.el('div', 'bbu-turbo', U.root, 'TURBO!'); BB.later(1700, () => t.remove());
+    const m = BB.save.spotted && typeof BB.save.spotted === 'object' && !Array.isArray(BB.save.spotted) ? BB.save.spotted : (BB.save.spotted = {});
+    if (!m.turbo) {                                        // found for the first time: a sticker for the book
+      m.turbo = 1; BB.saveNow();
+      BB.say('You found a secret!', { queue: true });
+      gotSticker('turbo', 'Secret turbo', () => BB.spotPic('turbo', 128));
+    }
+  }
+  U.secretTurbo = secretTurbo;
   // ---------- the other rides ----------
   // What kind of ride this is: 'bus', 'taxi', 'fire', 'ambulance', 'icecream' or 'tow' (fleet.js KIND when it says).
   const KIND_OF = { fire: 'fire', fireEngine: 'fire', fireTruck: 'fire', ambulance: 'ambulance', medic: 'ambulance', checkup: 'ambulance',
@@ -928,7 +959,10 @@
   // (events.js: BB.events.NAMES {id: name} and seen {id: times}; also saved as BB.save.spotted)
   function spotList() {
     const N = BB.events && BB.events.NAMES;
-    return N && typeof N === 'object' ? Object.keys(N).map((id) => [id, N[id]]) : SPOTS;
+    const list = N && typeof N === 'object' ? Object.keys(N).map((id) => [id, N[id]]) : SPOTS.slice();
+    // (the secret, three quick honks: only in the book once found, so it stays a secret)
+    if (BB.save.spotted && BB.save.spotted.turbo && !list.some((q) => q[0] === 'turbo')) list.push(['turbo', 'Secret turbo']);
+    return list;
   }
   function spotSeen() {
     const out = new Set();
