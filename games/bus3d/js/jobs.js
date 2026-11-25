@@ -682,7 +682,8 @@
     radial-gradient(circle at 50% 27%, var(--pc) 0 26%, transparent 28%),
     radial-gradient(ellipse 50% 42% at 50% 100%, var(--pc) 0 98%, transparent 100%); }
   .bbq-term.n2.add .bbq-dots { --pc: #19a79b; }
-  .bbq-sum.bags .bbq-dots i { background: var(--pc); border-radius: 5px; height: 80%; margin-top: 20%; box-shadow: inset 0 -4px 0 rgba(0,0,0,.14), inset 0 4px 0 rgba(255,212,92,.9); }
+  .bbq-sum.bags .bbq-dots i { background: none; }
+  .bbq-sum.bags .bbq-dots i svg { width: 100%; height: 100%; display: block; }
   .bbq-term.n2.sub .bbq-dots { --pc: #ff6b5c; } .bbq-term.n2.sub .bbq-dots i { opacity: .45; }
   .bbq-btn { width: 88px; height: 88px; border-radius: 26px; border: none; font: 700 50px/1 'Fredoka', 'Baloo 2', system-ui, sans-serif;
     color: #fff; background: #4fa3e0; box-shadow: inset -5px -6px 0 rgba(0,0,0,.12), 0 6px 0 #2f7fbc; cursor: pointer;
@@ -802,11 +803,14 @@
   const MINUS = '\u2212';
   function buildSum(q) {
     if (!sumEl) return;
-    const dots = (n) => '<span class="bbq-dots">' + '<i></i>'.repeat(n) + '</span>';
+    // little people under each number, or (suitcases, firefighters, teddies, ice creams, cars) tiny copies of the card's pictures
+    const mode = q.icon || (q.what === 'bags' ? 'bags' : 'people');
+    const pic = (i) => mode === 'bags' ? suitcase(i) : ICONS[mode] ? ICONS[mode](i) : '';
+    const dots = (n, from = 0) => '<span class="bbq-dots">' + Array.from({ length: n }, (_, i) => `<i>${mode === 'people' ? '' : pic(from + i)}</i>`).join('') + '</span>';
     sumEl.innerHTML =
       `<span class="bbq-term n1" data-p="n1"><b>${q.n}</b>${dots(q.n)}</span>` +
       `<span class="bbq-term op" data-p="n2"><b>${q.kind === 'add' ? '+' : MINUS}</b></span>` +
-      `<span class="bbq-term n2 ${q.kind}" data-p="n2"><b>${q.k}</b>${dots(q.k)}</span>` +
+      `<span class="bbq-term n2 ${q.kind}" data-p="n2"><b>${q.k}</b>${dots(q.k, q.n)}</span>` +
       `<span class="bbq-term op" data-p="ask"><b>=</b></span>` +
       `<span class="bbq-term ans" data-p="ask"><b>?</b></span>`;
   }
@@ -1082,7 +1086,7 @@
     birdTo(first >= 0 ? first : null);
     if (bird) bird.classList.add('talk');
     card.classList.add('wait');
-    await say("Let's count together! Tap each friend and count.");
+    await say(vmode() ? "Let's count together! Tap each picture and count." : "Let's count together! Tap each friend and count.");
     if (s !== seq || !card) return;
     if (bird) bird.classList.remove('talk');
     card.classList.remove('wait');
@@ -1164,7 +1168,7 @@
         litSum('n1');
         if (!await step(`We have ${n}.`, 700)) return;
         litSum('n2');
-        if (!await step(`${k} more got on. Let's count on!`, 300)) return;
+        if (!await step(vmode() ? `And ${k} more. Let's count on!` : `${k} more got on. Let's count on!`, 300)) return;
         const last = full ? a : a - 1;
         for (let i = n; i < last; i++) { demoSeat(i + 1); if (!await countSeat(i, i + 1)) return; }
         if (full) {
@@ -1187,11 +1191,11 @@
         litSum('n2');
         if (q.demo) demoSeat(a);
         else { scene.wave(J.extras); J.extras.forEach((m) => { m.userData.jump = 1; m.userData.jumpDelay = Math.random() * 0.3; }); }
-        if (!await step(`${k} got off. Bye bye!`, 600)) return;
+        if (!await step(vmode() ? `Take away ${k}.` : `${k} got off. Bye bye!`, 600)) return;
         litSum('ask');
-        if (a === 0) { if (full && !await step('Nobody is left!', 300)) return; }
+        if (a === 0) { if (full && !await step(vmode() ? 'None are left!' : 'Nobody is left!', 300)) return; }
         else {
-          if (!await step("Who is left? Let's count.", 200)) return;
+          if (!await step(vmode() ? "How many are left? Let's count." : "Who is left? Let's count.", 200)) return;
           const last = full ? a : a - 1;
           let from = 0;
           if (last >= 5 && a > 5) {
@@ -1462,7 +1466,9 @@
     return ok.length ? ok : (W.stops || []).filter((s) => s && s.pos && s.say);
   }
   const place = (name, fallback) => { const P2 = BB.world.places; return (P2 && P2[name] && P2[name].pos) ? P2[name] : fallback; };
-  const sayOf = (t) => (t && t.say) || 'there';
+  const sayOf = (t) => (t && t.say && t.say !== 'here') ? t.say : 'the spot on the map';
+  // where a scene is: "at the beach", or (a plain roadside spot) "down the road"
+  const where = (t) => (t && t.say && t.say !== 'here') ? ` at ${t.say}` : '';   // a plain roadside spot: no name
   function farFrom(list, here) { const l = list.filter((x) => x !== here && x !== J.lastStop); return BB.pick(l.length ? l : list); }
 
   // A question about the vehicle's things: kind 'add' or 'sub' (sub becomes add before taking away is learned),
@@ -1579,7 +1585,7 @@
     const carry = { bags: null, teddies: null };
     if (kind === 'taxi') {
       const fam = BB.randInt(1, 4);
-      L.push({ to: spot, start: `Taxi job! A family needs a ride. Drive to ${sayOf(spot)}!`, run: async (ok) => {
+      L.push({ to: spot, start: `Taxi job! A family is waiting${where(spot)}. Let's go!`, run: async (ok) => {
         await say(plural(fam, 'Hello, taxi! In I get!', 'Hello, taxi! In we get!')); if (!ok()) return;
         hatch(true); await hopIn(fam); if (!ok()) return;
         const q = sceneQ('add', null, WORDS.bagsIn, 'bags'); await askScene(q); carry.bags = q.answer; hatch(false);
@@ -1591,7 +1597,7 @@
       } });
     } else if (kind === 'fire') {
       const station = place('fireStation', W.depot);
-      L.push({ to: spot, start: `Fire engine! There's smoke at ${sayOf(spot)}. Siren on, let's go!`, onGo: () => siren(true), run: async (ok) => {
+      L.push({ to: spot, start: `Fire engine! There's smoke${where(spot)}! Siren on, let's go!`, onGo: () => siren(true), run: async (ok) => {
         await say("We're here! Ladder up!"); ladder(true); if (!ok()) return;
         await askScene(sceneQ('add', null, WORDS.fighters, 'fighter')); if (!ok()) return;
         if (LEVELS[level()].sub > 0) { await askScene(sceneQ('sub', null, WORDS.windows, 'window')); if (!ok()) return; }
@@ -1602,7 +1608,7 @@
     } else if (kind === 'ambulance') {
       const clinic = place('clinic', farFrom(stops, spot));
       const auntie = { geo: (FRIENDS[2].geo || (FRIENDS[2].geo = friendGeo(FRIENDS[2].look))) };
-      L.push({ to: spot, start: `Ambulance! Auntie needs a check-up. Let's go to ${sayOf(spot)}!`, onGo: () => siren(true), run: async (ok) => {
+      L.push({ to: spot, start: `Ambulance! Auntie needs a check-up. She's waiting${where(spot)}. Let's go!`, onGo: () => siren(true), run: async (ok) => {
         siren(false);
         await say('Hello, Auntie! Hop in!'); if (!ok()) return;
         await hopIn(1, auntie); if (!ok()) return;
@@ -1629,7 +1635,7 @@
       } });
     } else if (kind === 'tow') {
       const yard = W.depot;
-      L.push({ to: spot, start: `Tow truck! A car has broken down at ${sayOf(spot)}. Let's help!`, run: async (ok) => {
+      L.push({ to: spot, start: `Tow truck! A car has broken down${where(spot)}. Let's help!`, run: async (ok) => {
         const car = brokenCar();
         if (!(BB.bus.has && BB.bus.has('hook')) || vcall(['hookOn', 'hookCar'], car) === undefined) {
           // no hook helper: the car is lifted behind the truck

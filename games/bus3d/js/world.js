@@ -545,6 +545,7 @@
   // Where the bus parks at a stop (or the depot): its nose 3 past the shelter, 1 toward the kerb from its lane.
   W.bayOf = function (st) {
     if (st._bay) return st._bay;
+    if (st.edge == null && W.makeBay) W.makeBay(st);           // (a job target {pos, heading}: made into a bay first)
     const e = W.edge(st.edge), p = W.pointAt(e, st.s), off = C.lane + 0.45;
     const nx = p.x + st.side.x * off + st.fwd.x * 3, nz = p.z + st.side.z * off + st.fwd.z * 3;
     return (st._bay = { nose: { x: nx, z: nz }, x: nx - st.fwd.x * 7.2, z: nz - st.fwd.z * 7.2, heading: st.heading, fwd: st.fwd, side: st.side, len: 15.4, width: 3.4 });
@@ -1750,7 +1751,8 @@
     };
     const F = W.places.fireStation, RED = '#e8463a', CREAM = '#fff6e0';
     b.at(F.pos.x, 0, F.pos.z, F.heading, (q) => {
-      q.box(15, 0.14, 26, '#cfc6b8', 7.5, 0.02, 0);                                 // the apron
+      q.box(21, 0.14, 26, '#cfc6b8', 10.5, 0.02, 0);                                // the apron
+      q.at(6, 0, 0, 0, (q) => {                                                      // (set back 6 more: room for the camera)
       q.box(14, 8, 22, CREAM, 21, 0, 0);                                             // the engine house
       q.box(14.6, 1.2, 22.6, RED, 21, 8, 0);                                         // red parapet
       for (const z of [-5.5, 5.5]) {                                                 // two big red doors with windows
@@ -1762,23 +1764,25 @@
       q.box(5, 15, 5, CREAM, 25.5, 0, -8.5); q.box(5.6, 1, 5.6, RED, 25.5, 15, -8.5);   // the hose tower
       for (const y of [4, 8, 12]) q.box(0.2, 1.2, 1.6, '#a9d6ec', 22.9, y, -8.5);
       q.cyl(0.6, 0.6, 1.2, 8, '#ffd45c', 25.5, 16, -8.5);                             // a little bell on top
+      });
       q.box(0.5, 1.1, 0.5, RED, 3.2, 0, 9.5); q.cyl(0.32, 0.32, 0.25, 8, '#ffd45c', 3.2, 1.1, 9.5);   // a hydrant
     });
-    addBoxAt(F.pos.x, F.pos.z, F.heading, 21, 0, 7, 11, 9); addBoxAt(F.pos.x, F.pos.z, F.heading, 25.5, -8.5, 2.6, 2.6, 16);
-    sign(F, 13.6, 7.2, 0, 3.4, RED);
+    addBoxAt(F.pos.x, F.pos.z, F.heading, 27, 0, 7, 11, 9); addBoxAt(F.pos.x, F.pos.z, F.heading, 31.5, -8.5, 2.6, 2.6, 16);
+    sign(F, 19.6, 7.2, 0, 3.4, RED);
     const H = W.places.clinic, MINT = '#d3efe2';
     b.at(H.pos.x, 0, H.pos.z, H.heading, (q) => {
-      q.box(14, 0.12, 4, '#e4d6bd', 7, 0.02, 0);                                     // the path in
+      q.box(20, 0.12, 4, '#e4d6bd', 10, 0.02, 0);                                    // the path in
+      q.at(6, 0, 0, 0, (q) => {
       q.box(16, 6.5, 24, '#fbfbf6', 22, 0, 0);                                       // the clinic
       q.box(16.4, 0.8, 24.4, MINT, 22, 6.5, 0);
       q.box(0.3, 3, 4, '#a9d6ec', 13.9, 0.2, 0);                                     // glass doors
       q.box(3, 0.3, 6, '#7fd1c3', 12.6, 3.4, 0);                                     // a canopy
       for (const z of [-8, -4, 4, 8]) q.box(0.3, 1.6, 2.6, '#a9d6ec', 13.9, 2.6, z);
       for (const z of [-9, 9]) { q.cyl(1.4, 1.6, 0.6, 8, '#e3d6bc', 10, 0, z); q.ball(1.3, '#6fc45a', 10, 1.4, z, 0); }   // planters
-      q.box(0.3, 0.9, 0.3, '#7f8a96', 3, 0, -6); q.box(0.2, 0.6, 2.2, '#ff8fab', 3, 0.9, -6);   // a little bench
+      });
     });
-    addBoxAt(H.pos.x, H.pos.z, H.heading, 22, 0, 8, 12, 7);
-    sign(H, 13.6, 5.3, -6, 2.8, '#ff8fab');
+    addBoxAt(H.pos.x, H.pos.z, H.heading, 28, 0, 8, 12, 7);
+    sign(H, 19.7, 5.0, -6, 2.6, '#ff8fab');
   }
   // Picture signs: one atlas texture, one mesh, both faces. Stops' pole signs, the depot board and the landmark boards.
   // The rounded corners are cut with alphaTest (no black corners).

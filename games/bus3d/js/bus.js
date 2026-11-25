@@ -281,28 +281,30 @@
     g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.035, t + 0.04); g.gain.setValueAtTime(0.035, t + 0.36); g.gain.linearRampToValueAtTime(0, t + 0.44);
     o.connect(g); g.connect(A.sfxBus || A.master); o.start(t); o.stop(t + 0.46);
   }
-  B.raiseLadder = function (on) { if (!extras.ladder) return false; ladderW = on ? 1 : 0; return true; };
-  B.openHatch = function (on) { if (!extras.hatch) return false; hatchW = on ? 1 : 0; return true; };
+  B.raiseLadder = function (on) { if (!extras.ladder) return false; partW.ladder = on ? 1 : 0; return true; };
+  B.openHatch = function (on) { if (!extras.hatch) return false; partW.hatch = on ? 1 : 0; return true; };
+  B.raiseBoom = function (on) { if (!extras.boom) return false; partW.boom = on ? 1 : 0; return true; };   // (tow truck)
   B.hookOn = function (obj) {
     const hk = extras.hook;
     if (!hk || !hk.isObject3D) return false;
     if (hooked && hooked !== obj) { if (BB.scene) BB.scene.attach(hooked); hooked = null; }
-    if (obj && obj.isObject3D) { hk.attach(obj); obj.position.set(0, 0, 0); hooked = obj; BB.emit('bus:hooked', { on: true }); }
+    const end = (hk.userData && hk.userData.end && hk.userData.end.isObject3D) ? hk.userData.end : hk;
+    if (obj && obj.isObject3D) { end.attach(obj); obj.position.set(0, 0, 0); hooked = obj; BB.emit('bus:hooked', { on: true }); }
     else if (!obj) BB.emit('bus:hooked', { on: false });
     return true;
   };
   B.hooked = () => hooked;
   B.scenePoint = function (tag) { const w = W(); return w.sceneSpot ? w.sceneSpot(tag, fx, fz) : null; };
-  // ease the ladder and hatch (a part may bring its own set(t), else it turns about x by userData.max)
+  // ease the ladder, the hatch and the boom between the angles fleet.js gives (ladder and boom turn about x through
+  // userData.raise, the hatch about z through userData.open)
   function moveParts(dt) {
-    for (const [k, want] of [['ladder', ladderW], ['hatch', hatchW]]) {
-      const o = extras[k]; if (!o) continue;
-      const cur = k === 'ladder' ? ladderT : hatchT, t = cur + BB.clamp(want - cur, -dt * 0.9, dt * 0.9);
+    for (const k of ['ladder', 'hatch', 'boom']) {
+      const o = extras[k]; if (!o || !o.isObject3D) continue;
+      const cur = partT[k] || 0, t = cur + BB.clamp((partW[k] || 0) - cur, -dt * 0.9, dt * 0.9);
       if (t === cur) continue;
-      if (k === 'ladder') ladderT = t; else hatchT = t;
-      const e = BB.smooth(t);
-      if (o.userData && typeof o.userData.set === 'function') { try { o.userData.set(e); } catch (er) { console.error(er); } }
-      else if (o.isObject3D && o.userData.rest) o.rotation.x = o.userData.rest.x + e * (o.userData.max != null ? o.userData.max : (k === 'ladder' ? -0.75 : -1.2));
+      partT[k] = t;
+      const e = BB.smooth(t), r = o.userData.raise || o.userData.open || (k === 'hatch' ? [0, 1.5] : [0, -0.75]);
+      o.rotation[k === 'hatch' ? 'z' : 'x'] = r[0] + (r[1] - r[0]) * e;
     }
     if (sirenOn) { sirenT -= dt; if (sirenT <= 0) { sirenT = 0.48; sirenHi = !sirenHi; sirenNote(sirenHi); } }
     if (extras.siren && typeof extras.siren.update === 'function') { try { extras.siren.update(dt); } catch (e) { /* ignore */ } }
@@ -316,7 +318,8 @@
   let paintMat, glassMat, lampMat, wheelsF = [], wheelsR = [], steerWheels = [], doors = [], wipers = [];
   let heads, hair, shirts, lightCones, beacon, ribbon, ribbonTex, bayGlow, bayTex, wayArrow, jointF = null, jointR = null;
   let M = null;                       // the installed model: {type, roofParts, mounts, routeSign, doorLocal, roofY, paintMats}
-  let extras = {}, ladderT = 0, ladderW = 0, hatchT = 0, hatchW = 0, sirenOn = false, sirenT = 0, sirenHi = false, hooked = null;
+  let extras = {}, partT = {}, partW = {}, sirenOn = false, sirenT = 0, sirenHi = false, hooked = null;
+  let WHEEL = { r: 0.52, x: 1.08 };      // the model's tyre radius and wheel offset (the parts shop scales from these)
   let roofT = 0;                      // 0 = roof on, 1 = roof lifted away (the stop's cut-away view)
   const rearDummy = new THREE.Object3D();
   // Rounded profile (in x-y) extruded along z: the bus body's soft paper-cut look.
@@ -417,9 +420,11 @@
     MAX_FWD = V.top; MAX_CRUISE = V.cruise; ACCEL = V.accel; MAX_STEER = V.steer;
     // the vehicles' moving bits (fleet.js): ladder, hatch, tow hook, siren light bar
     const ud = Object.assign({}, B.front.userData || {}, m.userData || {});
-    extras = { ladder: m.ladder || ud.ladder || null, hatch: m.hatch || ud.hatch || null, hook: m.hook || ud.hook || null, siren: m.siren || ud.siren || null };
-    for (const k of ['ladder', 'hatch']) { const o = extras[k]; if (o && o.isObject3D) o.userData.rest = o.userData.rest || o.rotation.clone(); }
-    ladderT = ladderW = hatchT = hatchW = 0;
+    extras = { ladder: m.ladder || ud.ladder || null, hatch: m.hatch || ud.hatch || null, boom: m.boom || ud.boom || null, hook: m.hook || ud.hook || null, siren: m.siren || ud.siren || null };
+    partT = { ladder: 0, hatch: 0, boom: 0 }; partW = { ladder: 0, hatch: 0, boom: 0 };
+    const bm = extras.boom, br = bm && bm.userData && bm.userData.raise;     // (the tow boom starts part-raised)
+    if (br) partT.boom = partW.boom = BB.clamp((bm.rotation.x - br[0]) / ((br[1] - br[0]) || 1), 0, 1);
+    WHEEL = { r: (m.wheels && m.wheels.radius) || 0.52, x: (m.wheels && m.wheels.x) || 1.08 };
     if (sirenOn) { if (B.kind === 'fire' || B.kind === 'ambulance' || extras.siren) setSirenLights(true); else sirenOn = false; }
     // roof parts fade for the stop's cut-away view: a fleet model hands over its roof material; ours get clones
     const paintMats = [m.paintMaterial || paintMat], roofMats = [];
@@ -680,12 +685,16 @@
     heads.instanceMatrix.needsUpdate = hair.instanceMatrix.needsUpdate = shirts.instanceMatrix.needsUpdate = true;
   }
 
-  B.setPaint = function (c) {
-    const found = BB.PAINTS.find((p) => p.id === c);
-    B.paint = found ? found.color : (typeof c === 'string' && c[0] === '#' ? c : P.busGreen);
-    if (paintMat) paintMat.color.set(B.paint);
-    if (M && M.setPaint) M.setPaint(B.paint);
-    else if (M) for (const pm of M.paintMats) if (pm && pm.color) pm.color.set(B.paint);
+  // (the other vehicles keep their own colours: a red fire engine, a white ambulance, a yellow taxi; force = true
+  // repaints one anyway)
+  B.setPaint = function (c, force) {
+    const own = B.kind !== 'bus' && BB.fleet && BB.fleet.PAINT && BB.fleet.PAINT[B.type];
+    const found = BB.PAINTS.find((p) => p.id === c), want = found ? found.color : (typeof c === 'string' && c[0] === '#' ? c : P.busGreen);
+    if (!own || force) B.paint = want;                     // (B.paint stays the bus's colour while another vehicle shows)
+    const col = own && !force ? own : want;
+    if (paintMat) paintMat.color.set(col);
+    if (M && M.setPaint) M.setPaint(col);
+    else if (M) for (const pm of M.paintMats) if (pm && pm.color) pm.color.set(col);
   };
 
   // ---------- stickers and hats ----------
@@ -759,13 +768,13 @@
   B.parts = { lights: 'std', bumpers: 'std', wheels: 'std', rims: 'std', glow: '#5fd0ff' };
   let bumperF = null, bumperR = null, lightPart = null, lightRoof = null;
   const glows = [];
-  const tyreR = () => B.parts.wheels === 'big' ? 0.62 : B.parts.wheels === 'chunky' ? 0.57 : 0.52;
+  const tyreR = () => (B.parts.wheels === 'big' ? 0.62 : B.parts.wheels === 'chunky' ? 0.57 : 0.52) * WHEEL.r / 0.52;
   // One axle's two wheels (tyres + rims), merged; the wheel spins about x.
   function wheelGeometry() {
     const w = B.parts.wheels, rim = B.parts.rims, b = BB.mk.builder(), R = tyreR(), Wd = w === 'chunky' ? 0.46 : w === 'big' ? 0.42 : 0.36;
     const RIM = { std: ['#dfe3ea', '#aab2bf', 1], star: ['#4a4552', '#e6e9ef', 5], gold: ['#ffd45c', '#d99a1c', 6], red: ['#3a3440', '#ff4a3a', 8], blue: ['#7fb2ff', '#e6f0ff', 6] }[rim] || ['#dfe3ea', '#aab2bf', 1];
     for (const s of [-1, 1]) {
-      const x = s * 1.08, face = x + s * (Wd / 2 + 0.01);
+      const x = s * WHEEL.x, face = x + s * (Wd / 2 + 0.01);
       b.add(new THREE.CylinderGeometry(R, R, Wd, 14), '#2f2a33', x, 0, 0, 0, 0, Math.PI / 2);
       if (w === 'chunky') for (let k = 0; k < 12; k++) { const a = k / 12 * Math.PI * 2; b.add(new THREE.BoxGeometry(Wd + 0.02, 0.1, 0.16), '#3a3440', x, Math.cos(a) * R, Math.sin(a) * R, 0, a, 0); }
       if (w === 'white') b.add(new THREE.CylinderGeometry(R * 0.82, R * 0.82, Wd + 0.02, 14), '#fbf7ee', x, 0, 0, 0, 0, Math.PI / 2);
@@ -1400,9 +1409,11 @@
         // sea: only a thin strip of the roof shows above the title; on wide, short screens the bus sits lower)
         const wideS = BB.camera.aspect > 1.6;
         const tc = wideS ? { fo: 23, so: 14, y: 8.6, lf: -6, ls: -6, ly: 0.4, sw: 0.5 } : { fo: 15, so: 11.5, y: 7.5, lf: -6, ls: -5, ly: 0, sw: 1.2 };
-        const sw = Math.sin(orbit) * tc.sw, s2 = Math.sin(orbit * 0.7) * 0.25;
-        camPos.set(mx + f.x * (tc.fo + sw) - kx * (tc.so - sw), tc.y + s2, mz + f.z * (tc.fo + sw) - kz * (tc.so - sw));
-        camLook.set(mx + f.x * tc.lf - kx * tc.ls, tc.ly, mz + f.z * tc.lf - kz * tc.ls);
+        // (a small vehicle, a taxi or a van, gets the same view from closer)
+        const sc = BB.clamp(totalLen() / 10.8, 0.55, 1), sw = Math.sin(orbit) * tc.sw * sc, s2 = Math.sin(orbit * 0.7) * 0.25;
+        const fo = tc.fo * sc + sw, so = tc.so * sc - sw, cy = 1.2 + (tc.y - 1.2) * sc, ly = tc.ly * sc;
+        camPos.set(mx + f.x * fo - kx * so, cy + s2, mz + f.z * fo - kz * so);
+        camLook.set(mx + f.x * tc.lf * sc - kx * tc.ls * sc, ly, mz + f.z * tc.lf * sc - kz * tc.ls * sc);
       } else {
         const a = 0.75 + Math.sin(orbit) * 0.35;
         camPos.set(mx + (f.x * Math.cos(a) - kx * Math.sin(a)) * 21, 8 + Math.sin(orbit * 0.7), mz + (f.z * Math.cos(a) - kz * Math.sin(a)) * 21);
@@ -1993,7 +2004,7 @@
     }
 
     // wheels, doors, passengers, face
-    wheelAngle += (spin ? 0 : realMove) / 0.52; realMove = 0;
+    wheelAngle += (spin ? 0 : realMove) / tyreR(); realMove = 0;
     for (const w of wheelsF) w.rotation.x = wheelAngle;
     for (const w of wheelsR) w.rotation.x = wheelAngle;
     for (const w of steerWheels) w.rotation.y = B.steer * 0.8;
