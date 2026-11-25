@@ -1082,7 +1082,7 @@
     // on the way the bus faces unless going round would be much longer.
     const f = fwdOf(h), facing = f.x * here.dx + f.z * here.dz, TURN = 300, UTURN = 1500;   // turning round is hard in a bendy bus: go round the block instead
     const key = (ed, d) => ed.id + (d > 0 ? '+' : '-'), endOf = (ed, d) => d > 0 ? ed.b : ed.a;
-    const dist = {}, prev = {}, open = [];
+    const dist = {}, prev = {}, open = [], yardOK = te.kind === 'yard' || e.kind === 'yard' || stop === W().depot || stop === W().washBay;
     const seed = (d, c) => { const k = key(e, d); dist[k] = c; prev[k] = null; open.push({ ed: e, d, k }); };
     seed(1, e.length - here.s + (facing < -0.3 ? TURN : 0));
     seed(-1, here.s + (facing > 0.3 ? TURN : 0));
@@ -1098,6 +1098,7 @@
       }
       for (const eid of W().node(n).edges) {
         const e2 = W().edge(eid), d2 = e2.a === n ? 1 : -1, k2 = key(e2, d2);
+        if (e2.kind === 'yard' && !yardOK) continue;          // (through the depot yard only to or from the depot)
         const c = c0 + e2.length + (e2 === it.ed ? UTURN : 0);
         if (dist[k2] == null || c < dist[k2]) { dist[k2] = c; prev[k2] = it; open.push({ ed: e2, d: d2, k: k2 }); }
       }

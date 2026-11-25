@@ -392,6 +392,7 @@
       if (n === entry && !(it.e === eb)) best = Math.min(best, c0 + tail);
       for (const id of nodeById[n].edges) {
         const e2 = edgeById[id]; if (e2 === it.e) continue;          // (no U-turns)
+        if (e2.kind === 'yard' && ea.kind !== 'yard' && eb.kind !== 'yard') continue;   // (the yard is only for the depot)
         push(e2, e2.a === n ? 1 : -1, c0 + e2.length);
       }
     }
@@ -636,7 +637,10 @@
     buildViaduct(town, green);
     buildDistricts(green);
     // small stops whose shelter would stand in a building, a tree or a post are left out
-    for (let i = W.stops.length - 1; i >= 0; i--) { const st = W.stops[i]; if (st.minor && W.pushOut(st.pos.x, st.pos.z, 1.8).hit > 0.05) W.stops.splice(i, 1); }
+    // (and so are those whose bay has anything in it, or that sit by the depot yard's fence)
+    const blockedBay = (st) => { const bay = W.bayOf(st); for (const a of [-7, -3.5, 0, 3.5, 7]) if (W.pushOut(bay.x + bay.fwd.x * a, bay.z + bay.fwd.z * a, 1.7).hit > 0.02) return true; return false; };
+    const nearYard = (st) => st.pos.x > W.YARD.x0 - 8 && st.pos.x < W.YARD.x1 + 8 && st.pos.z > W.YARD.z0 - 8 && st.pos.z < W.YARD.z1 + 8;
+    for (let i = W.stops.length - 1; i >= 0; i--) { const st = W.stops[i]; if (st.minor && (W.pushOut(st.pos.x, st.pos.z, 1.8).hit > 0.05 || blockedBay(st) || nearYard(st))) W.stops.splice(i, 1); }
     buildStops(TREES);   // (with the props: the shelter hides when it stands between the stop camera and the bus)
     buildPlaces(town);
     const poolPts = buildLamps(town, lamps);
@@ -1965,7 +1969,10 @@
       W.addBox(mx, mz, Math.abs(x1 - x0) / 2 + 0.2, Math.abs(z1 - z0) / 2 + 0.2, 0, 1.4);
     };
     // (the south fence has a gap at the wash, so its show can be watched from the waterfront)
-    fence(Y.x0, Y.z0, Y.x1, Y.z0); fence(Y.x0, Y.z1, 58, Y.z1); fence(100, Y.z1, Y.x1, Y.z1); fence(Y.x1, Y.z0, Y.x1, Y.z1);
+    // (the south-east corner follows the outer road's curve, so the fence never stands on the road)
+    const CR0 = 26.5, ccx = OX - CR, ccz = SZ - CR, aS = Math.asin((Y.z1 - ccz) / CR0), aE = Math.acos((Y.x1 - ccx) / CR0);
+    fence(Y.x0, Y.z0, Y.x1, Y.z0); fence(Y.x0, Y.z1, 58, Y.z1); fence(100, Y.z1, ccx + CR0 * Math.cos(aS), Y.z1); fence(Y.x1, Y.z0, Y.x1, ccz + CR0 * Math.sin(aE));
+    for (let k = 0; k < 12; k++) { const a0 = aS + (aE - aS) * k / 12, a1 = aS + (aE - aS) * (k + 1) / 12; fence(ccx + CR0 * Math.cos(a0), ccz + CR0 * Math.sin(a0), ccx + CR0 * Math.cos(a1), ccz + CR0 * Math.sin(a1)); }
     b.box(42, 0.35, 0.5, P.kerb, 79, 0, Y.z1);
     fence(Y.x0, Y.z0, Y.x0, 112); fence(Y.x0, 140, Y.x0, 154);
     // the middle island: painted bays and a row of parked buses (all three kinds), nose to the north aisle
