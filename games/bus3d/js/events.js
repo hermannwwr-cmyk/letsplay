@@ -1177,12 +1177,18 @@
       const v = vehicle('ambulance'), Cc = C(), inner = Cc.laneInner || 2.5, kerb = Cc.lane;
       const br = r.br, dr = new Driver(v, r, { d: 0, vmax: 21, sp: 14, off: br.off > (Cc.laneDivider || 4.6) ? inner : kerb });
       v.setLights(true);
-      let sirenT = 0, prompted = false, promptSp = 0, promptLat = 0, promptT = 0, madeWay = false, passed = false, passT = 0, said = false, t = 0, waitAll = 0, swapped = false;
+      let lastGap = r.bus, sirenT = 0, prompted = false, promptSp = 0, promptLat = 0, promptT = 0, madeWay = false, passed = false, passT = 0, said = false, t = 0, waitAll = 0, swapped = false;
       return {
         id: 'ambulance', spots: () => [['ambulance', dr.x, 0, dr.z, 3.6, null, v.len]],
         update(dt) {
           t += dt; flash(v, dt, 5);
-          const B = Bs(), bp = project(r, B.pos.x, B.pos.z, dr.d - 20, dr.d + 90);
+          let B = Bs(), bp = project(r, B.pos.x, B.pos.z, dr.d - 20, dr.d + 90);
+          // the bus turned off this route before being overtaken: re-plan on its new road, the same distance behind
+          if (!passed && (!bp || bp.dist > 9)) {
+            const nr = sameWay(Math.max(20, lastGap + 15), 170);
+            if (nr) { r = nr; dr.r = nr; dr.d = Math.max(0, nr.bus - lastGap); dr.off = dr.offT = nr.lane0 === (Cc.laneInner || 2.5) ? inner : kerb; bp = project(r, B.pos.x, B.pos.z, dr.d - 20, dr.d + 90); }
+          }
+          if (bp && bp.dist < 12 && bp.d - dr.d > 0) lastGap = bp.d - dr.d;
           const gap = bp && bp.dist < 12 ? bp.d - dr.d : null;
           if (gap != null && gap > 0 && gap < 60 && !swapped) {
             // take the lane the bus isn't in; if the bus stays in front, wait a little, then go round it anyway
@@ -1923,8 +1929,9 @@
       if (c.spotted[id]) continue;
       const px = screenPx(x, y, z, hh || 2, wlen || 0, top || 0.7);
       // coming into view: ease the bus down a little for a few seconds so the child gets a good look
-      if (px >= SEEN_PX * 0.45 && !c.slowed && !sightBlocked(x, y + (hh || 2) / 2, z)) { c.slowed = true; c.slowT = 6; }
-      if (px < SEEN_PX || sightBlocked(x, y + (hh || 2) / 2, z)) continue;
+      const need = Math.abs(Bs().speed) > 7 ? 40 : SEEN_PX;      // (driving fast: a bit smaller still counts)
+      if (px >= need * 0.45 && !c.slowed && !sightBlocked(x, y + (hh || 2) / 2, z)) { c.slowed = true; c.slowT = 6; }
+      if (px < need || sightBlocked(x, y + (hh || 2) / 2, z)) continue;
       c.spotted[id] = true; c.seen = true;
       if (!c.saidIntro) { c.saidIntro = true; const intro = (c.spots() || []).find((q) => q[5]); if (intro) talk(intro[5], true); }
       if (NAMES[id]) E.spot(id);             // (the UI's "New sticker!" is queued after our line)
@@ -1962,7 +1969,7 @@
         }
         if (c.slowT > 0) {                       // the gentle look: never below 6.5, never at a stop or a question
           c.slowT -= dt; const B = Bs();
-          if (B.speed > 6.5 && !jobBusy() && !pullingIn()) B.speed = Math.max(6.5, B.speed - dt * 5);
+          if (B.speed > 5 && !jobBusy() && !pullingIn()) B.speed = Math.max(5, B.speed - dt * 6);   // ~3 s for a good look
         }
         // never seen and already behind the bus: give up quietly, and let another one come soon
         let missed = false;
