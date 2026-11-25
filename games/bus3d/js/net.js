@@ -1,24 +1,32 @@
-/* Little Bus Captain: playing together (the family, always on).
+/* Little Bus Captain: playing together (always on: the world, or a private family).
    Each child drives their own bus (own type, colour and number) in the same town and sees the others' buses; they can
    honk (a friend's bus nearby flashes its lights back: a wave). Gentle: no racing, no scores, buses pass through each
    other (a friend's bus is ghosted when it is close to ours, near our stop or in front of the camera), and each device
-   keeps its own jobs, questions and coins. No names, no chat, no free text: only bus state, the bus's looks and the
-   family code are sent.
+   keeps its own jobs, questions and coins. No names, no chat, no free text: only bus state, the bus's looks (type,
+   paint id, route-number digits, part/sticker ids) and honks are sent. Everything that comes in is checked: known ids
+   only, digits only, positions on the map, clamped speeds and angles, per-sender rate limits (states 25/s, looks every
+   2 s, honks and waves every 1.5 s); anything else is dropped.
 
-   THE FAMILY (the owner's choice: "always multiplayer whenever possible", auto-join): every device has a saved family
-   code, 5 pictures from 12 (bus3d.family; a random one is made on the first run). Whenever the device is online the game
-   joins its family's room by itself, at start and again after a dropped link, coming back online or the page showing
-   again; an empty room just means "alone for now". A second device links up once by entering the first one's code
-   (setFamily), and from then on they meet whenever both are playing. newFamily() makes a fresh random code ("leave
-   family"). Up to 10 buses; a full room = play alone quietly and try again later. Offline or unreachable is SILENT:
-   play alone, retry with backoff (2 s doubling to 60 s, at once on 'online' / the page showing). Friends arriving and
-   leaving are announced ("Bus 20 is here!", "Bye bye, bus 7!"), but only at a calm moment (driving or the garage,
-   never over a question, the teaching or the counting).
+   MODES (saved as bus3d.netmode; whenever online the game joins by itself, at start and again after a dropped link,
+   coming back online or the page showing again):
+   - 'world' (the default, the owner's choice "everyone in the world"): public rooms lbc-world-1, -2, ... of up to 10
+     buses. Start at the last room that worked (bus3d.worldroom); a full room -> the next one at once; alone in a room
+     above 1 for a minute -> try from room 1 again, so players gather. Our day/night and weather stay our own.
+     Arrivals and departures: one short line at most every 30 s ("A friend's bus is here!", "Bye bye, bus 7!").
+   - 'family' (a grown-up's option): a private room named by a saved 5-picture code (bus3d.family, random on first
+     run); another device joins by entering it once (setFamily). Day/night and weather follow the earliest member.
+     Arrivals and departures name the buses ("Bus 20 is here!").
+   An empty room just means "alone for now". Offline, unreachable or (family) full is SILENT: play alone, retry with
+   backoff (2 s doubling to 60 s, at once on 'online' / the page showing). Lines are said only at a calm moment
+   (driving or the garage, never over a question, the teaching or the counting).
 
    API (for the garage's Together section and the HUD):
+     BB.net.mode()            'world' | 'family';  BB.net.setMode(m) saves it and reconnects
+     BB.net.room()            'world 3' | 'family'
      BB.net.family()          -> the 5 picture ids, e.g. ['bus', 'star', 'cat', 'sun', 'flower']
-     BB.net.setFamily(ids)    join another family: 5 picture ids or indices (0-11); saved; reconnects. -> true/false
-     BB.net.newFamily()       a fresh random family code (leave the family); saved; reconnects. -> the new ids
+     BB.net.setFamily(ids)    join another family: 5 picture ids or indices (0-11); saved; switches to family mode
+                              and reconnects. -> true/false (enterFamily() uses it)
+     BB.net.newFamily()       a fresh random family code; saved; reconnects if in family mode. -> the new ids
      BB.net.status()          'offline' | 'connecting' | 'alone' | 'together'
      BB.net.friends()         -> [{ id, type, paint, color, routeNo }] the other buses here now
      BB.net.PICS / pic(name, size)   the 12 code pictures (and UI pictures: together, home, speak, tick, cross, del,
@@ -31,7 +39,7 @@
      then no reconnecting).
 
    Layers:
-   1. Transport (a room as a message bus):  const t = wsTransport(url); t.connect(code);
+   1. Transport (a room as a message bus):  const t = wsTransport(url); t.connect(roomName);
         t.onOpen({ self, peers })   self: my member id (lower = in the room longer; ids can be reused after a leave)
         t.onPeerJoin(id)  t.onPeerLeave(id)  t.onMessage(from, msg)
         t.onError(kind)             before open: 'offline' | 'full'
@@ -39,7 +47,7 @@
         t.send(msg)  t.close()      (close is quiet: no callbacks)
       The only transport is the owner's Cloudflare relay (relay/worker.js: a Worker and one Durable Object per room, no
       device hosts, the room lives while anyone is in it; it adds {from}, caps 10 members, 4 KB and 40 msgs/s): a
-      WebSocket to <RELAY>/room/lbc-<5 letters>; welcome {id, members}, join/leave, full; we ping every 20 s. (The
+      WebSocket to <RELAY>/room/<lbc-world-N | lbc-5 letters>; welcome {id, members}, join/leave, full; we ping every 20 s. (The
       PeerJS fallback was dropped with the always-on family: it needs a host device, which doesn't fit.)
       Test only: ?relay=ws://127.0.0.1:8787 (a local `wrangler dev`; only localhost addresses are accepted).
    2. Room logic (below): every member sends its own state about 10 times a second (less when standing still; one
@@ -81,7 +89,7 @@
     const end = (why) => { if (state !== 'open') return; state = 'done'; cleanup(); call('onClose', why); };
     T.connect = function (code) {
       state = 'opening';
-      try { ws = new WebSocket(base.replace(/\/+$/, '') + '/room/lbc-' + code); } catch (e) { setTimeout(() => fail('offline'), 0); return; }
+      try { ws = new WebSocket(base.replace(/\/+$/, '') + '/room/' + code); } catch (e) { setTimeout(() => fail('offline'), 0); return; }
       openT = setTimeout(() => fail('offline'), 10000);
       ws.onmessage = (e) => {
         heard = performance.now();
@@ -140,15 +148,12 @@
   function cleanLook(l) {
     if (!l || typeof l !== 'object') return null;
     const types = (BB.fleet && BB.fleet.TYPES) || ['bendy', 'double', 'single'];
-    const word = (v) => typeof v === 'string' && /^[a-z0-9]{1,12}$/.test(v);
+    const word = (v) => typeof v === 'string' && /^[a-z0-9]{1,12}$/.test(v);    // ids only, never shown as text
+    // type, paint and number must be real ones (a look that isn't is ignored: that bus isn't shown)
+    if (types.indexOf(l.ty) < 0 || !BB.PAINTS.some((p) => p.id === l.pa) || !/^[1-9][0-9]{0,2}$/.test(String(l.no))) return null;
     const pt = {};
-    if (l.pt && typeof l.pt === 'object') for (const k of ['lights', 'bumpers', 'wheels', 'rims']) if (word(l.pt[k])) pt[k] = l.pt[k];
-    return {
-      ty: types.indexOf(l.ty) >= 0 ? l.ty : 'bendy',
-      pa: BB.PAINTS.some((p) => p.id === l.pa) ? l.pa : 'green',
-      no: /^[1-9][0-9]{0,2}$/.test(String(l.no)) ? String(l.no) : '10',
-      st: Array.isArray(l.st) ? l.st.filter(word).slice(0, 3) : [], pt,
-    };
+    if (l.pt && typeof l.pt === 'object' && !Array.isArray(l.pt)) for (const k of ['lights', 'bumpers', 'wheels', 'rims']) if (word(l.pt[k])) pt[k] = l.pt[k];
+    return { ty: l.ty, pa: l.pa, no: String(l.no), st: Array.isArray(l.st) ? l.st.filter(word).slice(0, 3) : [], pt };
   }
   // my state: [x, z, heading, rear heading, speed, steer, flags]; flags 1 doors, 2 lights, 4 at a stop, 8 asleep,
   // 16 parked (hidden or held), 32 in the garage
@@ -169,8 +174,10 @@
   function cleanState(d) {
     if (!Array.isArray(d) || d.length !== 7) return null;
     for (const v of d) if (typeof v !== 'number' || !isFinite(v)) return null;
-    if (Math.abs(d[0]) > 1000 || Math.abs(d[1]) > 1000) return null;
-    return { x: d[0], z: d[1], h: wrapA(d[2]), hr: wrapA(d[3]), sp: BB.clamp(d[4], -20, 20), st: BB.clamp(d[5], -1, 1), fl: d[6] | 0 };
+    const Bd = (BB.world && BB.world.BOUNDS) || { x0: -1000, x1: 1000, z0: -1000, z1: 1000 };
+    if (d[0] < Bd.x0 - 40 || d[0] > Bd.x1 + 40 || d[1] < Bd.z0 - 40 || d[1] > Bd.z1 + 40) return null;   // off the map: ignored
+    if (Math.abs(d[2]) > 7 || Math.abs(d[3]) > 7) return null;
+    return { x: d[0], z: d[1], h: wrapA(d[2]), hr: wrapA(d[3]), sp: BB.clamp(d[4], -12, 12), st: BB.clamp(d[5], -1, 1), fl: (d[6] | 0) & 63 };
   }
 
   let lastKey = '', lastAt = 0, skyAt = 0, hiAt = 0, staleAt = 0, parkedSent = false;
@@ -193,34 +200,51 @@
     if (key !== lastKey || now - lastAt > 500) { send({ t: 's', d }); lastKey = key; lastAt = now; }
     if (now - hiAt > 15000) { hiAt = now; sendHi(true); }
     const W = BB.world;
-    if (N.isAuthority()) {
-      if (W && !W.weatherAuto) W.weatherAuto = true;                  // (we just became the sky authority)
-      if (members.size && now - skyAt > 3000) { skyAt = now; sendSky(); }
+    if (mode !== 'family' || N.isAuthority()) {
+      if (W && !W.weatherAuto) W.weatherAuto = true;                  // (our own sky again)
+      if (mode === 'family' && members.size && now - skyAt > 3000) { skyAt = now; sendSky(); }
     }
+    // world mode: alone in a higher room for a minute -> look for company in the lower rooms again
+    if (mode === 'world' && worldN > 1 && !members.size) {
+      if (!aloneAt) aloneAt = now;
+      else if (now - aloneAt > 60000) { aloneAt = 0; gather(); }
+    } else aloneAt = 0;
   }
   function sendSky() { const W = BB.world; if (W) send({ t: 'sky', d: Math.round(W.dayTime * 10000) / 10000, w: W.weather }); }
   function applySky(d, w) {
     const W = BB.world; if (!W) return;
     if (typeof w === 'string' && W.WEATHERS.indexOf(w) >= 0) { W.weatherAuto = false; if (W.weather !== w) W.setWeather(w); }
-    if (typeof d !== 'number' || !isFinite(d) || (W.bedSky && W.bedSky())) return;
+    if (typeof d !== 'number' || !isFinite(d) || d < 0 || d >= 1 || (W.bedSky && W.bedSky())) return;
     let diff = Math.abs(((d - W.dayTime) % 1 + 1.5) % 1 - 0.5);
     if (diff > 0.003) W.setDayTime(d);
   }
 
   function onMsg(from, m) {
     if (!Number.isInteger(from) || from === N.self || !m || typeof m !== 'object') return;
-    if (!members.has(from)) members.add(from);                       // (a message can arrive just before its join)
-    const r = remotes.get(from);
+    if (!members.has(from)) { if (members.size >= N.MAX - 1) return; members.add(from); }   // (a message can arrive just before its join)
+    const r = remotes.get(from), now = performance.now();
+    // per-sender limits, so a misbehaving client can't flood us: states 25/s, looks every 2 s, honks/waves every 1.5 s
+    const lim = rate.get(from) || { s: 0, sN: 0, hi: -1e9, honk: -1e9, wave: -1e9 };
+    rate.set(from, lim);
     switch (m.t) {
-      case 's': { const s = cleanState(m.d); if (s && r) pushSnap(r, s); else if (s) pending.set(from, s); break; }
-      case 'hi': { const look = cleanLook(m.look); if (look) upsertRemote(from, look); break; }
-      case 'sky': if (from === authority()) applySky(m.d, m.w); break;
-      case 'honk': if (r) friendHonk(r, !!m.tune); break;
-      case 'wave': if (r) friendWave(r); break;
+      case 's': {
+        if (now - lim.s > 1000) { lim.s = now; lim.sN = 0; }
+        if (++lim.sN > 25) return;
+        const s = cleanState(m.d); if (s && r) pushSnap(r, s); else if (s) pending.set(from, s); break;
+      }
+      case 'hi': {
+        const look = cleanLook(m.look); if (!look) return;
+        if (r && now - lim.hi < 2000 && JSON.stringify(r.look) !== JSON.stringify(look)) return;   // no rapid look changes
+        lim.hi = now; upsertRemote(from, look); break;
+      }
+      case 'sky': if (mode === 'family' && from === authority()) applySky(m.d, m.w); break;   // world mode: our own sky
+      case 'honk': if (r && now - lim.honk > 1500) { lim.honk = now; friendHonk(r, m.tune === true); } break;
+      case 'wave': if (r && now - lim.wave > 1500) { lim.wave = now; friendWave(r); } break;
       case 'bye': if (r) r.byeWhy = m.why === 'sleep' ? 'sleep' : 'home'; break;
     }
   }
   const pending = new Map();             // a state that came before the looks
+  const rate = new Map();                // per-sender message limits
 
   // ================= the family code =================
   const validCode = (a) => Array.isArray(a) && a.length === CODE_LEN && a.every((i) => Number.isInteger(i) && i >= 0 && i < PICS.length);
@@ -240,17 +264,38 @@
   let famCode = codeStr(fam);                     // the room name's letters
   N.PICS = PICS.slice();
   N.family = () => fam.map((i) => PICS[i]);
-  N.setFamily = function (ids) {
+  N.setFamily = function (ids) {                     // (switches to family mode)
     const a = toCode(ids); if (!a) return false;
-    if (codeStr(a) === famCode) return true;
+    if (codeStr(a) === famCode && mode === 'family') return true;
     fam = a; BB.store.set('family', fam); famCode = codeStr(fam);
+    if (mode !== 'family') { mode = 'family'; BB.store.set('netmode', mode); }
     relink(); return true;
   };
   N.newFamily = function () {
     let a; do { a = newCode(); } while (codeStr(a) === famCode);
     fam = a; BB.store.set('family', fam); famCode = codeStr(fam);
-    relink(); return N.family();
+    if (mode === 'family') relink();
+    return N.family();
   };
+
+  // ================= modes: the world (default) or a private family =================
+  // world: public rooms lbc-world-1, -2, ... (10 buses each): start at the last good one, the next one when full; alone
+  // in a higher room for a minute -> try the lower ones again, so players gather. family: the private picture code.
+  const WORLD_MAX = 200;
+  let mode = BB.store.get('netmode', 'world') === 'family' ? 'family' : 'world';
+  let worldN = BB.clamp(BB.store.get('worldroom', 1) | 0, 1, WORLD_MAX), fullTries = 0, aloneAt = 0;
+  const roomName = () => (mode === 'family' ? 'lbc-' + famCode : 'lbc-world-' + worldN);
+  N.mode = () => mode;
+  N.room = () => (mode === 'family' ? 'family' : 'world ' + worldN);
+  N.setMode = function (m) {
+    m = m === 'family' ? 'family' : 'world';
+    if (m === mode) return mode;
+    mode = m; BB.store.set('netmode', mode);
+    if (mode === 'world') worldN = BB.clamp(BB.store.get('worldroom', 1) | 0, 1, WORLD_MAX);
+    relink(); BB.emit('net:status', { status: N.status() });
+    return mode;
+  };
+  function gather() { if (mode !== 'world') return; worldN = 1; unlink('home'); backoff = 0; connect(); }
 
   // ================= status =================
   const liveFriends = () => [...remotes.values()].filter((r) => !r.leaving);
@@ -275,7 +320,8 @@
     t.onOpen = ({ self, peers }) => {
       if (T !== t) return;
       clearTimeout(lostT); lostT = 0;
-      N.self = self; members = new Set(peers); link = 'open'; backoff = 0;
+      N.self = self; members = new Set(peers); link = 'open'; backoff = 0; fullTries = 0; aloneAt = 0;
+      if (mode === 'world') BB.store.set('worldroom', worldN);
       for (const id of [...remotes.keys()]) if (!members.has(id)) removeRemote(id, null, true);
       for (const r of remotes.values()) r.lost = false;
       lastKey = ''; skyAt = 0;
@@ -283,12 +329,17 @@
       clearInterval(tickT); tickT = setInterval(tick, 100);
       syncFriends();
     };
-    t.onPeerJoin = (id) => { if (T !== t) return; members.add(id); if (remotes.has(id)) removeRemote(id, null, true); sendHi(true); lastKey = ''; if (N.isAuthority()) { skyAt = performance.now(); sendSky(); } };
-    t.onPeerLeave = (id) => { if (T !== t) return; members.delete(id); pending.delete(id); removeRemote(id); };
+    t.onPeerJoin = (id) => { if (T !== t) return; members.add(id); if (remotes.has(id)) removeRemote(id, null, true); sendHi(true); lastKey = ''; if (mode === 'family' && N.isAuthority()) { skyAt = performance.now(); sendSky(); } };
+    t.onPeerLeave = (id) => { if (T !== t) return; members.delete(id); pending.delete(id); rate.delete(id); removeRemote(id); };
     t.onMessage = (from, msg) => { if (T === t) onMsg(from, msg); };
-    t.onError = (k) => { if (T !== t) return; T = null; link = 'offline'; syncStatus(); retry(k === 'full' ? 60000 : 0); };
+    t.onError = (k) => {
+      if (T !== t) return; T = null;
+      // a full world room: straight on to the next one (round to 1 after the last)
+      if (k === 'full' && mode === 'world' && ++fullTries < WORLD_MAX) { worldN = worldN >= WORLD_MAX ? 1 : worldN + 1; link = 'connecting'; setTimeout(connect, 150); return; }
+      fullTries = 0; link = 'offline'; syncStatus(); retry(k === 'full' ? 60000 : 0);
+    };
     t.onClose = () => { if (T !== t) return; T = null; dropped(); };
-    t.connect(famCode);
+    t.connect(roomName());
   }
   // Our link dropped: friends' buses go see-through for a moment while we try again; gone quietly if we can't.
   function dropped() {
@@ -336,8 +387,20 @@
     }
     news.push(item); if (news.length > 12) news.shift();
   }
+  let newsAt = -1e9;
   function flushNews() {
     if (!news.length || !calm()) return;
+    if (mode === 'world') {
+      // public rooms change often: one short line at most every 30 s (what came meanwhile is dropped)
+      const now = performance.now();
+      if (now - newsAt < 30000) { news.length = 0; return; }
+      newsAt = now;
+      const hi = news.filter((n) => n.kind === 'hi'), bye = news.filter((n) => n.kind === 'bye');
+      news.length = 0;
+      if (hi.length) { BB.sfx.sparkle(); BB.say(hi.length > 1 ? 'Friends\' buses are here!' : 'A friend\'s bus is here!', { queue: true }); }
+      else if (bye.length) BB.say(`Bye bye, bus ${bye[0].no}!`, { queue: true });
+      return;
+    }
     const hi = news.filter((n) => n.kind === 'hi'), bye = news.filter((n) => n.kind === 'bye');
     news.length = 0;
     if (hi.length) {
