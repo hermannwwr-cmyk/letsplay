@@ -34,7 +34,7 @@
   let HITCH = LF / 2 + GAP / 2;          // front carriage centre -> hitch
   let R_AXLE = GAP / 2 + REAR_AXLE, R_CTR = GAP / 2 + LR / 2;   // hitch -> rear axle / rear carriage centre
   const totalLen = () => LF + GAP + LR, frontOff = () => totalLen() / 2 - LF / 2;   // front centre ahead of the middle
-  let MAX_FWD = 9, ACCEL = 4.2;                      // (per vehicle: see VEHICLE)
+  let MAX_FWD = 10.8, ACCEL = 4.6;                      // (per vehicle: see VEHICLE)
   const MAX_BACK = 4, BRAKE = 9, COAST = 5;
   // Cruising: on the long straight outer roads and the expressway, lined up with the road and well away from the next
   // junction or curve, the top speed eases up to MAX_CRUISE (the big map's long legs go quicker), and eases back down
@@ -44,13 +44,13 @@
   // How each vehicle drives: top speed, cruising speed on the open road, pick-up, steering lock. The buses share the
   // first line; the taxi is nimble, the fire engine and the ice cream van steady. (Turning circles follow from each
   // model's wheelbase.)
-  const VEHICLE = {
-    bus: { top: 9, cruise: 14, accel: 4.2, steer: 0.55 },
-    taxi: { top: 10.5, cruise: 15, accel: 5.6, steer: 0.62 },
-    ambulance: { top: 10, cruise: 15, accel: 5.0, steer: 0.58 },
-    fire: { top: 8.8, cruise: 13, accel: 4.2, steer: 0.56 },
-    icecream: { top: 8.2, cruise: 12, accel: 4.0, steer: 0.6 },
-    tow: { top: 9, cruise: 13.5, accel: 4.4, steer: 0.58 },
+  const VEHICLE = {                                   // (town top speeds raised by a fifth: the owner's choice)
+    bus: { top: 10.8, cruise: 15, accel: 4.6, steer: 0.55 },
+    taxi: { top: 12.6, cruise: 16, accel: 6.0, steer: 0.62 },
+    ambulance: { top: 12, cruise: 16, accel: 5.4, steer: 0.58 },
+    fire: { top: 10.6, cruise: 14, accel: 4.6, steer: 0.56 },
+    icecream: { top: 9.8, cruise: 13, accel: 4.4, steer: 0.6 },
+    tow: { top: 10.8, cruise: 14.5, accel: 4.8, steer: 0.58 },
   };
   const W = () => BB.world;
   const wrapA = (a) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
@@ -1767,7 +1767,7 @@
     }
     // speed: ease toward the wanted speed; braking when the pedal points the other way
     let top = thr > 0 ? cruiseTop() : MAX_FWD;
-    if (boostK > 0 && thr > 0) top = Math.max(top, top + (MAX_FWD * 1.6 - top) * BB.smooth(boostK));   // (B.boost)
+    if (boostK > 0 && thr > 0) top = Math.max(top, top + (Math.min(MAX_FWD * 1.6, 18) - top) * BB.smooth(boostK));   // (B.boost)
     let want = thr > 0 ? thr * top : thr * MAX_BACK;
     // assist also eases off for bends and turns (like a careful driver), unless the child is steering
     // In the last stretch before the target bay (lined up with it) the parking logic takes over: steer along the
