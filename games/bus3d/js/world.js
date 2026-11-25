@@ -203,12 +203,12 @@
     { id: 'playground', name: 'Playground', say: 'the playground', pic: 'slide', from: 'n13', to: 'n23', t: 0.5, toward: [0, S] },
     { id: 'mrt', name: 'MRT Station', say: 'the MRT station', pic: 'train', from: 'n21', to: 'n22', t: 0.55, toward: [S, 0] },
     // the wider map
-    { id: 'airport', name: 'Airport', say: 'the airport', pic: 'plane', from: 'AP1', to: 'AP2', t: 0.5, toward: [340, HZ - 56] },
-    { id: 'city', name: 'City', say: 'the city', pic: 'city', from: 'E1', to: 'NEa', t: 0.42, toward: [140, -50] },
+    { id: 'airport', name: 'Airport', say: 'the airport', pic: 'plane', from: 'AP1', to: 'AP2', t: 0.5, toward: [430, HZ - 56] },
+    { id: 'city', name: 'City', say: 'the city', pic: 'city', from: 'E1', to: 'NEa', t: 0.42, toward: [260, -50] },
     { id: 'chinatown', name: 'Old Town', say: 'old town', pic: 'lantern', from: 'W1', to: 'SWb', t: 0.45, toward: [-150, 50] },
-    { id: 'beach', name: 'Beach', say: 'the beach', pic: 'beach', from: 'SWa', to: 'S1', t: 0.32, toward: [-100, 260] },
-    { id: 'gardens', name: 'Gardens', say: 'the gardens', pic: 'supertree', from: 'S1', to: 'SEa', t: 0.24, toward: [60, 260] },
-    { id: 'wheel', name: 'Big Wheel', say: 'the big wheel', pic: 'ferris', from: 'S1', to: 'SEa', t: 0.74, toward: [125, 260] },
+    { id: 'beach', name: 'Beach', say: 'the beach', pic: 'beach', from: 'S1', to: 'SEa', t: 0.68, toward: [118, 260] },
+    { id: 'gardens', name: 'Gardens', say: 'the gardens', pic: 'supertree', from: 'SWa', to: 'S1', t: 0.61, toward: [-45, 120] },
+    { id: 'wheel', name: 'Big Wheel', say: 'the big wheel', pic: 'ferris', from: 'SWa', to: 'S1', t: 0.21, toward: [-120, 120] },
   ];
   function placeOnKerb(def) {
     const e = W.edgeBetween(def.from, def.to);
@@ -230,7 +230,7 @@
   // bus waits after Drive and where depot trips end); the workshop (customising, the home screen) is the big open
   // shed at the yard's east end; the wash bay is a drive-through gantry on the south aisle.
   W.depot = placeOnKerb({ id: 'depot', name: 'Bus Depot', say: 'the depot', pic: 'depot', from: 'Yg1', to: 'Ya', t: 0.42, toward: [70, 100] });
-  W.washBay = placeOnKerb({ id: 'wash', name: 'Bus Wash', say: 'the bus wash', pic: 'wash', from: 'Yb', to: 'Yg2', t: 0.3, toward: [90, 200] });
+  W.washBay = placeOnKerb({ id: 'wash', name: 'Bus Wash', say: 'the bus wash', pic: 'wash', from: 'Yb', to: 'Yg2', t: 0.45, toward: [80, 200] });
   W.workshop = { x: 166, z: 147, heading: -Math.PI / 2 };       // the bus's middle and heading in the workshop
   W.YARD = { x0: 37.2, x1: 188, z0: 104, z1: 178 };
   W.inDepotYard = (x, z) => x > W.YARD.x0 && x < W.YARD.x1 && z > W.YARD.z0 && z < W.YARD.z1;
@@ -438,14 +438,17 @@
     buildHDBs(town);
     buildLandmarks(town, green);
     buildViaduct(town, green);
-    const dist = BB.mk.builder();
-    buildDistricts(dist, green);
+    buildDistricts(green);
     buildStops(TREES);   // (with the props: the shelter hides when it stands between the stop camera and the bus)
     const poolPts = buildLamps(town, lamps);
     roadMat = new THREE.MeshLambertMaterial({ vertexColors: true });   // its own material: it darkens in the rain
-    scene.add(tag(roads.mesh(roadMat), 'roads'), tag(town.mesh(), 'town'), tag(green.mesh(), 'green'), tag(dist.mesh(), 'districts'));
+    scene.add(tag(roads.mesh(roadMat), 'roads'), tag(town.mesh(), 'town'), tag(green.mesh(), 'green'));
+    const farMesh = (m, name) => { m.geometry.computeBoundingBox(); m.userData.box = m.geometry.boundingBox.clone(); FAR_CULL.push(m); scene.add(tag(m, name)); };
+    for (const k in DIST_B) if (DIST_B[k].parts.length) farMesh(DIST_B[k].mesh(), 'd:' + k);
     washFx = buildWashFx();
-    for (const m of [wheelRim, planes, boomN, boomS, washRig, washFx]) if (m) scene.add(m);
+    for (const k in LMB) { const lm = LMB[k].mesh(); lm.geometry.computeBoundingSphere(); farMesh(lm, 'lm:' + k); }
+    for (const m of [wheelRim, planes, washRig, washFx].concat(LM_MOVERS)) if (m) scene.add(m);
+    for (const m of [boomN, boomS]) if (m && !m.parent) scene.add(m);
     scene.add(propMesh(TREES, fadeMat(new THREE.MeshLambertMaterial({ vertexColors: true })), 'trees'));
     TREES = null;
     winMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x000000 });
@@ -917,7 +920,7 @@
     for (const e of W.roads.edges) {
       if (e.points.length > 2) continue;           // not along the loop's curves (they'd crowd the kerb lane there)
       if (e.kind === 'yard') continue;
-      const step = e.kind === 'town' ? 11 : 17, off = e.half + 1.3;
+      const step = e.kind === 'town' ? 11 : 26, off = e.half + 1.3;
       for (let s = 18 + (e.half - RH); s < e.length - 15 - (e.half - RH); s += step) {   // (not right at the junctions: a turning bendy's rear cuts in there)
         const p = W.pointAt(e, s);
         for (const side of [1, -1]) {
@@ -1645,11 +1648,24 @@
   // loaded: each builder is called as BB.landmarks.<name>(q, opts) with q a BB.mk builder already placed and turned
   // (local +z faces the road), drawing static parts into q (opts.win: the lit-windows builder in the same frame).
   // Without it (or if one throws) the simple models below are used. Everything is generic: no names or logos.
-  function LM(name, q, opts) {
+  const LMB = {};                          // landmark batches, one per district (each one draw call, culled when out of view)
+  let curDist = 'misc';
+  const LM_MOVERS = [];
+  // Place landmark `name` at (x, z) turned ry (its front, +z, toward ry): merged into the batch, its colliders added,
+  // its moving parts kept for the scene. Returns its info, or null (no kit, or it failed: use the simple model).
+  function LMP(name, x, z, ry, ...args) {
     const L = BB.landmarks;
-    if (!L || typeof L[name] !== 'function') return false;
-    try { const r = L[name](q, Object.assign({ win: WIN }, opts || {})); return r !== false; } catch (e) { console.error('[landmarks] ' + name, e); return false; }
+    if (!L || typeof L[name] !== 'function' || typeof L.batch !== 'function') return null;
+    try {
+      const bt = LMB[curDist] || (LMB[curDist] = L.batch());
+      const info = bt.add(name, x, z, ry, ...args);
+      for (const c of info.circles || []) addCol({ x: c.x, z: c.z, r: c.r });
+      for (const o of info.boxes || []) addCol({ x: o.x, z: o.z, hw: o.hw, hd: o.hd, ry: o.ry || 0, top: o.top != null ? o.top : 10 });
+      if (info.movers) LM_MOVERS.push(info.movers);
+      return info;
+    } catch (e) { console.error('[landmarks] ' + name, e); return null; }
   }
+  const LM = () => false;                  // (the old in-builder form: the kit now places whole models with LMP)
   const TREE_SPOTS = [], BLDG = [];        // for the Christmas lights: tree crowns, building roof outlines
   const XMAS_TREES = [];                   // where the big Christmas trees stand [x, z, height]
   let wheelRim = null, planes = null, boomN = null, boomS = null, washRig = null, washFx = null;
@@ -1683,50 +1699,54 @@
       W.addBox(mx, mz, Math.abs(x1 - x0) / 2 + 0.2, Math.abs(z1 - z0) / 2 + 0.2, 0, 1.4);
     };
     fence(Y.x0, Y.z0, Y.x1, Y.z0); fence(Y.x0, Y.z1, Y.x1, Y.z1); fence(Y.x1, Y.z0, Y.x1, Y.z1);
-    fence(Y.x0, Y.z0, Y.x0, 117.5); fence(Y.x0, 138.5, Y.x0, 155.5);
+    fence(Y.x0, Y.z0, Y.x0, 112); fence(Y.x0, 140, Y.x0, 154);
     // the middle island: painted bays and a row of parked buses (all three kinds), nose to the north aisle
     b.box(70, 0.06, 18.4, '#c9c1b3', 81, 0, 147);
     const types = ['single', 'double', 'bendy', 'single', 'double', 'single', 'bendy'], cols = ['#3fae49', '#ef5a4b', '#3d8fe0', '#f5b83d', '#3fae49', '#8e62c8', '#ef5a4b'];
     for (let i = 0; i < 7; i++) {
       const x = 52 + i * 9.4;
       for (const sx of [-1.9, 1.9]) b.box(0.18, 0.02, 15.5, '#fff6e0', x + sx, 0.06, 147);
+      if (LMP('parkedBus', x, 147, Math.PI, types[i], cols[i])) continue;
       b.at(x, 0.06, types[i] === 'bendy' ? 146 : 147.5, Math.PI, (q) => cheapBus(q, types[i], cols[i]));
       W.addBox(x, 147, 1.4, types[i] === 'bendy' ? 8.8 : 6.0, 0, 4.5);
     }
     // the gatehouse on the island's west end, boom gates across both aisles
-    b.at(42, 0.06, 147, 0, (q) => {
+    const lmGate = LMP('gatehouse', 42, 147, Math.PI / 2);
+    if (!lmGate) b.at(42, 0.06, 147, 0, (q) => {
       q.box(4.2, 2.8, 5.2, '#fff6e0', 0, 0, 0); q.box(4.6, 0.4, 5.6, P.teal, 0, 2.8, 0);
       q.box(0.06, 1.0, 3.6, '#9fd3e8', 2.12, 1.2, 0); q.box(3.0, 1.0, 0.06, '#9fd3e8', 0, 1.2, 2.62); q.box(3.0, 1.0, 0.06, '#9fd3e8', 0, 1.2, -2.62);
       for (const z of [-9.8, 9.8]) { q.box(0.5, 1.1, 0.5, '#e9e2d6', 0, 0, z); q.box(0.6, 0.3, 0.6, P.coral, 0, 1.1, z); }
     });
-    W.addBox(42, 147, 2.3, 2.9, 0, 3.4);
+    if (!lmGate) W.addBox(42, 147, 2.3, 2.9, 0, 3.4);
+    const lbN = LMP('boomGate', 42, 137.6, Math.PI / 2, 17.4), lbS = LMP('boomGate', 42, 156.4, -Math.PI / 2, 17.4);
+    if (lbN && lbS && lbN.movers && lbS.movers) { boomN = lbN.movers; boomS = lbS.movers; boomN.userData.lm = boomS.userData.lm = true; }
     const boomArm = (dir) => {
       const q = BB.mk.builder();
       for (let k = 0; k < 8; k++) q.box(0.16, 0.16, 2.0, k % 2 ? '#ef4b3c' : '#ffffff', 0, -0.08, dir * (k * 2.0 + 1.0));
       const m = q.mesh(); m.position.set(42, 1.3, 147 + dir * 10.1); m.name = 'boom'; return m;
     };
-    boomN = boomArm(-1); boomS = boomArm(1);
+    if (!boomN) { boomN = boomArm(-1); boomS = boomArm(1); }
     // the fuel island (north of the north aisle) under a canopy
-    b.at(104, 0.06, 111, 0, (q) => {
+    if (!LMP('fuelIsland', 104, 111, Math.PI / 2)) b.at(104, 0.06, 111, 0, (q) => {
       q.box(12, 0.3, 2.6, '#e9e2d6', 0, 0, 0);
       for (const x of [-3, 3]) { q.box(1.0, 1.9, 0.9, P.coral, x, 0.3, 0); q.box(0.8, 0.5, 0.06, '#fff6e0', x, 1.4, 0.46); q.box(0.16, 0.7, 0.16, '#555', x + 0.62, 0.8, 0.2); }
       for (const [x, z] of [[-5.5, -1.8], [5.5, -1.8], [-5.5, 1.8], [5.5, 1.8]]) q.box(0.3, 5.4, 0.3, '#e9e2d6', x, 0.3, z);
       q.box(14, 0.5, 7, P.teal, 0, 5.7, 0); q.box(14.4, 0.25, 7.4, P.honey, 0, 6.2, 0);
     });
-    W.addBox(104, 111, 6.2, 1.5, 0, 2.5);
+    if (!BB.landmarks) W.addBox(104, 111, 6.2, 1.5, 0, 2.5);
     // the drive-through bus wash on the south aisle: two portal frames over the bay (the brushes are their own mesh)
     const wb = W.bayOf(W.washBay);
     b.at(wb.x, 0.04, wb.z, wb.heading, (q) => {
       for (const z of [-6.8, 6.8]) {
-        for (const x of [-2.75, 2.75]) q.box(0.45, 5.6, 0.45, '#5fb7e3', x, 0, z);
-        q.box(6.0, 0.6, 0.6, '#5fb7e3', 0, 5.3, z);
+        for (const x of [-3.2, 3.2]) q.box(0.45, 5.6, 0.45, '#5fb7e3', x, 0, z);
+        q.box(6.9, 0.6, 0.6, '#5fb7e3', 0, 5.3, z);
         q.box(5.2, 0.5, 0.15, '#ffffff', 0, 4.4, z * 1.02);
       }
-      for (const x of [-2.75, 2.75]) q.box(0.3, 0.3, 13.6, '#4a9ccc', x, 5.4, 0);
+      for (const x of [-3.2, 3.2]) q.box(0.3, 0.3, 13.6, '#4a9ccc', x, 5.4, 0);
       q.box(3.6, 0.03, 15.4, '#9fd3e8', 0, 0.01, 0);                                     // a blue wet floor
       for (let z = -6; z <= 6; z += 1.2) q.box(3.2, 0.02, 0.12, '#cfeaf6', 0, 0.03, z);
     });
-    for (const z of [-6.8, 6.8]) for (const x of [-2.75, 2.75]) { const c = Math.cos(wb.heading), s2 = Math.sin(wb.heading); W.addCircle(wb.x + x * c + z * s2, wb.z - x * s2 + z * c, 0.35); }
+    for (const z of [-6.8, 6.8]) for (const x of [-3.2, 3.2]) { const c = Math.cos(wb.heading), s2 = Math.sin(wb.heading); W.addCircle(wb.x + x * c + z * s2, wb.z - x * s2 + z * c, 0.35); }
     washRig = buildWashRig(wb);
     // the workshop: a big open shed on pillars at the east end (the bus is made beautiful here)
     const WS = W.workshop;
@@ -1780,16 +1800,19 @@
     const cx = 60, cz = HZ - 34, R0 = 18;
     const deck = [];
     for (let k = 0; k <= 40; k++) { const a = -Math.PI / 2 + k / 40 * Math.PI * 1.6; deck.push({ x: cx + Math.cos(a) * R0, z: cz + Math.sin(a) * R0, y: 2 + 7 * Math.min(1, k / 18) }); }
-    for (let k = 0; k < deck.length - 1; k++) {
+    const ramp = LMP('elevatedRoad', 0, 0, 0, deck.map((p) => ({ x: p.x, z: p.z })).concat([{ x: cx + 60, z: cz }, { x: cx + 124, z: cz }]), { height: 9, lanes: 2, rampIn: 40, pillarEvery: 18 });
+    for (let k = 0; k < deck.length - 1 && !ramp; k++) {
       const p = deck[k], q2 = deck[k + 1], len = Math.hypot(q2.x - p.x, q2.z - p.z) + 0.2, ry = Math.atan2(q2.x - p.x, q2.z - p.z);
       b.box(7, 0.8, len, '#e6dfd3', (p.x + q2.x) / 2, (p.y + q2.y) / 2, (p.z + q2.z) / 2, ry);
       b.box(7.4, 0.7, len, '#7b7480', (p.x + q2.x) / 2, (p.y + q2.y) / 2 + 0.8, (p.z + q2.z) / 2, ry);
       if (k % 4 === 0) { b.cyl(0.8, 0.9, p.y, 8, '#e3dacd', p.x, 0, p.z); W.addCircle(p.x, p.z, 0.9); }
     }
     // a straight deck carrying the loop over to the east, on tall piers
-    b.box(7, 1.0, 120, '#e6dfd3', cx + 64, 9, cz, Math.PI / 2); b.box(7.4, 0.8, 120, '#7b7480', cx + 64, 10, cz, Math.PI / 2);
-    for (let x = cx + 12; x <= cx + 120; x += 18) { b.cyl(0.9, 1.0, 9, 8, '#e3dacd', x, 0, cz); W.addCircle(x, cz, 1.0); }
-    for (const s2 of [-1, 1]) b.box(120, 0.9, 0.3, '#f1ebe0', cx + 64, 10.8, cz + s2 * 3.55);
+    if (!ramp) {
+      b.box(7, 1.0, 120, '#e6dfd3', cx + 64, 9, cz, Math.PI / 2); b.box(7.4, 0.8, 120, '#7b7480', cx + 64, 10, cz, Math.PI / 2);
+      for (let x = cx + 12; x <= cx + 120; x += 18) { b.cyl(0.9, 1.0, 9, 8, '#e3dacd', x, 0, cz); W.addCircle(x, cz, 1.0); }
+      for (const s2 of [-1, 1]) b.box(120, 0.9, 0.3, '#f1ebe0', cx + 64, 10.8, cz + s2 * 3.55);
+    }
     // an overpass across the expressway beyond the airport turn, and the tunnel mouth at the far east end
     b.box(9, 1.2, 46, '#e6dfd3', 480, 8.6, HZ); b.box(9.4, 0.8, 46, '#7b7480', 480, 9.8, HZ);
     for (const z of [HZ - 19, HZ + 19]) { b.box(6, 8.6, 1.4, '#e3dacd', 480, 0, z); W.addBox(480, z, 3, 0.7, 0, 9); }
@@ -1822,9 +1845,9 @@
     // the terminal (west of the drop-off road), its forecourt and glass front
     b.box(14, 0.18, 70, P.pave, 385, 0, HZ - 56);
     const TX = 350, TZ = HZ - 56;
-    W.addBox(TX, TZ, 28, 22, 0, 13);
-    A(b, TX, 0, TZ, Math.PI / 2, (q) => {
-      if (LM('airportTerminal', q, { w: 44, d: 56, h: 12 })) return;
+    const lmT = LMP('airportTerminal', 367, TZ, -Math.PI / 2, { length: 60 });
+    if (!lmT) W.addBox(TX, TZ, 28, 22, 0, 13);
+    if (!lmT) A(b, TX, 0, TZ, Math.PI / 2, (q) => {
       bx(q, 44, 9, 54, '#f1ebe0', 0, 0, 0);
       bx(q, 44.4, 0.8, 54.4, '#d8cfc2', 0, 9, 0);
       q.add(new THREE.CylinderGeometry(30, 30, 46, 16, 1, false, -0.55, 1.1), '#e9e2d6', 0, -17.6, 0, 0, Math.PI / 2, 0, 1, 1, 1);
@@ -1843,8 +1866,7 @@
     for (let x = 216; x <= 546; x += 3.5) b.box(0.12, 2.0, 0.12, '#8f96a0', x, 0, -299);
     b.box(330, 0.08, 0.05, '#cfd4da', 381, 1.0, -299); b.box(330, 0.08, 0.05, '#cfd4da', 381, 1.9, -299);
     // the control tower
-    A(b, 262, 0, -318, 0, (q) => {
-      if (LM('controlTower', q, { h: 32 })) return;
+    if (!LMP('controlTower', 262, -318, 0)) A(b, 262, 0, -318, 0, (q) => {
       q.cyl(2.2, 3.0, 26, 10, '#f1ebe0', 0, 0, 0);
       q.cyl(4.8, 3.6, 1.2, 10, '#d8cfc2', 0, 26, 0);
       q.cyl(5.0, 5.0, 3.4, 10, '#4d6f8a', 0, 27.2, 0);
@@ -1853,7 +1875,7 @@
       q.cyl(0.15, 0.15, 3, 4, '#8f96a0', 0, 31.4, 0); q.ball(0.4, '#ff4a3a', 0, 34.6, 0);
     });
     // parked planes at the apron
-    for (const [x, z, h] of [[248, -308, Math.PI * 0.95], [318, -306, Math.PI * 1.05]]) b.at(x, 3.0, z, h, (q) => { if (!LM('plane', q, { len: 26 })) planeModel(q, 1); });
+    for (const [x, z, h, v] of [[248, -308, Math.PI * 0.95, 0], [318, -306, Math.PI * 1.05, 2]]) if (!LMP('plane', x, z, h, v)) b.at(x, 3.0, z, h, (q) => planeModel(q, 1));
     // two moving planes (one instanced mesh): one taxis to and fro, one takes off down the runway now and then
     const pb = BB.mk.builder(); planeModel(pb, 1);
     planes = new THREE.InstancedMesh(pb.geometry(), new THREE.MeshLambertMaterial({ vertexColors: true }), 2);
@@ -1895,9 +1917,9 @@
     for (const [x, z] of spots) {
       if ((i++ * 7) % 11 === 3) continue;              // a few gaps (little plazas)
       const w = rr(10, 13), d = rr(10, 13), h = rr(28, 78), col = rpick(cols), ry = 0;
+      if (LMP('skylineTower', x, z, ry, i % 6, { height: h })) { BLDG.push({ x, z, ry, len: 14, dep: 14, H: h * 0.5 }); continue; }
       W.addBox(x, z, w / 2 + 0.3, d / 2 + 0.3, ry, h + 4);
       A(b, x, 0, z, ry, (q) => {
-        if (LM('skylineTower', q, { w, d, h, seed: i })) return;
         const steps = h > 55 ? 3 : 2;
         let cw = w, cd = d, y = 0;
         for (let k = 0; k < steps; k++) {
@@ -1936,19 +1958,19 @@
   }
   function buildOldTown(b) {
     const X = -OX;
-    for (const [z0, z1] of [[-142, -50], [-6, 142]]) {
+    const ROWS = [[-136, -100], [-86, -50], [0, 36], [54, 90], [106, 142]];
+    for (const [z0, z1] of ROWS) {
       const len = z1 - z0, zc = (z0 + z1) / 2;
       // east row (faces west, its front 15 from the road's middle) and west row (faces east)
       for (const [x, ry] of [[X + 29, -Math.PI / 2], [X - 29, Math.PI / 2]]) {
-        A(b, x, 0, zc, ry, (q) => { if (!LM('chinatownRow', q, { len })) oldTownRow(q, len); });
-        W.addBox(x, zc, 5.4, len / 2, 0, 9);
+        if (!LMP('chinatownRow', x, zc, ry, Math.min(4, Math.floor(len / 5.2)))) { A(b, x, 0, zc, ry, (q) => oldTownRow(q, len)); W.addBox(x, zc, 5.4, len / 2, 0, 9); }
         BLDG.push({ x, z: zc, ry, len, dep: 10, H: 7.2 });
       }
       b.box(9, 0.2, len, P.pave, X + 19.7, 0, zc); b.box(9, 0.2, len, P.pave, X - 19.7, 0, zc);
       // lantern strings across the road every 14
-      for (let z = z0 + 6; z < z1 - 4; z += 14) {
+      for (let z = z0 + 8; z < z1 - 4; z += 18) {
         b.box(48, 0.06, 0.06, '#7a5a3a', X, 7.8, z);
-        for (let x = X - 21; x <= X + 21; x += 3.5) b.ball(0.5, (Math.round(x) % 2) ? '#ef4b3c' : '#ffb81f', x, 7.2, z, 0, 1, 1.25, 1);
+        for (let x = X - 21; x <= X + 21; x += 4.2) b.ball(0.38, (Math.round(x) % 2) ? '#ef4b3c' : '#ffb81f', x, 7.3, z, 0, 1, 1.25, 1);
       }
     }
     // a red gate with green tiles at the north end of the street
@@ -1970,14 +1992,15 @@
     for (let k = 0; k < 10; k++) { const a = k / 10 * Math.PI * 2; q.ball(0.7, rpick(['#6fc45a', '#8fd06a', '#ff8fc0']), Math.cos(a) * h * 0.3, h + 0.3, Math.sin(a) * h * 0.3); }
   }
   function buildWaterfront(b, green) {
-    b.box(370, 0.06, 900, '#57b2dd', 60, 0.0, SZ + 24 + 450);                              // the sea
-    b.box(370, 0.08, 6, '#7fc8ea', 60, 0.0, SZ + 26);
+    b.box(1300, 0.06, 900, '#57b2dd', 100, 0.0, SZ + 24 + 450);                            // the sea
+    b.box(1300, 0.08, 6, '#7fc8ea', 100, 0.0, SZ + 26);
     b.box(350, 0.2, 12, P.pave, 0, 0, SZ + 17.5);                                          // the promenade
     for (let x = -170; x <= 170; x += 3) b.box(0.12, 1.1, 0.12, '#e9e2d6', x, 0.2, SZ + 23.3);
     b.box(344, 0.1, 0.1, '#e9e2d6', 0, 1.3, SZ + 23.3);
     // beach park (west): sand, palms, umbrellas, loungers, a lifeguard tower
-    A(b, -106, 0, SZ + 40, 0, (q) => {
-      if (LM('beachPark', q, { w: 130, d: 40 })) return;
+    let beachKit = true;
+    for (const x of [74, 120, 166]) beachKit = !!LMP('beachPark', x, SZ + 37, 0) && beachKit;
+    if (!beachKit) A(b, 120, 0, SZ + 40, 0, (q) => {
       q.box(132, 0.12, 30, '#f6d98e', 0, 0, 0);
       const um = [P.coral, P.honey, P.teal, P.rose, P.berry];
       for (let k = 0; k < 9; k++) {
@@ -1988,17 +2011,21 @@
       q.box(3, 0.3, 3, '#e9e2d6', 30, 3, -6); for (const [x, z] of [[-1.3, -1.3], [1.3, -1.3], [-1.3, 1.3], [1.3, 1.3]]) q.box(0.2, 3, 0.2, '#e9e2d6', 30 + x, 0, -6 + z);
       q.box(2.6, 1.8, 2.6, P.coral, 30, 3.3, -6); q.prism(3.2, 3.2, 1, '#fff6e0', 30, 5.1, -6);
     });
-    for (let k = 0; k < 8; k++) tree(green, -168 + k * 17, SZ + 33 + (k % 2) * 8, 0.12, 'palm', 1.1);
+    for (let k = 0; k < 7; k++) tree(green, 56 + k * 18, SZ + 33 + (k % 2) * 8, 0.12, 'palm', 1.1);
     // the garden of tree towers
-    A(b, 64, 0, SZ + 44, 0, (q) => {
-      q.box(70, 0.14, 34, '#7fcf6a', 0, 0, 0);
-      if (LM('superTrees', q, { n: 7, w: 70, d: 34 })) return;
+    const GX = -45;
+    b.box(70, 0.14, 34, '#7fcf6a', GX, 0, SZ + 44);
+    const lmTrees = LMP('superTrees', GX, SZ + 44, 0, { count: 7, radius: 15 });
+    if (!lmTrees) A(b, GX, 0, SZ + 44, 0, (q) => {
       const T = [[-26, -6, 18, '#b07ad8'], [-12, 8, 24, '#ff8fab'], [0, -8, 28, '#8e62c8'], [12, 6, 22, '#ffb81f'], [26, -4, 17, '#19a79b'], [-2, 12, 15, '#ff6b5c'], [22, 12, 14, '#5d73e8']];
       for (const [x, z, h, c] of T) q.at(x, 0.1, z, 0, (r) => superTree(r, h, c));
     });
-    for (const [x, z] of [[38, SZ + 38], [52, SZ + 52], [64, SZ + 36], [76, SZ + 50], [90, SZ + 40]]) W.addCircle(x, z, 1.4);
+    if (!lmTrees) for (const [x, z] of [[-26, -6], [-12, 8], [0, -8], [12, 6], [26, -4]]) W.addCircle(GX + x, SZ + 44 + z, 1.4);
     // the observation wheel: legs and a boarding hall (static), the rim (turns)
-    const WX = 134, WZ = SZ + 46, HUB = 31, RW = 25;
+    const WX = -122, WZ = SZ + 46, HUB = 31, RW = 25;
+    XMAS_TREES.push([-84, SZ + 17, 8]);
+    b.box(44, 0.5, 30, '#e4d6bd', WX, 0, WZ + 2);                    // its pier
+    if (LMP('observationWheel', WX, WZ, 0, { radius: 23 })) return;
     b.at(WX, 0, WZ, 0, (q) => {
       for (const s2 of [-1, 1]) for (const zz of [-5, 5]) {
         const lx = s2 * 14, len = Math.hypot(14, HUB), ang = Math.atan2(14, HUB);
@@ -2017,11 +2044,23 @@
       rim.ball(1.5, cols[k % cols.length], Math.cos(a) * (RW + 1.4), Math.sin(a) * (RW + 1.4), 0, 1);
     }
     wheelRim = rim.mesh(); wheelRim.name = 'wheelRim'; wheelRim.position.set(WX, HUB, WZ - 4.5); wheelRim.rotation.y = 0;
-    XMAS_TREES.push([96, SZ + 17, 8]);
   }
 
-  function buildDistricts(dist, green) {
-    buildDepot(dist); buildHighway(dist); buildAirport(dist, green); buildCity(dist); buildOldTown(dist); buildWaterfront(dist, green);
+  // Each district is its own mesh (and landmark batch), hidden when the camera is far from it (past the fog).
+  const DIST_B = {}, FAR_CULL = [];
+  function buildDistricts(green) {
+    for (const [k, fn] of [['depot', buildDepot], ['highway', buildHighway], ['airport', buildAirport], ['city', buildCity], ['oldtown', buildOldTown], ['waterfront', buildWaterfront]]) {
+      curDist = k; DIST_B[k] = BB.mk.builder(); fn(DIST_B[k], green);
+    }
+  }
+  // distance culling: a district mesh is drawn only while the camera is within ~215 of its box (the fog hides it there)
+  function cullFar() {
+    const c = BB.camera && BB.camera.position; if (!c) return;
+    for (const m of FAR_CULL) {
+      const bb = m.userData.box; if (!bb) continue;
+      const dx = Math.max(bb.min.x - c.x, 0, c.x - bb.max.x), dz = Math.max(bb.min.z - c.z, 0, c.z - bb.max.z);
+      m.visible = dx * dx + dz * dz < 215 * 215;
+    }
   }
 
   // ---------- the bus wash show (bus.js runs the clock: W.washShow(t) each frame, null to stop) ----------
@@ -2055,28 +2094,28 @@
     if (!washFx) return;
     washFx.visible = t < 6.4;
     const P0 = washFx.userData.p, pos = washFx.geometry.attributes.position.array, col = washFx.geometry.attributes.color.array;
-    const rinse = t > 4.4, emit = t > 0.5 && t < 5.6;
+    const rinse = t > 4.4 && t < 5.6, spark = t >= 5.6, emit = t > 0.5 && t < 6.3;
     for (let i = 0; i < FOAM_N; i++) {
       const q = P0[i];
       q.life -= dt;
       if (q.life <= 0 && emit && Math.random() < dt * 9) {
         const side = Math.random() < 0.5 ? -1 : 1, a = along + (Math.random() - 0.5) * (rinse ? 12 : 3);
         q.x = wb.x + wb.fwd.x * a + wb.side.x * side * (1.0 + Math.random() * 0.6); q.z = wb.z + wb.fwd.z * a + wb.side.z * side * (1.0 + Math.random() * 0.6);
-        q.y = rinse ? 4.6 : 0.6 + Math.random() * 3.0; q.vy = rinse ? -6 - Math.random() * 3 : 0.3 + Math.random() * 0.5; q.life = rinse ? 0.7 : 1.4 + Math.random();
-        const c = rinse ? [0.55, 0.8, 1.0] : rpick([[1, 1, 1], [1, 0.85, 0.92], [0.85, 0.95, 1]]);
+        q.y = rinse ? 4.6 : 0.6 + Math.random() * 3.0; q.vy = rinse ? -6 - Math.random() * 3 : 0.3 + Math.random() * 0.5; q.life = rinse ? 0.7 : spark ? 0.5 : 1.4 + Math.random();
+        const c = rinse ? [0.55, 0.8, 1.0] : spark ? [1, 0.95, 0.55] : rpick([[1, 1, 1], [1, 0.85, 0.92], [0.85, 0.95, 1]]);
         col[i * 3] = c[0]; col[i * 3 + 1] = c[1]; col[i * 3 + 2] = c[2];
       }
       if (q.life > 0) { q.y = Math.max(0.1, q.y + q.vy * dt); pos[i * 3] = q.x; pos[i * 3 + 1] = q.y; pos[i * 3 + 2] = q.z; }
       else { pos[i * 3 + 1] = -50; }
     }
-    washFx.material.size = rinse ? 0.3 : 0.6;
+    washFx.material.size = rinse ? 0.3 : spark ? 0.4 : 0.6;
     washFx.geometry.attributes.position.needsUpdate = true; washFx.geometry.attributes.color.needsUpdate = true;
   };
 
   // ---------- Christmas: W.setXmas(on) ----------
   // Big decorated trees (the depot yard, the waterfront, the city, old town, the airport), wreaths on the bus stop
   // shelters, and fairy lights (one Points draw call) on the street trees and along the roofs; they glow at night.
-  let xmasDecor = null, xmasLights = null, xmasOn = false;
+  let xmasDecor = null, xmasLights = null, xmasKit = null, xmasOn = false;
   function bigXmasTree(q, h) {
     q.cyl(0.45, 0.6, h * 0.16, 6, P.woodDark, 0, 0, 0);
     for (let k = 0; k < 4; k++) q.add(new THREE.ConeGeometry(h * (0.36 - k * 0.07), h * 0.32, 9), k % 2 ? '#2f8a55' : '#3a9d5f', 0, h * (0.28 + k * 0.17), 0);
@@ -2084,11 +2123,13 @@
     for (const [x, z, c] of [[1.2, 0.8, P.coral], [-1.0, 1.1, P.berry], [0.4, -1.3, P.honey], [-1.3, -0.6, P.teal]]) { q.box(0.9, 0.7, 0.9, c, x, 0, z); q.box(0.95, 0.12, 0.2, '#fff6e0', x, 0.7, z); }
   }
   function buildXmas() {
-    const xb = BB.mk.builder(), lp = [], lc = [];
+    const xb = BB.mk.builder(), lp = [], lc = [], xl = BB.landmarks && BB.landmarks.batch && BB.landmarks.christmasTree ? BB.landmarks.batch() : null;
     const cols = [[1, 0.35, 0.3], [1, 0.82, 0.3], [0.35, 0.85, 0.5], [0.45, 0.6, 1], [1, 0.55, 0.85]];
     const light = (x, y, z, i) => { lp.push(x, y, z); const c = cols[i % cols.length]; lc.push(c[0], c[1], c[2]); };
     for (const [x, z, h] of XMAS_TREES) {
-      xb.at(x, 0.2, z, 0, (q) => { if (!LM('xmasTree', q, { h })) bigXmasTree(q, h); });
+      let kit = false;
+      if (xl) try { xl.add('christmasTree', x, z, 0, h / 7); if (BB.landmarks.giftPile) xl.add('giftPile', x + h * 0.32, z + h * 0.2, 0.4, 4); kit = true; } catch (e) { console.error(e); }
+      if (!kit) xb.at(x, 0.2, z, 0, (q) => bigXmasTree(q, h));
       for (let k = 0; k < 40; k++) { const t = k / 40, a = t * Math.PI * 9, r = h * 0.34 * (1 - t) + 0.3; light(x + Math.cos(a) * r, 0.2 + h * (0.2 + t * 0.75), z + Math.sin(a) * r, k); }
     }
     for (const st of W.stops) {
@@ -2120,12 +2161,13 @@
     xmasLights = new THREE.Points(geo, new THREE.PointsMaterial({ size: 0.5, map: new THREE.CanvasTexture(c), vertexColors: true, transparent: true, depthWrite: false, fog: true }));
     xmasLights.name = 'xmasLights'; xmasLights.frustumCulled = false;
     W.scene.add(xmasDecor, xmasLights);
+    if (xl) { xmasKit = xl.mesh(); xmasKit.name = 'xmasKit'; W.scene.add(xmasKit); }
     if (BB.renderer && BB.camera) try { BB.renderer.compile(W.scene, BB.camera); } catch (e) { /* compiled on first draw */ }
   }
   W.setXmas = function (on) {
     xmasOn = !!on;
     if (xmasOn && !xmasDecor && W.built) buildXmas();
-    if (xmasDecor) { xmasDecor.visible = xmasOn; xmasLights.visible = xmasOn; }
+    if (xmasDecor) { xmasDecor.visible = xmasOn; xmasLights.visible = xmasOn; if (xmasKit) xmasKit.visible = xmasOn; }
     BB.emit('world:xmas', { on: xmasOn });
     return xmasOn;
   };
@@ -2167,7 +2209,10 @@
     if (planes) updatePlanes(dt);
     if (boomN && Bs && Bs.front) {                 // the boom gates lift for the bus
       const near = (zg) => Math.hypot(Bs.front.position.x - 42, Bs.front.position.z - zg) < 26 || Math.hypot(Bs.rear.position.x - 42, Bs.rear.position.z - zg) < 22;
-      for (const [m, zg, sg] of [[boomN, 128, 1], [boomS, 166, -1]]) { const want = near(zg) ? 1.35 : 0; m.userData.a = (m.userData.a || 0) + BB.clamp(want - (m.userData.a || 0), -dt * 1.6, dt * 1.6); m.rotation.x = sg * m.userData.a; }
+      for (const [m, zg, sg] of [[boomN, 128, 1], [boomS, 166, -1]]) {
+        if (m.userData.lm) { m.userData.setOpen(near(zg) ? 1 : 0); continue; }
+        const want = near(zg) ? 1.35 : 0; m.userData.a = (m.userData.a || 0) + BB.clamp(want - (m.userData.a || 0), -dt * 1.6, dt * 1.6); m.rotation.x = sg * m.userData.a;
+      }
     }
     if (xmasOn && xmasLights) xmasLights.material.size = 0.45 + 0.35 * W.sky.lights + 0.08 * Math.sin(clock * 3);
     if (train) {                           // glides back and forth, pausing at the station
@@ -2181,6 +2226,9 @@
       train.position.x = trainX;
     }
     if (cars) updateCars(dt);
+    cullFar();
+    if (cars && BB.camera) cars.visible = Math.abs(BB.camera.position.z - HZ) < 215;
+    if (BB.landmarks && typeof BB.landmarks.update === 'function') BB.landmarks.update(dt);
     if (birds) { birds.visible = sk.night < 0.6; if (birds.visible) updateBirds(dt, clock); }
   };
 })();

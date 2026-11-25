@@ -56,6 +56,7 @@
   }
   // Park the bus at a stop or the depot (used at start, after a tow).
   B.placeAt = function (stop) {
+    B.inWorkshop = false;
     const p = poseAtBay(stop, false);
     fx = p.fx; fz = p.fz; h = p.h; hr = p.hr;
     B.speed = 0; B.steer = 0; settle = null;
@@ -63,11 +64,27 @@
     placeModel(); snapCamera();
     refreshRibbon();
   };
-  // The game starts at the depot: the bus parked in front of the garage door (in the kerb lane), garage camera.
+  // The home screen and the garage: the bus stands in the depot's big open workshop (BB.world.workshop).
+  function placeWorkshop() {
+    const ws = W().workshop;
+    if (!ws) { const p = poseAtBay(W().depot, false); fx = p.fx; fz = p.fz; h = hr = p.h; }
+    else { const f = fwdOf(ws.heading); h = hr = ws.heading; fx = ws.x + f.x * frontOff(); fz = ws.z + f.z * frontOff(); }
+    B.speed = 0; B.steer = 0; settle = null; B.inWorkshop = true; B.inWash = false;
+    placeModel();
+  }
   B.placeAtDepot = function (camera) {
-    B.placeAt(BB.world.depot); B.atStop = null; B.doorsOpen = false;
+    placeWorkshop(); B.atStop = null; B.target = null; B.onArrive = null; B.doorsOpen = false;
+    refreshRibbon();
     B.setCamera(camera || 'depot', true);
   };
+  // After Drive: the bus waits in its bay in the yard (W.depot), ready to drive out through the gate.
+  B.placeInYard = function () {
+    const t = B.target, cb = B.onArrive;                 // (a job may already have set its first stop)
+    B.placeAt(W().depot); B.atStop = null; B.doorsOpen = false;
+    if (t && t !== W().depot) { B.target = t; B.onArrive = cb; refreshRibbon(); }
+  };
+  // Is the bus inside the depot's yard (or its workshop)? 'bus:leftDepot' fires when it drives out of the gate.
+  B.inDepot = function () { const m = midPoint(); return !!(W().inDepotYard && W().inDepotYard(m.x, m.z)); };
   // "Drive!": leave the depot (the child drives off into the kerb lane; the first job is started by jobs.js).
   B.leaveDepot = function () { B.closeDoors(); B.atStop = null; B.setCamera('chase'); };
   // Put the bus anywhere, straight, facing heading (x,z = the front carriage's centre). Used by tows and tests.
@@ -85,6 +102,7 @@
     refreshRibbon();
     return true;
   };
+  B.washBay = null;                    // set in build: BB.world.washBay (B.stopAt(B.washBay, cb) leads there)
   B.openDoors = function () { if (!B.doorsOpen) { B.doorsOpen = true; BB.sfx.door(); } };
   B.closeDoors = function () {
     if (!B.doorsOpen && !B.atStop) return;
@@ -124,7 +142,7 @@
     const m = midPoint(), h2 = wrapA(h + Math.PI), f2 = fwdOf(h2);
     let sx = 0, sz = 0;
     const near = nearestRoad(m.x, m.z);
-    if (near && near.d < C.roadHalf + 1) {
+    if (near && near.d < W().halfOf(near.edge) + 1) {
       const dot = f2.x * near.dx + f2.z * near.dz;
       if (Math.abs(dot) > 0.7) {
         const s = Math.sign(dot), lx = near.dz * s, lz = -near.dx * s;          // left of the new way
@@ -325,6 +343,7 @@
     B.setRouteNumber(B.routeNo);
     partsApplied = false;
     if (B.front) placeModel();
+    if (BB.scene) buildDirt();
   }
   function defaultSeats() { const s = []; for (let i = 0; i < 10; i++) s.push({ x: i < 5 ? 0.62 : -0.62, y: 1.25, z: 1.9 - (i % 5) * 1.15 }); return s; }
 
@@ -932,7 +951,7 @@
   // sideways (500 px tall or less) a column on the left; the coins/fuel HUD runs along the top.
   function stopFrameRect() {
     const w = innerWidth, hh = innerHeight;
-    if (hh <= 520) return { x0: Math.min(346, w * 0.53), y0: 66, x1: w - 10, y1: hh - 8 };
+    if (hh <= 520) return { x0: Math.min(352, w * 0.54), y0: 66, x1: w - 10, y1: hh - 8 };
     return { x0: 14, y0: 80, x1: w - 14, y1: hh - Math.min(250, hh * 0.34) - 10 };
   }
   const fitCam = new THREE.PerspectiveCamera(50, 1, 0.5, 900), _p = new THREE.Vector3(), _q = new THREE.Vector3();
@@ -963,6 +982,7 @@
       } else { B.front.worldToLocal(_p); ex = { x: _p.x, z: _p.z }; }
     }
     req.push(lw(ex.x, 0, ex.z), lw(ex.x, 2.5, ex.z));
+    req.push(lw(0.6, 0.3, LF / 2 + 0.35), lw(0.6, 2.8, LF / 2 + 0.35));     // the nose too (clear of the card on small phones)
     for (const al of [1.2, -1.6]) wave.push(lw(ex.x + 2.6, 0, ex.z + al), lw(ex.x + 2.6, 2.3, ex.z + al));
     const cam = BB.camera, R = stopFrameRect(), Wd = innerWidth, Hd = innerHeight;
     fitCam.fov = cam.fov; fitCam.aspect = cam.aspect; fitCam.updateProjectionMatrix();
@@ -1505,18 +1525,23 @@
   // left alone; and not at junctions) is pushed gently back toward the road, sideways only; on a bendy the rear
   // carriage swings back about the hitch.
   function nearJunction(x, z) {
-    for (const n of W().roads.nodes) if (n.edges.length > 2 && Math.abs(x - n.x) < C.roadHalf + 9 && Math.abs(z - n.z) < C.roadHalf + 9) return true;
+    for (const n of W().roads.nodes) {
+      if (n.edges.length < 3) continue;
+      const m = (n.half || (n.half = Math.max(...n.edges.map((id) => W().halfOf(W().edge(id)))))) + 9;
+      if (Math.abs(x - n.x) < m && Math.abs(z - n.z) < m) return true;
+    }
     return false;
   }
   function kerbGuide(dt) {
-    const cs = busCircles(), RH = C.roadHalf, f = fwdOf(h), hx = fx - f.x * HITCH, hz = fz - f.z * HITCH;
+    const cs = busCircles(), f = fwdOf(h), hx = fx - f.x * HITCH, hz = fz - f.z * HITCH;
+    if (W().inDepotYard && W().inDepotYard(fx, fz)) return;          // (the yard is open concrete: no kerbs)
     let px = 0, pz = 0, n = 0, swing = 0;
     for (let i = 0; i < cs.length; i++) {
       const c = cs[i];
       if (nearJunction(c[0], c[1])) continue;         // (turning at a junction: the corners are the bus's own business)
       const near = nearestRoad(c[0], c[1]);
       if (!near || near.d < 1e-3) continue;
-      const over = near.d + c[2] * 0.6 - RH;
+      const over = near.d + c[2] * 0.6 - W().halfOf(near.edge);
       if (over <= 0 || over > 3.5) continue;
       const k = Math.min(over, 1.2) * 1.6 * dt, dx = (near.x - c[0]) / near.d * k, dz = (near.z - c[1]) / near.d * k;
       if (ART && i >= nFront) { const vx = c[0] - hx, vz = c[1] - hz, l2 = vx * vx + vz * vz || 1; swing += (dx * vz - dz * vx) / l2; }
@@ -1538,7 +1563,7 @@
       r = routePts.concat([{ x: bay.nose.x + bay.fwd.x * 12, z: bay.nose.z + bay.fwd.z * 12 }]);
     } else {
       const near = nearestRoad(fx, fz);
-      if (!near || near.d > C.roadHalf + 2) return null;
+      if (!near || near.d > W().halfOf(near.edge) + 2) return null;
       const s = (f.x * near.dx + f.z * near.dz) >= 0 ? 1 : -1, e = near.edge;
       r = [];
       for (let k = -2; k <= 30; k += 2) {
@@ -1630,6 +1655,13 @@
       if (which && Math.abs(B.speed) < 2.0) {
         settle = { from: { fx, fz, h, hr }, to: poseAtBay(B.target, which === 'reversed'), t: 0, stop: B.target };
         B.speed = 0; ribbon.geometry.setDrawRange(0, 0);
+      } else if (B.washBay && !B.inWash && !B.atStop && !washT && (!B.target || B.target === B.washBay) && Math.abs(B.speed) < 1.2 && B.camMode === 'chase') {
+        // stopping in the wash bay (driving through it the right way round) settles the bus there too
+        const wb = W().bayOf(B.washBay), m = midPoint(), dx = m.x - wb.x, dz = m.z - wb.z;
+        if (Math.abs(dx * wb.fwd.x + dz * wb.fwd.z) < 5 && Math.abs(dx * wb.side.x + dz * wb.side.z) < 2.6 && Math.abs(wrapA(h - wb.heading)) < 0.6) {
+          settle = { from: { fx, fz, h, hr }, to: poseAtBay(B.washBay, false), t: 0, stop: B.washBay };
+          B.speed = 0; ribbon.geometry.setDrawRange(0, 0);
+        }
       }
       return;
     }
@@ -1641,9 +1673,22 @@
     if (settle.t >= 1) {
       const stop = settle.stop; settle = null;
       const cb = B.target === stop ? B.onArrive : null;
+      if (stop === B.washBay) {                      // in the wash bay: not a stop (the bus can drive on); the UI asks
+        if (B.target === stop) { B.target = null; B.onArrive = null; }
+        B.inWash = true; refreshRibbon();
+        BB.emit('bus:washBay', { inBay: true });
+        if (cb) cb(stop);
+        return;
+      }
       B.target = null; B.atStop = stop; B.onArrive = null;
       refreshRibbon();
       BB.emit('bus:arrived', { stop });
+      if (stop === W().depot && BB.ui && typeof BB.ui.fade === 'function' && W().workshop) {
+        // a depot trip ends in the workshop: a quick fade, then the garage opens round the bus there
+        B.locked = true;
+        BB.ui.fade(() => { B.locked = false; placeWorkshop(); B.atStop = stop; snapCamera(); if (cb) cb(stop); });
+        return;
+      }
       if (cb) cb(stop);
     }
   }
@@ -1654,7 +1699,7 @@
       B.edge = near.edge.id; B.t = near.s / near.edge.length;
       const f = fwdOf(h), dot = f.x * near.dx + f.z * near.dz;
       B.dir = dot >= 0 ? 1 : -1;
-      if (near.d < C.roadHalf && Math.abs(dot) > 0.8 && B.speed > 3) {
+      if (near.d < W().halfOf(near.edge) && Math.abs(dot) > 0.8 && B.speed > 3) {
         const tx = near.dx * B.dir, tz = near.dz * B.dir, lat = (fx - near.x) * tz + (fz - near.z) * -tx;   // + = left of travel
         if (lat < -0.6) wrongLaneT += dt; else wrongLaneT = Math.max(0, wrongLaneT - dt * 2);
       } else wrongLaneT = Math.max(0, wrongLaneT - dt);
@@ -1678,14 +1723,25 @@
     placeModel();
     if (spinHop) { for (const o of [B.front, ART ? B.rear : null, jointF, jointR]) if (o) o.position.y += spinHop; }
     laneCheck(dt);
+    // leaving the depot (out through its gate), the wash bay, the wash show
+    const inYard = B.inDepot();
+    if (wasInYard && !inYard && B.camMode === 'chase' && !spin) BB.emit('bus:leftDepot', {});
+    wasInYard = inYard;
+    if (B.inWash && !washT && B.washBay) {
+      const wb = W().bayOf(B.washBay), m = midPoint();
+      if (Math.hypot(m.x - wb.x, m.z - wb.z) > 5) { B.inWash = false; BB.emit('bus:washBay', { inBay: false }); }
+    }
+    if (washT) updateWash(dt);
 
     // fuel
     if (ds > 0 && !B.noFuel) {
       B.fuel = Math.max(0, B.fuel - ds * C.fuelPerUnit);
       if (!lowWarned && B.fuel <= C.fuelLow) { lowWarned = true; BB.emit('bus:fuelLow', { fuel: B.fuel }); }
       if (B.fuel <= 0) { B.noFuel = true; B.speed = 0; BB.emit('bus:fuelEmpty', {}); }
+      // dust: about a full coat in 7 minutes of driving, faster in the rain
+      B.dirt = Math.min(1, (B.dirt || 0) + ds / 2600 * (W().isRaining && W().isRaining() ? 2.2 : 1));
       saveTimer -= dt;
-      if (saveTimer <= 0 && !B.noFuel) { saveTimer = 4; BB.save.fuel = B.fuel; BB.saveNow(); }
+      if (saveTimer <= 0 && !B.noFuel) { saveTimer = 4; BB.save.fuel = B.fuel; BB.save.dirt = Math.round(B.dirt * 1000) / 1000; BB.saveNow(); }
     }
 
     // wheels, doors, passengers, face
@@ -1697,7 +1753,8 @@
     for (const d of doors) { if (!d.userData.zOnly) d.position.x = d.userData.x + Math.sign(d.userData.x || 1) * doorT * 0.1; d.position.z = d.userData.z + doorT * d.userData.slide; }
     // the stop's dollhouse view: the kerb-side wall fades away so the seats and the people can be counted from the
     // pavement (the old roof cut-away is kept for models without a kerb wall, but off: the owner preferred the side)
-    const wantRoof = 0, wantWall = (B.atStop || settle) && B.camMode === 'chase' ? 1 : 0;
+    const wantRoof = 0, wantWall = (B.atStop || settle) && B.camMode === 'chase' && B.atStop !== B.washBay && (!settle || settle.stop !== B.washBay) ? 1 : 0;
+    updateDirt();
     wallT += BB.clamp(wantWall - wallT, -dt * 2, dt * 2);
     if (M && wallT !== lastWallT) {
       lastWallT = wallT;
@@ -1751,6 +1808,81 @@
     BB.sfx.engine(B.camMode === 'chase' ? Math.abs(B.speed) / MAX_FWD : 0);
     updateCamera(dt);
   };
+  // ---------- the bus wash ----------
+  // B.wash(): in the wash bay (B.inWash, after 'bus:washBay' {inBay:true}) a ~6.4 s show: the bus is held in place
+  // (B.atStop = the wash bay, so the side-view camera frames it), the brushes roll along it spinning, foam flies, a
+  // rinse, the dust fades away, a sparkle; then 'bus:washed'. Hold-aware (it runs on the game clock).
+  let washT = 0, wasInYard = false, washSpark = 0;
+  B.wash = function () {
+    if (!B.inWash || washT || !B.washBay) return false;
+    washT = 1e-4; B.atStop = B.washBay; B.locked = true; B.speed = 0; B.steer = 0;
+    B.dirtStart = B.dirt || 0;
+    if (BB.sfx && BB.sfx.whoosh) BB.sfx.whoosh();
+    BB.emit('bus:washStart', {});
+    return true;
+  };
+  B.isWashing = () => !!washT;
+  function updateWash(dt) {
+    washT += dt;
+    if (W().washShow) W().washShow(washT, dt);
+    if (washT > 1.5) B.dirt = (B.dirtStart || 0) * Math.max(0, 1 - (washT - 1.5) / 3.6);
+    if (washT > 5.4 && !washSpark) { washSpark = 1; if (BB.sfx && BB.sfx.sparkle) BB.sfx.sparkle(); }
+    if (washT > 5.4) { const k = Math.sin(Math.PI * Math.min(1, (washT - 5.4) / 1.0)); glassMat.emissive.setRGB(0.5 * k, 0.5 * k, 0.45 * k); }
+    if (washT >= 6.4) {
+      washT = 0; washSpark = 0; B.dirt = 0; BB.save.dirt = 0; BB.saveNow();
+      if (W().washShow) W().washShow(null);
+      B.atStop = null; B.locked = false;
+      BB.emit('bus:washed', {});
+    }
+  }
+  // ---------- dust ----------
+  // A dusty band along the lower body and over the wheel arches of every carriage: one mesh in world space whose few
+  // vertices follow the carriages each frame; its opacity is B.dirt (0..1). Purely for looks.
+  let dirtMesh = null, dirtBase = null, dirtCar = null;
+  function dirtTexture() {
+    const c = document.createElement('canvas'); c.width = 256; c.height = 64;
+    const x = c.getContext('2d');
+    const g = x.createLinearGradient(0, 0, 0, 64); g.addColorStop(0, 'rgba(120,92,60,0)'); g.addColorStop(0.45, 'rgba(120,92,60,0.35)'); g.addColorStop(1, 'rgba(96,70,44,0.8)');
+    x.fillStyle = g; x.fillRect(0, 0, 256, 64);
+    let sd = 7; const rnd = () => (sd = (sd * 16807) % 2147483647) / 2147483647;
+    for (let i = 0; i < 70; i++) { x.beginPath(); x.ellipse(rnd() * 256, 34 + rnd() * 30, 2 + rnd() * 7, 1.5 + rnd() * 4, rnd() * 3, 0, 7); x.fillStyle = `rgba(${90 + rnd() * 40 | 0},${66 + rnd() * 30 | 0},${40 + rnd() * 20 | 0},${0.35 + rnd() * 0.5})`; x.fill(); }
+    const t = new THREE.CanvasTexture(c); t.wrapS = THREE.RepeatWrapping; return t;
+  }
+  function buildDirt() {
+    if (dirtMesh) { dirtMesh.geometry.dispose(); } else {
+      dirtMesh = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshLambertMaterial({ map: dirtTexture(), transparent: true, opacity: 0, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
+      dirtMesh.name = 'dirt'; dirtMesh.frustumCulled = false; BB.scene.add(dirtMesh);
+    }
+    // quads on both sides of each carriage: [carriage 0 front / 1 rear, length, z centre]
+    const pos = [], uv = [], car = [], idx = [];
+    const quad = (ci, side, z0, z1, y0, y1) => {
+      const b = pos.length / 3, x = side * 1.285;
+      for (const [z, y, u, v] of [[z0, y0, 0, 1], [z1, y0, (z1 - z0) / 3, 1], [z1, y1, (z1 - z0) / 3, 0], [z0, y1, 0, 0]]) { pos.push(x, y, z); uv.push(u, v); car.push(ci); }
+      if (side > 0) idx.push(b, b + 1, b + 2, b, b + 2, b + 3); else idx.push(b, b + 2, b + 1, b, b + 3, b + 2);
+    };
+    for (const sd of [1, -1]) { quad(0, sd, -LF / 2 + 0.2, LF / 2 - 0.2, 0.3, 1.2); if (ART) quad(1, sd, -LR / 2 + 0.2, LR / 2 - 0.2, 0.3, 1.2); }
+    dirtBase = new Float32Array(pos); dirtCar = car;
+    const g = dirtMesh.geometry = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setIndex(idx); g.computeVertexNormals();
+  }
+  const _dv = new THREE.Vector3();
+  function updateDirt() {
+    if (!dirtMesh) return;
+    const d = BB.clamp(B.dirt || 0, 0, 1);
+    dirtMesh.visible = d > 0.03 && B.front.visible !== false;
+    if (!dirtMesh.visible) return;
+    dirtMesh.material.opacity = Math.min(1, d * 1.15);
+    B.group.updateMatrixWorld(true);
+    const p = dirtMesh.geometry.attributes.position.array;
+    for (let i = 0; i < dirtCar.length; i++) {
+      _dv.set(dirtBase[i * 3], dirtBase[i * 3 + 1], dirtBase[i * 3 + 2]).applyMatrix4((dirtCar[i] ? B.rear : B.front).matrixWorld);
+      p[i * 3] = _dv.x; p[i * 3 + 1] = _dv.y; p[i * 3 + 2] = _dv.z;
+    }
+    dirtMesh.geometry.attributes.position.needsUpdate = true; dirtMesh.geometry.computeVertexNormals();
+  }
+  B.setDirt = function (v) { B.dirt = BB.clamp(+v || 0, 0, 1); BB.save.dirt = B.dirt; };
+
   // A small arrow over the bus pointing the way, when it is off the route or facing away from it.
   function updateWayArrow(dt) {
     if (!routePts || !B.target || B.atStop || settle || spin || B.camMode !== 'chase') {
@@ -1785,7 +1917,17 @@
 
   B.assist = !!BB.save.assist;
   B.build = function () {
+    B.washBay = W().washBay || null;
+    B.dirt = BB.clamp(+BB.save.dirt || 0, 0, 1);
     buildModel();
+    // Drive (the garage closes, not to the home screen): a quick fade and the bus waits in its yard bay
+    BB.on('depot:closed', (d) => {
+      if (d && d.home) return;
+      if (!B.inWorkshop) return;
+      B.locked = true;
+      const go = () => { B.locked = false; B.placeInYard(); B.setCamera('chase', true); BB.emit('bus:inYard', {}); };
+      if (BB.ui && typeof BB.ui.fade === 'function') BB.ui.fade(go); else go();
+    });
     B.placeAt(BB.world.depot);
     B.atStop = null;                      // parked, not "at a stop" (doors shut)
     B.fuel = BB.save.fuel;
