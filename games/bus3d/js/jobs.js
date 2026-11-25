@@ -1607,7 +1607,9 @@
         b.ball(0.3, '#b5793e', 0, 0.3, 0); b.ball(0.24, '#c58a55', 0, 0.76, 0); b.ball(0.1, '#b5793e', -0.18, 0.95, 0); b.ball(0.1, '#b5793e', 0.18, 0.95, 0);
         b.ball(0.09, '#e2b07c', 0, 0.72, 0.2); b.ball(0.09, '#ff8fab', 0, 0.42, 0.26);
       }),
-      kit: mk((b) => { b.box(4.4, 0.5, 2.0, '#fbf7ee', 0, 0, 0); b.box(4.44, 0.12, 2.04, '#ff8fab', 0, 0.36, 0); b.box(0.6, 0.03, 0.2, '#ef5a4b', 1.75, 0.5, 0.6); b.box(0.2, 0.03, 0.6, '#ef5a4b', 1.75, 0.5, 0.6); }),
+      kit: mk((b) => { b.box(4.4, 0.5, 2.0, '#fbf7ee', 0, 0, 0); b.box(4.44, 0.12, 2.04, '#ff8fab', 0, 0.36, 0); // a coral heart on the lid (the ambulance's emblem; never a cross)
+        b.ball(0.17, '#ff6b5c', 1.63, 0.5, 0.7, 1, 1, 0.22, 1); b.ball(0.17, '#ff6b5c', 1.87, 0.5, 0.7, 1, 1, 0.22, 1);
+        b.box(0.32, 0.06, 0.32, '#ff6b5c', 1.75, 0.47, 0.52, Math.PI / 4); }),
       fighter: friendGeo({ shirt: '#3d5a80', skin: '#d9a679', hair: '#ef5a4b' }),          // red helmet
       jet: mk((b) => { b.cyl(0.06, 0.11, 2.4, 5, '#bfe6f5', 0, 0, 0); }),
       kiosk: mk((b) => {
