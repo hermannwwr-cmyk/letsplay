@@ -1221,7 +1221,8 @@
 
   // ---------- camera ----------
   const camPos = new THREE.Vector3(), camLook = new THREE.Vector3();
-  let orbit = 0.6, camH = 0, stopCam = null;
+  let orbit = 0.6, camH = 0, stopCam = null, sceneFov0 = null;
+  const baseFov = () => (sceneFov0 != null ? sceneFov0 : boostFov0 != null ? boostFov0 : BB.camera.fov);
   function midPoint() { if (!ART) return { x: fx, z: fz }; const r = B.rear.position; return { x: (fx + r.x) / 2, z: (fz + r.z) / 2 }; }
   const _w1 = new THREE.Vector3(), _w2 = new THREE.Vector3();
   // Move the wanted camera toward the bus (and a little up) until no building stands in the way.
@@ -1262,7 +1263,12 @@
       for (const z of [LF / 2, tl]) req.push(lw(1.2, 0, z), lw(1.2, Hb0, z), lw(-1.2, Hb0, z));
     }
     // a job's scene: world points that must show too (firefighters, the hooked car, the ice cream queue)
-    if (st && Array.isArray(st.frame)) for (const q of st.frame) if (q) req.push(new THREE.Vector3(+q.x || 0, (+q.y || 0) + g0, +q.z || 0));
+    if (st && Array.isArray(st.frame) && st.frame.length) {
+      for (const q of st.frame) if (q) req.push(new THREE.Vector3(+q.x || 0, (+q.y || 0) + g0, +q.z || 0));
+      // (and the whole vehicle, nose to tail, so a scene never crops it)
+      const Hw = M ? M.height : 3, tw = ART ? -(HITCH + R_CTR + LR / 2) : -LF / 2;
+      for (const z of [LF / 2 + 0.3, tw - 0.3]) req.push(lw(1.3, 0.1, z), lw(1.3, Hw + 0.2, z));
+    }
     const iDoor = req.length;
     const dl = M ? M.doorLocal : { x: 1.6, z: LF / 2 - 1 };
     req.push(lw(dl.x, 0, dl.z), lw(dl.x, 2.5, dl.z));
@@ -1281,7 +1287,10 @@
     req.push(lw(0.6, 0.3, LF / 2 + 0.35), lw(0.6, 2.8, LF / 2 + 0.35));     // the nose too (clear of the card on small phones)
     for (const al of [1.2, -1.6]) wave.push(lw(ex.x + 2.6, 0, ex.z + al), lw(ex.x + 2.6, 2.3, ex.z + al));
     const cam = BB.camera, R = stopFrameRect(), Wd = innerWidth, Hd = innerHeight;
-    fitCam.fov = cam.fov; fitCam.aspect = cam.aspect; fitCam.updateProjectionMatrix();
+    // a job's scene on a small phone (the scene must fit in the column beside the card): a wider view, so the camera
+    // can stand nearer (fewer buildings between) and still fit the vehicle and the props
+    const sceneFov = st && Array.isArray(st.frame) && st.frame.length && innerWidth <= 700 ? 68 : null;
+    fitCam.fov = sceneFov || baseFov(); fitCam.aspect = cam.aspect; fitCam.updateProjectionMatrix();
     const aw = Math.max(80, R.x1 - R.x0), ah = Math.max(80, R.y1 - R.y0), rx = (R.x0 + R.x1) / 2, ry = (R.y0 + R.y1) / 2;
     const tanV = Math.tan(THREE.MathUtils.degToRad(fitCam.fov) / 2);
     const proj = (v) => { _q.copy(v).project(fitCam); return [(_q.x + 1) / 2 * Wd, (1 - _q.y) / 2 * Hd, _q.z]; };
@@ -1373,14 +1382,15 @@
     // the first clear one whose neighbouring heads are well apart; on a small screen where none is, the clear one
     // with the most room between the heads (a steeper look lifts the far row above the near one)
     let pick = null, best = null;
+    const sceneFrame = !!(st && Array.isArray(st.frame) && st.frame.length);
     for (const [yaw, pitch, md, wv] of cands) {
       const p = plan(yaw * D2R, pitch * D2R, md, wv);
       if (!clear(p)) continue;
-      if (p.gap >= 34) { pick = p; break; }
+      if (p.gap >= 34 || sceneFrame) { pick = p; break; }       // (a scene counts its props, not heads: the first clear view)
       if (!best || (p.gap > best.gap * 1.2 && pitch <= 38)) best = p;   // (not steeper than that for a little more room)
     }
     pick = pick || best || plan(0, 62 * D2R, near, true);
-    return { key, pos: pick.pos, look: pick.look };
+    return { key, pos: pick.pos, look: pick.look, fov: sceneFov };
   }
   // ---------- the garage cameras ----------
   // Each view is planned once per bus type and screen size in the front carriage's own frame (+z forward, +x the
@@ -1629,6 +1639,14 @@
     }
     cp.set(px, ny, pz);
     curLook.lerp(camLook, Math.min(1, k * 1.4));
+    // the scene view's wider lens on phones (eased in and back out)
+    const wantFov = stopView && stopCam && stopCam.fov ? stopCam.fov : null;
+    if (wantFov || sceneFov0 != null) {
+      if (sceneFov0 == null) sceneFov0 = BB.camera.fov;
+      const tgt = wantFov || sceneFov0; BB.camera.fov += (tgt - BB.camera.fov) * Math.min(1, dt * 3);
+      if (!wantFov && Math.abs(BB.camera.fov - sceneFov0) < 0.05) { BB.camera.fov = sceneFov0; sceneFov0 = null; }
+      BB.camera.updateProjectionMatrix();
+    }
     BB.camera.lookAt(curLook);
   }
   B.setCamera = function (mode, snap) { B.camMode = mode; if (snap) snapCamera(); if (snap || mode !== 'chase') snapWall(); };

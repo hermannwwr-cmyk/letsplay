@@ -1184,7 +1184,7 @@
           t += dt; flash(v, dt, 5);
           let B = Bs(), bp = project(r, B.pos.x, B.pos.z, dr.d - 20, dr.d + 90);
           // the bus turned off this route before being overtaken: re-plan on its new road, the same distance behind
-          if (!passed && (!bp || bp.dist > 9)) {
+          if (!passed && (!bp || bp.dist > 9 || r.len - dr.d < 60)) {
             const nr = sameWay(Math.max(20, lastGap + 15), 170);
             if (nr) { r = nr; dr.r = nr; dr.d = Math.max(0, nr.bus - lastGap); dr.off = dr.offT = nr.lane0 === (Cc.laneInner || 2.5) ? inner : kerb; bp = project(r, B.pos.x, B.pos.z, dr.d - 20, dr.d + 90); }
           }
@@ -1220,8 +1220,9 @@
           dr.update(dt);
           if ((sirenT -= dt) <= 0) sirenT = SIREN.ambulance(near(dr.x, dr.z, 130));
           if (dr.blocked) waitAll += dt;
-          if (dr.done || t > 70 || waitAll > 25) return false;
-          if (passed && dr.d - (bp ? bp.d : 0) > 140) return false;
+          if (dr.done && (said || !prompted || t - passT > 4)) { E.why = 'routeEnd'; return false; }
+          if (t > 70 || waitAll > 25) { E.why = 'timeout'; return false; }
+          if (passed && dr.d - (bp ? bp.d : 0) > 140) { E.why = 'passed'; return false; }
           return true;
         },
         end() { dropVehicle(v); },
@@ -1741,7 +1742,7 @@
                 emit({ x: rk.x, y: rk.y, z: rk.z, vx: Math.cos(a) * rr * spd, vy: u * spd, vz: Math.sin(a) * rr * spd, grav: 3.2, drag: 0.8, life: rand(1.8, 2.6), size: 2.4 * big, size1: 1.0 * big, color: k % 3 ? rk.c1 : rk.c2, glow: true, fin: 0.01 });
               }
               SND.pop(near(rk.x, rk.z, 280));
-              if (!me4.said) { me4.said = true; talk('Ooh! Fireworks!', true, true); if (E.current) { E.current.saidIntro = true; E.current.seen = true; E.current.spotted.fireworks = true; } E.spot('fireworks'); }
+              if (!me4.said) { me4.said = true; if (!jobBusy() && !(ui().asking && ui().asking())) BB.say('Ooh! Fireworks!', { queue: true }); if (E.current) { E.current.saidIntro = true; E.current.seen = true; E.current.spotted.fireworks = true; } E.spot('fireworks'); }
             }
           }
           return n < total || rockets.length > 0 || t < 3;
@@ -1870,7 +1871,7 @@
     safe(() => c.end());
     hideBubble();
     lastEnd = clock;
-    BB.emit('events:end', { id: c.id });
+    BB.emit('events:end', { id: c.id, why: E.why || '' }); E.why = '';
   }
   E.stop = function () { finish(); clearParticles(); crowdBegin(); crowdEnd(); };
   E.active = () => (E.current ? E.current.id : null);
@@ -1955,7 +1956,7 @@
     crowdBegin();
     if (E.current) {
       const c = E.current;
-      if (!canRun()) finish();
+      if (!canRun()) { E.why = 'notRun'; finish(); }
       else {
         const keep = safe(() => c.update(dt));
         const a = c.at ? safe(() => c.at()) : null;
@@ -1977,8 +1978,8 @@
           const q = (safe(() => c.spots()) || [])[0], B = Bs();
           if (q && (q[1] - B.pos.x) * Math.sin(B.heading) + (q[3] - B.pos.z) * Math.cos(B.heading) < -6) missed = true;
         }
-        if (missed) { finish(); delete lastStart[c.id]; gap = rand(6, 10); }
-        else if (keep === false || keep === null || c.far > 5 || clock - c.t0 > 150) finish();
+        if (missed) { E.why = 'missed'; finish(); delete lastStart[c.id]; gap = rand(6, 10); }
+        else if (keep === false || keep === null || c.far > 5 || clock - c.t0 > 150) { if (!E.why) E.why = keep === null ? 'error' : c.far > 5 ? 'far' : keep === false ? 'over' : 'old'; finish(); }
         else spotting(dt);
       }
     }
