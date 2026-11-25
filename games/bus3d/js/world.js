@@ -443,7 +443,7 @@
       hemi.intensity = num(8);
     }
     const night = clamp01((ph - 0.8) / 0.2), evening = clamp01((ph - 0.55) / 0.25) * (1 - night);
-    const lights = clamp01((ph - 0.7) / 0.18);
+    const lights = clamp01((ph - 0.72) / 0.24);                    // (full only in the ~30 s of real night)
     W.sky.night = night; W.sky.evening = evening; W.sky.lights = lights;
     if (W.scene && W.scene.fog) { W.scene.fog.color.copy(skyU.hor.value); W.scene.fog.near = 95 - 20 * night; W.scene.fog.far = 260 - 30 * night; }
     // the sun sets low in the west-south-west and rises in the east-north-east; the moon is opposite
@@ -463,14 +463,16 @@
   // dawn again. A full day takes 1/speed seconds of play (6 minutes). In hub mode, with a minute of play time left,
   // it eases into the night and stays there (the bedtime cue); setSky(1) at goodnight does the same at once.
   W.day = { t: 0.12, speed: 1 / 360, bed: false, rising: false, auto: true };
+  // The 6-minute day as [t, sky phase] keyframes (phase: 0 morning .. 0.62 afternoon .. 0.8 evening .. 1 night).
+  // Full dark (lamps and lit windows at full) lasts about 30 s: sunset, a short dusk, the night, then dawn.
+  const DAY_KEYS = [[0, 0.06], [0.6, 0.62], [0.7, 0.8], [0.75, 1], [0.82, 1], [0.85, 0.86], [0.89, 0.72], [0.93, 0], [1, 0.06]];
+  const NIGHT0 = 0.755, NIGHT1 = 0.82;                             // the bedtime night holds inside these
   function phaseOf(t) {
-    if (t < 0.05) return 0.86 - 0.14 * t / 0.05;                 // dawn: pink, then orange...
-    if (t < 0.08) return 0.72 * (1 - (t - 0.05) / 0.03);         // ...then morning
-    if (t < 0.5) return 0.62 * (t - 0.08) / 0.42;                 // day
-    if (t < 0.62) return 0.62 + 0.18 * (t - 0.5) / 0.12;          // sunset
-    if (t < 0.7) return 0.8 + 0.2 * (t - 0.62) / 0.08;            // dusk
-    if (t < 0.92) return 1;                                        // night
-    return 1 - 0.14 * (t - 0.92) / 0.08;                           // before dawn
+    for (let i = 1; i < DAY_KEYS.length; i++) {
+      const [t1, p1] = DAY_KEYS[i];
+      if (t <= t1) { const [t0, p0] = DAY_KEYS[i - 1]; return p0 + (p1 - p0) * (t - t0) / (t1 - t0); }
+    }
+    return DAY_KEYS[0][1];
   }
   W.setDayTime = function (t) { W.day.t = ((+t || 0) % 1 + 1) % 1; dayDirty = true; };
   Object.defineProperty(W, 'dayTime', { get: () => W.day.t, set: (v) => W.setDayTime(v) });
@@ -479,14 +481,14 @@
   // share >= 1 (the goodnight moment) still means: night now.
   W.setSky = function (share, instant) {
     W.sky.target = clamp01(+share || 0);
-    if (W.sky.target >= 0.999) { W.day.bed = true; if (instant || !W.built) W.setDayTime(0.75); }
+    if (W.sky.target >= 0.999) { W.day.bed = true; if (instant || !W.built) W.setDayTime(0.78); }
   };
   function bedtime() { const H = BB.hub; return W.day.bed || !!(H && H.on && H.limit > 0 && H.left != null && H.left <= 60); }
   function updateDay(dt) {
     const d = W.day;
     if (bedtime()) {                                               // ease forward into the night and stay
-      const inNight = d.t >= 0.72 && d.t <= 0.9;
-      if (!inNight) { d.t = (d.t + dt * (d.t > 0.9 || d.t < 0.45 ? 0.03 : 0.02)) % 1; dayDirty = true; }
+      const inNight = d.t >= NIGHT0 && d.t <= NIGHT1;
+      if (!inNight) { d.t = (d.t + dt * (d.t > NIGHT1 || d.t < 0.45 ? 0.03 : 0.02)) % 1; dayDirty = true; }
     } else if (d.auto) { d.t = (d.t + dt * d.speed) % 1; dayDirty = true; }
   }
 
@@ -1586,7 +1588,7 @@
     skyTimer -= dt;
     if (dayDirty && skyTimer <= 0 || wx.flash > 0 || skyTimer < -0.25) {
       skyTimer = 0.12; dayDirty = false;
-      const ph = phaseOf(W.day.t); W.day.rising = W.day.t > 0.92 || W.day.t < 0.1; sk.share = ph;
+      const ph = phaseOf(W.day.t); W.day.rising = W.day.t > 0.82 || W.day.t < 0.05; sk.share = ph;
       applySky(ph); weatherSky();
     }
     skyU.time.value = clock;

@@ -283,6 +283,21 @@
       x.shadowColor = 'rgba(255,184,31,.8)'; x.shadowBlur = 6; x.fillText(no, 50, 51);
     });
   }
+  // the two ways to drive: a joystick pad with its green knob, or a steering wheel
+  const controlPic = (mode) => art('ctl-' + mode, 128, (x) => {
+    if (mode === 'wheel') {
+      x.lineWidth = 12; x.strokeStyle = '#4a4250'; x.beginPath(); x.arc(50, 50, 38, 0, Math.PI * 2); x.stroke();
+      x.strokeStyle = '#3a3440'; x.beginPath(); x.arc(50, 50, 38, -0.3, Math.PI * 0.8); x.stroke();
+      x.strokeStyle = '#5a5260'; x.lineWidth = 9; x.lineCap = 'round'; x.beginPath(); x.moveTo(16, 47); x.lineTo(36, 47); x.moveTo(64, 47); x.lineTo(84, 47); x.moveTo(50, 62); x.lineTo(50, 86); x.stroke();
+      shaded(x, (p) => p.arc(50, 50, 15, 0, Math.PI * 2), '#f26b5b');
+    } else {
+      shaded(x, (p) => p.arc(50, 52, 40, 0, Math.PI * 2), '#f1dfb8');
+      x.fillStyle = '#3fae49'; x.beginPath(); x.moveTo(50, 16); x.lineTo(57, 25); x.lineTo(43, 25); x.fill();
+      x.fillStyle = '#f5a23d'; x.beginPath(); x.moveTo(50, 88); x.lineTo(57, 79); x.lineTo(43, 79); x.fill();
+      x.fillStyle = '#19a79b'; x.beginPath(); x.moveTo(14, 52); x.lineTo(23, 45); x.lineTo(23, 59); x.fill(); x.beginPath(); x.moveTo(86, 52); x.lineTo(77, 45); x.lineTo(77, 59); x.fill();
+      shaded(x, (p) => p.arc(50, 52, 18, 0, Math.PI * 2), '#3fae49');
+    }
+  });
   const sidePic = (left) => art('side-' + left, 128, (x) => {
     shaded(x, (p) => p.roundRect ? p.roundRect(8, 20, 84, 60, 10) : p.rect(8, 20, 84, 60), '#9cc7dc');
     const cx = left ? 30 : 70;
@@ -471,9 +486,9 @@
   .bbd-sec canvas { width: 34px; height: 34px; opacity: .8; }
   .bbd-sec::after { content: ''; flex: 1; height: 3px; border-radius: 2px; background: #ecd3a8; }
   .bbd-tile.wide { width: 128px; } .bbd-tile.wide canvas { width: 84px; height: 84px; }
-  .bbd-body.bustab { gap: 10px; } .bbd-body.bustab .bbd-sec { height: 24px; margin-top: 0; } .bbd-body.bustab .bbd-sec canvas { width: 26px; height: 26px; }
+  .bbd-body.bustab { gap: 10px 8px; } .bbd-body.bustab .bbd-sec { height: 24px; margin-top: 0; } .bbd-body.bustab .bbd-sec canvas { width: 26px; height: 26px; }
   @media (min-height: 700px) and (min-width: 1000px) {
-    .bbd-body.bustab .bbd-tile { width: 84px; height: 84px; border-radius: 24px; } .bbd-body.bustab .bbd-tile canvas { width: 64px; height: 64px; }
+    .bbd-body.bustab .bbd-tile { width: 80px; height: 80px; border-radius: 22px; } .bbd-body.bustab .bbd-tile canvas { width: 62px; height: 62px; }
     .bbd-body.bustab .bbd-tile.wide { width: 124px; } .bbd-body.bustab .bbd-tile.wide canvas { width: 84px; height: 84px; }
   }
   /* the start screen's hero: a bigger Drive button that glows and nudges, with a shine sweeping across it */
@@ -827,10 +842,17 @@
       });
       // (c) the bus number, and the settings: lane helper, joystick side
       sec('plate');
-      tile(bodyEl, platePic(S.routeNo), { i: 9, wide: true, tap: () => openPad() });
+      tile(bodyEl, platePic(S.routeNo), { i: 9, tap: () => openPad() });
       const as = tile(bodyEl, assistPic(), { i: 10, on: !!S.assist, tap: () => { BB.ui.setAssist(!S.assist); renderBody(); } });
       as.classList.add('toggle');
       tile(bodyEl, sidePic(!!S.leftHand), { i: 11, tap: () => { BB.ui.setLefty(!S.leftHand); renderBody(); } });
+      // controls: joystick or steering wheel
+      for (const [mode, i] of [['joystick', 12], ['wheel', 13]]) {
+        tile(bodyEl, controlPic(mode), { i, on: (S.control || 'joystick') === mode, tap: () => {
+          if ((S.control || 'joystick') === mode) { BB.say(mode === 'wheel' ? 'Steering wheel!' : 'Joystick!'); return; }
+          BB.ui.setControl(mode); renderBody();
+        } });
+      }
     } else if (tab === 'sticker') {
       STICKERS.forEach((st, i) => {
         const own = S.stickersOwned.includes(st.id), on = S.stickers.includes(st.id);

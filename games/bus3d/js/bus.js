@@ -871,25 +871,45 @@
       if (corners.length && cum[i] - t < corners[corners.length - 1].s1) continue;
       corners.push({ i, s0: cum[i] - t, s1: cum[i] + t, t, ux: ix / li, uz: iz / li, vx: ox / lo, vz: oz / lo });
     }
+    // a point and the line's direction at distance s along it (the fillet's ends sit on the line itself, even
+    // where it comes off one of the loop's curves)
+    const at = (sv) => {
+      let i = 1; while (i < pts.length - 1 && cum[i] < sv) i++;
+      const l = (cum[i] - cum[i - 1]) || 1, u = BB.clamp((sv - cum[i - 1]) / l, 0, 1);
+      return { x: pts[i - 1].x + (pts[i].x - pts[i - 1].x) * u, z: pts[i - 1].z + (pts[i].z - pts[i - 1].z) * u, dx: (pts[i].x - pts[i - 1].x) / l, dz: (pts[i].z - pts[i - 1].z) / l };
+    };
     const out = [];
     let ci = 0;
     for (let i = 0; i < pts.length; i++) {
       const c = corners[ci];
       if (c && cum[i] >= c.s0) {
-        const p = pts[c.i], A = { x: p.x - c.ux * c.t, z: p.z - c.uz * c.t }, Bp = { x: p.x + c.vx * c.t, z: p.z + c.vz * c.t };
-        // the fillet's centre: from A at right angles to the way in, toward the inside of the turn
-        let nx = c.uz, nz = -c.ux; if ((Bp.x - A.x) * nx + (Bp.z - A.z) * nz < 0) { nx = -nx; nz = -nz; }
-        const sw = (c.ux * c.vz - c.uz * c.vx), R = c.t / Math.max(1e-3, Math.tan(Math.acos(BB.clamp(c.ux * c.vx + c.uz * c.vz, -1, 1)) / 2));
-        const cx = A.x + nx * R, cz = A.z + nz * R, a0 = Math.atan2(A.z - cz, A.x - cx);
-        let da = Math.atan2(Bp.z - cz, Bp.x - cx) - a0; while (da > Math.PI) da -= 2 * Math.PI; while (da < -Math.PI) da += 2 * Math.PI;
-        if (!isFinite(R) || R > 1e3 || !sw) { out.push(A, Bp); }
-        else for (let k = 0; k <= 8; k++) { const an = a0 + da * k / 8; out.push({ x: cx + Math.cos(an) * R, z: cz + Math.sin(an) * R }); }
-        while (i < pts.length - 1 && cum[i + 1] <= c.s1) i++;
+        // a cubic curve tangent to the line at both ends, shaped like a circular arc (handles 4/3 tan(turn/4) R)
+        const A = at(c.s0 + 1e-3), Bq = at(c.s1 - 1e-3);
+        const th = Math.acos(BB.clamp(A.dx * Bq.dx + A.dz * Bq.dz, -1, 1)), ch = Math.hypot(Bq.x - A.x, Bq.z - A.z);
+        const R = th > 1e-3 ? ch / (2 * Math.sin(th / 2)) : ch, hl = th > 1e-3 ? 4 / 3 * Math.tan(th / 4) * R : ch / 3;
+        const P1 = { x: A.x + A.dx * hl, z: A.z + A.dz * hl }, P2 = { x: Bq.x - Bq.dx * hl, z: Bq.z - Bq.dz * hl };
+        // (a corner point just short of the curve would fold the kerb lane once it is moved over: drop it)
+        while (out.length > 1 && Math.hypot(out[out.length - 1].x - A.x, out[out.length - 1].z - A.z) < 2.5) out.pop();
+        // a left turn (toward the kerb) swings out a little toward the middle of the road, as a bus does, so its
+        // inside doesn't run over the junction's corner
+        const left = Bq.dx * A.dz - Bq.dz * A.dx > 0.2, sw = left ? Math.min(3, 3 * th / (Math.PI / 2)) : 0;
+        for (let k = 0; k <= 10; k++) {
+          const t = k / 10, m = 1 - t;
+          out.push({ x: m * m * m * A.x + 3 * m * m * t * P1.x + 3 * m * t * t * P2.x + t * t * t * Bq.x, z: m * m * m * A.z + 3 * m * m * t * P1.z + 3 * m * t * t * P2.z + t * t * t * Bq.z, o: C.lane - sw * Math.sin(Math.PI * t) });
+        }
+        while (i < pts.length - 1 && cum[i + 1] <= c.s1 + 2.5 && i + 1 < pts.length - 1) i++;
         ci++; continue;
       }
       out.push(pts[i]);
     }
-    return W().offsetLine(out, C.lane);                   // the kerb (left) lane
+    for (let i = out.length - 1; i > 0; i--) if (Math.hypot(out[i].x - out[i - 1].x, out[i].z - out[i - 1].z) < 0.2) out.splice(i, 1);   // no zero-length steps
+    // into the kerb (left) lane: each point moved left of the way by its own offset (C.lane, less in a left turn)
+    return out.map((q, i) => {
+      const a = out[Math.max(0, i - 1)], b = out[Math.min(out.length - 1, i + 1)];
+      let dx = b.x - a.x, dz = b.z - a.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
+      const o = q.o != null ? q.o : C.lane;
+      return { x: q.x + dz * o, z: q.z - dx * o };
+    });                   // the kerb (left) lane
   }
 
   // ---------- camera ----------
@@ -1300,7 +1320,7 @@
     // In the last stretch before the target bay (lined up with it) the parking logic takes over: steer along the
     // bay's own line and let approachCap() slow the bus to a stop in it, so a throttle-only drive always parks.
     const asst = B.assist && canDrive && thr > 0 ? (bayAssist(MAX_STEER + 0.22) || assistSteer(MAX_STEER + 0.22)) : null;
-    if (asst && !asst.bay && Math.abs(kidSteer) < 0.3) want = Math.min(want, Math.max(3.2, MAX_FWD * (1 - 1.6 * Math.abs(asst.alpha))));
+    if (asst && !asst.bay && Math.abs(kidSteer) < 0.3) want = Math.min(want, Math.max(3.2, Math.min(MAX_FWD * (1 - 1.6 * Math.abs(asst.alpha)), asst.vBend)));
     let cap = approachCap();
     if (cap < Infinity) want = BB.clamp(want, -cap, cap); else cap = 0;   // ease off coming into the target bay so it can settle
     const slowing = Math.abs(want) < Math.abs(B.speed) || (Math.sign(want) !== Math.sign(B.speed) && Math.abs(B.speed) > 0.2);
@@ -1428,13 +1448,26 @@
     const a = r[bi], b = r[bi + 1], th = Math.atan2(b.x - a.x, b.z - a.z);
     const qx = a.x + (b.x - a.x) * bt, qz = a.z + (b.z - a.z) * bt;
     const e = (ax - qx) * Math.cos(th) + (az - qz) * -Math.sin(th);          // + = the bus is left of the path
-    const steer = wrapA(th - h) - Math.atan2(1.6 * e, Math.abs(B.speed) + 2);
-    // how much the path turns in the next ~12 or more (further at speed), for easing off before bends
-    // (measured from the bus's own point on the path: a long straight ahead counts as straight)
-    let j = bi + 1, acc = Math.hypot(r[bi + 1].x - qx, r[bi + 1].z - qz), thA = th;
-    const look = 12 + Math.max(0, B.speed) * 0.9;
-    while (j < r.length - 1 && acc < look) { acc += Math.hypot(r[j + 1].x - r[j].x, r[j + 1].z - r[j].z); j++; thA = Math.atan2(r[j].x - r[j - 1].x, r[j].z - r[j - 1].z); }
-    return { steer: BB.clamp(steer, -ms, ms), alpha: Math.max(Math.abs(wrapA(thA - th)) * 0.7, Math.abs(wrapA(th - h)), Math.min(1, Math.abs(e) / 4)) };
+    // feed-forward for the path's own bend here (so the bus commits to a junction's arc instead of drifting wide)
+    let ff = 0;
+    if (bi + 2 < r.length) {
+      const c2 = r[bi + 2], th2 = Math.atan2(c2.x - b.x, c2.z - b.z), l1 = Math.hypot(b.x - a.x, b.z - a.z), l2 = Math.hypot(c2.x - b.x, c2.z - b.z);
+      const kap = l1 > 0.3 && l2 > 0.3 ? wrapA(th2 - th) / Math.max(1, (l1 + l2) / 2) : 0;   // (not across a zero-length step)
+      if (Math.abs(kap) > 0.01) ff = Math.atan(WB * kap) * BB.clamp(bt * 2, 0.4, 1);
+    }
+    const steer = ff + wrapA(th - h) - Math.atan2(1.6 * e, Math.abs(B.speed) + 2);
+    // how much the path turns within the next ~14 or more (much further at speed), for slowing down in good time
+    // before a junction's turn (measured from the bus's own point on the path: a long straight counts as straight)
+    // The tightest bend ahead (its radius, from each corner's turn and its segments) sets a speed limit: gentle on
+    // the loop's wide curves, a slow roll round a junction's turn.
+    let j = bi + 1, acc = Math.hypot(r[bi + 1].x - qx, r[bi + 1].z - qz), rMin = Infinity, thP = th;
+    const look = 14 + Math.max(0, B.speed) * 1.6;
+    while (j < r.length - 1 && acc < look) {
+      const sl = Math.hypot(r[j + 1].x - r[j].x, r[j + 1].z - r[j].z), thN = Math.atan2(r[j + 1].x - r[j].x, r[j + 1].z - r[j].z), dth = Math.abs(wrapA(thN - thP));
+      if (dth > 0.02 && sl > 0.05) rMin = Math.min(rMin, Math.max(sl, 1) / dth);
+      acc += sl; thP = thN; j++;
+    }
+    return { steer: BB.clamp(steer, -ms, ms), alpha: Math.max(Math.abs(wrapA(th - h)), Math.min(1, Math.abs(e) / 4)), vBend: Math.sqrt(2.2 * rMin) };
   }
   // Assist's parking: within ~34 behind the target bay (mid point), close to its line and heading roughly its way,
   // Stanley steering onto the bay's centre line. Null when not in that stretch.

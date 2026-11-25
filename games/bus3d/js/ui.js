@@ -82,6 +82,38 @@
   .bbu-assist svg { width: 48px; height: 48px; } .bbu-assist .spk { opacity: 0; }
   .bbu-assist.on { background: #c9f2e4; border-color: #19a79b; } .bbu-assist.on .spk { opacity: 1; }
   .lefty .bbu-joy { right: auto; left: calc(var(--sl) + 6px); }
+  /* steering-wheel layout (.ctl-wheel): the wheel bottom-left, GO and reverse pedals bottom-right, horn and lane helper
+     between them; .lefty mirrors it */
+  .bbu-wheel, .bbu-ped { display: none; }
+  .ctl-wheel .bbu-joy { display: none !important; }
+  .ctl-wheel .bbu-wheel, .ctl-wheel .bbu-ped { display: block; }
+  .bbu-wheel { position: absolute; left: calc(var(--sl) + 6px); bottom: var(--sb); width: 200px; height: 200px; border-radius: 50%;
+    pointer-events: auto; touch-action: none; }
+  .bbu-wheel .rot { position: absolute; inset: 0; transition: transform .05s linear; }
+  .bbu-wheel svg { width: 100%; height: 100%; display: block; pointer-events: none; filter: drop-shadow(0 6px 0 rgba(80,60,40,.25)); }
+  .bbu-ped { position: absolute; bottom: var(--sb); border: none; padding: 0; pointer-events: auto; touch-action: none; cursor: pointer; }
+  .bbu-ped svg { width: 100%; height: 100%; display: block; pointer-events: none; }
+  .bbu-ped.go { right: calc(var(--sr) + 6px); width: 120px; height: 150px; border-radius: 30px 30px 26px 26px;
+    background: linear-gradient(#7ad86f, #3fae49 55%, #2f8f3a); box-shadow: 0 8px 0 #24702d, 0 10px 18px rgba(0,0,0,.15); }
+  .bbu-ped.back { right: calc(var(--sr) + 6px + 120px + 16px); width: 84px; height: 104px; border-radius: 24px;
+    background: linear-gradient(#ffd27a, #f5a23d 55%, #d98226); box-shadow: 0 6px 0 #a8601a, 0 8px 14px rgba(0,0,0,.12); }
+  .bbu-ped.down { transform: translateY(6px); } .bbu-ped.go.down { box-shadow: 0 2px 0 #24702d; } .bbu-ped.back.down { box-shadow: 0 1px 0 #a8601a; }
+  .bbu-ped.go.nudge { animation: bbu-pednudge 1.4s ease-in-out infinite; }
+  @keyframes bbu-pednudge { 50% { box-shadow: 0 8px 0 #24702d, 0 0 0 14px rgba(255,212,92,.55); } }
+  .ctl-wheel .bbu-horn { left: calc(var(--sl) + 6px + 200px + 20px); right: auto; }
+  .ctl-wheel .bbu-assist { left: calc(var(--sl) + 6px + 200px + 20px + 72px + 24px); right: auto; bottom: var(--sb); }
+  .ctl-wheel .bbu-uturn { right: calc(var(--sr) + 6px + 18px); left: auto; bottom: calc(var(--sb) + 150px + 16px); }
+  .ctl-wheel.lefty .bbu-wheel { left: auto; right: calc(var(--sr) + 6px); }
+  .ctl-wheel.lefty .bbu-ped.go { right: auto; left: calc(var(--sl) + 6px); }
+  .ctl-wheel.lefty .bbu-ped.back { right: auto; left: calc(var(--sl) + 6px + 120px + 16px); }
+  .ctl-wheel.lefty .bbu-horn { left: auto; right: calc(var(--sr) + 6px + 200px + 20px); }
+  .ctl-wheel.lefty .bbu-assist { left: auto; right: calc(var(--sr) + 6px + 200px + 20px + 72px + 24px); }
+  .ctl-wheel.lefty .bbu-uturn { right: auto; left: calc(var(--sl) + 6px + 18px); }
+  .bbu-tip.wheelhand { right: auto; left: calc(var(--sl) + 6px + 120px); bottom: calc(var(--sb) + 130px); animation: bbu-turnhand 2s ease-in-out infinite; }
+  .bbu-tip.pedalhand { right: calc(var(--sr) + 6px + 30px); bottom: calc(var(--sb) + 40px); animation: bbu-presshand 1.2s ease-in-out infinite; }
+  .lefty .bbu-tip.wheelhand { left: auto; right: calc(var(--sr) + 6px + 120px); } .lefty .bbu-tip.pedalhand { right: auto; left: calc(var(--sl) + 6px + 30px); }
+  @keyframes bbu-turnhand { 0%, 100% { transform: translate(0, 0) rotate(0deg); } 50% { transform: translate(-46px, 30px) rotate(-30deg); } }
+  @keyframes bbu-presshand { 50% { transform: translateY(12px) scale(.94); } }
   .lefty .bbu-horn { left: auto; right: calc(var(--sr) + 6px); }
   .lefty .bbu-assist { left: auto; right: calc(var(--sr) + 10px); }
   .bbu-wobble { animation: bbu-wobble .35s ease-out; }
@@ -135,6 +167,17 @@
   }
   @media (max-width: 720px) { .bbu-job .dots { gap: 4px; } .bbu-job .dots i { width: 13px; height: 13px; } .bbu-top { gap: 7px; } .bbu-right { gap: 6px; } }
   @media (max-height: 520px) {
+    .bbu-wheel { width: 140px; height: 140px; }
+    .bbu-ped.go { width: 96px; height: 118px; } .bbu-ped.back { width: 68px; height: 84px; right: calc(var(--sr) + 6px + 96px + 12px); }
+    .ctl-wheel .bbu-horn { left: calc(var(--sl) + 6px + 140px + 16px); }
+    .ctl-wheel .bbu-assist { left: calc(var(--sl) + 6px + 140px + 16px + 56px + 24px); bottom: var(--sb); }
+    .ctl-wheel .bbu-uturn { right: calc(var(--sr) + 6px + 16px); bottom: calc(var(--sb) + 118px + 12px); }
+    .ctl-wheel.lefty .bbu-ped.back { left: calc(var(--sl) + 6px + 96px + 12px); }
+    .ctl-wheel.lefty .bbu-horn { right: calc(var(--sr) + 6px + 140px + 16px); }
+    .ctl-wheel.lefty .bbu-assist { right: calc(var(--sr) + 6px + 140px + 16px + 56px + 24px); }
+    .ctl-wheel.lefty .bbu-uturn { left: calc(var(--sl) + 6px + 16px); }
+    .bbu-tip.wheelhand { left: calc(var(--sl) + 6px + 82px); bottom: calc(var(--sb) + 90px); } .lefty .bbu-tip.wheelhand { right: calc(var(--sr) + 6px + 82px); }
+    .bbu-tip.pedalhand { right: calc(var(--sr) + 6px + 22px); bottom: calc(var(--sb) + 28px); }
     .bbu-pill, .bbu-round { height: 56px; } .bbu-pill { padding-right: 10px; } .bbu-cash b { font-size: 24px; }
     .bbu-fuel { height: 56px; padding: 0 6px; } .bbu-fuel canvas { width: 100px; height: 50px; }
     .bbu-joy { width: 132px; height: 132px; }
@@ -160,10 +203,23 @@
     + '<rect x="16" y="10" width="16" height="30" rx="5" fill="#3fae49"/><rect x="18.5" y="13" width="11" height="6" rx="2" fill="#bfe6f5"/>'
     + '<path class="spk" d="M40 6 l1.6 4 4 1.6 -4 1.6 -1.6 4 -1.6 -4 -4 -1.6 4 -1.6 z" fill="#ffb81f"/></svg>';
   U.ASSIST_SVG = ASSIST_SVG;
+  // paper-cut steering wheel: rim (a deeper tone on its lower right), three spokes, the hub with a little horn
+  const WHEEL_SVG = '<svg viewBox="0 0 100 100" aria-hidden="true">'
+    + '<circle cx="50" cy="50" r="43" fill="none" stroke="#4a4250" stroke-width="13"/>'
+    + '<path d="M80 22 A43 43 0 0 1 22 80" fill="none" stroke="#3a3440" stroke-width="13"/>'
+    + '<circle cx="50" cy="50" r="43" fill="none" stroke="#6c6470" stroke-width="3" stroke-dasharray="4 7" opacity=".6"/>'
+    + '<path d="M12 46 H38 M62 46 H88 M50 60 V90" stroke="#5a5260" stroke-width="11" stroke-linecap="round"/>'
+    + '<circle cx="50" cy="50" r="17" fill="#f26b5b"/><path d="M62 38 A17 17 0 0 1 38 62 A17 17 0 0 0 62 38Z" fill="#d0473a"/>'
+    + '<path d="M42 47 h6 l8 -5 v16 l-8 -5 h-6z" fill="#fff6e0"/>'
+    + '<rect x="46" y="4" width="8" height="12" rx="3" fill="#ffb81f"/></svg>';
+  const PEDAL_SVG = {
+    go: '<svg viewBox="0 0 100 125"><path d="M50 22 L80 58 H62 V96 H38 V58 H20 Z" fill="#fff"/><g fill="rgba(0,0,0,.12)"><rect x="18" y="104" width="64" height="5" rx="2.5"/><rect x="18" y="113" width="64" height="5" rx="2.5"/></g></svg>',
+    back: '<svg viewBox="0 0 100 125"><path d="M50 100 L80 64 H62 V26 H38 V64 H20 Z" fill="#fff"/></svg>',
+  };
   const HAND_SVG = '<svg viewBox="0 0 64 64"><path d="M26 8 a5 5 0 0 1 10 0 V30 l4-1 a5 5 0 0 1 6 4 l2 2 a5 5 0 0 1 6 5 V46 c0 8-6 14-14 14 h-6 c-6 0-10-3-13-8 L13 41 a5 5 0 0 1 8-6 l5 5 Z" fill="#ffe0bd" stroke="#c98b5e" stroke-width="2.5" stroke-linejoin="round"/></svg>';
 
   let uturnBtn, facing = false, driving = true, tips = [];
-  let hud, cashEl, fuelEl, fuelCv, jobEl, jobPic, jobDots, joyEl, knobEl, hornEl, assistEl, titleEl, soundBtn, musicBtn, exitBtn;
+  let hud, cashEl, fuelEl, fuelCv, jobEl, jobPic, jobDots, joyEl, knobEl, wheelEl, wheelRot, pedGo, pedBack, hornEl, assistEl, titleEl, soundBtn, musicBtn, exitBtn;
 
   U.init = function () {
     U.root = document.getElementById('ui');
@@ -215,12 +271,45 @@
     joyEl.addEventListener('pointermove', (e) => { if (e.pointerId === joyId) joyMove(e); });
     for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) joyEl.addEventListener(ev, joyUp);
     joyEl.addEventListener('contextmenu', (e) => e.preventDefault());
+    // the steering wheel: drag round it (the wheel turns with the finger's angle, up to about 135 degrees each way,
+    // and eases back to the middle when let go), and the GO and reverse pedals (hold)
+    wheelEl = BB.el('div', 'bbu-wheel', hud); wheelRot = BB.el('div', 'rot', wheelEl, WHEEL_SVG);
+    wheelEl.setAttribute('aria-label', 'steering wheel');
+    let wheelId = null, lastA = 0;
+    const angOf = (e) => { const r = wheelEl.getBoundingClientRect(); return Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2)) * 180 / Math.PI; };
+    wheelEl.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); if (wheelId != null) return;
+      wheelId = e.pointerId; try { wheelEl.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+      lastA = angOf(e); wheel.drag = true;
+    });
+    wheelEl.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== wheelId) return;
+      const a = angOf(e); let d = a - lastA; while (d > 180) d -= 360; while (d < -180) d += 360; lastA = a;
+      wheel.rot = BB.clamp(wheel.rot + d, -135, 135); showWheel();
+      if (Math.abs(wheel.rot) > 25) hideTip('wheelhand');
+      applyInput();
+    });
+    const wheelUp = (e) => { if (e.pointerId !== wheelId) return; wheelId = null; wheel.drag = false; };
+    for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) wheelEl.addEventListener(ev, wheelUp);
+    wheelEl.addEventListener('contextmenu', (e) => e.preventDefault());
+    const pedal = (cls, key) => {
+      const b = BB.el('button', 'bbu-ped ' + cls, hud, PEDAL_SVG[cls]); b.setAttribute('aria-label', key);
+      const ptrs = new Set();
+      b.addEventListener('pointerdown', (e) => { e.preventDefault(); try { b.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ } ptrs.add(e.pointerId); pedals[key] = true; b.classList.add('down'); if (key === 'go') { b.classList.remove('nudge'); hideTip('pedalhand'); } applyInput(); });
+      const up = (e) => { ptrs.delete(e.pointerId); if (!ptrs.size) { pedals[key] = false; b.classList.remove('down'); applyInput(); } };
+      for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) b.addEventListener(ev, up);
+      b.addEventListener('contextmenu', (e) => e.preventDefault());
+      b._ptrs = ptrs;
+      return b;
+    };
+    pedBack = pedal('back', 'back'); pedGo = pedal('go', 'go');
     hornEl = BB.el('button', 'bbu-round bbu-horn', hud, '📯');
     BB.tap(hornEl, () => BB.bus.horn());
     assistEl = BB.el('button', 'bbu-round bbu-assist', hud, ASSIST_SVG);
     assistEl.setAttribute('aria-label', 'lane helper');
     BB.tap(assistEl, () => U.setAssist(!BB.save.assist));
     U.setLefty(!!BB.save.leftHand, true);
+    U.setControl(BB.save.control, true);
     // turn around: offered while the bus faces away from where it should go (bus.js emits bus:facingAway)
     uturnBtn = BB.el('button', 'bbu-uturn', hud, '<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M18 56 V28 a14 14 0 0 1 28 0 V34" stroke="#19a79b" stroke-width="9" fill="none" stroke-linecap="round"/>'
       + '<path d="M33 32 L46 48 L59 32 Z" fill="#19a79b"/></svg>');
@@ -297,17 +386,20 @@
   }
   function syncUturn() { const on = facing && driving && !!BB.bus.turnAround; if (uturnBtn) uturnBtn.classList.toggle('on', on); }
   // first-drive tip: a hand dragging the knob up (until the bus is driven forward, or 12 s)
+  // (wheel layout: a hand turning the wheel and a hand pressing GO)
   U.showTips = function () {
     U.hideTips();
-    tips = [BB.el('div', 'bbu-tip', hud, HAND_SVG)];
-    joyEl.classList.add('nudge');
+    if (isWheel()) { tips = [BB.el('div', 'bbu-tip wheelhand', hud, HAND_SVG), BB.el('div', 'bbu-tip pedalhand', hud, HAND_SVG)]; pedGo.classList.add('nudge'); }
+    else { tips = [BB.el('div', 'bbu-tip', hud, HAND_SVG)]; joyEl.classList.add('nudge'); }
     BB.later(12000, U.hideTips);
   };
-  U.hideTips = function () { for (const t of tips) t.remove(); tips = []; if (joyEl) joyEl.classList.remove('nudge'); };
+  U.hideTips = function () { for (const t of tips) t.remove(); tips = []; if (joyEl) joyEl.classList.remove('nudge'); if (pedGo) pedGo.classList.remove('nudge'); };
+  function hideTip(cls) { tips = tips.filter((t) => { if (t.classList.contains(cls)) { t.remove(); return false; } return true; }); }
+  U.driveTip = () => (isWheel() ? 'Hold the green pedal to go! Turn the wheel to steer!' : 'Push up to go! Slide to steer!');
   function setDriving(on) {
     driving = on; syncUturn();
     if (!on) U.hideTips();
-    for (const el of [joyEl, hornEl, assistEl]) el.style.display = on ? '' : 'none';
+    for (const el of [joyEl, wheelEl, pedGo, pedBack, hornEl, assistEl]) el.style.visibility = on ? '' : 'hidden';
     if (!on) U.releaseAll();
   }
   function renderJob() {
@@ -322,12 +414,16 @@
   // Driving input from the joystick and the keyboard (keys win while held). BB.bus.input gets
   // {analog: true, throttle: -1..1, steer: -1..1} plus the old booleans (thresholds) for a bus without analog support;
   // no input object at all: GO falls back to BB.bus.go().
-  const joy = { x: 0, y: 0 }, keys = {};
+  // Wheel layout: steer = wheel angle / 135 degrees, throttle = GO ? 1 : reverse ? -0.7 : 0.
+  const joy = { x: 0, y: 0 }, keys = {}, pedals = {}, wheel = { rot: 0, drag: false };
+  const isWheel = () => BB.save.control === 'wheel';
   function current() {
-    const throttle = keys.go ? 1 : keys.back ? -1 : joy.y;
-    const steer = keys.left && !keys.right ? -1 : keys.right && !keys.left ? 1 : joy.x;
+    const wh = isWheel();
+    const throttle = keys.go ? 1 : keys.back ? -1 : wh ? (pedals.go ? 1 : pedals.back ? -0.7 : 0) : joy.y;
+    const steer = keys.left && !keys.right ? -1 : keys.right && !keys.left ? 1 : wh ? wheel.rot / 135 : joy.x;
     return { throttle, steer };
   }
+  function showWheel() { if (wheelRot) wheelRot.style.transform = `rotate(${wheel.rot.toFixed(1)}deg)`; }
   function applyInput() {
     const B = BB.bus, inp = B.input, c = current();
     if (inp && typeof inp === 'object') {
@@ -339,6 +435,9 @@
     for (const k in keys) keys[k] = false;
     joy.x = joy.y = 0;
     if (knobEl) { knobEl.style.transform = ''; joyEl.classList.remove('drag'); }
+    for (const k in pedals) pedals[k] = false;
+    for (const b of [pedGo, pedBack]) if (b) { b.classList.remove('down'); b._ptrs.clear(); }
+    wheel.drag = false;                   // (the wheel itself eases back to the middle in U.update)
     try { applyInput(); } catch (e) { /* bus not built yet */ }
   };
   U.input = () => { const c = current(); return { throttle: c.throttle, steer: c.steer, go: c.throttle > 0.25, back: c.throttle < -0.25, left: c.steer < -0.3, right: c.steer > 0.3 }; };
@@ -355,6 +454,14 @@
     BB.save.leftHand = !!on; if (!quiet) BB.saveNow();
     if (hud) hud.classList.toggle('lefty', !!on);
     if (!quiet) { BB.sfx.pop(); BB.say(on ? 'Joystick on the left!' : 'Joystick on the right!'); }
+  };
+  // Controls: 'joystick' (default) or 'wheel' (save.control).
+  U.setControl = function (mode, quiet) {
+    mode = mode === 'wheel' ? 'wheel' : 'joystick';
+    BB.save.control = mode; if (!quiet) BB.saveNow();
+    U.releaseAll(); wheel.rot = 0; showWheel();
+    if (hud) hud.classList.toggle('ctl-wheel', mode === 'wheel');
+    if (!quiet) { BB.sfx.pop(); BB.say(mode === 'wheel' ? 'Steering wheel!' : 'Joystick!'); }
   };
   U.afterBus = function () { U.setAssist(!!BB.save.assist, true); };
 
@@ -464,6 +571,10 @@
     x.fillStyle = '#f26b5b'; x.beginPath(); x.arc(cx, cy, 5.5, 0, Math.PI * 2); x.fill();
   }
   U.update = function (dt) {
+    if (!wheel.drag && wheel.rot !== 0) {            // the wheel eases back to the middle
+      wheel.rot = Math.abs(wheel.rot) < 0.5 ? 0 : wheel.rot * Math.max(0, 1 - (dt || 0.016) * 7);
+      showWheel(); applyInput();
+    }
     const f = BB.bus.fuel;
     needle = needle < 0 ? f : needle + (f - needle) * Math.min(1, (dt || 0.016) * 3);
     const low = f <= BB.cfg.fuelLow;

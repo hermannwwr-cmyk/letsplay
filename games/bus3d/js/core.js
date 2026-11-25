@@ -59,7 +59,7 @@
   const DEFAULT_SAVE = () => ({
     paint: 'green', upgrades: {}, stickers: [], fuel: 1, jobsDone: 0, questions: 0, seen: {},
     paints: ['green'], stickersOwned: [], parts: {}, partsOwned: [],
-    busType: null, routeNo: '88', assist: false, leftHand: false,
+    busType: null, routeNo: '88', assist: false, leftHand: false, control: 'joystick',
   });
   // Hats were sold in an earlier build; they're gone from the shop, and depot.js gives their coins back.
   const HAT_PRICES = { party: 5, flowers: 6, bunny: 8, crown: 10 };
@@ -74,7 +74,7 @@
       if (!s.parts || typeof s.parts !== 'object' || Array.isArray(s.parts)) s.parts = {};
       s.routeNo = /^[1-9][0-9]{0,2}$/.test(String(s.routeNo)) ? String(s.routeNo) : '88';
       if (s.busType != null && typeof s.busType !== 'string') s.busType = null;
-      s.assist = !!s.assist; s.leftHand = !!s.leftHand;
+      s.assist = !!s.assist; s.leftHand = !!s.leftHand; s.control = s.control === 'wheel' ? 'wheel' : 'joystick';
       if (Array.isArray(got.hatsOwned)) BB.saveMigrate.hatRefund = got.hatsOwned.reduce((n, id) => n + (HAT_PRICES[id] || 0), 0);
       s.fuel = Math.max(0, Math.min(1, +s.fuel || 0));
     }

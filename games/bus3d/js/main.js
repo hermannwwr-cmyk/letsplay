@@ -71,7 +71,7 @@
       BB.music.start();
       // a short hello if the welcome was never heard, then how to drive, queued so nothing cuts in
       if (!BB.heard(welcome)) BB.say('Hello, driver!');
-      BB.say('Push up to go! Slide to steer!', { queue: true });
+      BB.say(BB.ui.driveTip ? BB.ui.driveTip() : 'Push up to go! Slide to steer!', { queue: true });
       if (BB.ui.showTips) BB.ui.showTips();
       BB.later(2200, () => { if (!BB.bedtime) BB.jobs.start(); });
     });
