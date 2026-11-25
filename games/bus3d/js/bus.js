@@ -1066,8 +1066,8 @@
   //   garageFront  front three-quarter close from the kerb side: headlights, bumper, windscreen (lights, bumpers)
   //   garageWheels low side view on the front wheel (wheels, rims)
   //   garageSide   the body side and the roof edge, a little from above (stickers: the slots are on both sides)
-  //   garageSign   the route number: the front display and the one by the front door, from the kerb side of the
-  //                nose, a little below (the bus number keypad)
+  //   garageSign   the route number display by the front door (and the front one), from the kerb side of the nose
+  //                (the bus number keypad)
   //   garageRear   rear three-quarter: tail lights and rear bumper
   // 'depot', 'depotClose' and 'depotSide' are the old names for garageWhole, garageFront and garageWheels.
   const GARAGE = { garageWhole: 1, garageFront: 1, garageWheels: 1, garageSide: 1, garageSign: 1, garageRear: 1, depot: 'garageWhole', depotClose: 'garageFront', depotSide: 'garageWheels' };
@@ -1088,9 +1088,9 @@
       case 'garageFront': return { phi: 145, pitch: 9, fill: 0.86, pts: box(-1.35, 1.35, 0.15, Math.min(Hb, 3.35), nose - 1.8, nose + 0.4) };
       case 'garageWheels': return { phi: 14, pitch: 4, fill: 0.78, pts: box(-1.3, -1.25, 0, 1.45, axle - 1.25, axle + 1.25), minY: 0.75 };
       case 'garageSide': return { phi: 4, pitch: 27, fill: 0.9, pts: box(-1.3, -1.3, 0, Hb, tail, nose).concat(box(0, 1.2, Hb, Hb, tail, nose)) };
-      case 'garageSign': {        // the route number: the display above the windscreen and the one by the front door
-        const dz = M && M.doorLocal ? M.doorLocal.z : LF / 2 - 1;
-        return { phi: 132, pitch: -3, fill: 0.8, pts: box(0.2, 1.3, signY - 0.35, signY + 0.55, nose - 0.1, nose).concat(box(1.3, 1.3, signY - 0.25, signY + 0.5, dz - 1.0, dz + 1.0)) };
+      case 'garageSign': {        // the route number by the front door (the display above the windscreen too)
+        const dz = M && M.doorLocal ? M.doorLocal.z : LF / 2 - 1, zc = dz - 1.45, wy = Math.min(2.84, Hb - 0.7) - 0.36;
+        return { phi: 122, pitch: 2, fill: 0.62, pts: box(1.3, 1.3, wy - 0.15, wy + 0.45, zc - 0.85, zc + 0.85).concat(box(0.4, 1.3, signY - 0.1, signY + 0.4, nose - 0.1, nose)) };
       }
       case 'garageRear': return { phi: -48, pitch: 12, fill: 0.86, pts: box(-1.35, 1.35, 0.15, Hb, tail, tail + 2.0) };
     }
@@ -1098,8 +1098,24 @@
   }
   // Fit a view: camera spot and look-at point in the front carriage's frame.
   const gCam = new THREE.PerspectiveCamera(50, 1, 0.3, 900), _g1 = new THREE.Vector3();
+  // Plan a view; where it would stand in (or look through) the garage shed or another building, turn it toward the
+  // bus's nose (kerb-side views) or raise it, a step at a time.
   function planGarage(mode) {
-    const sp = garageSpec(mode), cam = BB.camera, R = garageRect(), Wd = innerWidth, Hd = innerHeight;
+    const sp = garageSpec(mode);
+    if (B.group) B.group.updateMatrixWorld(true);
+    const mw = B.front.matrixWorld, w = new THREE.Vector3(), t = new THREE.Vector3();
+    let first = null;
+    for (let k = 0; k < 9; k++) {
+      const s2 = Object.assign({}, sp, { phi: sp.phi > 90 ? Math.max(90, sp.phi - 7 * k) : sp.phi, pitch: sp.phi > 90 ? sp.pitch + 2 * k : sp.pitch + 6 * k });
+      const pl = fitGarage(s2);
+      first = first || pl;
+      w.copy(pl.pos).applyMatrix4(mw); t.copy(pl.centre).applyMatrix4(mw);
+      if (!W().insideTall(w.x, w.y, w.z) && !W().blocksSight(w.x, w.y, w.z, t.x, t.y, t.z)) return pl;
+    }
+    return first;
+  }
+  function fitGarage(sp) {
+    const cam = BB.camera, R = garageRect(), Wd = innerWidth, Hd = innerHeight;
     gCam.fov = cam.fov; gCam.aspect = cam.aspect; gCam.near = 0.3; gCam.updateProjectionMatrix();
     const pts = sp.pts.map((q) => new THREE.Vector3(q[0], q[1], q[2]));
     const T = new THREE.Vector3(); for (const v of pts) T.add(v); T.multiplyScalar(1 / pts.length);

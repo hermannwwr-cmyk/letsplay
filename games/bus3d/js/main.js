@@ -69,15 +69,23 @@
     }));
     let started = false;                 // once, however many taps arrive
     BB.on('depot:closed', (d) => {
-      if (!d || !d.start || d.home || started || BB.bedtime) return;
-      started = true;
-      BB.music.start();
-      // a short hello if the welcome was never heard, then how to drive, queued so nothing cuts in
-      if (!BB.heard(welcome)) BB.say('Hello, driver!');
-      BB.say(BB.ui.driveTip ? BB.ui.driveTip() : 'Push up to go! Slide to steer!', { queue: true });
-      if (BB.ui.showTips) BB.ui.showTips();
-      // (not if the child went Home to the garage meanwhile: jobs.js starts the job when the garage closes)
-      BB.later(2200, () => { if (!BB.bedtime && !BB.depot.isOpen) BB.jobs.start(); });
+      if (!d || d.home || BB.bedtime) return;
+      const first = !!d.start && !started;
+      if (first) {
+        started = true;
+        BB.music.start();
+        // a short hello if the welcome was never heard, then how to drive, queued so nothing cuts in
+        if (!BB.heard(welcome)) BB.say('Hello, driver!');
+        BB.say(BB.ui.driveTip ? BB.ui.driveTip() : 'Push up to go! Slide to steer!', { queue: true });
+        if (BB.ui.showTips) BB.ui.showTips();
+      }
+      // no job yet (the first drive, or Home before the first job began): one starts shortly, unless the child went
+      // back to the garage or the home screen meanwhile (a job that was waiting is picked up by jobs.js instead)
+      if (BB.jobs.phase === 'idle' && !BB.jobs.current) {
+        BB.later(first ? 2200 : 1200, () => {
+          if (!BB.bedtime && !BB.depot.isOpen && !BB.ui.homeShown() && BB.jobs.phase === 'idle' && !BB.jobs.current) BB.jobs.start();
+        });
+      }
     });
     BB.on('audio:unlocked', () => { if (BB.music.on) BB.music.start(); });
 

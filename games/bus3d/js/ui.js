@@ -173,6 +173,7 @@
   @keyframes bbu-pulse { 50% { transform: scale(1.06); } }
   @keyframes bbu-wiggle { 20% { rotate: -3deg; } 40% { rotate: 3deg; } 60% { rotate: -2deg; } 80% { rotate: 1deg; } }
   .bbu-fam { position: absolute; top: var(--st); right: var(--sr); }
+  #ui.home .bbn-friends { display: none; }       /* (the home screen has its own family strip) */
   .bbu-fam .bbu-b { flex-direction: row; gap: 6px; padding: 4px 10px 4px 6px; height: auto; min-height: var(--bh); }
   .bbu-fam .col { display: flex; flex-direction: column; align-items: center; gap: 2px; }
   .bbu-fam .col canvas { width: var(--ic); height: var(--ic); }
@@ -593,7 +594,7 @@
   U.showHome = function (opts = {}) {
     if (BB.bedtime) return;
     U.closeAsk(); U.releaseAll(); U.hideTips();
-    titleEl.style.display = ''; hud.classList.add('off'); U.showExit(true);
+    titleEl.style.display = ''; U.root.classList.add('home'); hud.classList.add('off'); U.showExit(true);
     try { if (BB.bus.placeAtDepot) BB.bus.placeAtDepot('title'); else BB.bus.setCamera('title'); } catch (e) { console.error(e); }
     syncFam();
     if (opts.say !== false) BB.say(U.homeWelcome());
@@ -606,7 +607,7 @@
     if (!BB.speaking()) { homeCalls++; playBtn.classList.remove('call'); void playBtn.offsetWidth; playBtn.classList.add('call'); BB.say('Tap Play to go to your garage!'); }
     homeIdle = BB.later(homeCalls ? 18000 : 4000, homeNudge);
   }
-  U.hideHome = function () { titleEl.style.display = 'none'; U.showExit(false); if (homeIdle) { BB.cancelLater(homeIdle); homeIdle = null; } };
+  U.hideHome = function () { titleEl.style.display = 'none'; U.root.classList.remove('home'); U.showExit(false); if (homeIdle) { BB.cancelLater(homeIdle); homeIdle = null; } };
   // Play: to the garage. A job that was waiting (Home in the middle of one) carries on after Drive.
   U.play = function () {
     if (BB.bedtime || !U.titleShown()) return;
