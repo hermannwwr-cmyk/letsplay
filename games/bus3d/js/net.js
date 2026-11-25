@@ -26,9 +26,7 @@
      BB.net.showFamily()      a card: our code (spoken, each picture lit in turn) and the buses here now
      BB.net.enterFamily()     a card: tap another device's 5 pictures to join that family
      BB.net.fillFriends(el, withMe)  little bus chips (picture + number, spoken on tap) into an element
-     events: 'net:status' {status}, 'net:friends' {friends}; 'net:changed' {state, friends} (older, still sent)
-     Older names kept for depot.js until it moves over: state ('room' | 'opening' | 'solo'), open() / make() =
-     showFamily(), join() = enterFamily(), remotes (Map), code.
+     events: 'net:status' {status}, 'net:friends' {friends}
      Internal: init(), update(dt), goodnight(), leave(why) (bedtime and the hub removing the frame: a polite goodbye,
      then no reconnecting).
 
@@ -55,7 +53,8 @@
 (function () {
   'use strict';
   const BB = window.BB, P = BB.P;
-  const N = BB.net = { state: 'solo', remotes: new Map(), code: null, self: -1, MAX: 10 };
+  const N = BB.net = { self: -1, MAX: 10 };
+  const remotes = new Map();                      // friends' buses by member id
 
   const LETTERS = 'bcdfghjkmnpq';                 // picture index -> a letter in the room name
   const PICS = ['bus', 'star', 'cat', 'sun', 'flower', 'fish', 'heart', 'moon', 'tree', 'kite', 'ball', 'boat'];
@@ -183,7 +182,7 @@
     // 30 s, or 90 s if it said it was parked (its page hidden); it comes back with its next looks ('hi' every 15 s)
     if (now - staleAt > 1000) {
       staleAt = now;
-      for (const r of [...N.remotes.values()]) {
+      for (const r of [...remotes.values()]) {
         const last = r.snaps.length ? r.snaps[r.snaps.length - 1] : null, quiet = now / 1000 - (r.heard || r.born || 0);
         if (!r.leaving && quiet > (last && (last.fl & 16) ? 90 : 30)) removeRemote(r.id, null, true);
       }
@@ -211,7 +210,7 @@
   function onMsg(from, m) {
     if (!Number.isInteger(from) || from === N.self || !m || typeof m !== 'object') return;
     if (!members.has(from)) members.add(from);                       // (a message can arrive just before its join)
-    const r = N.remotes.get(from);
+    const r = remotes.get(from);
     switch (m.t) {
       case 's': { const s = cleanState(m.d); if (s && r) pushSnap(r, s); else if (s) pending.set(from, s); break; }
       case 'hi': { const look = cleanLook(m.look); if (look) upsertRemote(from, look); break; }
@@ -238,28 +237,27 @@
   };
   let fam = BB.store.get('family', null);
   if (!validCode(fam)) { fam = newCode(); BB.store.set('family', fam); }
-  N.code = codeStr(fam);
+  let famCode = codeStr(fam);                     // the room name's letters
   N.PICS = PICS.slice();
   N.family = () => fam.map((i) => PICS[i]);
   N.setFamily = function (ids) {
     const a = toCode(ids); if (!a) return false;
-    if (codeStr(a) === N.code) return true;
-    fam = a; BB.store.set('family', fam); N.code = codeStr(fam);
+    if (codeStr(a) === famCode) return true;
+    fam = a; BB.store.set('family', fam); famCode = codeStr(fam);
     relink(); return true;
   };
   N.newFamily = function () {
-    let a; do { a = newCode(); } while (codeStr(a) === N.code);
-    fam = a; BB.store.set('family', fam); N.code = codeStr(fam);
+    let a; do { a = newCode(); } while (codeStr(a) === famCode);
+    fam = a; BB.store.set('family', fam); famCode = codeStr(fam);
     relink(); return N.family();
   };
 
   // ================= status =================
-  const liveFriends = () => [...N.remotes.values()].filter((r) => !r.leaving);
+  const liveFriends = () => [...remotes.values()].filter((r) => !r.leaving);
   N.status = () => (link === 'open' ? (liveFriends().length ? 'together' : 'alone') : link === 'connecting' ? 'connecting' : 'offline');
   N.friends = () => liveFriends().map((r) => ({ id: r.id, type: r.look.ty, paint: r.look.pa, color: paintHex(r.look.pa), routeNo: r.look.no }));
   let lastStatus = '', lastFriends = '';
   function syncStatus() {
-    N.state = link === 'open' ? 'room' : link === 'connecting' ? 'opening' : 'solo';      // (the older name)
     const st = N.status();
     if (st !== lastStatus) { lastStatus = st; BB.emit('net:status', { status: st }); }
     const fr = N.friends(), key = JSON.stringify(fr);
@@ -278,25 +276,25 @@
       if (T !== t) return;
       clearTimeout(lostT); lostT = 0;
       N.self = self; members = new Set(peers); link = 'open'; backoff = 0;
-      for (const id of [...N.remotes.keys()]) if (!members.has(id)) removeRemote(id, null, true);
-      for (const r of N.remotes.values()) r.lost = false;
+      for (const id of [...remotes.keys()]) if (!members.has(id)) removeRemote(id, null, true);
+      for (const r of remotes.values()) r.lost = false;
       lastKey = ''; skyAt = 0;
       sendHi(true); tick();
       clearInterval(tickT); tickT = setInterval(tick, 100);
       syncFriends();
     };
-    t.onPeerJoin = (id) => { if (T !== t) return; members.add(id); if (N.remotes.has(id)) removeRemote(id, null, true); sendHi(true); lastKey = ''; if (N.isAuthority()) { skyAt = performance.now(); sendSky(); } };
+    t.onPeerJoin = (id) => { if (T !== t) return; members.add(id); if (remotes.has(id)) removeRemote(id, null, true); sendHi(true); lastKey = ''; if (N.isAuthority()) { skyAt = performance.now(); sendSky(); } };
     t.onPeerLeave = (id) => { if (T !== t) return; members.delete(id); pending.delete(id); removeRemote(id); };
     t.onMessage = (from, msg) => { if (T === t) onMsg(from, msg); };
     t.onError = (k) => { if (T !== t) return; T = null; link = 'offline'; syncStatus(); retry(k === 'full' ? 60000 : 0); };
     t.onClose = () => { if (T !== t) return; T = null; dropped(); };
-    t.connect(N.code);
+    t.connect(famCode);
   }
   // Our link dropped: friends' buses go see-through for a moment while we try again; gone quietly if we can't.
   function dropped() {
     clearInterval(tickT); tickT = 0; members = new Set(); pending.clear();
     link = 'offline';
-    for (const r of N.remotes.values()) r.lost = true;
+    for (const r of remotes.values()) r.lost = true;
     clearTimeout(lostT); lostT = setTimeout(() => { lostT = 0; if (link !== 'open') clearFriends(); }, 12000);
     if (BB.world) BB.world.weatherAuto = true;
     syncStatus(); retry(1500);
@@ -308,7 +306,7 @@
     backoff = Math.min(backoff + 1, 6);
     retryT = setTimeout(connect, wait * (0.8 + Math.random() * 0.4));
   }
-  function clearFriends() { for (const id of [...N.remotes.keys()]) removeRemote(id, null, true); news.length = 0; syncFriends(); }
+  function clearFriends() { for (const id of [...remotes.keys()]) removeRemote(id, null, true); news.length = 0; syncFriends(); }
   // leave the room politely (a goodbye first) and forget the friends
   function unlink(why) {
     clearTimeout(retryT); clearTimeout(lostT); retryT = lostT = 0;
@@ -469,16 +467,16 @@
     BB.scene.add(r.mesh);
   }
   function disposeBody(r) { if (r.mesh) { BB.scene.remove(r.mesh); r.mesh.geometry.dispose(); r.mat.dispose(); r.mesh = null; } }
-  function freeSlot() { const used = new Set([...N.remotes.values()].map((r) => r.slot)); for (let i = 0; i < MAXB; i++) if (!used.has(i)) return i; return 0; }
+  function freeSlot() { const used = new Set([...remotes.values()].map((r) => r.slot)); for (let i = 0; i < MAXB; i++) if (!used.has(i)) return i; return 0; }
   function upsertRemote(id, look) {
-    let r = N.remotes.get(id);
+    let r = remotes.get(id);
     if (r && r.leaving) { removeRemote(id, null, true); r = null; }
     if (r && JSON.stringify(r.look) === JSON.stringify(look)) return;
     const fresh = !r;
     if (fresh) {
-      if (N.remotes.size >= N.MAX - 1) return;
+      if (remotes.size >= N.MAX - 1) return;
       r = { id, look, snaps: [], alpha: 0, spin: 0, gy: 0, flash: 0, byeWhy: null, leaving: false, lost: false, slot: freeSlot(), pose: null, born: performance.now() / 1000 };
-      N.remotes.set(id, r);
+      remotes.set(id, r);
     } else disposeBody(r);
     r.look = look; buildShared(); buildBody(r); drawBadge(r);
     if (pending.has(id)) { pushSnap(r, pending.get(id)); pending.delete(id); }
@@ -487,12 +485,12 @@
     if (fresh && !BB.bedtime && !back) addNews({ kind: 'hi', id, no: look.no });
   }
   function removeRemote(id, why, now) {
-    const r = N.remotes.get(id); if (!r) return;
-    if (now) { recent.set(JSON.stringify(r.look), performance.now()); disposeBody(r); N.remotes.delete(id); syncFriends(); return; }
+    const r = remotes.get(id); if (!r) return;
+    if (now) { recent.set(JSON.stringify(r.look), performance.now()); disposeBody(r); remotes.delete(id); syncFriends(); return; }
     if (r.leaving) return;
     r.leaving = true;
     recent.set(JSON.stringify(r.look), performance.now());
-    setTimeout(() => { if (N.remotes.get(id) === r) { disposeBody(r); N.remotes.delete(id); syncFriends(); } }, 3000);   // (no frames drawn meanwhile)
+    setTimeout(() => { if (remotes.get(id) === r) { disposeBody(r); remotes.delete(id); syncFriends(); } }, 3000);   // (no frames drawn meanwhile)
     if (!BB.bedtime && link === 'open' && r.byeWhy) addNews({ kind: 'bye', id, no: r.look.no, sleep: r.byeWhy === 'sleep' });
     syncFriends();
   }
@@ -520,7 +518,7 @@
   const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(0, 0, 0, 'YXZ'), _p = new THREE.Vector3(), _s = new THREE.Vector3();
   N.update = function (dt) {
     updatePuffs(dt);
-    if (!N.remotes.size) { if (shared && (shared.wheels.count || shared.badges.count || shared.shadows.count)) shared.wheels.count = shared.badges.count = shared.shadows.count = 0; return; }
+    if (!remotes.size) { if (shared && (shared.wheels.count || shared.badges.count || shared.shadows.count)) shared.wheels.count = shared.badges.count = shared.shadows.count = 0; return; }
     const S = buildShared(), B = BB.bus, W = BB.world, now = performance.now() / 1000;
     const night = W.night ? W.night() : 0;
     const mx = B.front ? (B.front.position.x + B.rear.position.x) / 2 : 0, mz = B.front ? (B.front.position.z + B.rear.position.z) / 2 : 0;
@@ -528,9 +526,9 @@
     const bay = B.target && W.bayOf ? W.bayOf(B.target) : null;
     const cam = BB.camera ? BB.camera.position : null;
     let wi = 0, si = 0, bi = 0;
-    for (const r of [...N.remotes.values()]) {
+    for (const r of [...remotes.values()]) {
       const p = sample(r, now - DELAY);
-      if (!p || !r.mesh) { if (r.leaving) { disposeBody(r); N.remotes.delete(r.id); } continue; }
+      if (!p || !r.mesh) { if (r.leaving) { disposeBody(r); remotes.delete(r.id); } continue; }
       const D = r.dims, art = D.LR > 0, h = p.h, hr = art ? p.hr : p.h;
       const fx = Math.sin(h), fz = Math.cos(h), rx = Math.sin(hr), rz = Math.cos(hr);
       const hx = p.x - fx * (D.LF / 2 + D.GAP / 2), hz = p.z - fz * (D.LF / 2 + D.GAP / 2);
@@ -555,7 +553,7 @@
       if (r.lost) a *= 0.45;
       if (r.leaving) a = 0;
       r.alpha += BB.clamp(a - r.alpha, -dt * 1.6, dt * 1.6);
-      if (r.leaving && r.alpha <= 0.01) { disposeBody(r); N.remotes.delete(r.id); syncFriends(); continue; }
+      if (r.leaving && r.alpha <= 0.01) { disposeBody(r); remotes.delete(r.id); syncFriends(); continue; }
       const vis = r.alpha > 0.02;
       r.mesh.visible = vis;
       if (!vis) continue;
@@ -898,7 +896,7 @@
   };
   function syncFriends() {
     if (!friendsEl) return;
-    const n = [...N.remotes.values()].filter((r) => !r.leaving).length;
+    const n = [...remotes.values()].filter((r) => !r.leaving).length;
     friendsEl.innerHTML = '';
     const show = link === 'open' && n > 0 && !(BB.depot && BB.depot.isOpen) && !BB.bedtime;
     friendsEl.classList.toggle('hide', !show);
@@ -906,11 +904,10 @@
     if (show) fillFriends(friendsEl, false);
     if (panelKind === 'code' && card) { const f = card.querySelector('.bbn-friends'); if (f) { f.innerHTML = ''; fillFriends(f, true); } }
     syncStatus();
-    BB.emit('net:changed', { state: N.state, friends: n });
   }
   N.fillFriends = (el, withMe) => fillFriends(el, withMe);
   function fillFriends(el, withMe) {
-    const list = [...N.remotes.values()].filter((r) => !r.leaving).map((r) => r.look);
+    const list = [...remotes.values()].filter((r) => !r.leaving).map((r) => r.look);
     if (withMe) list.unshift(Object.assign(myLook(), { me: true }));
     for (const look of list) {
       const f = BB.el('div', 'bbn-friend' + (look.me ? ' me' : ''), el);
@@ -982,14 +979,11 @@
     });
     function done(code) {
       hidePanel();
-      if (codeStr(code) === N.code) { BB.say('That is our family already!', { queue: true }); return; }
+      if (codeStr(code) === famCode) { BB.say('That is our family already!', { queue: true }); return; }
       N.setFamily(code);
       BB.sfx.cheer(); if (BB.ui.confetti) BB.ui.confetti();
       BB.say('Hooray! Now we are one family. We play together whenever we are both playing!', { queue: true });
     }
     BB.say('Tap the pictures from the other tablet!', { queue: true });
   };
-  // older names (depot.js used them before the family): kept until it moves over
-  N.open = N.make = () => N.showFamily();
-  N.join = () => N.enterFamily();
 })();
