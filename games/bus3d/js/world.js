@@ -342,20 +342,20 @@
     beach: ['Seaside', 'the seaside'], city: ['Towers', 'the towers'], lantern: ['Old Town', 'old town'], plane: ['Airport Road', 'the airport road'] };
   const minorPic = (x, z, i) => z > 170 ? 'beach' : (x > 215 && z < -150) ? 'plane' : (x > 95 && x < 215 && z < -30 && z > -180) ? 'city' : x < -175 ? 'lantern' : ['flats', 'tree', 'market', 'slide'][i % 4];
   (function addMinorStops() {
-    const nodeClear = (id, e) => { const n = nodeById[id]; return n.edges.length >= 3 ? Math.max(...n.edges.map((q) => edgeById[q].half || RH)) + 22 : 12; };
+    const nodeClear = (id, e) => { const n = nodeById[id]; return n.edges.length >= 3 ? Math.max(...n.edges.map((q) => edgeById[q].half || RH)) + (e.kind === 'town' ? 9 : 18) : 12; };
     let k = 0;
     for (const e of W.roads.edges) {
       if (e.kind === 'yard' || e.points.length > 2) continue;                       // (not in the yard, not on curves)
       const a = e.points[0], b = e.points[e.points.length - 1];
       if (Math.abs(a.z - g(1)) < 12 && Math.abs(b.z - g(1)) < 12 && Math.abs(a.x) < 200) continue;   // under the viaduct
-      const step = e.kind === 'highway' ? 110 : 70, s0 = nodeClear(e.a, e) + 8, s1 = e.length - nodeClear(e.b, e) - 8;
+      const step = e.kind === 'highway' ? 110 : 70, s0 = nodeClear(e.a, e) + 4, s1 = e.length - nodeClear(e.b, e) - 4;
       if (s1 - s0 < 0) continue;
       for (const dir of [1, -1]) {
         const taken = allBays().filter((q) => q.edge === e.id && q.dir === dir).map((q) => q.s);
         const n = Math.max(1, Math.round((s1 - s0) / step) + 1);
         for (let i = 0; i < n; i++) {
           const sv = n === 1 ? (s0 + s1) / 2 : s0 + (s1 - s0) * i / (n - 1);
-          if (taken.some((t) => Math.abs(t - sv) < 48)) continue;
+          if (taken.some((t) => Math.abs(t - sv) < 40)) continue;
           const p = W.pointAt(e, sv), lx = p.dz * dir, lz = -p.dx * dir;           // kerb side of this direction
           const toward = [p.x + lx * 30, p.z + lz * 30], kx = p.x + lx * (e.half + 2.5), kz = p.z + lz * (e.half + 2.5);
           const pic = minorPic(kx, kz, k++), nm = MINOR_PICS[pic];
