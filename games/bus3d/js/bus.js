@@ -1365,6 +1365,7 @@
     let pick = null, best = null;
     for (const [yaw, pitch, md, wv] of cands) {
       const p = plan(yaw * D2R, pitch * D2R, md, wv);
+      if (B.__camDbg) B.__camDbg.push([yaw, pitch, md, +p.d.toFixed(1), clear(p) ? 'ok' : 'blocked', +p.gap.toFixed(0)].join(' '));   // DEBUG-CAM
       if (!clear(p)) continue;
       if (p.gap >= 34) { pick = p; break; }
       if (!best || (p.gap > best.gap * 1.2 && pitch <= 38)) best = p;   // (not steeper than that for a little more room)

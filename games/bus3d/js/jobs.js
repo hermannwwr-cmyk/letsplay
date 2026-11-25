@@ -769,7 +769,7 @@
   // Pictures for the vehicle jobs' questions (the same flat paper-cut style as the faces).
   const ICONS = {
     window: () => '<svg viewBox="0 0 40 40"><rect x="6" y="6" width="28" height="28" rx="4" fill="#c84a3c"/><rect x="10" y="10" width="20" height="20" rx="2" fill="#9cc7dc"/>' +
-      '<path d="M20 10 V30 M10 20 H30" stroke="#c84a3c" stroke-width="2.5"/><circle cx="16" cy="15" r="6" fill="#8a8290" opacity=".85"/><circle cx="24" cy="12" r="5" fill="#a8a0ae" opacity=".85"/></svg>',
+      '<path d="M20 10 V30" stroke="#fbf1dc" stroke-width="2.5"/><circle cx="16" cy="15" r="6" fill="#8a8290" opacity=".85"/><circle cx="24" cy="12" r="5" fill="#a8a0ae" opacity=".85"/></svg>',
     fighter: (i) => `<svg viewBox="0 0 40 40"><path d="M8 40 Q8 26 20 26 Q32 26 32 40Z" fill="#3d5a80"/><rect x="12" y="31" width="16" height="3" fill="#ffd45c"/>` +
       `<circle cx="20" cy="18" r="8" fill="${SKINS[(i * 3) % 5]}"/><path d="M9 16 Q10 6 20 6 Q30 6 31 16 H34 V18 H6 V16Z" fill="#ef5a4b"/><rect x="17" y="8" width="6" height="5" rx="1" fill="#ffd45c"/>` +
       `<circle cx="17" cy="20" r="1.4" fill="#3a2a3c"/><circle cx="23" cy="20" r="1.4" fill="#3a2a3c"/><path d="M17.5 23.5 Q20 25.5 22.5 23.5" stroke="#c0614e" stroke-width="1.4" fill="none"/></svg>`,
