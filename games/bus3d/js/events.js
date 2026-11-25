@@ -60,6 +60,12 @@
     return !!(w && w.built && B && B.front && B.camMode === 'chase' && !homeShown() && !(BB.depot && BB.depot.isOpen)
       && !BB.bedtime && !(BB.hub && BB.hub.slept));
   }
+  // the stop the bus is heading for is within R (the stop's side view would take over the camera)
+  function targetNear(R) {
+    const B = Bs(), w = W(), st = B && B.target; if (!st || !w.bayOf) return false;
+    const bay = safe(() => w.bayOf(st)); return !!(bay && Math.hypot(bay.x - B.pos.x, bay.z - B.pos.z) < R);
+  }
+  const pullingIn = () => { const B = Bs(); return !!(B && (B.atStop || (B.isSettling && B.isSettling()))); };
   // may a new event start?
   function canStart() {
     if (!canRun() || jobBusy() || lastMinute() || (BB.hub && BB.hub.timeUp && BB.hub.timeUp())) return false;
@@ -68,10 +74,11 @@
     if (B.atStop || (B.isSettling && B.isSettling()) || (B.isSpinning && B.isSpinning()) || (B.isWashing && B.isWashing()) || B.inWash) return false;
     if (B.inDepot && B.inDepot()) return false;
     if (ui().asking && ui().asking()) return false;
+    if (targetNear(85)) return false;            // (the bus is about to pull into its stop)
     return true;
   }
   // no event speech, prompts or bubbles right now (a stop, a question, a card, ...)
-  const quiet = () => !canRun() || jobBusy() || !!(ui().asking && ui().asking()) || !!(BB.hub && BB.hub.timeUp && BB.hub.timeUp());
+  const quiet = () => !canRun() || jobBusy() || pullingIn() || targetNear(35) || !!(ui().asking && ui().asking()) || !!(BB.hub && BB.hub.timeUp && BB.hub.timeUp());
   const saidAt = {};                    // line -> clock when last said (the same line isn't said again for 8 minutes)
   function talk(text, important, again) {
     if (quiet()) return false;
@@ -280,6 +287,14 @@
     b.box(0.14, 0.6, 0.14, red, 0.45, 2.2, 0, 0, 0, -0.6); b.ball(0.1, '#ffffff', 0.68, 2.72, 0);           // the waving arm
     return b.geometry();
   }
+  function kioskGeo() {                     // a little roadside kiosk (front +z): mint walls, a striped awning, a coral roof
+    const b = BB.mk.builder();
+    b.box(3.4, 0.2, 3.2, '#e4d6bd', 0, 0, 0);
+    b.box(3.0, 2.6, 2.8, '#8fe0c4', 0, 0.2, 0); b.box(2.2, 1.0, 0.06, '#5a4a5c', 0, 1.3, 1.41); b.box(2.4, 0.14, 0.3, '#ffd45c', 0, 1.2, 1.5);
+    for (let k = 0; k < 6; k++) b.box(0.5, 0.06, 0.9, k % 2 ? '#fff6e0' : '#ff6b5c', -1.25 + k * 0.5, 2.45, 1.75, 0, -0.35, 0);
+    b.box(3.4, 0.4, 3.2, '#ff6b5c', 0, 2.8, 0); b.box(0.9, 0.5, 0.06, '#fff6e0', 0, 2.75, 1.62);
+    return b.geometry();
+  }
   function crateGeo(n) {                      // a milk crate holding n bottles in a row of five
     const b = BB.mk.builder();
     b.box(1.1, 0.34, 0.32, '#4fa3e0', 0, 0, 0); b.box(1.12, 0.06, 0.34, '#3d8fe0', 0, 0.3, 0);
@@ -326,7 +341,7 @@
     elf: () => personGeo({ shirt: '#3a9d5f', stripe: '#ffd45c', pants: '#e8473b', hat: 'elf', hatCol: '#e8473b' }),
     elfBell: () => personGeo({ shirt: '#e8473b', stripe: '#ffffff', pants: '#3a9d5f', hat: 'elf', hatCol: '#3a9d5f', flag: '#ffd45c' }),
     otter: () => otterGeo(false), otterPup: () => otterGeo(true),
-    lion: lionGeo, float: floatGeo, crate: () => crateGeo(5), bin: binGeo, trolley: trolleyGeo, balloon: balloonGeo,
+    lion: lionGeo, float: floatGeo, kiosk: kioskGeo, crate: () => crateGeo(5), bin: binGeo, trolley: trolleyGeo, balloon: balloonGeo,
   };
   const crowd = {};
   let crowdGroup = null;
@@ -343,7 +358,7 @@
     return c;
   }
   // put one of `name` at (x, y, z) facing heading h; tilt = lean forward (+) / back, roll = sideways wobble
-  const LOOK_SCALE = { otter: 2.5, otterPup: 2.5, lion: 1.3, float: 1.3 };
+  const LOOK_SCALE = { otter: 5, otterPup: 5, lion: 1.3, float: 1.3, kiosk: 1 };
   function put(name, x, y, z, h, s = 1, tilt = 0, roll = 0) {
     const c = look(name);
     s *= LOOK_SCALE[name] || 1.15;
@@ -557,11 +572,27 @@
   // the bus's two ends (front carriage, rear carriage) in world space
   function busPts() { const B = Bs(); return B && B.front ? [B.front.position, B.rear ? B.rear.position : B.front.position] : []; }
   function nearBus(x, z, r) { for (const p of busPts()) if (Math.hypot(p.x - x, p.z - z) < r) return true; return false; }
+  // (x, z) within r of the bus's centre line (front carriage to rear carriage, plus a little beyond each end)
+  function overlapsBus(x, z, r) {
+    const pts = busPts(); if (pts.length < 2) return false;
+    const a = pts[0], b = pts[1], B = Bs(), fx = Math.sin(B.heading), fz = Math.cos(B.heading);
+    const ax = a.x + fx * 3.5, az = a.z + fz * 3.5, bx = b.x - (a.x - b.x === 0 && a.z - b.z === 0 ? fx * 3.5 : 0), bz = b.z - (a.x - b.x === 0 && a.z - b.z === 0 ? fz * 3.5 : 0);
+    const dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz || 1, t = clamp(((x - ax) * dx + (z - az) * dz) / l2, -0.15, 1.15);
+    return Math.hypot(x - (ax + dx * t), z - (az + dz * t)) < r;
+  }
 
   // ---------- roads: routes along the graph ----------
   // walk(e, s, dir, L): from distance s along edge e, travelling dir (+1 = a->b), for L units, going as straight as
   // possible at junctions (never into the depot yard). Returns segments [{e, dir, s0, s1}].
-  function walk(e, s, dir, L) {
+  function routeDirAt(x, z) {                    // the ribbon's direction just past the point nearest (x, z), or null
+    const pts = Bs() && Bs().route; if (!pts || pts.length < 3) return null;
+    let bi = -1, bd = 18;
+    for (let i = 0; i < pts.length; i++) { const d = Math.hypot(pts[i].x - x, pts[i].z - z); if (d < bd) { bd = d; bi = i; } }
+    if (bi < 0) return null;
+    let j = bi, acc = 0; while (j < pts.length - 1 && acc < 14) { acc += Math.hypot(pts[j + 1].x - pts[j].x, pts[j + 1].z - pts[j].z); j++; }
+    const dx = pts[j].x - x, dz = pts[j].z - z, l = Math.hypot(dx, dz); return l > 3 ? { x: dx / l, z: dz / l } : null;
+  }
+  function walk(e, s, dir, L, guide) {
     const segs = []; let rem = L;
     for (let guard = 0; guard < 14 && rem > 0.01; guard++) {
       const end = dir > 0 ? e.length : 0, avail = Math.abs(end - s), take = Math.min(avail, rem);
@@ -570,7 +601,8 @@
       if (rem <= 0.01) break;
       const nodeId = dir > 0 ? e.b : e.a, n = W().node(nodeId);
       if (!n) break;
-      const pe = W().pointAt(e, dir > 0 ? e.length - 0.01 : 0.01), hx = pe.dx * dir, hz = pe.dz * dir;
+      const pe = W().pointAt(e, dir > 0 ? e.length - 0.01 : 0.01), rd = guide ? routeDirAt(n.x, n.z) : null;
+      const hx = rd ? rd.x : pe.dx * dir, hz = rd ? rd.z : pe.dz * dir;
       let best = null, bestDot = -0.2;
       for (const id of n.edges) {
         if (id === e.id) continue;
@@ -672,32 +704,41 @@
   // The far side of the road (the bus's right) is the left kerb of this route. bus = the bus's distance along it.
   function oncoming(ahead, behind) {
     const br = busRoad(); if (!br) return null;
-    const fwd = walk(br.e, br.s, br.dir, ahead), back = walk(br.e, br.s, -br.dir, behind);
+    const fwd = walk(br.e, br.s, br.dir, ahead, true), back = walk(br.e, br.s, -br.dir, behind);
     const r = buildRoute([reverseSegs(fwd), back]); if (!r) return null;
-    r.bus = segsLen(fwd); r.br = br;
+    r.bus = segsLen(fwd); r.br = br; r.sign = -1; r.far = true; r.d0 = 0; r.lane0 = C().lane;
     return r;
   }
   // Same-way route: from `behind` units behind the bus, through it and on ahead.
   function sameWay(behind, ahead) {
     const br = busRoad(); if (!br) return null;
-    const back = walk(br.e, br.s, -br.dir, behind), fwd = walk(br.e, br.s, br.dir, ahead);
+    const back = walk(br.e, br.s, -br.dir, behind), fwd = walk(br.e, br.s, br.dir, ahead, true);
     const r = buildRoute([reverseSegs(back), fwd]); if (!r) return null;
-    r.bus = segsLen(back); r.br = br;
+    r.bus = segsLen(back); r.br = br; r.sign = 1; r.far = false;
+    // something parking on the bus's own side comes from behind and overtakes in the other lane
+    r.d0 = Math.max(0, r.bus - 45); r.lane0 = br.off > (C().laneDivider || 4.6) ? (C().laneInner || 2.5) : C().lane;
     return r;
+  }
+  // routes to stage a parked scene on: the far side of the road first, then the bus's own side
+  function stageRoutes() {
+    const out = [], a = oncoming(160, 90), b = sameWay(85, 150);
+    if (a && a.bus > 110) out.push(a);
+    if (b && b.len - b.bus > 90) out.push(b);
+    return out;
   }
   // a parking spot is fine away from stops, junctions, the depot yard and solid things
   const stopList = () => { const w = W(); return (w.stops || []).concat([w.depot, w.washBay]).filter(Boolean); };
   function spotOK(x, z, rad = 2) {
     const w = W();
     for (const st of stopList()) {
-      if (st.pos && Math.hypot(st.pos.x - x, st.pos.z - z) < 22) return false;
-      const bay = w.bayOf ? safe(() => w.bayOf(st)) : null; if (bay && Math.hypot(bay.x - x, bay.z - z) < 22) return false;
+      if (st.pos && Math.hypot(st.pos.x - x, st.pos.z - z) < 18) return false;
+      const bay = w.bayOf ? safe(() => w.bayOf(st)) : null; if (bay && Math.hypot(bay.x - x, bay.z - z) < 18) return false;
     }
     if (w.inDepotYard && w.inDepotYard(x, z)) return false;
     for (const n of w.roads.nodes) {           // clear of junction boxes (the widest road there, plus room to turn)
       if (n.edges.length < 3) continue;
       const hh = Math.max(...n.edges.map((id) => { const e = w.edge(id); return (e && e.half) || 9.2; }));
-      if (Math.hypot(n.x - x, n.z - z) < hh + 7) return false;
+      if (Math.hypot(n.x - x, n.z - z) < hh + 5) return false;
     }
     for (const zb of zebras()) if (Math.hypot(zb.x - x, zb.z - z) < 12) return false;
     if (w.pushOut) { const q = w.pushOut(x, z, rad); if (q.hit > 0.15) return false; }
@@ -777,7 +818,10 @@
       const tilt = Math.abs(this.sp) > 0.2 ? Math.atan2(this.latV, Math.abs(this.sp) + 1.5) * Math.sign(this.sp) : 0;
       const g = gy(q.x, q.z); this.y += (g - this.y) * Math.min(1, (dt || 1) * 8);
       v.g.position.set(q.x, this.y, q.z); v.g.rotation.y = q.h + tilt;
-      setGhost(v, nearBus(q.x, q.z, v.len / 2 + 1.8));
+      // see-through only when the bus really overlaps it (not when it simply passes in the next lane)
+      const fx = Math.sin(q.h), fz = Math.cos(q.h); let hit = false;
+      for (const k of [-0.4, 0, 0.4]) if (overlapsBus(q.x + fx * v.len * k, q.z + fz * v.len * k, 2.3)) { hit = true; break; }
+      setGhost(v, hit);
       this.x = q.x; this.z = q.z; this.h = q.h + tilt;
     }
     get done() { return this.target == null && this.d >= this.r.len - 0.5; }
@@ -935,14 +979,15 @@
   const busDist = (x, z) => { const B = Bs(); return B && B.front ? Math.hypot(B.pos.x - x, B.pos.z - z) : 1e9; };
   function nearStop(ids, R) { for (const st of stopList()) if (ids.indexOf(st.id) >= 0 && st.pos && busNear(st.pos.x, st.pos.z, R)) return st; return null; }
   // candidate buildings (box colliders) on the far side of an oncoming route, `aheadMin..aheadMax` in front of the bus
+  const aheadOf = (r, d) => (r.sign > 0 ? d - r.bus : r.bus - d);
   function buildingsAhead(r, aheadMin, aheadMax, topMin = 6, topMax = 36, faceMax = 16) {
     const w = W(), out = [], B = Bs();
     for (const c of w.colliders || []) {
       if (c.r != null || c.top == null || c.top < topMin || c.top > topMax || Math.min(c.hw, c.hd) < 2.2) continue;
       if (Math.abs(c.x - B.pos.x) > 160 || Math.abs(c.z - B.pos.z) > 160) continue;
       if (w.inDepotYard && w.inDepotYard(c.x, c.z)) continue;
-      const pr = project(r, c.x, c.z, 0, r.bus); if (!pr) continue;
-      const ahead = r.bus - pr.d; if (ahead < aheadMin || ahead > aheadMax) continue;
+      const pr = r.sign > 0 ? project(r, c.x, c.z, r.bus, r.len) : project(r, c.x, c.z, 0, r.bus); if (!pr) continue;
+      const ahead = aheadOf(r, pr.d); if (ahead < aheadMin || ahead > aheadMax) continue;
       const face = pr.lat - Math.min(c.hw, c.hd);
       if (pr.lat < pr.half + 4 || face > pr.half + faceMax) continue;
       out.push({ c, d: pr.d, lat: pr.lat, face });
@@ -978,18 +1023,28 @@
     const a = _v3.set(x, y, z).project(cam);
     return a.z < 1 && Math.abs(a.x) < m && a.y > -0.85 && a.y < top;
   }
-  function stageOK(x, z, y = 1.5) { return !underViaduct(x, z) && inFrame(x, y, z, 0.8, 0.5) && !sightBlocked(x, y, z); }   // (the lower 3/4 of the picture)
-  // big enough on screen to count as seen: in the picture, in clear sight, about 4.5% of the screen tall or more
-  function bigOnScreen(x, y, z, h, min = 0.045, top = 0.7, floorPx = 34) {
-    const cam = BB.camera; if (!cam || !inFrame(x, y + h / 2, z, 0.9, top)) return false;
-    const a = _v3.set(x, y, z).project(cam).y, b = _v3.set(x, y + h, z).project(cam).y;
+  function stageOK(x, z, y = 1.5) { return !underViaduct(x, z) && inFrame(x, y, z, 0.82, 0.62) && !sightBlocked(x, y, z); }   // (the lower part of the picture)
+  // how big (x, y, z) of height h and length wlen looks on screen, in CSS pixels (0 when out of the picture)
+  function screenPx(x, y, z, h, wlen = 0, top = 0.7) {
+    const cam = BB.camera; if (!cam || !inFrame(x, y + h / 2, z, 0.9, top)) return 0;
     const Hpx = (BB.renderer && BB.renderer.domElement.clientHeight) || innerHeight;
-    return Math.abs(b - a) / 2 >= Math.max(min, floorPx / Hpx) && !sightBlocked(x, y + h / 2, z);
+    const d = Math.max(1, Math.hypot(x - cam.position.x, y + h / 2 - cam.position.y, z - cam.position.z));
+    return Math.max(h, 0.7 * wlen) * Hpx / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2)) / d;
+  }
+  // seen: at least 60 px on screen, in the picture, in clear sight
+  const SEEN_PX = 60;
+  function bigOnScreen(x, y, z, h, wlen = 0, top = 0.7) { return screenPx(x, y, z, h, wlen, top) >= SEEN_PX && !sightBlocked(x, y + h / 2, z); }
+  // A little roadside kiosk beside a parking spot, as a stand-in building: {c: box like a collider, kiosk: true}
+  function kioskSpot(r, dPark, w) {
+    const p = r.at(dPark), o = r.at(dPark).half + w + 2.6, x = p.x + p.lx * o, z = p.z + p.lz * o;
+    if (!spotOK(x, z, 1.8) || !stageOK(x, z, 2)) return null;
+    const ry = Math.atan2(-p.lx, -p.lz);                    // its front (+z) faces the road
+    return { kiosk: true, c: { x, z, hw: 1.7, hd: 1.6, ry, cos: Math.cos(ry), sin: Math.sin(ry), top: 3.6 }, d: dPark };
   }
   // a parking distance on an oncoming route, `aheadMin..aheadMax` in front of the bus, for a vehicle of len x w
   function findPark(r, aheadMin, aheadMax, len, w) {
     for (let a = aheadMin; a <= aheadMax; a += 3) {
-      const d = r.bus - a; if (d < len + 20) break;
+      const d = r.bus + (r.sign > 0 ? a : -a); if (d < len + 20 || d > r.len - len - 20) break;
       const p = r.at(d), o = parkOff(r, d, w);
       if (parkOK(r, d, o, len / 2) && stageOK(p.x + p.lx * o, p.z + p.lz * o)) return d;
     }
@@ -1003,9 +1058,8 @@
   // ---- 1. fire truck to the rescue ----
   EV.fire = {
     weight: 3,
-    plan() {
-      const r = oncoming(160, 90); if (!r || r.bus < 120) return null;
-      for (const cand of buildingsAhead(r, 22, 55, 6, 36, 24)) {
+    plan(o = {}) {
+      for (const r of stageRoutes()) for (const cand of buildingsAhead(r, 22, 55, 6, 36, 24)) {
         const dPark = cand.d;
         if (dPark < 30 || !parkOK(r, dPark, parkOff(r, dPark, VW('fire')), VL('fire') / 2)) continue;
         const p = r.at(dPark), o = parkOff(r, dPark, VW('fire'));
@@ -1013,11 +1067,15 @@
         if (!stageOK(fx, fz) || underViaduct(sm.x, sm.z) || !inFrame(sm.x, sm.y, sm.z, 0.85, 0.75)) continue;
         return { r, cand, dPark };
       }
+      for (const r of stageRoutes()) {             // no building handy: a kiosk with smoke coming out
+        const dPark = findPark(r, 24, 56, VL('fire'), VW('fire')); if (dPark == null) continue;
+        const cand = kioskSpot(r, dPark, VW('fire')); if (cand) return { r, cand, dPark };
+      }
       return null;
     },
     start({ r, cand, dPark }) {
       const v = vehicle('fire'), off = parkOff(r, dPark, v.w);
-      const dr = new Driver(v, r, { d: 0, vmax: 11, target: dPark });
+      const dr = new Driver(v, r, { d: r.d0, off: r.lane0, vmax: r.far ? 11 : 15, target: dPark });
       const pp = dr.pose(dPark, off);
       const src = boxFace(cand.c, pp.x, pp.z, 0.6, clamp(cand.c.top - 2.5, 3, 4.5));
       const roof = boxFace(cand.c, pp.x, pp.z, -1.5, Math.min(cand.c.top, 14));
@@ -1025,7 +1083,7 @@
       const crew = [];                       // {x, z, tx, tz, h}
       v.setLights(true);
       const me = {
-        id: 'fire', spots: () => [['fireTruck', dr.x, 0, dr.z, 3.6, 'Oh! Smoke! Here comes the fire truck!'], ['smoke', src.x, src.y, src.z, 4, 'Oh! Smoke! Here comes the fire truck!']], at: () => src,
+        id: 'fire', spots: () => [['fireTruck', dr.x, 0, dr.z, 3.8, 'Oh! Smoke! Here comes the fire truck!', v.len], ['smoke', src.x, src.y, src.z, 7, 'Oh! Smoke! Here comes the fire truck!', 4]], at: () => src,
         update(dt) {
           t += dt; flash(v, dt);
           // smoke (grey, turning to white steam as the fire goes out), and a few orange flickers at first
@@ -1086,6 +1144,7 @@
             dr.update(dt);
             if (dr.done || (outT += dt) > 40) return false;
           }
+          if (cand.kiosk) put('kiosk', cand.c.x, gy(cand.c.x, cand.c.z), cand.c.z, cand.c.ry);
           for (const f of crew) put(st === 'spray' ? 'fire' : 'fireWalk', f.x, gy(f.x, f.z), f.z, f.h, 1, 0, st === 'spray' ? 0 : Math.sin(t * 9) * 0.06);
           return true;
         },
@@ -1098,7 +1157,7 @@
   // ---- 2. ambulance (from behind: make way!) ----
   EV.ambulance = {
     weight: 3,
-    plan() {
+    plan(o = {}) {
       const B = Bs(); if (Math.abs(B.speed) < 1.5) return null;
       const r = sameWay(65, 170); if (!r || r.bus < 50 || r.len - r.bus < 110) return null;
       return { r };
@@ -1107,9 +1166,9 @@
       const v = vehicle('ambulance'), Cc = C(), inner = Cc.laneInner || 2.5, kerb = Cc.lane;
       const br = r.br, dr = new Driver(v, r, { d: 0, vmax: 21, sp: 14, off: br.off > (Cc.laneDivider || 4.6) ? inner : kerb });
       v.setLights(true);
-      let sirenT = 0, prompted = false, promptSp = 0, promptLat = 0, promptT = 0, madeWay = false, passed = false, t = 0, waitAll = 0, swapped = false;
+      let sirenT = 0, prompted = false, promptSp = 0, promptLat = 0, promptT = 0, madeWay = false, passed = false, passT = 0, said = false, t = 0, waitAll = 0, swapped = false;
       return {
-        id: 'ambulance', spots: () => [['ambulance', dr.x, 0, dr.z, 3.6]],
+        id: 'ambulance', spots: () => [['ambulance', dr.x, 0, dr.z, 3.6, null, v.len]],
         update(dt) {
           t += dt; flash(v, dt, 5);
           const B = Bs(), bp = project(r, B.pos.x, B.pos.z, dr.d - 20, dr.d + 90);
@@ -1119,19 +1178,20 @@
             dr.offT = bp.lat > (Cc.laneDivider || 4.6) ? inner : (dr.wait > 4 ? kerb : dr.offT);
             if (dr.wait > 4) swapped = true;
           }
-          if (gap != null && gap > 0 && gap < 55 && !prompted && !quiet()) {
+          if (gap != null && gap > 0 && gap < 32 && !prompted && !quiet()) {
             prompted = true; promptSp = Math.abs(B.speed); promptLat = bp.lat; promptT = t;
             talk('Here comes an ambulance! Make way! Move to the left!', true, true);
-            dr.vmax = Math.min(dr.vmax, Math.max(promptSp + 3, 8));      // gives the child a few seconds to react
           }
-          // what the child did in the ~6 s after the prompt: slowed right down, or moved over to the left
-          if (prompted && !madeWay && bp && t - promptT < 6.5) {
+          // close behind: keep about 9 faster than the bus, so it overtakes into view a second or two after the line
+          if (gap != null && gap > 0) dr.vmax = Math.max(14, Math.abs(B.speed) + 9);
+          // what the child did from the line until just after it passed: slowed down, or moved over to the left
+          if (prompted && !madeWay && bp && (!passed || t - passT < 1.5)) {
             const sp = Math.abs(B.speed);
             if ((promptSp > 2.5 && sp < Math.max(2, promptSp - 3)) || bp.lat - promptLat > 2.5) madeWay = true;
           }
-          if (prompted && t - promptT > 6.5) dr.vmax = 21;
-          if (!passed && gap != null && gap < -2) {
-            passed = true;
+          if (!passed && gap != null && gap < -2) { passed = true; passT = t; }
+          if (passed && !said && t - passT > 1.5) {
+            said = true;
             if (prompted && !quiet()) {
               if (madeWay) {
                 talk('Great driving! You let the ambulance go first!', true, true);
@@ -1155,9 +1215,9 @@
   // ---- 3. police and the runaway trolley / floating balloon ----
   EV.police = {
     weight: 3,
-    plan() {
+    plan(o = {}) {
       const r = oncoming(150, 80); if (!r || r.bus < 130) return null;
-      for (const a of [38, 30, 46]) { const p = r.at(r.bus - a), o = p.half + 1.6; if (!stageOK(p.x + p.lx * o, p.z + p.lz * o)) return null; }
+      { const p = r.at(r.bus - 36), o = p.half + 1.6; if (!stageOK(p.x + p.lx * o, p.z + p.lz * o)) return null; }
       return { r, balloon: Math.random() < 0.5 };
     },
     start({ r, balloon }) {
@@ -1170,7 +1230,7 @@
       if (balloon) { const kd = d0 + 26; const p = r.at(kd); kid = { x: p.x + p.lx * (pav(kd) + 0.6), z: p.z + p.lz * (pav(kd) + 0.6), h: Math.atan2(-p.lx, -p.lz), has: false }; }
       const itemPos = () => { const p = r.at(item.d); return { x: p.x + p.lx * item.off, z: p.z + p.lz * item.off, h: Math.atan2(p.tx, p.tz) }; };
       return {
-        id: 'police', spots: () => [['police', dr.x, 0, dr.z, 2.4, balloon ? 'Oh! A balloon is floating away! The police car is coming to help!' : 'Oh! A runaway trolley! The police car is coming to help!']], at: () => { const q = itemPos(); return V3(q.x, 2, q.z); },
+        id: 'police', spots: () => [['police', dr.x, 0, dr.z, 2.3, balloon ? 'Oh! A balloon is floating away! The police car is coming to help!' : 'Oh! A runaway trolley! The police car is coming to help!', v.len]], at: () => { const q = itemPos(); return V3(q.x, 2, q.z); },
         update(dt) {
           t += dt; flash(v, dt, 5);
           if (st === 'chase') {
@@ -1226,21 +1286,20 @@
   // ---- 4. car breakdown and the tow truck ----
   EV.breakdown = {
     weight: 2,
-    plan() {
-      const r = oncoming(150, 90); if (!r || r.bus < 120) return null;
-      const dCar = findPark(r, 26, 42, VL('car') + 9, VW('tow')); if (dCar == null) return null;
-      return { r, dCar };
+    plan(o = {}) {
+      for (const r of stageRoutes()) { const dCar = findPark(r, 22, 56, VL('car') + 9, VW('tow')); if (dCar != null) return { r, dCar }; }
+      return null;
     },
     start({ r, dCar }) {
       const car = vehicle('car'), tow = vehicle('tow'), Cc = C();
       const offC = parkOff(r, dCar, car.w), dTow = dCar + car.len / 2 + 1.0 + tow.len / 2;
       const cdr = new Driver(car, r, { d: dCar, off: offC, vmax: 0, target: dCar });
-      const tdr = new Driver(tow, r, { d: 0, vmax: 9, target: dTow });
+      const tdr = new Driver(tow, r, { d: r.d0, off: r.lane0, vmax: r.far ? 9 : 14, target: dTow });
       car.setLights(true); tow.setLights(true);
       let st = 'wait', t = 0, steamT = 0, tickT = 0, hook = 0, man = null, saidT = false, leaveT = 0;
       { const a = local(cdr, car.w / 2 + 1.0, 1.0); man = { x: a.x, z: a.z, h: cdr.h + Math.PI }; }
       return {
-        id: 'breakdown', spots: () => [['brokenCar', cdr.x, 0, cdr.z, 2, 'Oh no! That car broke down. Here comes the tow truck!'], ['towTruck', tdr.x, 0, tdr.z, 3]], at: () => V3(cdr.x, 2, cdr.z),
+        id: 'breakdown', spots: () => [['brokenCar', cdr.x, 0, cdr.z, 2.2, 'Oh no! That car broke down. Here comes the tow truck!', car.len], ['towTruck', tdr.x, 0, tdr.z, 3.2, null, tow.len]], at: () => V3(cdr.x, 2, cdr.z),
         update(dt) {
           t += dt; flash(car, dt, 2.2); flash(tow, dt, 3);
           if ((tickT -= dt) <= 0) { tickT = 0.45; SND.tick(0.5 * near(cdr.x, cdr.z, 60)); }
@@ -1285,24 +1344,23 @@
   // ---- 5. ice cream truck (near the park, the playground, the gardens or the beach) ----
   EV.iceCream = {
     weight: 3,
-    plan() {
-      if (W().night && W().night() > 0.3) return null;
-      if (W().isRaining && W().isRaining()) return null;
-      if (!nearStop(['park', 'playground', 'gardens', 'beach', 'wheel'], 170)) return null;
-      const r = oncoming(140, 80); if (!r || r.bus < 110) return null;
-      const d = findPark(r, 25, 40, VL('iceCream') + 2, VW('iceCream')); if (d == null) return null;
-      return { r, d };
+    plan(o = {}) {
+      if (!o.forced && W().night && W().night() > 0.3) return null;
+      if (!o.forced && W().isRaining && W().isRaining()) return null;
+      if (!o.forced && !nearStop(['park', 'playground', 'gardens', 'beach', 'wheel'], 170)) return null;
+      for (const r of stageRoutes()) { const d = findPark(r, 22, 56, VL('iceCream') + 6, VW('iceCream')); if (d != null) return { r, d }; }
+      return null;
     },
     start({ r, d }) {
       const v = vehicle('iceCream'), off = parkOff(r, d, v.w);
-      const dr = new Driver(v, r, { d: 0, vmax: 8, target: d });
+      const dr = new Driver(v, r, { d: r.d0, off: r.lane0, vmax: r.far ? 8 : 13, target: d });
       v.setLights(true);
       const looks = ['A', 'B', 'C', 'A'];
-      const qd = (i) => d - v.len / 2 - 0.9 - i * 1.3, qo = off + v.w / 2 - 0.4;     // the queue: back along the pavement, in view
-      const kids = looks.map((lk, i) => { const kd = qd(i), p = r.at(kd), o = qo; return { lk, x: p.x + p.lx * o, z: p.z + p.lz * o, h: Math.atan2(p.tx, p.tz), cone: false, seed: Math.random() * 6 }; });
+      const qd = (i) => d - r.sign * (v.len / 2 + 0.9 + i * 1.3), qo = off + v.w / 2 - 0.4;     // the queue: along the pavement, on the bus's side of the truck
+      const kids = looks.map((lk, i) => { const kd = qd(i), p = r.at(kd), o = qo; return { lk, x: p.x + p.lx * o, z: p.z + p.lz * o, h: Math.atan2(r.sign * p.tx, r.sign * p.tz), cone: false, seed: Math.random() * 6 }; });
       let st = 'come', t = 0, jingleT = 0, serveT = 2, served = 0, offered = false, toldNear = false, parkedT = 0, leaveT = 0;
       const me = {
-        id: 'iceCream', spots: () => [['iceCream', dr.x, 0, dr.z, 4, 'Ice cream! Stop near the truck for a treat!']], at: () => V3(dr.x, 4, dr.z),
+        id: 'iceCream', spots: () => [['iceCream', dr.x, 0, dr.z, 5, 'Ice cream! Stop near the truck for a treat!', v.len]], at: () => V3(dr.x, 4, dr.z),
         update(dt) {
           t += dt; flash(v, dt, 2);
           if ((jingleT -= dt) <= 0) { jingleT = st === 'park' ? 12 : 8; const k = near(dr.x, dr.z, 110); if (k > 0) SND.jingle(0.4 + 0.6 * k); }
@@ -1321,7 +1379,7 @@
             }
             // the bus stopped close by: offer one
             const B = Bs();
-            if (!offered && busNear(dr.x, dr.z, 30) && Math.abs(B.speed) < 0.4 && !quiet() && BB.ui && BB.ui.ask) {
+            if (!offered && seenNow() && busNear(dr.x, dr.z, 30) && Math.abs(B.speed) < 0.4 && !quiet() && BB.ui && BB.ui.ask) {
               offered = true; hideBubble();
               const extra = BB.el('div', 'price', null); extra.appendChild(BB.iconEl ? BB.iconEl('coin', 64) : document.createElement('span')); extra.appendChild(document.createTextNode('2'));
               const picEl = document.createElement('canvas'); picEl.width = picEl.height = 128; picEl.getContext('2d').drawImage(pic('icecream'), 0, 0);
@@ -1360,26 +1418,29 @@
   // ---- 6. milk van (in the morning) ----
   EV.milk = {
     weight: 3,
-    plan() {
-      const dt = W().day ? W().day.t : 0.3; if (!(dt < 0.24 || dt > 0.93)) return null;
-      const r = oncoming(150, 80); if (!r || r.bus < 110) return null;
-      for (const cand of buildingsAhead(r, 24, 46, 6, 60)) {
+    plan(o = {}) {
+      const dt = W().day ? W().day.t : 0.3; if (!o.forced && !(dt < 0.24 || dt > 0.93)) return null;
+      for (const r of stageRoutes()) for (const cand of buildingsAhead(r, 22, 50, 6, 60, 22)) {
         const dPark = cand.d; if (dPark < 30 || !parkOK(r, dPark, parkOff(r, dPark, VW('milk')), VL('milk') / 2 + 1)) continue;
         const p = r.at(dPark), o = parkOff(r, dPark, VW('milk')); if (!stageOK(p.x + p.lx * o, p.z + p.lz * o)) continue;
         return { r, cand, dPark };
+      }
+      for (const r of stageRoutes()) {             // no block handy: the corner kiosk gets its milk
+        const dPark = findPark(r, 24, 56, VL('milk') + 2, VW('milk')); if (dPark == null) continue;
+        const cand = kioskSpot(r, dPark, VW('milk')); if (cand) return { r, cand, dPark };
       }
       return null;
     },
     start({ r, cand, dPark }) {
       const v = vehicle('milk'), off = parkOff(r, dPark, v.w);
-      const dr = new Driver(v, r, { d: 0, vmax: 8, target: dPark });
+      const dr = new Driver(v, r, { d: r.d0, off: r.lane0, vmax: r.far ? 8 : 13, target: dPark });
       const pp = dr.pose(dPark, off), door = boxFace(cand.c, pp.x, pp.z, 1.2, 0);
       const partial = 1 + Math.floor(Math.random() * 4);         // the second crate holds 1-4 (the first is full: five)
       const pName = 'crate' + partial;
       let st = 'come', t = 0, man = null, trips = 0, carrying = false, leaveT = 0;
       const crates = [];                                           // {x, z, h, name, n}
       const me = {
-        id: 'milk', spots: () => [['milkVan', dr.x, 0, dr.z, 2.6, 'Good morning! Here comes the milk van!']], at: () => V3(door.x, 2.5, door.z),
+        id: 'milk', spots: () => [['milkVan', dr.x, 0, dr.z, 2.8, 'Good morning! Here comes the milk van!', v.len]], at: () => V3(door.x, 2.5, door.z),
         update(dt) {
           t += dt;
           if (st === 'come') {
@@ -1407,6 +1468,7 @@
             dr.update(dt);
             if (dr.done || (leaveT += dt) > 40) return false;
           }
+          if (cand.kiosk) put('kiosk', cand.c.x, gy(cand.c.x, cand.c.z), cand.c.z, cand.c.ry);
           for (const c of crates) put(c.name, c.x, gy(c.x, c.z), c.z, c.h);
           if (man) {
             put(carrying ? 'milkCarry' : 'milk', man.x, gy(man.x, man.z), man.z, man.h, 1, 0, Math.sin(t * 9) * 0.05);
@@ -1428,23 +1490,22 @@
   // ---- 7. rubbish truck (bins lifted by its arms, beeping as it backs up) ----
   EV.rubbish = {
     weight: 2,
-    plan() {
-      if (W().night && W().night() > 0.5) return null;
-      const r = oncoming(150, 80); if (!r || r.bus < 115) return null;
-      const d = findPark(r, 27, 42, VL('rubbish') + 10, VW('rubbish')); if (d == null) return null;
-      return { r, d };
+    plan(o = {}) {
+      if (!o.forced && W().night && W().night() > 0.5) return null;
+      for (const r of stageRoutes()) { const d = findPark(r, 24, 56, VL('rubbish') + 10, VW('rubbish')); if (d != null) return { r, d }; }
+      return null;
     },
     start({ r, d }) {
       const v = vehicle('rubbish'), off = parkOff(r, d, v.w);
       const dStop = d + 7, dBack = d;            // drive past the bins, then reverse up to them
-      const dr = new Driver(v, r, { d: 0, vmax: 8, target: dStop });
+      const dr = new Driver(v, r, { d: r.d0, off: r.lane0, vmax: r.far ? 8 : 13, target: dStop });
       v.setLights(true);
       const nb = 2 + (Math.random() < 0.5 ? 1 : 0);
       const bins = [];
       for (let i = 0; i < nb; i++) { const bd = d - v.len / 2 - 1.4 - i * 1.0, p = r.at(bd), o = off + v.w / 2 + 0.2; bins.push({ x: p.x + p.lx * o, z: p.z + p.lz * o, hx: p.x + p.lx * o, hz: p.z + p.lz * o, y: 0, tip: 0, h: Math.atan2(p.tx, p.tz) }); }
       let st = 'come', t = 0, beepT = 0, bi = 0, leaveT = 0, man = null;
       return {
-        id: 'rubbish', spots: () => [['rubbishTruck', dr.x, 0, dr.z, 3.6, 'Here comes the rubbish truck!']], at: () => V3(dr.x, 3, dr.z),
+        id: 'rubbish', spots: () => [['rubbishTruck', dr.x, 0, dr.z, 4, 'Here comes the rubbish truck!', v.len]], at: () => V3(dr.x, 3, dr.z),
         update(dt) {
           t += dt; flash(v, dt, 2.5);
           if (st === 'come') {
@@ -1484,27 +1545,31 @@
   // ---- 12. otters crossing on a zebra crossing ----
   EV.otters = {
     weight: 3,
-    plan() {
-      if (W().night && W().night() > 0.5) return null;
-      const br = busRoad(); if (!br) return null;
-      const r = buildRoute([walk(br.e, br.s, br.dir, 120)]); if (!r) return null;
-      let best = null;
-      for (const zb of zebras()) {
+    plan(o = {}) {
+      if (!o.forced && W().night && W().night() > 0.5) return null;
+      const br = busRoad(); if (!br || br.e.kind === 'highway') return null;
+      const r = buildRoute([walk(br.e, br.s, br.dir, 90, true)]); if (!r) return null;
+      for (const zb of zebras()) {                // a real zebra crossing ahead first
         const pr = project(r, zb.x, zb.z); if (!pr || pr.dist > 4 || pr.d < 26 || pr.d > 58) continue;
-        if (!stageOK(zb.x, zb.z, 0.5)) continue;
-        if (!best || zb.park || pr.d < best.d) best = { zb, d: pr.d };
+        if (stageOK(zb.x, zb.z, 1)) return { r, dz: pr.d, own: false };
       }
-      return best ? { r, zb: best.zb, dz: best.d } : null;
+      for (let a = 26; a <= 58; a += 3) {         // else any straight, clear bit of road: we paint our own stripes
+        const p = r.at(a), q0 = r.at(a - 8), q1 = r.at(a + 8);
+        if (p.half > 10 || q0.tx * q1.tx + q0.tz * q1.tz < 0.98) continue;
+        if (spotOK(p.x, p.z, 1) && stageOK(p.x, p.z, 1)) return { r, dz: a, own: true };
+      }
+      return null;
     },
-    start({ r, zb, dz }) {
+    start({ r, dz, own }) {
       const p = r.at(dz), half = p.half, side = Math.random() < 0.5 ? 1 : -1;
       // across the road: from one pavement (left of the bus's travel * side) to the other
       const A0 = { x: p.x + p.lx * side * (half + 3), z: p.z + p.lz * side * (half + 3) }, A1 = { x: p.x - p.lx * side * (half + 3), z: p.z - p.lz * side * (half + 3) };
-      const h = Math.atan2(A1.x - A0.x, A1.z - A0.z), L = Math.hypot(A1.x - A0.x, A1.z - A0.z), sp = 1.15;
-      const fam = [false, true, true, false, true].map((pup, i) => ({ pup, s: -i * (pup ? 2.0 : 2.7) - (i ? 0.7 : 0), across: false, seed: Math.random() * 6 }));
+      const h = Math.atan2(A1.x - A0.x, A1.z - A0.z), L = Math.hypot(A1.x - A0.x, A1.z - A0.z), sp = 2.3;
+      const fam = []; { let s0 = 0; for (const pup of [false, true, true, false]) { fam.push({ pup, s: s0, across: false, seed: Math.random() * 6 }); s0 -= pup ? 3.4 : 4.6; } }
+      const stripes = own ? zebraDecal(p.x, p.z, Math.atan2(p.tx, p.tz), half) : null;
       let t = 0, counted = 0, prompted = false, waited = false, wasSlow = false, endT = 0;
       return {
-        id: 'otters', spots: () => { const o = fam.find((q) => q.s > 0 && q.s < L); if (!o) return []; const x = A0.x + Math.sin(h) * o.s, z = A0.z + Math.cos(h) * o.s; return [['otters', x, 0, z, 1.9, 'Look! A family of otters!', 0.028, 0.7, 22]]; }, at: () => V3(p.x, 1, p.z),
+        id: 'otters', spots: () => { const o = fam.find((q) => q.s > 0 && q.s < L); if (!o) return []; const x = A0.x + Math.sin(h) * o.s, z = A0.z + Math.cos(h) * o.s; return [['otters', x, 0, z, 2.8, 'Look! A family of otters!', 12]]; }, at: () => V3(p.x, 1, p.z),
         update(dt) {
           t += dt;
           const B = Bs(), bp = project(r, B.pos.x, B.pos.z), toGo = bp && bp.dist < 12 ? dz - bp.d : null;
@@ -1513,14 +1578,17 @@
             o.s = Math.min(L + 1, o.s + sp * dt);
             const lat = o.s - L / 2;
             if (Math.abs(lat) < half + 0.6 && o.s > 0) onRoad = true;
-            if (!o.across && o.s > L - 2.6) {
+            if (!o.across && o.s > L - 3.5) {
               o.across = true; counted++;
               if (seenNow() && busNear(p.x, p.z, 75)) { if (!quiet()) BB.say(WORDS[counted][0].toUpperCase() + WORDS[counted].slice(1) + '!', { queue: true }); SND.squeak(near(p.x, p.z, 70)); }
             }
             if (Math.random() < dt * 0.4) SND.squeak(0.5 * near(p.x, p.z, 50));
           }
-          // a gentle hand on the bus: coming up to the crossing while they're on the road, it slows right down
-          if (onRoad && toGo != null && toGo > 3 && toGo < 32 && B.speed > 1.2 && !jobBusy()) { B.speed = Math.max(1.2, B.speed - dt * 9); wasSlow = true; }
+          // a gentle hand on the bus: coming up to the crossing while they're on the road, it eases to a stop ~12 before it
+          if (onRoad && toGo != null && toGo > 0 && toGo < 40 && !jobBusy() && !pullingIn()) {
+            const cap = clamp((toGo - 12) / 18, 0, 1) * 7;
+            if (B.speed > cap) { B.speed = Math.max(cap, B.speed - dt * 6); wasSlow = true; }
+          }
           if (onRoad && toGo != null && toGo > 3 && toGo < 50 && !prompted && inFrame(p.x, 0.5, p.z)) { prompted = true; talk('Stop! Let the otters cross!', true, true); }
           if (onRoad && toGo != null && toGo > 0 && toGo < 40 && Math.abs(B.speed) < 0.6) waited = true;
           const all = fam.every((o) => o.s >= L + 1);
@@ -1531,23 +1599,37 @@
           for (const o of fam) {
             if (o.s < -0.5 || o.s > L + 0.6) continue;
             const x = A0.x + Math.sin(h) * o.s, z = A0.z + Math.cos(h) * o.s;
-            put(o.pup ? 'otterPup' : 'otter', x, gy(x, z) + Math.abs(Math.sin(t * 9 + o.seed)) * 0.06, z, h + Math.sin(t * 9 + o.seed) * 0.18, 1);
+            put(o.pup ? 'otterPup' : 'otter', x, gy(x, z) + Math.abs(Math.sin(t * 6 + o.seed)) * 0.2, z, h + Math.sin(t * 6 + o.seed) * 0.15, 1);
           }
           return true;
         },
-        end() {},
+        end() { if (stripes && stripes.parent) stripes.parent.remove(stripes); },
       };
     },
   };
 
+  // our own zebra stripes for an otter crossing where the town has none (one cached mesh)
+  let zebraMesh = null;
+  function zebraDecal(x, z, h, half) {
+    if (!zebraMesh) {
+      const b = BB.mk.builder();
+      for (let k = -9; k <= 9; k++) b.box(0.62, 0.02, 3.6, '#fffaf0', k * 1.06, 0, 0);
+      zebraMesh = new THREE.Mesh(b.geometry(), new THREE.MeshLambertMaterial({ vertexColors: true, polygonOffset: true, polygonOffsetFactor: -2 }));
+      zebraMesh.name = 'ev:zebra';
+    }
+    zebraMesh.position.set(x, 0.055, z); zebraMesh.rotation.set(0, h, 0); zebraMesh.scale.set(half / 9.2, 1, 1);
+    if (BB.scene) BB.scene.add(zebraMesh);
+    return zebraMesh;
+  }
+
   // ---- 13. parade: a lion dance with drums (at Christmas: Santa's float with bells) ----
   EV.parade = {
     weight: 2,
-    plan() {
-      if (W().isRaining && W().isRaining()) return null;
-      if (!nearStop(['chinatown', 'city', 'gardens', 'wheel', 'park', 'beach', 'hawker', 'shops'], 230)) return null;
+    plan(o = {}) {
+      if (!o.forced && W().isRaining && W().isRaining()) return null;
+      if (!o.forced && !nearStop(['chinatown', 'city', 'gardens', 'wheel', 'park', 'beach', 'hawker', 'shops'], 230)) return null;
       const r = oncoming(110, 70); if (!r || r.bus < 90) return null;
-      for (const a of [34, 24]) { const p = r.at(r.bus - a), o = p.half + 1.7; if (!stageOK(p.x + p.lx * o, p.z + p.lz * o)) return null; }
+      { const p = r.at(r.bus - 28), o = p.half + 1.7; if (!stageOK(p.x + p.lx * o, p.z + p.lz * o)) return null; }
       return { r };
     },
     start({ r }) {
@@ -1559,7 +1641,7 @@
       let t = 0, beat = 0, beatT = 0, said = false, bellT = 0;
       const head = () => { const m = mem[xmas ? 1 : 1]; const d = m.s0 + sp * t; const p = r.at(d); return { x: p.x + p.lx * off(d), z: p.z + p.lz * off(d) }; };
       return {
-        id: 'parade', spots: () => { const q = head(); return [['parade', q.x, 0, q.z, 3, xmas ? 'Look! A Christmas parade! Ho ho ho! Merry Christmas!' : 'Look! A lion dance parade! Dong, dong, dong!']]; }, at: () => { const q = head(); return V3(q.x, 3, q.z); },
+        id: 'parade', spots: () => { const q = head(); return [['parade', q.x, 0, q.z, 3.2, xmas ? 'Look! A Christmas parade! Ho ho ho! Merry Christmas!' : 'Look! A lion dance parade! Dong, dong, dong!', 12]]; }, at: () => { const q = head(); return V3(q.x, 3, q.z); },
         update(dt) {
           t += dt;
           const q = head(), k = near(q.x, q.z, 110) * duck();
@@ -1598,40 +1680,48 @@
   const seaZ = () => (W().SZ != null ? W().SZ : 190);
   EV.fireworks = {
     weight: 0,
-    plan() {
+    plan(o = {}) {
+      if (o.forced) return {};
       if (!W().night || W().night() < 0.55 || (W().isRaining && W().isRaining())) return null;
-      const B = Bs(); if (B.pos.z < seaZ() - 150) return null;
+      const B = Bs(); if (B.pos.z < seaZ() - 150 || targetNear(120)) return null;
       return {};
     },
     start() {
       let t = 0, next = 0.5, n = 0; me4.live = 0;
       const B0 = Bs(), aim = { x: B0.pos.x + Math.sin(B0.heading) * 65, y: 22, z: Math.max(seaZ() + 20, B0.pos.z + Math.cos(B0.heading) * 65) };
       const lk = lookUp(() => (me4.live > 0 ? { x: me4.x, y: me4.y, z: me4.z } : aim), 16);
-      const total = 11, rockets = [];
+      const total = 6, rockets = [];
       const cols = BB.xmas ? ['#ff4b4b', '#4fdc7a', '#ffd45c', '#ffffff'] : ['#ff6b5c', '#ffd45c', '#5fd0ff', '#b58cff', '#7dff8a', '#ff8fd0'];
       return {
-        id: 'fireworks', spots: () => (me4.live > 0 ? [['fireworks', me4.x, me4.y - 4, me4.z, 6, 'Ooh! Fireworks over the sea!', 0.03, lk ? 0.9 : 0.82]] : []),
+        id: 'fireworks', spots: () => (me4.live > 0 ? [['fireworks', me4.x, me4.y - 7, me4.z, 14, 'Ooh! Fireworks over the sea!', 14, lk ? 0.92 : 0.84]] : []),
         update(dt) {
           t += dt;
           if (n < total && (next -= dt) <= 0) {
-            next = rand(1.4, 2.6); n++;
-            const cam = BB.camera ? BB.camera.position : Bs().pos, hb = Bs().heading + rand(-0.3, 0.3), ahead = lk ? rand(55, 80) : rand(34, 48);
-            const x = clamp(cam.x + Math.sin(hb) * ahead, -180, 380), z = Math.max(seaZ() + (lk ? 20 : 4), cam.z + Math.cos(hb) * ahead);   // low and ahead: the chase camera looks down, so the sky barely shows
-            rockets.push({ x, y: 1, z, vy: lk ? rand(26, 32) : rand(9, 12), top: lk ? rand(18, 28) : rand(5, 7.5), c1: pick(cols), c2: pick(cols) });
-            SND.whistle(near(x, z, 260));
+            next = rand(2.2, 3.2); n++;
+            const cam = BB.camera ? BB.camera.position : Bs().pos, nearSea = Bs().pos.z > seaZ() - 150;
+            const salvo = n === 1 ? 2 : 2 + (Math.random() < 0.5 ? 1 : 0);
+            for (let q = 0; q < salvo; q++) {
+              const hb = Bs().heading + (q - (salvo - 1) / 2) * 0.32 + rand(-0.08, 0.08), ahead = lk ? rand(55, 75) : rand(32, 44);
+              let x = cam.x + Math.sin(hb) * ahead, z = cam.z + Math.cos(hb) * ahead;   // low and ahead without the camera turn
+              if (nearSea) { x = clamp(x, -180, 380); z = Math.max(seaZ() + (lk ? 20 : 4), z); }
+              rockets.push({ x, y: 1, z, vy: lk ? rand(26, 32) : rand(9, 12), top: lk ? rand(18, 30) : rand(5, 7.5), c1: pick(cols), c2: pick(cols), wait: q * 0.25 });
+            }
+            SND.whistle(near(cam.x, cam.z, 260));
           }
           me4.live = (me4.live || 0) - dt;
           if (Bs().atStop || jobBusy()) return false;          // a sky show never plays over a stop or a question
           for (let i = rockets.length - 1; i >= 0; i--) {
             const rk = rockets[i];
+            if ((rk.wait -= dt) > 0) continue;
             rk.y += rk.vy * dt;
             emit({ x: rk.x, y: rk.y, z: rk.z, vy: -2, life: 0.5, size: 0.9, size1: 0.2, color: '#ffe9a8', glow: true, alpha: 0.9, fin: 0.01 });
             if (rk.y >= rk.top) {
               rockets.splice(i, 1);
               me4.x = rk.x; me4.y = rk.y; me4.z = rk.z; me4.live = 1.4;
-              for (let k = 0; k < 56; k++) {
-                const a = Math.random() * Math.PI * 2, u = rand(-1, 1), rr = Math.sqrt(1 - u * u), spd = rand(5.5, 8);
-                emit({ x: rk.x, y: rk.y, z: rk.z, vx: Math.cos(a) * rr * spd, vy: u * spd, vz: Math.sin(a) * rr * spd, grav: 3.2, drag: 0.9, life: rand(1.6, 2.4), size: 1.6, size1: 0.7, color: k % 3 ? rk.c1 : rk.c2, glow: true, fin: 0.01 });
+              const big = lk ? 1.6 : 1;
+              for (let k = 0; k < 80; k++) {
+                const a = Math.random() * Math.PI * 2, u = rand(-1, 1), rr = Math.sqrt(1 - u * u), spd = rand(7.5, 10) * big;
+                emit({ x: rk.x, y: rk.y, z: rk.z, vx: Math.cos(a) * rr * spd, vy: u * spd, vz: Math.sin(a) * rr * spd, grav: 3.2, drag: 0.8, life: rand(1.8, 2.6), size: 2.4 * big, size1: 1.0 * big, color: k % 3 ? rk.c1 : rk.c2, glow: true, fin: 0.01 });
               }
               SND.pop(near(rk.x, rk.z, 280));
             }
@@ -1647,20 +1737,21 @@
   // ---- 15. a plane landing near the airport ----
   EV.plane = {
     weight: 0,
-    plan() {
+    plan(o = {}) {
       const B = Bs(), w = W();
-      if (!(w.stopById && w.stopById('airport'))) return null;
-      if (B.pos.z > -110 || B.pos.x < -150) return null;
-      return {};
+      const nearAirport = !!(w.stopById && w.stopById('airport')) && B.pos.z < -110 && B.pos.x > -150;
+      if (nearAirport && !targetNear(120)) return { land: true };
+      return o.forced ? { land: false } : null;
     },
-    start() {
+    start({ land }) {
       const B = Bs(), RZ = -340, east = B.pos.x < 330;
       const f = { x: Math.sin(B.heading), z: Math.cos(B.heading) };
       const S = { x: B.pos.x - f.x * 45, y: 26, z: B.pos.z - f.z * 45 };
       const Ap = east ? { x: 150, y: 16, z: RZ } : { x: 640, y: 16, z: RZ }, T = east ? { x: 270, y: 0, z: RZ } : { x: 520, y: 0, z: RZ }, R = east ? { x: 470, y: 0, z: RZ } : { x: 320, y: 0, z: RZ };
       // a low pass over the road ahead (the chase camera looks down: higher up it would be out of the picture), then round to land
       const look = V3(B.pos.x + f.x * 40, 14, B.pos.z + f.z * 40), lk = lookUp(look, 10), M = { x: B.pos.x + f.x * 38, y: lk ? 14 : 2.5, z: B.pos.z + f.z * 38 }, M2 = { x: B.pos.x + f.x * (lk ? 95 : 70), y: lk ? 18 : 2.5, z: B.pos.z + f.z * (lk ? 95 : 70) };
-      const legs = [[S, M, 24], [M, M2, lk ? 18 : 12], [M2, Ap, 30], [Ap, T, 30], [T, R, 0]], LAST = legs.length - 1;
+      const F = { x: B.pos.x + f.x * 320, y: 80, z: B.pos.z + f.z * 320 };
+      const legs = land ? [[S, M, 24], [M, M2, lk ? 18 : 12], [M2, Ap, 30], [Ap, T, 30], [T, R, 0]] : [[S, M, 24], [M, M2, lk ? 18 : 12], [M2, F, 30]], LAST = legs.length - 1;
       let g = null, mat = null;
       if (BB.landmarks && typeof BB.landmarks.plane === 'function') {
         g = safe(() => BB.landmarks.plane(0));
@@ -1679,18 +1770,18 @@
       whoosh = noise(1, { type: 'lowpass', freq: 520, vol: 0.001, hold: true, attack: 0.5 });
       look.set(S.x, S.y, S.z);
       return {
-        id: 'plane', spots: () => [['plane', pos.x, pos.y - 1, pos.z, 3, 'Look! A plane is coming in to land!', 0.03, lk ? 0.9 : 0.82]],
+        id: 'plane', spots: () => [['plane', pos.x, pos.y - 1, pos.z, 4, land ? 'Look! A plane is coming in to land!' : 'Look! A plane!', 30, lk ? 0.92 : 0.84]],
         update(dt) {
           t += dt;
           const [a, b, v1] = legs[leg], L = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z) || 1;
-          if (leg === LAST) sp = Math.max(6, sp - dt * 6); else sp += ((v1 || 30) - sp) * Math.min(1, dt);
+          if (leg === LAST && land) sp = Math.max(6, sp - dt * 6); else sp += ((v1 || 30) - sp) * Math.min(1, dt);
           u += sp * dt / L;
-          if (u >= 1) { if (leg < LAST) { leg++; u = 0; if (leg === LAST) SND.clunk(near(T.x, T.z, 200) + 0.2); } else u = 1; }
+          if (u >= 1) { if (leg < LAST) { leg++; u = 0; if (leg === LAST && land) SND.clunk(near(T.x, T.z, 200) + 0.2); } else u = 1; }
           const [a2, b2] = legs[leg];
           pos.x = a2.x + (b2.x - a2.x) * u; pos.y = a2.y + (b2.y - a2.y) * u; pos.z = a2.z + (b2.z - a2.z) * u;
           const ht = Math.atan2(b2.x - a2.x, b2.z - a2.z), dh = wrapA(ht - h) * Math.min(1, dt * 1.2);
           h += dh; bank += (clamp(-dh / Math.max(dt, 1e-3) * 0.8, -0.4, 0.4) - bank) * Math.min(1, dt * 2);
-          const pitch = leg === LAST ? 0 : -Math.atan2(b2.y - a2.y, Math.hypot(b2.x - a2.x, b2.z - a2.z)) * 0.6 - (leg === LAST - 1 && u > 0.8 ? 0.06 : 0);
+          const pitch = leg === LAST && land ? 0 : -Math.atan2(b2.y - a2.y, Math.hypot(b2.x - a2.x, b2.z - a2.z)) * 0.6 - (leg === LAST - 1 && u > 0.8 ? 0.06 : 0);
           look.set(pos.x, pos.y, pos.z);
           g.position.set(pos.x, pos.y, pos.z); g.rotation.set(0, 0, 0); g.rotation.order = 'YXZ'; g.rotation.y = h; g.rotation.x = pitch; g.rotation.z = bank;
           const k = clamp(1 - Math.hypot(pos.x - Bs().pos.x, pos.y, pos.z - Bs().pos.z) / 220, 0, 1);
@@ -1742,12 +1833,14 @@
   // ---------- the scheduler ----------
   const ORDER = ['fire', 'ambulance', 'police', 'breakdown', 'iceCream', 'milk', 'rubbish', 'otters', 'parade', 'fireworks', 'plane'];
   const ALIAS = { fireTruck: 'fire', towTruck: 'breakdown', tow: 'breakdown', ice: 'iceCream', icecream: 'iceCream', milkVan: 'milk', rubbishTruck: 'rubbish', santa: 'parade', lion: 'parade', otter: 'otters', ducks: 'otters', firework: 'fireworks', puddle: 'splash', puddles: 'splash', rainbow: 'splash' };
+  const lastStart = {};
+  const fresh = (id) => lastStart[id] == null || clock - lastStart[id] > 480;
   let gap = rand(55, 80), clock = 0, lastEnd = -1e9, recent = [], nightId = 0, wasNight = false, fwNight = -1, lastPlane = -1e9, started = false;
   function begin(id, plan) {
     for (const k in me2) delete me2[k]; for (const k in me3) delete me3[k];
     const inst = safe(() => EV[id].start(plan || {}));
     if (!inst) return false;
-    inst.t0 = clock; inst.far = 0; inst.spotted = {};
+    inst.t0 = clock; inst.far = 0; inst.spotted = {}; lastStart[id] = clock;
     E.current = inst;
     recent.unshift(id); recent.length = Math.min(recent.length, 3);
     BB.emit('events:start', { id });
@@ -1769,25 +1862,25 @@
     const id = ALIAS[name] || name;
     if (id === 'splash') { const B = Bs(); if (B && B.front) splash(B, true); return true; }
     if (!EV[id] || !canRun()) return false;
-    const plan = safe(() => EV[id].plan());
+    const plan = safe(() => EV[id].plan({ forced: true }));
     if (!plan) return false;
     finish();
     return begin(id, plan);
   };
-  E.can = (name) => { const id = ALIAS[name] || name; return !!(EV[id] && canRun() && safe(() => EV[id].plan())); };
+  E.can = (name) => { const id = ALIAS[name] || name; return !!(EV[id] && canRun() && safe(() => EV[id].plan({ forced: true }))); };
   function schedule(dt) {
     const w = W(), n = w.night ? w.night() : 0;
     const isNight = n > 0.55; if (isNight && !wasNight) nightId++; wasNight = isNight;
     if (E.current || !canStart()) return;
     const B = Bs();
     // the sky shows come when they can be seen (once per night / now and then near the airport)
-    if (clock - lastEnd > 30 && fwNight !== nightId && isNight) { const pl = safe(() => EV.fireworks.plan()); if (pl) { fwNight = nightId; begin('fireworks', pl); return; } }
+    if (clock - lastEnd > 30 && fwNight !== nightId && isNight && fresh('fireworks')) { const pl = safe(() => EV.fireworks.plan()); if (pl) { fwNight = nightId; begin('fireworks', pl); return; } }
     if (clock - lastEnd > 30 && clock - lastPlane > 480) { const pl = safe(() => EV.plane.plan()); if (pl) { lastPlane = clock; begin('plane', pl); return; } }
     gap -= dt * (Math.abs(B.speed) > 0.5 ? 1 : 0.35);
     if (gap > 0) return;
     const opts = [];
     for (const id of ORDER) {
-      const ev = EV[id]; if (!ev.weight || recent.slice(0, 2).indexOf(id) >= 0) continue;
+      const ev = EV[id]; if (!ev.weight || recent.slice(0, 2).indexOf(id) >= 0 || !fresh(id)) continue;
       const pl = safe(() => ev.plan()); if (pl) opts.push({ id, pl, w: ev.weight });
     }
     if (!opts.length) { gap = rand(8, 15); return; }
@@ -1800,8 +1893,13 @@
     const c = E.current; if (!c || !c.spots) return;
     if ((frT -= dt) > 0) return;
     frT = 0.35; updateFrustum();
-    for (const [id, x, y, z, hh, line, minSize, top, floorPx] of c.spots() || []) {
-      if (c.spotted[id] || !bigOnScreen(x, y, z, hh || 2, minSize, top, floorPx)) continue;
+    if (quiet()) return;                       // (never while pulling into a stop or during a question: later)
+    for (const [id, x, y, z, hh, line, wlen, top] of c.spots() || []) {
+      if (c.spotted[id]) continue;
+      const px = screenPx(x, y, z, hh || 2, wlen || 0, top || 0.7);
+      // coming into view: ease the bus down a little for a few seconds so the child gets a good look
+      if (px >= SEEN_PX * 0.45 && !c.slowed && !sightBlocked(x, y + (hh || 2) / 2, z)) { c.slowed = true; c.slowT = 6; }
+      if (px < SEEN_PX || sightBlocked(x, y + (hh || 2) / 2, z)) continue;
       c.spotted[id] = true; c.seen = true;
       if (!c.saidIntro) { c.saidIntro = true; const intro = (c.spots() || []).find((q) => q[5]); if (intro) talk(intro[5], true); }
       if (NAMES[id]) E.spot(id);             // (the UI's "New sticker!" is queued after our line)
@@ -1830,6 +1928,10 @@
         const keep = safe(() => c.update(dt));
         const a = c.at ? safe(() => c.at()) : null;
         if (a && !busNear(a.x, a.z, 260)) c.far += dt; else c.far = 0;
+        if (c.slowT > 0) {                       // the gentle look: never below 6.5, never at a stop or a question
+          c.slowT -= dt; const B = Bs();
+          if (B.speed > 6.5 && !jobBusy() && !pullingIn()) B.speed = Math.max(6.5, B.speed - dt * 5);
+        }
         if (keep === false || keep === null || c.far > 5 || clock - c.t0 > 150) finish();
         else spotting(dt);
       }
