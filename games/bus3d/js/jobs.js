@@ -1266,9 +1266,9 @@
     return Math.hypot(s.pos.x - p.x, s.pos.z - p.z);
   }
   // Short legs (about 7 s of driving): each next stop is picked from BB.world.stopsByDistance(current) within about
-  // 60-200 road units, at random among those (variety, not always the nearest), never the stop just visited or one
+  // 60-130 road units, at random among those (variety, not always the nearest), never the stop just visited or one
   // already in the job, leaning toward named stops (st.minor = small automatic ones with shared names like "the flats").
-  const LEG_MIN = 60, LEG_MAX = 200;
+  const LEG_MIN = 60, LEG_MAX = 130;        // ~70 units apart: one or two stops on, about 7-12 s of driving
   const okStop = (s) => s && s.pos && s.edge != null && s.say;
   function nextNear(from, exclude) {
     const W = BB.world, all = (W.stops || []).filter((s) => okStop(s) && !exclude.includes(s));
@@ -1278,7 +1278,8 @@
     ranked = ranked.filter((o) => o.s !== from && isFinite(o.d));
     if (!ranked.length) return null;
     let pool = ranked.filter((o) => o.d >= LEG_MIN && o.d <= LEG_MAX);
-    if (!pool.length) pool = ranked.filter((o) => o.d >= LEG_MIN).slice(0, 4);
+    if (!pool.length) pool = ranked.filter((o) => o.d >= 40 && o.d <= 200);
+    if (!pool.length) pool = ranked.filter((o) => o.d >= LEG_MIN).slice(0, 3);
     if (!pool.length) pool = ranked.slice(0, 3);
     // named stops count twice, so they come up more often than the small ones
     const bag = []; for (const o of pool) { bag.push(o.s); if (!o.s.minor) bag.push(o.s); }
