@@ -346,6 +346,7 @@
     let k = 0;
     for (const e of W.roads.edges) {
       if (e.kind === 'yard' || e.points.length > 2) continue;                       // (not in the yard, not on curves)
+      if (/^AP/.test(e.a) || /^AP/.test(e.b)) continue;                               // (the airport drop-off has its own stop)
       const a = e.points[0], b = e.points[e.points.length - 1];
       if (Math.abs(a.z - g(1)) < 12 && Math.abs(b.z - g(1)) < 12 && Math.abs(a.x) < 200) continue;   // under the viaduct
       const step = e.kind === 'highway' ? 110 : 70, s0 = nodeClear(e.a, e) + 4, s1 = e.length - nodeClear(e.b, e) - 4;

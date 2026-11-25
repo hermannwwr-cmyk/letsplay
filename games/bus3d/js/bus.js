@@ -1779,7 +1779,9 @@
     if (cap < Infinity) want = BB.clamp(want, -cap, cap); else cap = 0;   // ease off coming into the target bay so it can settle
     const slowing = Math.abs(want) < Math.abs(B.speed) || (Math.sign(want) !== Math.sign(B.speed) && Math.abs(B.speed) > 0.2);
     const easeOff = slowing && thr > 0 && want > 0 && !cap && B.speed > MAX_FWD - 0.5;     // leaving a cruising stretch
-    const rate = !slowing ? ACCEL : (want === 0 && !cap) ? COAST : easeOff ? CRUISE_DOWN : BRAKE;
+    // (a quick, smooth pull-away: extra pick-up from a standstill that fades out by about 6)
+    const pull = ACCEL * (1 + 0.7 * Math.max(0, 1 - Math.abs(B.speed) / 6));
+    const rate = !slowing ? pull : (want === 0 && !cap) ? COAST : easeOff ? CRUISE_DOWN : BRAKE;
     if (B.speed < want) B.speed = Math.min(want, B.speed + rate * dt); else B.speed = Math.max(want, B.speed - rate * dt);
     if (!canDrive) B.speed = settle ? 0 : B.speed * Math.max(0, 1 - dt * 6);
     if (Math.abs(B.speed) < 0.01) B.speed = 0;
@@ -1990,7 +1992,7 @@
     const m2 = Math.sign((f.x * bay.fwd.x + f.z * bay.fwd.z) * mv) || 1;
     const prog = (dx * bay.fwd.x + dz * bay.fwd.z) * m2;
     if (prog < -26 || prog > 7) return Infinity;
-    return 1.6 + Math.sqrt(10 * Math.max(0, 2 - prog));
+    return 2.0 + Math.sqrt(13 * Math.max(0, 2 - prog));      // (brakes later and a little firmer, still gentle)
   }
   // Is the bus roughly in the target bay? (mid point within the box, heading within 45 degrees either way round)
   function bayCheck() {
@@ -2008,7 +2010,7 @@
   function updateSettle(dt) {
     if (!settle) {
       const which = bayCheck();
-      if (which && Math.abs(B.speed) < 2.0) {
+      if (which && Math.abs(B.speed) < 2.6) {
         settle = { from: { fx, fz, h, hr }, to: poseAtBay(B.target, which === 'reversed'), t: 0, stop: B.target };
         B.speed = 0; ribbon.geometry.setDrawRange(0, 0);
       } else if (B.washBay && !B.inWash && !B.atStop && !washT && (!B.target || B.target === B.washBay) && Math.abs(B.speed) < 1.2 && B.camMode === 'chase') {
@@ -2021,7 +2023,7 @@
       }
       return;
     }
-    settle.t = Math.min(1, settle.t + dt / 0.9);
+    settle.t = Math.min(1, settle.t + dt / 0.5);
     const k = BB.smooth(settle.t), a = settle.from, b = settle.to;
     fx = a.fx + (b.fx - a.fx) * k; fz = a.fz + (b.fz - a.fz) * k;
     h = wrapA(a.h + wrapA(b.h - a.h) * k); hr = wrapA(a.hr + wrapA(b.hr - a.hr) * k);
