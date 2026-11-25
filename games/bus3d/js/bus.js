@@ -1305,9 +1305,19 @@
       // swing gently on the road side of the bus (never through the buildings beside it)
       orbit += dt * 0.25;
       const kx = Math.cos(h), kz = -Math.sin(h), f = fwdOf(h);
-      const a = 0.75 + Math.sin(orbit) * 0.35;
-      camPos.set(mx + (f.x * Math.cos(a) - kx * Math.sin(a)) * 21, 8 + Math.sin(orbit * 0.7), mz + (f.z * Math.cos(a) - kz * Math.sin(a)) * 21);
-      camLook.set(mx, 1.6, mz);
+      if (B.inWorkshop) {
+        // (from the road side of the bus's nose, inside the open shed, looking down and out across the yard to the
+        // sea: only a thin strip of the roof shows above the title; on wide, short screens the bus sits lower)
+        const wideS = BB.camera.aspect > 1.6;
+        const tc = wideS ? { fo: 23, so: 14, y: 8.6, lf: -6, ls: -6, ly: 0.4, sw: 0.5 } : { fo: 15, so: 11.5, y: 7.5, lf: -6, ls: -5, ly: 0, sw: 1.2 };
+        const sw = Math.sin(orbit) * tc.sw, s2 = Math.sin(orbit * 0.7) * 0.25;
+        camPos.set(mx + f.x * (tc.fo + sw) - kx * (tc.so - sw), tc.y + s2, mz + f.z * (tc.fo + sw) - kz * (tc.so - sw));
+        camLook.set(mx + f.x * tc.lf - kx * tc.ls, tc.ly, mz + f.z * tc.lf - kz * tc.ls);
+      } else {
+        const a = 0.75 + Math.sin(orbit) * 0.35;
+        camPos.set(mx + (f.x * Math.cos(a) - kx * Math.sin(a)) * 21, 8 + Math.sin(orbit * 0.7), mz + (f.z * Math.cos(a) - kz * Math.sin(a)) * 21);
+        camLook.set(mx, 1.6, mz);
+      }
     } else if (GARAGE[mode]) {
       // the garage views (planned in the bus's own frame, so they follow depot.js's turntable)
       garageTarget(mode, camPos, camLook); return;
