@@ -837,18 +837,19 @@
     ['milkVan', 'Milk van'], ['rubbishTruck', 'Rubbish truck'], ['otters', 'Otters'], ['parade', 'Parade'], ['fireworks', 'Fireworks'], ['plane', 'Aeroplane']];
   const FRIEND_LOOK = { granny: { shirt: P.plum, skin: '#f1c7a0', hair: '#e8e4dc', bun: true }, kai: { shirt: '#f28b4b', skin: '#d9a679', hair: '#1f1b22' },
     rose: { shirt: P.leaf, skin: '#a8714a', hair: '#3a2a2c', bun: true }, tan: { shirt: '#9fb6c8', skin: '#f5d3b5', hair: '#8a8290' } };
+  // (events.js: BB.events.NAMES {id: name} and seen {id: times}; also saved as BB.save.spotted)
   function spotList() {
-    const E = BB.events, list = E && Array.isArray(E.LIST) ? E.LIST : E && Array.isArray(E.KINDS) ? E.KINDS : null;
-    if (list) return list.map((k) => (typeof k === 'string' ? [k, (SPOTS.find((q) => q[0] === k) || [k, k])[1]] : [k.id, k.name || k.id]));
-    return SPOTS;
+    const N = BB.events && BB.events.NAMES;
+    return N && typeof N === 'object' ? Object.keys(N).map((id) => [id, N[id]]) : SPOTS;
   }
   function spotSeen() {
-    const out = new Set(Array.isArray(BB.save.spotted) ? BB.save.spotted : []), seen = BB.events && BB.events.seen;
-    try {
-      if (seen instanceof Set) seen.forEach((v) => out.add(v));
-      else if (Array.isArray(seen)) seen.forEach((v) => out.add(v));
-      else if (seen && typeof seen === 'object') for (const k in seen) if (seen[k]) out.add(k);
-    } catch (e) { /* ignore */ }
+    const out = new Set();
+    for (const src of [BB.save.spotted, BB.events && BB.events.seen]) {
+      try {
+        if (src instanceof Set || Array.isArray(src)) src.forEach((v) => out.add(v));
+        else if (src && typeof src === 'object') for (const k in src) if (src[k]) out.add(k);
+      } catch (e) { /* ignore */ }
+    }
     return out;
   }
   function friendList() {
@@ -911,9 +912,11 @@
   }
   BB.on('spot', (d) => {
     if (!d || !d.id) return;
-    const list = Array.isArray(BB.save.spotted) ? BB.save.spotted : (BB.save.spotted = []);
-    if (list.includes(d.id)) return;
-    list.push(d.id); BB.saveNow();
+    if (!BB.events) {                 // (events.js keeps the record itself; without it, a note here)
+      const m = BB.save.spotted && typeof BB.save.spotted === 'object' && !Array.isArray(BB.save.spotted) ? BB.save.spotted : (BB.save.spotted = {});
+      if (m[d.id]) return;
+      m[d.id] = 1; BB.saveNow();
+    }
     gotSticker(d.id, d.name || (SPOTS.find((q) => q[0] === d.id) || [0, d.id])[1], () => BB.spotPic(d.id, 128));
   });
   BB.on('friend:met', (d) => {

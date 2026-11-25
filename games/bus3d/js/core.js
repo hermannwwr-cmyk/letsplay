@@ -59,7 +59,7 @@
   const DEFAULT_SAVE = () => ({
     paint: 'green', upgrades: {}, stickers: [], fuel: 1, jobsDone: 0, questions: 0, seen: {},
     paints: ['green'], stickersOwned: [], parts: {}, partsOwned: [],
-    busType: null, routeNo: '88', assist: false, leftHand: false, control: 'joystick', xmas: 'auto', dirt: 0, spotted: [], friendsMet: [],
+    busType: null, routeNo: '88', assist: false, leftHand: false, control: 'joystick', xmas: 'auto', dirt: 0, spotted: {}, friendsMet: [],
   });
   // Hats were sold in an earlier build; they're gone from the shop, and depot.js gives their coins back.
   const HAT_PRICES = { party: 5, flowers: 6, bunny: 8, crown: 10 };
@@ -70,7 +70,8 @@
       for (const k in s) if (k in got && got[k] != null) s[k] = got[k];
       if (typeof s.upgrades !== 'object') s.upgrades = {};
       if (typeof s.seen !== 'object') s.seen = {};
-      for (const k of ['stickers', 'paints', 'stickersOwned', 'partsOwned', 'spotted', 'friendsMet']) if (!Array.isArray(s[k])) s[k] = k === 'paints' ? ['green'] : [];
+      for (const k of ['stickers', 'paints', 'stickersOwned', 'partsOwned', 'friendsMet']) if (!Array.isArray(s[k])) s[k] = k === 'paints' ? ['green'] : [];
+      if (!s.spotted || typeof s.spotted !== 'object' || Array.isArray(s.spotted)) s.spotted = {};   // (events.js: {id: times seen})
       if (!s.parts || typeof s.parts !== 'object' || Array.isArray(s.parts)) s.parts = {};
       s.routeNo = /^[1-9][0-9]{0,2}$/.test(String(s.routeNo)) ? String(s.routeNo) : '88';
       if (s.busType != null && typeof s.busType !== 'string') s.busType = null;
@@ -634,7 +635,7 @@
   const spotCache = {};
   function vehicle(x, o) {
     // a little side-view vehicle facing right: cab + box (or one body), two wheels
-    const body = o.body, top = o.top || 34;
+    const body = o.body, top = o.top || 34, paper = BB.paper;
     if (o.box) paper(x, (p) => rrP(p, 6, top, 56, 74 - top, 6), o.box);
     paper(x, (p) => rrP(p, o.box ? 60 : 8, o.cabTop || 44, o.box ? 34 : 86, 74 - (o.cabTop || 44), [12, 14, 4, 4]), body);
     x.fillStyle = '#d4eef8'; x.beginPath(); rrP(x, o.box ? 74 : 70, (o.cabTop || 44) + 6, 16, 12, 3); x.fill();
