@@ -323,7 +323,7 @@
     BB.on('bus:facingAway', (d) => { facing = !!(d && d.on); syncUturn(); });
 
     // title
-    titleEl = BB.el('div', 'bbu-title', U.root, '<div class="bbu-logo">Bendy <span>Bus</span></div><div class="bbu-tap">Tap to drive!</div>');
+    titleEl = BB.el('div', 'bbu-title', U.root, '<div class="bbu-logo">Little Bus <span>Captain</span></div><div class="bbu-tap">Tap to drive!</div>');
     titleEl.style.display = 'none';
     BB.tap(titleEl, () => { if (BB.bedtime || !U.titleShown()) return; U.hideTitle(); BB.emit('title:start'); });
     // standalone portrait hint (the hub shows its own card in hub mode)

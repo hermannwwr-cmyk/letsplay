@@ -982,7 +982,7 @@
     BB.bus.setCamera('chase');
     BB.emit('depot:closed', { start });
   };
-  D.welcome = () => (BB.HUB ? 'Make your bus, then tap the blue button to drive!' : 'Welcome to the bus garage! Make your bus, then tap the blue button to drive!');
+  D.welcome = () => (BB.HUB ? 'Make your bus, then tap the blue button to drive!' : 'Welcome, Little Bus Captain! Make your bus, then tap the blue button to drive!');
   D.render = () => { if (panel) renderBody(); };
   D.tab = () => tab;
   BB.on('resize', () => BB.later(50, syncMore));
