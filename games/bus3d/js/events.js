@@ -1875,13 +1875,23 @@
     return begin(id, plan);
   };
   E.can = (name) => { const id = ALIAS[name] || name; return !!(EV[id] && canRun() && safe(() => EV[id].plan({ forced: true }))); };
+  // (debug: why the scheduler is waiting, counted per frame; BB.events.diag)
+  E.diag = {};
+  function diag(k) { E.diag[k] = (E.diag[k] || 0) + 1; }
+  function whyNot() {
+    const B = Bs(), jp = J() ? J().phase : '';
+    if (!canRun()) return 'run'; if (jobBusy()) return 'busy:' + jp; if (lastMinute()) return 'lastMin';
+    if (B.atStop || (B.isSettling && B.isSettling())) return 'atStop'; if (B.inDepot && B.inDepot()) return 'depot';
+    if (targetNear(holdable() ? 40 : 60)) return 'targetNear'; return 'other:' + jp;
+  }
   function schedule(dt) {
     const w = W(), n = w.night ? w.night() : 0;
     const isNight = n > 0.55; if (isNight && !wasNight) nightId++; wasNight = isNight;
     const B = Bs(), atStopNow = !!(B && (B.atStop || (B.isSettling && B.isSettling())));
     if (wasAtStop && !atStopNow) pulledOutAt = clock;              // just pulled out: the road ahead is free for a while
     wasAtStop = atStopNow;
-    if (E.current || !canStart()) return;
+    if (E.current) return;
+    if (!canStart()) { diag('notCalm:' + whyNot()); return; }
     // the sky shows come when they can be seen (once per night / now and then near the airport)
     if (clock - lastEnd > 30 && fwNight !== nightId && isNight && fresh('fireworks')) { const pl = safe(() => EV.fireworks.plan()); if (pl) { fwNight = nightId; begin('fireworks', pl); return; } }
     if (clock - lastEnd > 30 && clock - lastPlane > 480) { const pl = safe(() => EV.plane.plan()); if (pl) { lastPlane = clock; begin('plane', pl); return; } }
@@ -1893,7 +1903,7 @@
       const ev = EV[id]; if (!ev.weight || recent.slice(0, 2).indexOf(id) >= 0 || !fresh(id)) continue;
       const pl = safe(() => ev.plan()); if (pl) opts.push({ id, pl, w: ev.weight });
     }
-    if (!opts.length) { gap = rand(8, 15); return; }
+    if (!opts.length) { diag('noPlan'); gap = rand(4, 8); return; }
     let r = Math.random() * opts.reduce((a, o) => a + o.w, 0), ch = opts[0];
     for (const o of opts) { r -= o.w; if (r <= 0) { ch = o; break; } }
     begin(ch.id, ch.pl);
