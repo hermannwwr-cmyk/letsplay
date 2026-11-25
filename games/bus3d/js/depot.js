@@ -37,6 +37,7 @@
     { id: 'star', say: 'A star sticker!', price: 4, name: 'star' }, { id: 'heart', say: 'A heart sticker!', price: 4, name: 'heart' },
     { id: 'flower', say: 'A flower sticker!', price: 4, name: 'flower' }, { id: 'rainbow', say: 'A rainbow sticker!', price: 5, name: 'rainbow' },
     { id: 'cat', say: 'A cat sticker!', price: 5, name: 'cat' }, { id: 'otter', say: 'An otter sticker!', price: 5, name: 'otter' },
+    { id: 'gift', say: 'A Christmas present sticker!', price: 4, name: 'present', xmas: true },   // (in the shop at Christmas)
   ];
   // Real vehicle parts (the owner's choice): lights, bumpers, wheels and rims. bus.js draws them (B.PARTS, B.setPart);
   // the first item of each kind is the bus's own part (free, owned). Names and ids come from B.PARTS when it exists.
@@ -156,6 +157,13 @@
       x.strokeStyle = '#c2702a'; x.lineWidth = 2.5;
       x.beginPath(); x.moveTo(50, 22); x.lineTo(50, 32); x.moveTo(42, 24); x.lineTo(44, 33); x.moveTo(58, 24); x.lineTo(56, 33); x.stroke();
     },
+    gift: (x) => {
+      shaded(x, (p) => p.roundRect ? p.roundRect(16, 40, 68, 50, 7) : p.rect(16, 40, 68, 50), P.coral);
+      shaded(x, (p) => p.roundRect ? p.roundRect(10, 28, 80, 18, 6) : p.rect(10, 28, 80, 18), light(P.coral));
+      shaded(x, (p) => p.rect(43, 28, 14, 62), P.honey);
+      shaded(x, (p) => { p.ellipse(37, 20, 14, 10, -0.5, 0, Math.PI * 2); p.moveTo(77, 20); p.ellipse(63, 20, 14, 10, 0.5, 0, Math.PI * 2); }, P.honey);
+      circ(x, 50, 26, 6, P.honeyDark);
+    },
     otter: (x) => {
       const c = '#a8724a';
       circ(x, 20, 34, 10, dark(c, 0.15)); circ(x, 80, 34, 10, dark(c, 0.15));
@@ -196,6 +204,16 @@
         x.fillStyle = '#bfe6f5'; for (let wx = 16; wx < 80; wx += 16) x.fillRect(wx, 36, 11, 11);
         for (const wx of [26, 74]) { circ(x, wx, 68, 8, '#3a343f'); circ(x, wx, 68, 3.5, '#c9d2db'); }
       },
+      // Christmas lights (when bus.js has them): a string of coloured bulbs on a swag of wire
+      xmas: (x) => {
+        x.strokeStyle = '#4a6b3a'; x.lineWidth = 3.5; x.beginPath(); x.moveTo(6, 34); x.quadraticCurveTo(28, 62, 50, 40); x.quadraticCurveTo(72, 62, 94, 34); x.stroke();
+        [[14, 44, P.coral], [28, 52, P.honey], [42, 46, '#4fa3e0'], [58, 46, P.leaf], [72, 52, P.coral], [86, 44, P.honeyLight]].forEach(([cx, cy, c]) => {
+          const g = x.createRadialGradient(cx, cy + 8, 2, cx, cy + 8, 14); g.addColorStop(0, c); g.addColorStop(1, 'rgba(255,255,255,0)');
+          x.globalAlpha = 0.45; x.fillStyle = g; x.fillRect(cx - 14, cy - 6, 28, 28); x.globalAlpha = 1;
+          shaded(x, (p) => p.ellipse(cx, cy + 8, 5.5, 8, 0, 0, Math.PI * 2), c);
+          x.fillStyle = '#5a5260'; x.fillRect(cx - 3, cy - 2, 6, 4);
+        });
+      },
       roof: (x) => { shaded(x, (p) => p.rect(8, 58, 84, 9), '#6c6470'); shaded(x, (p) => p.rect(14, 66, 6, 18), '#6c6470'); shaded(x, (p) => p.rect(80, 66, 6, 18), '#6c6470'); for (let i = 0; i < 4; i++) lamp(x, 21 + i * 19.5, 46, 9, true); },
     },
     bumpers: {
@@ -224,7 +242,8 @@
     wheels: (c) => (x) => { tyre(x, 40); rim(x, 20, c); },
     rims: (c) => (x) => { tyre(x, 42); rim(x, 28, c); },
   };
-  const partPic = (kind, id, size = 128) => art('pt-' + kind + '-' + id, size, (PART_ART[kind] && PART_ART[kind][id]) || GENERIC_PART[kind](hashCol(id)));
+  const XMAS_PART = /xmas|christmas|fairy/i;
+  const partPic = (kind, id, size = 128) => art('pt-' + kind + '-' + id, size, (PART_ART[kind] && (PART_ART[kind][id] || (XMAS_PART.test(id) && PART_ART[kind].xmas))) || GENERIC_PART[kind](hashCol(id)));
   // A little side view of each bus type, in the current paint colour (used when fleet.js has no preview).
   function busSide(type, col) {
     return (x) => {
@@ -660,7 +679,7 @@
     wheels: { std: 'Plain', big: 'Big', chunky: 'Chunky', white: 'White' },
     rims: { std: 'Silver', gold: 'Gold', red: 'Red', blue: 'Blue', star: 'Star' },
   };
-  const shortOf = (pt) => (SHORT[pt.kind] && SHORT[pt.kind][pt.id]) || String(pt.name).split(/[\s-]/)[0];
+  const shortOf = (pt) => (SHORT[pt.kind] && SHORT[pt.kind][pt.id]) || (XMAS_PART.test(pt.id) ? 'Christmas' : String(pt.name).split(/[\s-]/)[0]);
   const UPGRADE_WORD = { horn: 'Horn tune', sticker3: '3 stickers' };
   const PAINT_WORD = { green: 'Green', red: 'Red', blue: 'Blue', yellow: 'Yellow', purple: 'Purple', pink: 'Pink' };
   const TYPE_WORD = { bendy: 'Bendy', double: 'Double-decker', single: 'Single-decker' };
@@ -941,11 +960,20 @@
           BB.ui.setAssist(on); renderBody();
         } });
       }
+      // Christmas: by the date (1 December to 6 January), always, or never
+      box = sec('xmasOn', 'Christmas');
+      const XSAY = { auto: 'Christmas comes by itself, in December!', on: 'Christmas on! Ho ho ho!', off: 'Christmas off!' };
+      for (const [pref, word, icon] of [['auto', 'Auto', 'xmasAuto'], ['on', 'On', 'xmasOn'], ['off', 'Off', 'xmasOff']]) {
+        tile(box, BB.icon(icon, 128), { i: n++, on: (S.xmas || 'auto') === pref, label: word, tap: () => {
+          BB.setXmas(pref); BB.sfx[pref === 'off' ? 'pop' : 'sparkle'](); BB.say(XSAY[pref]); renderBody();
+        } });
+      }
     } else if (tab === 'together') {
       renderFamily(n);
     } else if (tab === 'shop' && shopTab === 'sticker') {
       STICKERS.forEach((st) => {
         const own = S.stickersOwned.includes(st.id), on = S.stickers.includes(st.id);
+        if (st.xmas && !BB.xmas && !own) return;          // the present sticker: in the shop at Christmas
         tile(bodyEl, stickerPic(st.id), { i: n++, on: on && !preview, preview: isPrev('sticker', st.id), price: own ? 0 : st.price, label: st.name[0].toUpperCase() + st.name.slice(1), tap: (el) => {
           if (own) {
             setPreview(null);
@@ -968,6 +996,7 @@
         const box = kinds.length > 1 ? sec(kind === 'wheels' ? 'wheels' : 'colour', kind === 'wheels' ? 'Tyres' : 'Rims', true) : bodyEl;
         partsOf(kind).forEach((pt, i) => {
           const own = partOwned(kind, pt.id, i), on = partOn(kind, pt.id);
+          if (XMAS_PART.test(pt.id) && !BB.xmas && !own) return;   // Christmas lights: in the shop at Christmas
           tile(box, partPic(kind, pt.id), { i: n++, on: on && !preview, preview: isPrev(kind, pt.id), price: own ? 0 : pt.price, label: shortOf(pt), tap: (el) => {
             if (own) {
               setPreview(null);
@@ -1195,6 +1224,7 @@
   D.setTab = (id, sub) => { if (!panel) return; if (sub) shopTab = sub; setTab(id, true); };
   BB.on('resize', () => BB.later(50, syncMore));
   BB.on('cash:changed', () => { if (cashSpan) cashSpan.textContent = String(D.cash); });
+  BB.on('xmas:changed', () => { if (panel && tab !== 'settings') renderBody(); });
   for (const ev of ['net:changed', 'net:status', 'net:friends']) BB.on(ev, () => { if (!panel) return; syncNetBadge(); if (tab === 'together' && famKey() !== famShown) renderBody(); });
   D.init = function () { /* the 3D props are built once the bus exists (D.afterBus) */ };
 })();
