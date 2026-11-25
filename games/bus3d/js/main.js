@@ -34,6 +34,9 @@
     BB.bus.build();
     if (BB.net) safe(() => BB.net.init());
     if (BB.depot.afterBus) BB.depot.afterBus();
+    // Christmas (BB.xmas, core.js): the town dresses up when world.js knows how
+    const xmasWorld = () => safe(() => { if (BB.world.setXmas) BB.world.setXmas(!!BB.xmas); });
+    xmasWorld(); BB.on('xmas:changed', xmasWorld);
 
     resize();
     addEventListener('resize', resize);

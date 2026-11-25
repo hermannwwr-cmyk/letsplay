@@ -173,6 +173,17 @@
   @keyframes bbu-pulse { 50% { transform: scale(1.06); } }
   @keyframes bbu-wiggle { 20% { rotate: -3deg; } 40% { rotate: 3deg; } 60% { rotate: -2deg; } 80% { rotate: 1deg; } }
   .bbu-fam { position: absolute; top: var(--st); right: var(--sr); }
+  /* Christmas: a Santa hat on the lettering, snow drifting over the home screen, festive confetti */
+  .bbu-logo { position: relative; }
+  html.xmas .bbu-logo::before { content: ''; position: absolute; left: -.32em; top: -.52em; width: .95em; height: .86em; transform: rotate(-16deg);
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 90'%3E%3Cpath d='M14 70 Q30 14 66 12 Q86 12 92 44 Q78 30 70 40 Q60 58 62 70Z' fill='%23d63c35'/%3E%3Cpath d='M30 66 Q40 26 66 18 Q60 40 58 68Z' fill='%23ef5a4b'/%3E%3Crect x='6' y='62' width='66' height='18' rx='9' fill='%23fff6e0' stroke='%23e2d3b5' stroke-width='3'/%3E%3Ccircle cx='90' cy='50' r='10' fill='%23fff6e0' stroke='%23e2d3b5' stroke-width='3'/%3E%3C/svg%3E") center/contain no-repeat; filter: drop-shadow(0 3px 0 rgba(0,0,0,.15)); pointer-events: none; }
+  .bbu-snow { position: absolute; inset: 0; pointer-events: none !important; overflow: hidden; display: none; }
+  html.xmas .bbu-snow { display: block; }
+  .bbu-snow i { position: absolute; top: -12px; width: 9px; height: 9px; border-radius: 50%; background: #fff; opacity: .85; box-shadow: 0 0 4px rgba(255,255,255,.8);
+    animation: bbu-snowfall linear infinite; }
+  @keyframes bbu-snowfall { to { transform: translate(30px, 110vh); } }
+  .bbu-confetti.flake { border-radius: 0; background: #fff !important; clip-path: polygon(50% 0, 60% 38%, 98% 25%, 66% 50%, 98% 75%, 60% 62%, 50% 100%, 40% 62%, 2% 75%, 34% 50%, 2% 25%, 40% 38%); width: 18px; height: 18px; }
+  .bbu-confetti.star { border-radius: 0; background: #ffd45c !important; clip-path: polygon(50% 0, 62% 36%, 100% 38%, 70% 60%, 80% 98%, 50% 76%, 20% 98%, 30% 60%, 0 38%, 38% 36%); width: 18px; height: 18px; }
   #ui.home .bbn-friends { display: none; }       /* (the home screen has its own family strip) */
   .bbu-fam .bbu-b { flex-direction: row; gap: 6px; padding: 4px 10px 4px 6px; height: auto; min-height: var(--bh); }
   .bbu-fam .col { display: flex; flex-direction: column; align-items: center; gap: 2px; }
@@ -384,6 +395,11 @@
     playBtn.appendChild(BB.iconEl('play', 128)); BB.el('span', 'lb', playBtn, 'Play');
     BB.tap(playBtn, () => U.play());
     famEl = BB.el('div', 'bbu-fam', titleEl);
+    const snow = BB.el('div', 'bbu-snow', titleEl);
+    for (let i = 0; i < 18; i++) {
+      const f = BB.el('i', '', snow), sz = 5 + Math.random() * 7;
+      f.style.cssText = `left:${Math.random() * 100}%;width:${sz}px;height:${sz}px;animation-duration:${7 + Math.random() * 7}s;animation-delay:${-Math.random() * 14}s`;
+    }
     for (const ev of ['net:status', 'net:friends', 'net:changed']) BB.on(ev, () => { if (U.titleShown()) syncFam(); });
     // standalone portrait card (the hub shows its own card in hub mode)
     const turn = BB.el('div', 'bbu-turn' + (BB.HUB ? '' : ' standalone'), U.root, '<div class="card"><svg class="phone" viewBox="0 0 120 120" aria-hidden="true">'
@@ -589,7 +605,7 @@
   // ---------- the home screen ----------
   // opts.say: false = no welcome (the line is said by whoever opened it). The bus parks in front of its garage and the
   // camera swings gently round it ('title').
-  U.homeWelcome = () => (BB.HUB ? 'Hello, Little Bus Captain! Tap Play!' : 'Welcome, Little Bus Captain! Tap Play!');
+  U.homeWelcome = () => (BB.xmas ? 'Merry Christmas, Little Bus Captain! Tap Play!' : BB.HUB ? 'Hello, Little Bus Captain! Tap Play!' : 'Welcome, Little Bus Captain! Tap Play!');
   let homeIdle = null, homeCalls = 0;
   U.showHome = function (opts = {}) {
     if (BB.bedtime) return;
@@ -731,7 +747,7 @@
   U.confetti = function () {
     const cols = [P.coral, P.honey, P.teal, P.berry, P.leaf, P.rose];
     for (let i = 0; i < 40; i++) {
-      const c = BB.el('div', 'bbu-confetti', U.root);
+      const c = BB.el('div', 'bbu-confetti' + (BB.xmas && i % 3 ? (i % 3 === 1 ? ' flake' : ' star') : ''), U.root);
       c.style.left = Math.random() * 100 + 'vw'; c.style.background = cols[i % cols.length];
       c.style.animationDuration = (1.8 + Math.random() * 1.6) + 's'; c.style.animationDelay = Math.random() * 0.5 + 's';
       BB.later(4200, () => c.remove());
