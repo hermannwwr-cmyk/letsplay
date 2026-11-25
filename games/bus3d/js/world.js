@@ -648,17 +648,19 @@
     roadMat = new THREE.MeshLambertMaterial({ vertexColors: true });   // its own material: it darkens in the rain
     for (const p of green.parts) town.parts.push(p);      // (same material: one draw per area)
     green.parts = [];
-    addChunked(scene, roads, roadMat, 'roads', false, 240, 240); addChunked(scene, town, BB.mk.mat, 'town', false, 240, 160);
+    addChunked(scene, roads, roadMat, 'roads', false, 205, 260); addChunked(scene, town, BB.mk.mat, 'town', false, 205, 130);
     const farMesh = (m, name) => { m.geometry.computeBoundingBox(); m.userData.box = m.geometry.boundingBox.clone(); FAR_CULL.push(m); scene.add(tag(m, name)); };
     for (const k in DIST_B) if (DIST_B[k].parts.length) farMesh(DIST_B[k].mesh(), 'd:' + k);
     washFx = buildWashFx();
     for (const k in LMB) { const lm = LMB[k].mesh(); lm.geometry.computeBoundingSphere(); farMesh(lm, 'lm:' + k); }
     for (const m of [wheelRim, planes, washRig, washFx].concat(LM_MOVERS)) if (m) scene.add(m);
+    // the standing ones (the wash rig, the wheel, landmark movers) are far-culled too, by their box
+    for (const m of [wheelRim, washRig].concat(LM_MOVERS)) if (m) { m.updateMatrixWorld(true); const bb = new THREE.Box3().setFromObject(m); if (!bb.isEmpty()) { m.userData.box = bb; m.userData.farR = m === wheelRim ? 210 : 140; FAR_CULL.push(m); } }
     for (const m of [boomN, boomS]) if (m && !m.parent) scene.add(m);
-    addChunked(scene, TREES, fadeMat(new THREE.MeshLambertMaterial({ vertexColors: true })), 'trees', true, 230, 240);
+    addChunked(scene, TREES, fadeMat(new THREE.MeshLambertMaterial({ vertexColors: true })), 'trees', true, 195, 240);
     TREES = null;
     winMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x000000 });
-    addChunked(scene, WIN, winMat, 'windows', false, 230, 240);
+    addChunked(scene, WIN, winMat, 'windows', false, 200, 240);
     lampMat = fadeMat(new THREE.MeshBasicMaterial({ vertexColors: true, color: 0xe9e4da }));
     scene.add(propMesh(lamps, lampMat, 'lamps'));
     pools = buildPools(poolPts); scene.add(pools);

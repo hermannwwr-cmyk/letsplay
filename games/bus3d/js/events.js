@@ -53,7 +53,9 @@
   const ui = () => BB.ui || {};
   const homeShown = () => !!(ui().homeShown && ui().homeShown());
   const lastMinute = () => { const H = BB.hub; return !!(H && H.on && H.limit > 0 && H.left != null && H.left <= 75); };
-  const jobBusy = () => !!(J() && J().busy && J().busy());
+  // a stop or question in progress; the slow pull-out after the stop's question is answered doesn't count
+  const pullingOut = () => { const j = J(), B = Bs(); return !!(j && j.phase === 'stop' && (!j.question || j.question.done) && B && !B.atStop && !(B.isSettling && B.isSettling()) && Math.abs(B.speed) > 0.3); };
+  const jobBusy = () => !!(J() && J().busy && J().busy()) && !pullingOut();
   // may an event keep running (scene visible, driving view)?
   function canRun() {
     const B = Bs(), w = W();
@@ -1845,7 +1847,7 @@
   const ALIAS = { fireTruck: 'fire', towTruck: 'breakdown', tow: 'breakdown', ice: 'iceCream', icecream: 'iceCream', milkVan: 'milk', rubbishTruck: 'rubbish', santa: 'parade', lion: 'parade', otter: 'otters', ducks: 'otters', firework: 'fireworks', puddle: 'splash', puddles: 'splash', rainbow: 'splash' };
   const lastStart = {};
   const fresh = (id) => lastStart[id] == null || clock - lastStart[id] > 480;
-  let gap = rand(30, 45), clock = 0, pulledOutAt = -1e9, wasAtStop = false, lastEnd = -1e9, recent = [], nightId = 0, wasNight = false, fwNight = -1, lastPlane = -1e9, started = false;
+  let gap = rand(22, 28), clock = 0, pulledOutAt = -1e9, wasAtStop = false, lastEnd = -1e9, recent = [], nightId = 0, wasNight = false, fwNight = -1, lastPlane = -1e9, started = false;
   function begin(id, plan) {
     for (const k in me2) delete me2[k]; for (const k in me3) delete me3[k];
     const inst = safe(() => EV[id].start(plan || {}));
@@ -1910,7 +1912,7 @@
     let r = Math.random() * opts.reduce((a, o) => a + o.w, 0), ch = opts[0];
     for (const o of opts) { r -= o.w; if (r <= 0) { ch = o; break; } }
     begin(ch.id, ch.pl);
-    gap = rand(55, 80);
+    gap = rand(40, 60);
   }
   function spotting(dt) {
     const c = E.current; if (!c || !c.spots) return;
@@ -1962,7 +1964,14 @@
           c.slowT -= dt; const B = Bs();
           if (B.speed > 6.5 && !jobBusy() && !pullingIn()) B.speed = Math.max(6.5, B.speed - dt * 5);
         }
-        if (keep === false || keep === null || c.far > 5 || clock - c.t0 > 150) finish();
+        // never seen and already behind the bus: give up quietly, and let another one come soon
+        let missed = false;
+        if (!c.seen && clock - c.t0 > 12 && c.spots && c.id !== 'ambulance' && c.id !== 'plane' && c.id !== 'fireworks') {
+          const q = (safe(() => c.spots()) || [])[0], B = Bs();
+          if (q && (q[1] - B.pos.x) * Math.sin(B.heading) + (q[3] - B.pos.z) * Math.cos(B.heading) < -6) missed = true;
+        }
+        if (missed) { finish(); delete lastStart[c.id]; gap = rand(6, 10); }
+        else if (keep === false || keep === null || c.far > 5 || clock - c.t0 > 150) finish();
         else spotting(dt);
       }
     }

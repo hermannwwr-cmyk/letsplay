@@ -1361,8 +1361,12 @@
     // a job's scene (target.frame): low views from further along the kerb, either way, before any high one, so the
     // props' front faces show (a building behind the pavement often blocks the straight side-on spot)
     if (st && Array.isArray(st.frame) && st.frame.length) {
-      for (const yaw of [22, -22, 34, -34, 46, -46]) for (const pitch of [12, 20, 28]) cands.push([yaw, pitch, near, false]);
-      for (const yaw of [0, 22, -22, 34, -34]) for (const pitch of [16, 26]) cands.push([yaw, pitch, Hd <= 520 ? 6 : 7, false]);
+      // (looking from the side the props aren't on first, so they don't fill the foreground)
+      let ax = 0; for (const q of st.frame) ax += ((+q.x || 0) - P0.fx) * f.x + ((+q.z || 0) - P0.fz) * f.z;
+      const sg = ax >= 0 ? 1 : -1, cl = Hd <= 520 ? 6 : 7;
+      for (const pitch of [28, 36]) cands.push([0, pitch, cl, false]);
+      for (const yaw of [16, 26, 36]) for (const pitch of [14, 24, 32]) cands.push([sg * yaw, pitch, cl, false]);
+      for (const yaw of [16, 26, 36]) for (const pitch of [14, 24, 32]) cands.push([-sg * yaw, pitch, cl, false]);
     }
     for (const pitch of [38, 46, 54, 62]) cands.push([0, pitch, near, true]);
     for (const yaw of [18, -18]) for (const pitch of [24, 40]) cands.push([yaw, pitch, near, false]);
@@ -1371,7 +1375,6 @@
     let pick = null, best = null;
     for (const [yaw, pitch, md, wv] of cands) {
       const p = plan(yaw * D2R, pitch * D2R, md, wv);
-      if (B.__camDbg) B.__camDbg.push([yaw, pitch, md, +p.d.toFixed(1), clear(p) ? 'ok' : 'blocked', +p.gap.toFixed(0)].join(' '));   // DEBUG-CAM
       if (!clear(p)) continue;
       if (p.gap >= 34) { pick = p; break; }
       if (!best || (p.gap > best.gap * 1.2 && pitch <= 38)) best = p;   // (not steeper than that for a little more room)
