@@ -32,6 +32,9 @@
     BB.depot.init();
     BB.ui.init();
     BB.bus.build();
+    // playing together is automatic (public world rooms); the private family room is no longer offered, so a device
+    // that joined one earlier goes back to the shared town
+    if (BB.net) safe(() => { if (typeof BB.net.mode === 'function' && BB.net.mode() === 'family' && typeof BB.net.setMode === 'function') BB.net.setMode('world'); });
     if (BB.net) safe(() => BB.net.init());
     if (BB.depot.afterBus) BB.depot.afterBus();
     // Christmas (BB.xmas, core.js): the town dresses up when world.js knows how

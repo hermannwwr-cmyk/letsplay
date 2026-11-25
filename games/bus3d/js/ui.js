@@ -180,7 +180,7 @@
   .bbu-play.call { animation: bbu-pulse 1.4s ease-in-out infinite, bbu-wiggle .9s ease-in-out 2; }
   @keyframes bbu-pulse { 50% { transform: scale(1.06); } }
   @keyframes bbu-wiggle { 20% { rotate: -3deg; } 40% { rotate: 3deg; } 60% { rotate: -2deg; } 80% { rotate: 1deg; } }
-  .bbu-fam { position: absolute; top: var(--st); right: var(--sr); }
+  .bbu-fam { position: absolute; top: var(--st); right: var(--sr); pointer-events: none !important; }
   .bbu-title .bbu-bookbtn { position: absolute; left: var(--sl); bottom: var(--sb); }
   /* the spotter book: two paper pages, a sticker per find (grey "?" outlines for the rest) */
   .bbu-book { position: absolute; inset: 0; z-index: 59; background: rgba(40,30,50,.4); display: flex; align-items: center; justify-content: center;
@@ -231,8 +231,10 @@
   @keyframes bbu-twinkle2 { 0%, 100% { opacity: 0; transform: scale(.4) rotate(0deg); } 50% { opacity: .9; transform: scale(1) rotate(45deg); } }
   .bbu-confetti.flake { border-radius: 0; background: #fff !important; clip-path: polygon(50% 0, 60% 38%, 98% 25%, 66% 50%, 98% 75%, 60% 62%, 50% 100%, 40% 62%, 2% 75%, 34% 50%, 2% 25%, 40% 38%); width: 18px; height: 18px; }
   .bbu-confetti.star { border-radius: 0; background: #ffd45c !important; clip-path: polygon(50% 0, 62% 36%, 100% 38%, 70% 60%, 80% 98%, 50% 76%, 20% 98%, 30% 60%, 0 38%, 38% 36%); width: 18px; height: 18px; }
-  #ui.home .bbn-friends { display: none; }       /* (the home screen has its own family strip) */
-  .bbu-fam .bbu-b { flex-direction: row; gap: 6px; padding: 4px 10px 4px 6px; height: auto; min-height: var(--bh); }
+  #ui.home .bbn-friends { display: none; }       /* (the home screen has its own friends strip) */
+  .bbu-fam .ind { position: relative; display: flex; align-items: center; gap: 6px; padding: 4px 10px 4px 6px; min-height: var(--bh); box-sizing: border-box;
+    border-radius: 20px; background: #fff6e0; border: 3px solid #d9b57f; box-shadow: inset -4px -5px 0 rgba(217,181,127,.45), 0 4px 0 rgba(120,80,40,.18);
+    font: 700 var(--lb)/1 ${BB.FONT}; color: #4a3424; pointer-events: none; }
   .bbu-fam .col { display: flex; flex-direction: column; align-items: center; gap: 2px; }
   .bbu-fam .col canvas { width: var(--ic); height: var(--ic); }
   .bbu-fam .bus { display: flex; flex-direction: column; align-items: center; background: #fff; border: 2px solid #ecd3a8; border-radius: 12px; padding: 2px 4px 1px; }
@@ -857,32 +859,18 @@
     if (status === 'together' && !friends.length) status = 'alone';
     return { status, friends };
   };
-  U.FAMILY = {
-    together: { icon: 'world', words: 'Playing with friends!' },
-    alone: { icon: 'famWait', words: 'Looking for friends…' },
-    connecting: { icon: 'famWait', words: 'Looking for friends…' },
-    offline: { icon: 'famOffline', words: 'Playing on my own' },
-  };
-  U.familySay = function (f) {
-    if (!f) return '';
-    const n = f.friends.length;
-    if (f.status === 'together') return n === 1 ? 'One friend is playing too!' : `${n} friends are playing too!`;
-    if (f.status === 'offline') return 'No internet right now. We can play on our own!';
-    return 'Looking for friends!';
-  };
   let famKey = '';
   function syncFam() {
     const f = U.family();
     const key = f ? f.status + ':' + f.friends.map((x) => x.id + x.type + x.paint + x.routeNo).join(',') : 'none';
     if (key === famKey && famEl.firstChild) return;
     famKey = key; famEl.innerHTML = '';
-    if (!f) return;
-    const S = U.FAMILY[f.status] || U.FAMILY.alone;
-    const b = U.btn(famEl, null, 'Friends', () => BB.say(U.familySay(U.family())), 'bbu-famb');
-    b.querySelector('.lb').remove();
-    const col = BB.el('span', 'col', null); b.prepend(col);
-    col.appendChild(BB.iconEl(S.icon, 128)); BB.el('span', 'lb', col, 'Friends');
-    if (f.status === 'together' && f.friends.length) BB.el('span', 'cnt', b, String(f.friends.length));   // (how many friends)
+    // (playing together is automatic: just a little picture of who is here, no button; nothing when nobody is)
+    if (!f || f.status !== 'together' || !f.friends.length) return;
+    const b = BB.el('div', 'ind', famEl); b.setAttribute('aria-label', `${f.friends.length} friends`);
+    const col = BB.el('span', 'col', b);
+    col.appendChild(BB.iconEl('world', 128)); BB.el('span', 'lb', col, 'Friends');
+    BB.el('span', 'cnt', b, String(f.friends.length));   // (how many friends)
     for (const fr of f.friends.slice(0, 4)) { const d = BB.el('span', 'bus', b); d.appendChild(U.miniBus(fr.type, fr.paint)); BB.el('b', '', d, String(fr.routeNo || '')); }
     if (f.friends.length > 4) BB.el('span', 'more', b, '+' + (f.friends.length - 4));
   }

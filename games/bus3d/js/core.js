@@ -497,13 +497,13 @@
   BB.pic.extra = { plane: 1, city: 1, lantern: 1, beach: 1, supertree: 1, ferris: 1, wash: 1, fire: 1, medic: 1, icecream: 1, tow: 1, firestation: 1, clinic: 1 };
 
   // ---------- UI icons: BB.icon(name, size) -> canvas (the HUD, the garage, the cards) ----------
-  // home, garage, music, musicOff, sound, soundOff, horn, helper, helperOn, uturn, joystick, wheel, handR, handL,
-  // mybus (in the current paint), shop, settings, together, lights, bumpers, wheels, stickers, extras, colour,
-  // check, cross, speak, back (delete), fuel, coin, number, clock.
+  // home, garage, music, musicOff, sound, soundOff, horn, helper, helperOn, uturn, wheel, handR, handL, siren, sirenOn,
+  // mybus (in the current paint), world (friends), shop, settings, lights, bumpers, wheels, stickers, extras, colour,
+  // check, cross, speak, back (delete), fuel, coin, number, clock, wash, book, play, xmasOn/Off/Auto.
   const iconCache = {};
   BB.icon = function (name, size = 96) {
     const paint = (BB.PAINTS.find((p) => p.id === BB.save.paint) || BB.PAINTS[0]).color;
-    const key = name + ':' + size + (/^(mybus|together|fam|world)/.test(name) ? paint : '');
+    const key = name + ':' + size + (/^(mybus|world)/.test(name) ? paint : '');
     if (iconCache[key]) return iconCache[key];
     const P = BB.P, paper = BB.paper;
     const c = board(size, (x) => {
@@ -538,15 +538,6 @@
         BB.paperStroke(x, (p) => { p.moveTo(15, 47); p.lineTo(36, 47); p.moveTo(64, 47); p.lineTo(85, 47); p.moveTo(50, 62); p.lineTo(50, 86); }, '#6c6470', 9);
         paper(x, (p) => arcP(p, 50, 50, 16), '#f26b5b');
         paper(x, (p) => rrP(p, 46, 6, 8, 12, 3), P.honey, { depth: 0.3 });
-      };
-      const joyArt = (cx = 50, cy = 52, s = 1) => {
-        paper(x, (p) => arcP(p, cx, cy, 40 * s), '#f1dfb8', { rimColor: '#d9b57f' });
-        x.fillStyle = '#3fae49'; x.beginPath(); x.moveTo(cx, cy - 35 * s); x.lineTo(cx + 7 * s, cy - 26 * s); x.lineTo(cx - 7 * s, cy - 26 * s); x.fill();
-        x.fillStyle = '#f5a23d'; x.beginPath(); x.moveTo(cx, cy + 35 * s); x.lineTo(cx + 7 * s, cy + 26 * s); x.lineTo(cx - 7 * s, cy + 26 * s); x.fill();
-        x.fillStyle = '#19a79b'; x.beginPath(); x.moveTo(cx - 35 * s, cy); x.lineTo(cx - 26 * s, cy - 7 * s); x.lineTo(cx - 26 * s, cy + 7 * s); x.fill();
-        x.beginPath(); x.moveTo(cx + 35 * s, cy); x.lineTo(cx + 26 * s, cy - 7 * s); x.lineTo(cx + 26 * s, cy + 7 * s); x.fill();
-        paper(x, (p) => arcP(p, cx, cy, 18 * s), '#3fae49');
-        shine(x, cx - 6 * s, cy - 7 * s, 6 * s, 3.5 * s, -0.6, 0.5);
       };
       const tabletWithJoy = (left) => {        // (the which-side picture: a tablet with the wheel and the pedals)
         paper(x, (p) => rrP(p, 6, 22, 88, 58, 12), '#5a5260');
@@ -588,16 +579,6 @@
           BB.paperStroke(x, (p) => { p.moveTo(28, 88); p.lineTo(28, 44); p.arc(50, 44, 22, Math.PI, 0); p.lineTo(72, 50); }, P.teal, 14);
           paper(x, (p) => { p.moveTo(54, 48); p.lineTo(90, 48); p.lineTo(72, 74); p.closePath(); }, P.teal, { depth: 0.5 });
           break;
-        case 'joystick': joyArt(); break;
-        // Controls (swap the joystick and the steering wheel): a little wheel and a little joystick with a swap arrow
-        case 'controls':
-          x.save(); x.translate(4, 2); x.scale(0.56, 0.56); wheelArt(); x.restore();
-          joyArt(71, 69, 0.58);
-          BB.paperStroke(x, (p) => { p.moveTo(62, 14); p.quadraticCurveTo(86, 14, 88, 34); }, P.honeyDark || '#d98700', 5);
-          paper(x, (p) => { p.moveTo(80, 32); p.lineTo(96, 32); p.lineTo(88, 44); p.closePath(); }, P.honey, { depth: 0.3, rimW: 1.4 });
-          BB.paperStroke(x, (p) => { p.moveTo(38, 88); p.quadraticCurveTo(14, 88, 12, 68); }, P.honeyDark || '#d98700', 5);
-          paper(x, (p) => { p.moveTo(4, 70); p.lineTo(20, 70); p.lineTo(12, 58); p.closePath(); }, P.honey, { depth: 0.3, rimW: 1.4 });
-          break;
         case 'wheel': wheelArt(); break;
         case 'handR': tabletWithJoy(false); break;
         case 'handL': tabletWithJoy(true); break;
@@ -629,25 +610,6 @@
           sideBus(x, -2, 62, 0.5, paint === '#3d8fe0' ? '#3fae49' : '#3d8fe0', 'single');
           sideBus(x, 50, 66, 0.5, paint, 'single');
           paper(x, (p) => heartP(p, 82, 16, 0.32), '#ef5a4b', { depth: 0.3 });
-          break;
-        case 'together':
-          sideBus(x, 2, 44, 0.6, paint === '#3d8fe0' ? '#3fae49' : '#3d8fe0', 'single');
-          sideBus(x, 42, 54, 0.6, paint, 'single');
-          paper(x, (p) => heartP(p, 50, 26, 0.55), '#ef5a4b');
-          break;
-        // the family's status: waiting for friends (one bus, an empty heart), looking (one bus, dots), no internet
-        // (one bus under a soft cloud: playing on our own; never a red cross)
-        case 'famAlone':
-          sideBus(x, 8, 46, 1.0, paint, 'single');
-          x.save(); x.globalAlpha = 0.9; BB.paperStroke(x, (p) => heartP(p, 52, 26, 0.5), '#ef5a4b', 4.5); x.restore();
-          break;
-        case 'famWait':
-          sideBus(x, 8, 46, 1.0, paint, 'single');
-          for (let i = 0; i < 3; i++) paper(x, (p) => arcP(p, 34 + i * 16, 22, 6), P.honey, { depth: 0.3 });
-          break;
-        case 'famOffline':
-          sideBus(x, 8, 50, 1.0, paint, 'single');
-          paper(x, (p) => { arcP(p, 36, 30, 13); arcP(p, 54, 22, 16); arcP(p, 70, 32, 11); rrP(p, 26, 28, 54, 16, 8); }, '#d5e3ef', { rimColor: '#9fb4c8' });
           break;
         // Christmas: a little tree with a star and baubles (On), the same greyed with a slash (Off), with a calendar
         // page (Auto: by the date)
@@ -910,7 +872,7 @@
     return (spotCache[key] = c);
   };
   // forget cached icons that show the bus's colour or number (after the child changes them)
-  BB.iconRefresh = () => { for (const k in iconCache) if (/^(mybus|together|world|number|fam\w*):/.test(k)) delete iconCache[k]; };
+  BB.iconRefresh = () => { for (const k in iconCache) if (/^(mybus|world|number):/.test(k)) delete iconCache[k]; };
   // A fresh canvas copy of an icon, sized by CSS (several elements can't share one canvas).
   BB.iconEl = function (name, size = 96, pic) {
     const src = pic ? BB.pic(name, size) : BB.icon(name, size);
