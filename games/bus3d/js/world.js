@@ -69,6 +69,18 @@
       for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2; BB.paper(x, (p) => p.ellipse(50 + Math.cos(a) * 36, 46 + Math.sin(a) * 36, 7, 7, 0, 0, 7), cols[k], { depth: 0.3, rimW: 1.6 }); }
       BB.paper(x, (p) => p.ellipse(50, 46, 6, 6, 0, 0, 7), '#ffb81f', { depth: 0.3 });
     },
+    // the fire station (a red firefighter's helmet) and the clinic (a heart: no red cross)
+    firestation(x, pp) {
+      BB.paper(x, (p) => { p.moveTo(10, 74); p.quadraticCurveTo(50, 62, 90, 74); p.quadraticCurveTo(92, 84, 80, 84); p.lineTo(20, 84); p.quadraticCurveTo(8, 84, 10, 74); p.closePath(); }, '#d9382c', { depth: 0.4 });
+      BB.paper(x, (p) => { p.moveTo(20, 72); p.quadraticCurveTo(22, 22, 50, 20); p.quadraticCurveTo(78, 22, 80, 72); p.closePath(); }, '#ef4b3c');
+      BB.paperStroke(x, (p) => { p.moveTo(50, 22); p.lineTo(50, 66); }, '#c8352a', 4);
+      BB.paper(x, (p) => p.ellipse(50, 50, 11, 13, 0, 0, 7), '#ffd45c', { depth: 0.3, rimW: 1.6 });
+    },
+    clinic(x, pp) {
+      BB.paper(x, (p) => pp.rr(p, 10, 10, 80, 80, 14), '#fff6e0', { depth: 0.3, rimColor: '#7fd1c3' });
+      BB.paper(x, (p) => { p.moveTo(50, 80); p.bezierCurveTo(14, 58, 16, 22, 38, 24); p.bezierCurveTo(46, 25, 50, 32, 50, 36); p.bezierCurveTo(50, 32, 54, 25, 62, 24); p.bezierCurveTo(84, 22, 86, 58, 50, 80); p.closePath(); }, '#ff6b8a');
+      x.fillStyle = 'rgba(255,255,255,.6)'; x.beginPath(); x.ellipse(36, 36, 6, 4, -0.6, 0, 7); x.fill();
+    },
     wash(x, pp) {
       BB.paper(x, (p) => pp.rr(p, 10, 44, 80, 34, 8), '#3fae49');
       x.fillStyle = '#cfe8f3'; for (const wx of [18, 38, 58]) x.fillRect(wx, 50, 15, 12);
@@ -238,7 +250,65 @@
   W.workshop = { x: 166, z: 147, heading: -Math.PI / 2 };       // the bus's middle and heading in the workshop
   W.YARD = { x0: 37.2, x1: 188, z0: 104, z1: 178 };
   W.inDepotYard = (x, z) => x > W.YARD.x0 && x < W.YARD.x1 && z > W.YARD.z0 && z < W.YARD.z1;
-  W.stopById = (id) => id === 'depot' ? W.depot : id === 'wash' ? W.washBay : W.stops.find((s) => s.id === id);
+  // ---------- places for the special vehicles' jobs, and roadside scene spots ----------
+  // W.places: target bays (usable by BB.bus.stopAt like stops) in front of a fire station and a small clinic (on the
+  // grass east of the outer road, set well back so the side-view camera has room), and the ice cream depot (the
+  // depot's own bay). W.sceneSpots: plain kerb spots along quiet roads where jobs.js can stage a scene (a kiosk
+  // on fire, a broken-down car, a picnic queue); each has tags saying what fits there. W.sceneSpot(tag, nearX, nearZ)
+  // picks one. Every bay has {id, kind, name, say, pic, edge, s, dir, pos (the pavement spot), heading, fwd, side}.
+  const PLACE_DEFS = {
+    fireStation: { id: 'firestation', kind: 'fire', name: 'Fire Station', say: 'the fire station', pic: 'firestation', from: 'E1', to: 'SEb', t: 0.5, toward: [260, 90], col: '#ef4b3c' },
+    clinic: { id: 'clinic', kind: 'clinic', name: 'Clinic', say: 'the clinic', pic: 'clinic', from: 'E1', to: 'NE', t: 0.68, toward: [260, -120], col: '#ff8fab' },
+  };
+  W.places = {};
+  for (const k in PLACE_DEFS) { const d = PLACE_DEFS[k], pl = placeOnKerb(d); pl.kind = d.kind; pl.place = true; pl.col = d.col; W.places[k] = pl; }
+  W.places.iceCreamDepot = W.depot;
+  const SPOT_DEFS = [
+    { id: 'spotBeach', tags: ['picnic', 'icecream', 'car'], from: 'S1', to: 'SEa', t: 0.25, toward: [61, 260] },
+    { id: 'spotPark', tags: ['picnic', 'icecream', 'fire'], from: 'n12', to: 'n13', t: 0.5, toward: [-60, 56] },
+    { id: 'spotTown', tags: ['fire', 'car', 'icecream'], from: 'n20', to: 'n21', t: 0.5, toward: [60, -56] },
+    { id: 'spotNorth', tags: ['car', 'fire'], from: 'H1', to: 'n20', t: 0.5, toward: [60, -137] },
+    { id: 'spotEast', tags: ['car', 'picnic', 'fire'], from: 'E1', to: 'NE', t: 0.18, toward: [260, 0] },
+    { id: 'spotYardRoad', tags: ['car', 'icecream'], from: 'n22', to: 'n23', t: 0.5, toward: [60, 56] },
+  ];
+  W.sceneSpots = SPOT_DEFS.map((d) => { const sp = placeOnKerb(Object.assign({ name: 'here', say: 'here', pic: null }, d)); sp.kind = 'scene'; sp.tags = d.tags; return sp; });
+  W.sceneSpot = function (tag, nx, nz) {
+    let list = W.sceneSpots.filter((sp) => !tag || sp.tags.indexOf(tag) >= 0);
+    if (!list.length) list = W.sceneSpots.slice();
+    if (nx != null) { list = list.filter((sp) => Math.hypot(sp.pos.x - nx, sp.pos.z - nz) > 70).concat(list.filter((sp) => Math.hypot(sp.pos.x - nx, sp.pos.z - nz) <= 70)); return list[Math.floor(Math.random() * Math.min(3, list.length))]; }
+    return list[Math.floor(Math.random() * list.length)];
+  };
+  // Turn any target {pos:{x,z}, heading, kind} (or {x, z, heading}) into a bay on the nearest road's kerb lane, in
+  // place (it keeps its identity, so jobs.js can compare it). The bay's travel direction follows heading when given
+  // (else the side of the road the point is on).
+  W.makeBay = function (o) {
+    if (!o || o.edge != null) return o;
+    const P0 = o.pos || o, x = +P0.x || 0, z = +P0.z || 0;
+    let best = null, bd = Infinity;
+    for (const e of W.roads.edges) {
+      if (e.kind === 'yard') continue;
+      for (let i = 1; i < e.points.length; i++) {
+        const a = e.points[i - 1], c = e.points[i], dx = c.x - a.x, dz = c.z - a.z, l2 = dx * dx + dz * dz || 1;
+        const t = BB.clamp(((x - a.x) * dx + (z - a.z) * dz) / l2, 0, 1), d = Math.hypot(a.x + dx * t - x, a.z + dz * t - z);
+        if (d < bd) { bd = d; best = { e, s: e.cum[i - 1] + t * Math.sqrt(l2) }; }
+      }
+    }
+    const e = best.e, p = W.pointAt(e, best.s);
+    let dir;
+    if (o.heading != null) dir = (Math.sin(o.heading) * p.dx + Math.cos(o.heading) * p.dz) >= 0 ? 1 : -1;
+    else dir = (p.dz * (x - p.x) - p.dx * (z - p.z)) >= 0 ? 1 : -1;    // the side the point is on is the kerb
+    const s = BB.clamp(best.s, 12, e.length - 12), q = W.pointAt(e, s), fx = q.dx * dir, fz = q.dz * dir, kx = fz, kz = -fx;
+    Object.assign(o, { id: o.id || ('bay' + Math.round(x) + '_' + Math.round(z)), kind: o.kind || 'scene', name: o.name || 'here', say: o.say || 'here',
+      edge: e.id, t: s / e.length, dir, s, kerbSide: 'left', heading: W.headingOf(fx, fz), fwd: { x: fx, z: fz }, side: { x: kx, z: kz },
+      pos: { x: q.x + kx * (e.half + 2.5), z: q.z + kz * (e.half + 2.5) } });
+    delete o._bay;
+    return o;
+  };
+  // every bay the town keeps clear (trees, lamps, the stop cameras' spots)
+  const allBays = () => W.stops.concat([W.depot, W.places.fireStation, W.places.clinic], W.sceneSpots);
+  W.allBays = allBays;
+  W.stopById = (id) => id === 'depot' ? W.depot : id === 'wash' ? W.washBay : W.stops.find((s) => s.id === id) ||
+    Object.values(W.places).find((p) => p.id === id) || W.sceneSpots.find((p) => p.id === id);
   // Road distance (world units, along the kerb-lane way, no U-turns) from stop a's bay, driving on in a's direction,
   // to stop b's bay approached in b's direction. a and b: stops (W.stops, W.depot, W.washBay) or their ids.
   // Cached. For jobs.js: pick nearer stops early on (W.stopsByDistance(from) lists them nearest first).
@@ -507,6 +577,7 @@
     buildViaduct(town, green);
     buildDistricts(green);
     buildStops(TREES);   // (with the props: the shelter hides when it stands between the stop camera and the bus)
+    buildPlaces(town);
     const poolPts = buildLamps(town, lamps);
     roadMat = new THREE.MeshLambertMaterial({ vertexColors: true });   // its own material: it darkens in the rain
     for (const p of green.parts) town.parts.push(p);      // (same material: one draw per area)
@@ -874,8 +945,8 @@
     }
     // zebra crossings near the hawker centre, the playground, the shops, the park and the MRT station
     zebra(b, 'n10', 'n20'); zebra(b, 'n13', 'n23'); zebra(b, 'n01', 'n02'); zebra(b, 'n21', 'n22'); zebra(b, 'n11', 'n12');
-    for (const st of W.stops.concat([W.depot, W.washBay])) {
-      const bay = W.bayOf(st), col = st.id === 'depot' || st.id === 'wash' ? P.teal : P.honey, L = bay.len / 2;
+    for (const st of W.stops.concat([W.depot, W.washBay, W.places.fireStation, W.places.clinic])) {
+      const bay = W.bayOf(st), col = st.col || (st.id === 'depot' || st.id === 'wash' ? P.teal : P.honey), L = bay.len / 2;
       b.at(bay.x, ROAD_Y + 0.01, bay.z, bay.heading, (q) => {   // a yellow box outline on the road: the bus bay
         q.box(0.3, 0.02, bay.len, col, 1.6, 0, 0); q.box(0.3, 0.02, bay.len, col, -1.6, 0, 0);
         q.box(3.5, 0.02, 0.3, col, 0, 0, -L); q.box(3.5, 0.02, 0.3, col, 0, 0, L);
@@ -962,7 +1033,7 @@
   // Where the resting cameras stand (each stop's view, the garage views): no trees or lamp posts there.
   const CAM_SPOTS = (function () {
     const out = [];
-    for (const st of W.stops.concat([W.depot])) {
+    for (const st of allBays()) {
       const bay = W.bayOf(st), f = bay.fwd, k = bay.side, fcx = bay.x + f.x * 3.5, fcz = bay.z + f.z * 3.5;
       out.push([fcx + k.x * 11, fcz + k.z * 11, 5], [fcx + k.x * 15, fcz + k.z * 15, 4]);   // the stop view (side-on, from the pavement)
       if (st.id === 'depot') { out.push([bay.x - k.x * 28, bay.z - k.z * 28, 9], [bay.x - k.x * 16, bay.z - k.z * 16, 6], [fcx + f.x * 11 - k.x * 4.5, fcz + f.z * 11 - k.z * 4.5, 5], [fcx - k.x * 11, fcz - k.z * 11, 5]); }
@@ -980,7 +1051,7 @@
         if (Math.hypot(a.x + dx * t - x, a.z + dz * t - z) < margin - RH + (e.half || RH)) return false;
       }
     }
-    for (const st of W.stops.concat([W.depot])) if (Math.hypot(st.pos.x - x, st.pos.z - z) < 7) return false;
+    for (const st of allBays()) if (Math.hypot(st.pos.x - x, st.pos.z - z) < 7) return false;
     if (W.inDepotYard(x, z) || inReserved(x, z)) return false;
     return true;
   }
@@ -997,7 +1068,7 @@
           if (Math.abs(z - VIADUCT_Z) < RH + 4 && Math.abs(x) < 210) continue;
           if (inDepotYard(x, z)) continue;
           if (!clearOfRoads(x, z, RH + 1)) continue;
-          if (W.stops.concat([W.depot]).some((st) => Math.hypot(st.pos.x - x, st.pos.z - z) < 9)) continue;
+          if (allBays().some((st) => Math.hypot(st.pos.x - x, st.pos.z - z) < 9)) continue;
           if (x < -S - 2 && x > -S - 20 && Math.abs(z) < 20) continue;      // keep the shophouse fronts clear
           tree(b, x, z, Math.hypot(x, z) > 74 ? 0.2 : 0.27, 'round', 0.8);
         }
@@ -1620,7 +1691,7 @@
         const p = W.pointAt(e, s), side = k % 2 ? 1 : -1;
         const x = p.x + p.dz * side * (e.half + 0.7), z = p.z - p.dx * side * (e.half + 0.7);
         if (inDepotYard(x, z)) continue;
-        if (W.stops.concat([W.depot]).some((st) => Math.hypot(st.pos.x - x, st.pos.z - z) < 8)) continue;
+        if (allBays().some((st) => Math.hypot(st.pos.x - x, st.pos.z - z) < 8)) continue;
         if (!clearOfRoads(x, z, RH + 0.4)) continue;
         lamp(x, z, Math.atan2(-p.dz * side, p.dx * side));
       }
@@ -1669,6 +1740,45 @@
       });
       propEnd(b, p0, st.pos.x, st.pos.z, 4.4);
     }
+  }
+  // The fire station and the clinic, set back on the kerb side of their bays (local +z = the bay's travel direction,
+  // +x = away from the road), with an apron or path to the pavement and a picture board facing the road.
+  function buildPlaces(b) {
+    const sign = (pl, lx, y, lz, size, ring) => {
+      const c = Math.cos(pl.heading), sn = Math.sin(pl.heading);
+      SIGNS.push({ pic: pl.pic, x: pl.pos.x + lx * c + lz * sn, y, z: pl.pos.z - lx * sn + lz * c, nx: -pl.side.x, nz: -pl.side.z, size, ring });
+    };
+    const F = W.places.fireStation, RED = '#e8463a', CREAM = '#fff6e0';
+    b.at(F.pos.x, 0, F.pos.z, F.heading, (q) => {
+      q.box(15, 0.14, 26, '#cfc6b8', 7.5, 0.02, 0);                                 // the apron
+      q.box(14, 8, 22, CREAM, 21, 0, 0);                                             // the engine house
+      q.box(14.6, 1.2, 22.6, RED, 21, 8, 0);                                         // red parapet
+      for (const z of [-5.5, 5.5]) {                                                 // two big red doors with windows
+        q.box(0.3, 6, 8.6, RED, 13.9, 0, z);
+        for (let k = 0; k < 4; k++) q.box(0.32, 0.12, 8.6, dark(RED, 0.15), 13.85, 1 + k * 1.4, z);
+        q.box(0.34, 0.9, 7, '#a9d6ec', 13.83, 4.6, z);
+      }
+      q.box(0.4, 8, 0.8, CREAM, 13.8, 0, 0);
+      q.box(5, 15, 5, CREAM, 25.5, 0, -8.5); q.box(5.6, 1, 5.6, RED, 25.5, 15, -8.5);   // the hose tower
+      for (const y of [4, 8, 12]) q.box(0.2, 1.2, 1.6, '#a9d6ec', 22.9, y, -8.5);
+      q.cyl(0.6, 0.6, 1.2, 8, '#ffd45c', 25.5, 16, -8.5);                             // a little bell on top
+      q.box(0.5, 1.1, 0.5, RED, 3.2, 0, 9.5); q.cyl(0.32, 0.32, 0.25, 8, '#ffd45c', 3.2, 1.1, 9.5);   // a hydrant
+    });
+    addBoxAt(F.pos.x, F.pos.z, F.heading, 21, 0, 7, 11, 9); addBoxAt(F.pos.x, F.pos.z, F.heading, 25.5, -8.5, 2.6, 2.6, 16);
+    sign(F, 13.6, 7.2, 0, 3.4, RED);
+    const H = W.places.clinic, MINT = '#d3efe2';
+    b.at(H.pos.x, 0, H.pos.z, H.heading, (q) => {
+      q.box(14, 0.12, 4, '#e4d6bd', 7, 0.02, 0);                                     // the path in
+      q.box(16, 6.5, 24, '#fbfbf6', 22, 0, 0);                                       // the clinic
+      q.box(16.4, 0.8, 24.4, MINT, 22, 6.5, 0);
+      q.box(0.3, 3, 4, '#a9d6ec', 13.9, 0.2, 0);                                     // glass doors
+      q.box(3, 0.3, 6, '#7fd1c3', 12.6, 3.4, 0);                                     // a canopy
+      for (const z of [-8, -4, 4, 8]) q.box(0.3, 1.6, 2.6, '#a9d6ec', 13.9, 2.6, z);
+      for (const z of [-9, 9]) { q.cyl(1.4, 1.6, 0.6, 8, '#e3d6bc', 10, 0, z); q.ball(1.3, '#6fc45a', 10, 1.4, z, 0); }   // planters
+      q.box(0.3, 0.9, 0.3, '#7f8a96', 3, 0, -6); q.box(0.2, 0.6, 2.2, '#ff8fab', 3, 0.9, -6);   // a little bench
+    });
+    addBoxAt(H.pos.x, H.pos.z, H.heading, 22, 0, 8, 12, 7);
+    sign(H, 13.6, 5.3, -6, 2.8, '#ff8fab');
   }
   // Picture signs: one atlas texture, one mesh, both faces. Stops' pole signs, the depot board and the landmark boards.
   // The rounded corners are cut with alphaTest (no black corners).

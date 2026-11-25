@@ -34,12 +34,24 @@
   let HITCH = LF / 2 + GAP / 2;          // front carriage centre -> hitch
   let R_AXLE = GAP / 2 + REAR_AXLE, R_CTR = GAP / 2 + LR / 2;   // hitch -> rear axle / rear carriage centre
   const totalLen = () => LF + GAP + LR, frontOff = () => totalLen() / 2 - LF / 2;   // front centre ahead of the middle
-  const MAX_FWD = 9, MAX_BACK = 4, ACCEL = 4.2, BRAKE = 9, COAST = 5;
+  let MAX_FWD = 9, ACCEL = 4.2;                      // (per vehicle: see VEHICLE)
+  const MAX_BACK = 4, BRAKE = 9, COAST = 5;
   // Cruising: on the long straight outer roads and the expressway, lined up with the road and well away from the next
   // junction or curve, the top speed eases up to MAX_CRUISE (the big map's long legs go quicker), and eases back down
   // (gently, CRUISE_DOWN) before the end of the straight.
-  const MAX_CRUISE = 14, CRUISE_DOWN = 3.4;
-  const MAX_STEER = 0.55, STEER_IN = 2.2, STEER_OUT = 3.0, MAX_BEND = 55 * Math.PI / 180;
+  let MAX_CRUISE = 14, MAX_STEER = 0.55;
+  const CRUISE_DOWN = 3.4, STEER_IN = 2.2, STEER_OUT = 3.0, MAX_BEND = 55 * Math.PI / 180;
+  // How each vehicle drives: top speed, cruising speed on the open road, pick-up, steering lock. The buses share the
+  // first line; the taxi is nimble, the fire engine and the ice cream van steady. (Turning circles follow from each
+  // model's wheelbase.)
+  const VEHICLE = {
+    bus: { top: 9, cruise: 14, accel: 4.2, steer: 0.55 },
+    taxi: { top: 10.5, cruise: 15, accel: 5.6, steer: 0.62 },
+    ambulance: { top: 10, cruise: 15, accel: 5.0, steer: 0.58 },
+    fire: { top: 8.8, cruise: 13, accel: 4.2, steer: 0.56 },
+    icecream: { top: 8.2, cruise: 12, accel: 4.0, steer: 0.6 },
+    tow: { top: 9, cruise: 13.5, accel: 4.4, steer: 0.58 },
+  };
   const W = () => BB.world;
   const wrapA = (a) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
 
@@ -98,6 +110,7 @@
   };
   // Drive to (and settle in) a stop or the depot; cb(stop) runs on arrival. Null clears the target.
   B.stopAt = function (stop, cb) {
+    if (stop && stop.edge == null && W().makeBay) W().makeBay(stop);    // a job target {pos, heading, kind}: made into a bay
     if (settle) {
       if (stop && stop !== settle.stop) return false;          // busy pulling in: finish this stop first
       if (!stop) settle = null;                                 // cancelled (e.g. goodnight)
@@ -124,7 +137,7 @@
   };
   B.horn = function () { BB.sfx.horn(!!BB.save.upgrades.horn); BB.emit('bus:horn'); };
   // World position of seat i (0..9).
-  B.seatWorld = function (i, v) { v = v || new THREE.Vector3(); const s = B.seats[i]; v.set(s.x, s.y, s.z); return B.front.localToWorld(v); };
+  B.seatWorld = function (i, v) { v = v || new THREE.Vector3(); const s = B.seats[i] || B.seats[B.seats.length - 1]; if (!s) return B.doorWorld(v); v.set(s.x, s.y, s.z); return B.front.localToWorld(v); };
   B.doorWorld = function (v) { v = v || new THREE.Vector3(); const d = M ? M.doorLocal : { x: 1.6, y: 0, z: LF / 2 - 1 }; v.set(d.x, 0, d.z); return B.front.localToWorld(v); };
   B.pathAhead = () => 0;
   // The exit door on the kerb side (where people get off): the second door of the seated carriage, or the rear
@@ -170,11 +183,14 @@
     h = wrapA(a); hr = wrapA(a + spin.bend * (1 - k));
     const mx = spin.m.x + spin.sx * k, mz = spin.m.z + spin.sz * k, f = fwdOf(h);
     fx = mx + f.x * frontOff(); fz = mz + f.z * frontOff();
-    const pz = collide(true); spin.m.x += pz.x; spin.m.z += pz.z;   // tall buildings: slide the whole hop away from them
     spinHop = Math.sin(Math.PI * spin.t) * spin.lift;
+    // near the ground (take-off, landing) slide the whole hop away from what it would touch; high up it clears lamp
+    // posts and trees (a post it sweeps over must not drag the landing back into the same spot)
+    if (spinHop < 2) { const pz = collide(true); spin.m.x += pz.x; spin.m.z += pz.z; }
     if (spin.t >= 1) { spin = null; spinHop = 0; collide(); collide(); collide(); camH = h; refreshRibbon(); }
   }
   let wipePh = 0, lastRoofT = -1, wallT = 0, lastWallT = -1;
+  let stuckRef = null;
   let spinHop = 0, facingAway = false, awayT = 0, realMove = 0, jamT = 0, jamSide = 0, jamFlipped = false;
   // Where a straight bus with heading hh, centred at (mx,mz), comes to rest clear of everything (checked before a hop,
   // so it never lands overlapping anything).
@@ -240,6 +256,57 @@
     lookSlow = 1 - BB.smooth(lookK) * (1 - look.slow);
     if (look.out && lookK <= 0) { look = null; lookSlow = 1; BB.emit('bus:look', { on: false }); }
   }
+  // ---------- the special vehicles (fleet.js: taxi, fire engine, ambulance, ice cream van, tow truck) ----------
+  // B.kind: 'bus' or the vehicle's kind (BB.fleet.KIND[type]). B.siren(on): the light bar flashes and a quiet,
+  // original two-tone plays (fire engine and ambulance; on the game clock, so a hold silences it). B.raiseLadder(on)
+  // (fire engine), B.openHatch(on) (ice cream van's serving hatch): eased over about a second; false when this
+  // vehicle has none. B.hookOn(obj): hangs an Object3D (e.g. a broken-down car) on the tow hook, null drops it where
+  // it is; B.hooked() -> the object or null. B.has(part) -> 'ladder' | 'hatch' | 'hook' | 'siren' present?
+  // B.scenePoint(tag): a roadside scene spot (W.sceneSpots) for tag 'fire' | 'car' | 'picnic' | 'icecream', away from
+  // the vehicle; pass it to B.stopAt (with .frame = [{x,y,z}, ...] points the side-view camera must also show).
+  function setSirenLights(on) { const sr = extras.siren; if (sr && typeof sr.setOn === 'function') { try { sr.setOn(!!on); } catch (e) { console.error(e); } } }
+  B.has = (part) => part === 'siren' ? !!extras.siren || B.kind === 'fire' || B.kind === 'ambulance' : !!extras[part];
+  B.siren = function (on) {
+    on = !!on && (B.kind === 'fire' || B.kind === 'ambulance' || !!extras.siren);
+    if (sirenOn === on) return on;
+    sirenOn = on; sirenT = 0; setSirenLights(on);
+    BB.emit('bus:siren', { on });
+    return on;
+  };
+  B.sirenOn = () => sirenOn;
+  function sirenNote(hi) {
+    const A = BB.audio, ctx = A && A.ctx; if (!ctx || ctx.state !== 'running' || BB.held) return;
+    const t = ctx.currentTime, o = ctx.createOscillator(), g = ctx.createGain(), amb = B.kind === 'ambulance';
+    o.type = 'triangle'; o.frequency.setValueAtTime(amb ? (hi ? 740 : 588) : (hi ? 660 : 494), t);   // (our own pair of notes)
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.035, t + 0.04); g.gain.setValueAtTime(0.035, t + 0.36); g.gain.linearRampToValueAtTime(0, t + 0.44);
+    o.connect(g); g.connect(A.sfxBus || A.master); o.start(t); o.stop(t + 0.46);
+  }
+  B.raiseLadder = function (on) { if (!extras.ladder) return false; ladderW = on ? 1 : 0; return true; };
+  B.openHatch = function (on) { if (!extras.hatch) return false; hatchW = on ? 1 : 0; return true; };
+  B.hookOn = function (obj) {
+    const hk = extras.hook;
+    if (!hk || !hk.isObject3D) return false;
+    if (hooked && hooked !== obj) { if (BB.scene) BB.scene.attach(hooked); hooked = null; }
+    if (obj && obj.isObject3D) { hk.attach(obj); obj.position.set(0, 0, 0); hooked = obj; BB.emit('bus:hooked', { on: true }); }
+    else if (!obj) BB.emit('bus:hooked', { on: false });
+    return true;
+  };
+  B.hooked = () => hooked;
+  B.scenePoint = function (tag) { const w = W(); return w.sceneSpot ? w.sceneSpot(tag, fx, fz) : null; };
+  // ease the ladder and hatch (a part may bring its own set(t), else it turns about x by userData.max)
+  function moveParts(dt) {
+    for (const [k, want] of [['ladder', ladderW], ['hatch', hatchW]]) {
+      const o = extras[k]; if (!o) continue;
+      const cur = k === 'ladder' ? ladderT : hatchT, t = cur + BB.clamp(want - cur, -dt * 0.9, dt * 0.9);
+      if (t === cur) continue;
+      if (k === 'ladder') ladderT = t; else hatchT = t;
+      const e = BB.smooth(t);
+      if (o.userData && typeof o.userData.set === 'function') { try { o.userData.set(e); } catch (er) { console.error(er); } }
+      else if (o.isObject3D && o.userData.rest) o.rotation.x = o.userData.rest.x + e * (o.userData.max != null ? o.userData.max : (k === 'ladder' ? -0.75 : -1.2));
+    }
+    if (sirenOn) { sirenT -= dt; if (sirenT <= 0) { sirenT = 0.48; sirenHi = !sirenHi; sirenNote(sirenHi); } }
+    if (extras.siren && typeof extras.siren.update === 'function') { try { extras.siren.update(dt); } catch (e) { /* ignore */ } }
+  }
   B.setLights = function (on) { B.lightsOn = !!on; if (M && M.setLights) M.setLights(!!on); };
 
   // ---------- model ----------
@@ -249,6 +316,7 @@
   let paintMat, glassMat, lampMat, wheelsF = [], wheelsR = [], steerWheels = [], doors = [], wipers = [];
   let heads, hair, shirts, lightCones, beacon, ribbon, ribbonTex, bayGlow, bayTex, wayArrow, jointF = null, jointR = null;
   let M = null;                       // the installed model: {type, roofParts, mounts, routeSign, doorLocal, roofY, paintMats}
+  let extras = {}, ladderT = 0, ladderW = 0, hatchT = 0, hatchW = 0, sirenOn = false, sirenT = 0, sirenHi = false, hooked = null;
   let roofT = 0;                      // 0 = roof on, 1 = roof lifted away (the stop's cut-away view)
   const rearDummy = new THREE.Object3D();
   // Rounded profile (in x-y) extruded along z: the bus body's soft paper-cut look.
@@ -281,11 +349,13 @@
     B.setType(BB.save.busType || 'bendy');
     B.applyCustom(BB.save);
   }
-  B.TYPES = ['bendy', 'double', 'single'];
-  B.type = null;
+  B.TYPES = ['bendy', 'double', 'single'];        // the buses (fleet.js may add more vehicles: BB.fleet.TYPES)
+  B.type = null; B.kind = 'bus';
+  const allTypes = () => (BB.fleet && Array.isArray(BB.fleet.TYPES) ? BB.fleet.TYPES.concat(B.TYPES.filter((t) => BB.fleet.TYPES.indexOf(t) < 0)) : B.TYPES);
+  const kindOf = (type) => (BB.fleet && BB.fleet.KIND && BB.fleet.KIND[type]) || (B.TYPES.indexOf(type) >= 0 ? 'bus' : type);
   // Swap the bus for another type (keeps where it is and which way it faces). Fleet models come from BB.fleet.
   B.setType = function (type, force) {
-    if (B.TYPES.indexOf(type) < 0) type = 'bendy';
+    if (allTypes().indexOf(type) < 0) type = 'bendy';
     const F = BB.fleet && typeof BB.fleet.build === 'function' ? BB.fleet : null;
     if (!F && type !== 'bendy') type = 'bendy';
     if (B.type === type && M && !force) return false;
@@ -297,6 +367,7 @@
     if (lightCones.parent) lightCones.parent.remove(lightCones);
     for (const o of [bumperF, bumperR, lightPart, lightRoof]) if (o && o.parent) { o.parent.remove(o); o.geometry.dispose(); }
     for (const gl of glows) { if (gl.parent) gl.parent.remove(gl); gl.geometry.dispose(); gl.material.dispose(); }
+    if (hooked && BB.scene) { BB.scene.attach(hooked); hooked = null; }
     if (M && M.dispose) { try { M.dispose(); } catch (e) { console.error(e); } }
     const keep = new Set([paintMat, glassMat, lampMat, BB.mk.mat]);
     for (const ch of B.group.children.slice()) {
@@ -339,7 +410,17 @@
       return o;
     });
     wipers = m.wipers || [];
-    B.seats = (m.seatsLocal && m.seatsLocal.length === 10) ? m.seatsLocal : defaultSeats();
+    B.kind = kindOf(type);
+    // seats: the model's own (a bus has 10, a taxi a few, a fire engine none), the default ten for an old bus model
+    B.seats = Array.isArray(m.seatsLocal) ? m.seatsLocal.slice(0, 10) : B.kind === 'bus' ? defaultSeats() : [];
+    const V = VEHICLE[B.kind] || VEHICLE[type] || VEHICLE.bus;
+    MAX_FWD = V.top; MAX_CRUISE = V.cruise; ACCEL = V.accel; MAX_STEER = V.steer;
+    // the vehicles' moving bits (fleet.js): ladder, hatch, tow hook, siren light bar
+    const ud = Object.assign({}, B.front.userData || {}, m.userData || {});
+    extras = { ladder: m.ladder || ud.ladder || null, hatch: m.hatch || ud.hatch || null, hook: m.hook || ud.hook || null, siren: m.siren || ud.siren || null };
+    for (const k of ['ladder', 'hatch']) { const o = extras[k]; if (o && o.isObject3D) o.userData.rest = o.userData.rest || o.rotation.clone(); }
+    ladderT = ladderW = hatchT = hatchW = 0;
+    if (sirenOn) { if (B.kind === 'fire' || B.kind === 'ambulance' || extras.siren) setSirenLights(true); else sirenOn = false; }
     // roof parts fade for the stop's cut-away view: a fleet model hands over its roof material; ours get clones
     const paintMats = [m.paintMaterial || paintMat], roofMats = [];
     const roofParts = (m.roofParts || []).map((o) => {
@@ -1039,10 +1120,18 @@
     const c = Math.cos(P0.h), s = Math.sin(P0.h), kx = c, kz = -s, f = fwdOf(P0.h), g0 = W().groundY(P0.fx, P0.fz);
     const lw = (lx, ly, lz) => new THREE.Vector3(P0.fx + c * lx + s * lz, ly + g0, P0.fz - s * lx + c * lz);
     const heads = [], req = [], wave = [];
-    for (let i = 0; i < 10; i++) {
+    const NS = B.seats.length;
+    for (let i = 0; i < NS; i++) {
       const q = B.seats[i];
       heads.push(lw(q.x, q.y + 1.0, q.z)); req.push(lw(q.x, q.y + 2.25, q.z), lw(q.x, q.y - 0.4, q.z));
     }
+    if (!NS) {                                                                // a vehicle with no seats: its whole body
+      const Hb0 = M ? M.height : 3, tl = ART ? -(HITCH + R_CTR + LR / 2) : -LF / 2;
+      for (const z of [LF / 2, tl]) req.push(lw(1.2, 0, z), lw(1.2, Hb0, z), lw(-1.2, Hb0, z));
+    }
+    // a job's scene: world points that must show too (firefighters, the hooked car, the ice cream queue)
+    if (st && Array.isArray(st.frame)) for (const q of st.frame) if (q) req.push(new THREE.Vector3(+q.x || 0, (+q.y || 0) + g0, +q.z || 0));
+    const iDoor = req.length;
     const dl = M ? M.doorLocal : { x: 1.6, z: LF / 2 - 1 };
     req.push(lw(dl.x, 0, dl.z), lw(dl.x, 2.5, dl.z));
     // the exit door in the front carriage's frame (a bendy's is on the rear carriage, straight behind at the bay)
@@ -1114,14 +1203,15 @@
     // the smallest on-screen gap between neighbouring heads (in a row, and across the two rows) for fitCam as it is
     function headGap() {
       const hp = heads.map(proj); let mn = 1e9;
-      for (let i = 0; i < 10; i++) for (let j = i + 1; j < 10; j++) {
+      if (heads.length < 2) return 99;
+      for (let i = 0; i < heads.length; i++) for (let j = i + 1; j < heads.length; j++) {
         if ((i < 5) === (j < 5) ? j - i !== 1 : Math.abs((i % 5) - (j % 5)) > 1) continue;
         mn = Math.min(mn, Math.hypot(hp[i][0] - hp[j][0], hp[i][1] - hp[j][1]));
       }
       return mn;
     }
     const mid = lw(0, 2.2, -frontOff());
-    const checks = [heads[0], heads[4], heads[9], req[20], req[21], req[22], req[23], mid];
+    const checks = [heads[0], heads[4], heads[heads.length - 1], req[iDoor], req[iDoor + 1], req[iDoor + 2], req[iDoor + 3], mid].filter(Boolean);
     const clear = (p) => {
       if (W().insideTall(p.pos.x, p.pos.y, p.pos.z)) return false;
       for (const v of checks) if (W().blocksSight(p.pos.x, p.pos.y, p.pos.z, v.x, v.y, v.z)) return false;
@@ -1325,7 +1415,7 @@
       // at a stop: side-on from the pavement, looking at the kerb side (the doors): the kerb wall fades (dollhouse),
       // so both rows of seats, both doors and the pavement are in view. Worked out once per stop (and screen size)
       // from this bus's seats and doors and the screen space beside the question card, then held still.
-      const st = B.atStop || (settle && settle.stop), key = st.id + '|' + B.type + '|' + innerWidth + 'x' + innerHeight + '|' + (B.atStop ? 1 : 0);
+      const st = B.atStop || (settle && settle.stop), key = st.id + '|' + B.type + '|' + innerWidth + 'x' + innerHeight + '|' + (B.atStop ? 1 : 0) + '|' + (st.frameKey || (st.frame ? st.frame.length : 0));
       if (!stopCam || stopCam.key !== key) stopCam = planStopCam(st, key);
       camPos.copy(stopCam.pos); camLook.copy(stopCam.look);
     } else {
@@ -1398,6 +1488,7 @@
     BB.camera.lookAt(curLook);
   }
   B.setCamera = function (mode, snap) { B.camMode = mode; if (snap) snapCamera(); if (snap || mode !== 'chase') snapWall(); };
+  B.reframe = () => { stopCam = null; };            // plan the stop/scene view again (e.g. after a bay's .frame changed)
   B.hasCamera = (mode) => mode === 'title' || mode === 'chase' || !!GARAGE[mode];
   B.CAMERAS = ['title', 'chase', 'depot', 'depotClose', 'depotSide', 'garageWhole', 'garageFront', 'garageWheels', 'garageSide', 'garageSign', 'garageRear'];
 
@@ -1638,6 +1729,14 @@
       if (jamT > 1.6 && !jamFlipped) { jamFlipped = true; jamSide = -jamSide; }   // that way is blocked: try the other
       if (jamT > 3.4) { jamT = 0; jamSide = 0; jamFlipped = false; hopFree(); }   // still hemmed in: a happy hop onto the road
     } else if (got > wantD * 0.6 || wantD <= 0.004) { jamT = 0; jamSide = 0; jamFlipped = false; }
+    // the slow watchdog: pedal held for 2.5 s with the bus rocking on the spot (pinned against something, which the
+    // jam check above can miss when it moves to and fro): the same happy hop onto the road
+    if (Math.abs(thr) > 0.3 && canDrive) {
+      if (!stuckRef) stuckRef = { x: fx, z: fz, t: 0 };
+      stuckRef.t += dt;
+      if (Math.hypot(fx - stuckRef.x, fz - stuckRef.z) > 1.2) stuckRef = { x: fx, z: fz, t: 0 };
+      else if (stuckRef.t > 2.5) { stuckRef = null; jamT = 0; jamSide = 0; jamFlipped = false; hopFree(); }
+    } else stuckRef = null;
     // speed, fuel and wheels follow how far the bus really moved (not how hard it pushes)
     const moved = (fx - sx0) * f1.x + (fz - sz0) * f1.z, real = Math.abs(moved) / Math.max(dt, 1e-4);
     if (Math.abs(B.speed) > real + 0.6) B.speed = Math.sign(B.speed) * (real + 0.6);
@@ -1866,7 +1965,7 @@
     if (!B.front) return;
     clock += dt; bumpCool -= dt; wobble = Math.max(0, wobble - dt * 2.5);
     let ds = 0;
-    updateLook(dt);
+    updateLook(dt); moveParts(dt);
     if (spin) updateSpin(dt); else { ds = settle ? 0 : drive(dt); updateSettle(dt); }
     gy += (W().groundY(fx, fz) - gy) * Math.min(1, dt * 8);
     placeModel();
@@ -1922,7 +2021,7 @@
       const sw = wp.userData.sweep, rest = sw ? sw[0] : (wp.userData.rest || 0), span = sw ? sw[1] - sw[0] : 1.35;
       wp.rotation.z = raining ? rest + (0.5 - 0.5 * Math.cos(wipePh)) * span : rest + (wp.rotation.z - rest) * 0.9;
     }
-    const n = BB.clamp(B.passengers | 0, 0, 10);
+    const n = BB.clamp(B.passengers | 0, 0, B.seats.length);
     if (heads.count !== n) heads.count = hair.count = shirts.count = n;
     B.paxGroup.position.y = Math.abs(B.speed) > 0.5 ? Math.abs(Math.sin(clock * 9)) * 0.04 : 0;
 

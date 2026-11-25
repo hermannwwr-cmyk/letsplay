@@ -61,6 +61,7 @@
     paints: ['green'], stickersOwned: [], parts: {}, partsOwned: [],
     busType: null, routeNo: '88', assist: false, leftHand: false, control: 'joystick', xmas: 'auto', dirt: 0, spotted: {}, friendsMet: [],
     washPaid: 0,                 // coins paid for a bus wash that hasn't finished yet (a reload mid-wash gives them back)
+    vehiclesOwned: ['bendy', 'double', 'single'],   // the rides the child may drive (the buses are free; the others are bought in the garage)
   });
   // Hats were sold in an earlier build; they're gone from the shop, and depot.js gives their coins back.
   const HAT_PRICES = { party: 5, flowers: 6, bunny: 8, crown: 10 };
@@ -82,6 +83,8 @@
       if (Array.isArray(got.hatsOwned)) BB.saveMigrate.hatRefund = got.hatsOwned.reduce((n, id) => n + (HAT_PRICES[id] || 0), 0);
       s.fuel = Math.max(0, Math.min(1, +s.fuel || 0));
       s.washPaid = Math.max(0, Math.min(10, +s.washPaid | 0));
+      s.vehiclesOwned = (Array.isArray(s.vehiclesOwned) ? s.vehiclesOwned : []).filter((v) => typeof v === 'string');
+      for (const v of ['single', 'double', 'bendy']) if (!s.vehiclesOwned.includes(v)) s.vehiclesOwned.unshift(v);
     }
     return s;
   })();
@@ -435,6 +438,35 @@
           paper(x, (p) => rrP(p, 18, 90, 64, 7, 3), '#8a8290', { depth: 0.3 });
           break;
         }
+        // ----- job targets for the other rides (jobs.js may use them as a job's or a target's pic) -----
+        case 'fire':                  // a little house with flames at its window
+          paper(x, (p) => rrP(p, 18, 46, 54, 44, 4), P.cream);
+          paper(x, (p) => { p.moveTo(10, 50); p.lineTo(45, 20); p.lineTo(80, 50); p.closePath(); }, P.woodDark);
+          paper(x, (p) => rrP(p, 28, 60, 18, 16, 3), '#5a4a5c', { depth: 0.3 });
+          paper(x, (p) => { p.moveTo(64, 92); p.quadraticCurveTo(50, 70, 62, 52); p.quadraticCurveTo(64, 64, 70, 62); p.quadraticCurveTo(68, 44, 80, 30); p.quadraticCurveTo(80, 50, 90, 56); p.quadraticCurveTo(100, 76, 86, 92); p.closePath(); }, '#ff7a2e');
+          paper(x, (p) => { p.moveTo(70, 92); p.quadraticCurveTo(64, 78, 72, 66); p.quadraticCurveTo(76, 74, 80, 70); p.quadraticCurveTo(90, 80, 82, 92); p.closePath(); }, P.honey, { depth: 0.3 });
+          paper(x, (p) => { p.moveTo(30, 74); p.quadraticCurveTo(28, 64, 36, 58); p.quadraticCurveTo(38, 66, 44, 66); p.quadraticCurveTo(46, 72, 42, 76); p.closePath(); }, '#ff7a2e', { depth: 0.3, rimW: 1.6 });
+          break;
+        case 'medic':                 // a check-up: a white case with a red cross and a heart
+          paper(x, (p) => rrP(p, 36, 16, 28, 14, 6), '#c9d2db', { depth: 0.3 });
+          paper(x, (p) => rrP(p, 10, 26, 80, 62, 12), '#fdfbf6', { rimColor: '#c9b9a0' });
+          paper(x, (p) => { rrP(p, 42, 36, 16, 42, 3); rrP(p, 29, 49, 42, 16, 3); }, '#ef4b3c', { depth: 0.3 });
+          break;
+        case 'icecream':              // a cone with two scoops
+          paper(x, (p) => { p.moveTo(32, 52); p.lineTo(68, 52); p.lineTo(50, 96); p.closePath(); }, P.woodLight);
+          x.strokeStyle = BB.dark(P.woodLight, 0.25); x.lineWidth = 2; x.beginPath(); x.moveTo(38, 60); x.lineTo(58, 80); x.moveTo(62, 60); x.lineTo(44, 82); x.stroke();
+          paper(x, (p) => arcP(p, 40, 46, 15), P.rose);
+          paper(x, (p) => arcP(p, 60, 46, 15), '#fff6e0', { rimColor: '#e2d3b5' });
+          paper(x, (p) => arcP(p, 50, 28, 15), '#8a5a38');
+          dot(x, 50, 12, 5, P.coral);
+          break;
+        case 'tow':                   // a broken-down car with a puff of steam
+          paper(x, (p) => { arcP(p, 62, 22, 8); arcP(p, 72, 16, 10); arcP(p, 82, 24, 7); }, '#eef3f8', { depth: 0.2, rimColor: '#b9c6d2' });
+          paper(x, (p) => rrP(p, 8, 54, 84, 24, 8), '#4fa3e0');
+          paper(x, (p) => rrP(p, 24, 36, 46, 22, [10, 10, 2, 2]), '#4fa3e0');
+          paper(x, (p) => rrP(p, 30, 41, 15, 12, 3), '#d4eef8', { depth: 0.2, rimW: 1.4 }); paper(x, (p) => rrP(p, 49, 41, 15, 12, 3), '#d4eef8', { depth: 0.2, rimW: 1.4 });
+          for (const wx of [26, 74]) { paper(x, (p) => arcP(p, wx, 80, 10), '#3a343f', { depth: 0.5, rim: false }); dot(x, wx, 80, 4, '#c9d2db'); }
+          break;
         case 'wash':                  // the bus wash sign: the same soapy bucket as the Wash tile
           x.drawImage(BB.icon('wash', size * 2 > 256 ? 256 : size * 2), 0, 0, 100, 100);
           break;
@@ -446,7 +478,7 @@
     return c;
   };
   // (world.js keeps older copies of the newer stops' pictures; they are drawn here now, so it leaves BB.pic alone)
-  BB.pic.extra = { plane: 1, city: 1, lantern: 1, beach: 1, supertree: 1, ferris: 1, wash: 1 };
+  BB.pic.extra = { plane: 1, city: 1, lantern: 1, beach: 1, supertree: 1, ferris: 1, wash: 1, fire: 1, medic: 1, icecream: 1, tow: 1 };
 
   // ---------- UI icons: BB.icon(name, size) -> canvas (the HUD, the garage, the cards) ----------
   // home, garage, music, musicOff, sound, soundOff, horn, helper, helperOn, uturn, joystick, wheel, handR, handL,
@@ -608,6 +640,16 @@
             shine(x, bx - r * 0.35, by - r * 0.35, r * 0.28, r * 0.18, -0.6, 0.9);
           }
           break;
+        // the siren (fire engine, ambulance): a blue and a red light on a little bar, with rays
+        case 'siren': case 'sirenOn': {
+          const on = name === 'sirenOn';
+          if (on) for (const [cx, col] of [[30, 'rgba(79,163,224,.8)'], [70, 'rgba(239,75,60,.8)']]) for (let i = 0; i < 3; i++) { const a = -Math.PI / 2 + (i - 1) * 0.6 + (cx < 50 ? -0.35 : 0.35); BB.paperStroke(x, (p) => { p.moveTo(cx + Math.cos(a) * 26, 50 + Math.sin(a) * 26); p.lineTo(cx + Math.cos(a) * 38, 50 + Math.sin(a) * 38); }, col, 5); }
+          paper(x, (p) => rrP(p, 10, 70, 80, 16, 6), '#5a5260');
+          paper(x, (p) => { p.moveTo(14, 72); p.lineTo(14, 56); p.arc(30, 56, 16, Math.PI, 0); p.lineTo(46, 72); p.closePath(); }, on ? '#4fa3e0' : '#9cc7dc');
+          paper(x, (p) => { p.moveTo(54, 72); p.lineTo(54, 56); p.arc(70, 56, 16, Math.PI, 0); p.lineTo(86, 72); p.closePath(); }, on ? '#ef4b3c' : '#f2a49c');
+          shine(x, 24, 52, 4, 7, 0.4, 0.6); shine(x, 64, 52, 4, 7, 0.4, 0.6);
+          break;
+        }
         // the spotter book: an open book with a bookmark
         case 'book':
           paper(x, (p) => { p.moveTo(50, 26); p.quadraticCurveTo(30, 16, 8, 22); p.lineTo(8, 80); p.quadraticCurveTo(30, 74, 50, 84); p.closePath(); }, '#4fa3e0');

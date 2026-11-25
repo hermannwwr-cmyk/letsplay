@@ -74,8 +74,16 @@
       const id = typeof t === 'string' ? t : t && t.id;
       const nm = (t && t.name) || (F.NAMES && (F.NAMES[id] || (Array.isArray(F.NAMES) && F.NAMES[F.TYPES.indexOf(t)]))) || (MY_TYPES.find((m) => m.id === id) || {}).name || String(id);
       return { id: String(id), name: String(nm) };
-    }).filter((t) => t.id);
+    }).filter((t) => t.id && (!BB.bus || !Array.isArray(BB.bus.TYPES) || BB.bus.TYPES.includes(String(t.id))));   // (only what bus.js can drive)
   }
+  // The other rides (fleet.js: taxi, ice cream van, tow truck, ambulance, fire engine) are bought once with coins; the
+  // three buses are free. Owned ones are saved in save.vehiclesOwned.
+  const VEH_PRICE = { taxi: 20, icecream: 30, tow: 40, ambulance: 50, fire: 60 };
+  const BUS_KINDS = ['bendy', 'double', 'single'];
+  const ownsVeh = (id) => !VEH_PRICE[id] || S.vehiclesOwned.includes(id);
+  // a bus (route sign, number) or one of the other rides
+  const isBusKind = (id) => BUS_KINDS.includes(id) || !!(BB.fleet && BB.fleet.KIND && BB.fleet.KIND[id] === 'bus');
+  D.ownsVehicle = ownsVeh; D.VEH_PRICE = VEH_PRICE;
   const curType = () => S.busType || fleetTypes()[0].id;
   const DIGITS = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
   if (!S.paints.includes('green')) S.paints.unshift('green');
@@ -382,8 +390,20 @@
   }
   const placed = [];
   // Show a look on the bus: {paint, stickers:[ids], parts:{kind:id}}. Missing fields come from the saved choices.
+  // The ride shown: the one being tried on in the garage, else the chosen one (bus.js rebuilds the model for a type).
+  function syncVehicle() {
+    const B = BB.bus; if (!B || typeof B.setType !== 'function') return;
+    const want = preview && preview.kind === 'vehicle' ? preview.id : curType();
+    if (!want || B.type === want || (Array.isArray(B.TYPES) && !B.TYPES.includes(want))) return;
+    try { B.setType(want); } catch (e) { console.error(e); }
+    for (const m of placed) if (m.parent) m.parent.remove(m);
+    fallback = null; placed.length = 0;
+    try { if (B.setRouteNumber) B.setRouteNumber(S.routeNo); } catch (e) { console.error(e); }
+    if (D.isOpen) placeProps();
+  }
   D.applyLooks = function (look) {
     const B = BB.bus; if (!B || !B.front) return;
+    syncVehicle();
     look = Object.assign({ paint: S.paint, stickers: S.stickers }, look || {});
     const parts = Object.assign({}, S.parts, look.parts || {});
     // bus.js applies paint and parts; stickers are ours (so it is given none of its own to show)
@@ -540,6 +560,11 @@
   .bbd-tile.on { border-color: #19a79b; background: #f1fcf8; color: #127a71; box-shadow: 0 0 0 4px #8fe0c4, 0 4px 0 rgba(20,110,100,.15); }
   .bbd-tile.on::after { content: ''; position: absolute; top: -10px; right: -10px; width: 30px; height: 30px; border-radius: 50%; box-shadow: 0 2px 0 #127a71;
     background: #19a79b url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 12.5l4 4 8-9' stroke='white' stroke-width='3.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/80% no-repeat; }
+  /* a ride not bought yet: a little padlock, top left (the price chip is top right) */
+  .bbd-tile.locked::before { content: ''; position: absolute; top: -9px; left: -9px; width: 28px; height: 28px; border-radius: 50%; z-index: 1;
+    background: #8a6a48 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M8 11 V8 a4 4 0 0 1 8 0 V11' stroke='%23fff6e0' stroke-width='2.6' fill='none'/%3E%3Crect x='5.5' y='10.5' width='13' height='9' rx='2.5' fill='%23ffd45c'/%3E%3C/svg%3E") center/76% no-repeat;
+    box-shadow: 0 2px 0 #5a4430; }
+  .bbd-tile.locked:not(.preview) canvas { opacity: .8; }
   .bbd-tile.preview { border-color: #ffb81f; background: #fff8e0; animation: bbd-glow 1s infinite alternate; }
   @keyframes bbd-glow { to { box-shadow: 0 0 0 7px rgba(255,212,92,.7); } }
   @keyframes bbd-pop { from { transform: scale(.4); opacity: 0; } }
@@ -693,7 +718,7 @@
     + '<rect x="78" y="13" width="12" height="22" rx="3" fill="#2f7fbc"/><circle cx="26" cy="46" r="8" fill="#3a2a3c"/><circle cx="76" cy="46" r="8" fill="#3a2a3c"/>'
     + '<path d="M100 14 L118 28 L100 42 Z" fill="#fff6e0"/></svg>';
   const SECTIONS = [
-    { id: 'bus', icon: 'mybus', label: 'My bus', say: 'My bus! Choose your bus, its colour and its number.' },
+    { id: 'bus', icon: 'mybus', label: 'My ride', say: 'My ride! Choose what to drive, its colour and its number.' },
     { id: 'shop', icon: 'shop', label: 'Shop', say: 'The shop! Buy cool things with your coins.' },
     { id: 'settings', icon: 'settings', label: 'Settings', say: 'Settings! How do you like to drive?' },
     { id: 'together', icon: 'together', label: 'Family', say: 'My family!' },
@@ -715,7 +740,8 @@
   const shortOf = (pt) => (SHORT[pt.kind] && SHORT[pt.kind][pt.id]) || (XMAS_PART.test(pt.id) ? 'Christmas' : String(pt.name).split(/[\s-]/)[0]);
   const UPGRADE_WORD = { horn: 'Horn tune', sticker3: '3 stickers' };
   const PAINT_WORD = { green: 'Green', red: 'Red', blue: 'Blue', yellow: 'Yellow', purple: 'Purple', pink: 'Pink' };
-  const TYPE_WORD = { bendy: 'Bendy', double: 'Double-decker', single: 'Single-decker' };
+  const TYPE_WORD = { bendy: 'Bendy', double: 'Double-decker', single: 'Single-decker', taxi: 'Taxi', icecream: 'Ice cream', tow: 'Tow truck', ambulance: 'Ambulance', fire: 'Fire engine' };
+  const TYPE_SAY = { taxi: 'Taxi', icecream: 'Ice cream van', tow: 'Tow truck', ambulance: 'Ambulance', fire: 'Fire engine' };
 
   let fuelBtn = null, panel = null, awning = null, statusEl = null, tab = 'bus', shopTab = 'sticker', preview = null, goalEl = null, cashSpan = null, cashBox = null, bodyEl = null, tankEl = null;
   const coinCv = (px) => cv(BB.pic('coin', 64), `width:${px}px;height:${px}px`);
@@ -824,7 +850,7 @@
 
   // a tile: a picture and its word, plus a price chip (not owned yet), a tick (chosen) or a glow (being tried on)
   function tile(parent, picCanvas, opts) {
-    const t = BB.el('button', 'bbd-tile' + (opts.on ? ' on' : '') + (opts.preview ? ' preview' : '') + (opts.wide ? ' wide' : '') + (opts.big ? ' big' : ''), parent);
+    const t = BB.el('button', 'bbd-tile' + (opts.on ? ' on' : '') + (opts.preview ? ' preview' : '') + (opts.wide ? ' wide' : '') + (opts.big ? ' big' : '') + (opts.locked ? ' locked' : ''), parent);
     t.type = 'button';
     t.appendChild(cv(picCanvas));
     if (opts.label) { BB.el('span', 'lb', t, opts.label); t.setAttribute('aria-label', opts.label); }
@@ -957,18 +983,33 @@
         h.appendChild(BB.iconEl('wash', 128)); BB.el('span', 'lb', h, 'Dusty! Try the bus wash');
         BB.tap(h, () => BB.say('Your bus is dusty! The bus wash is next to the garage. A wash costs 3 coins.'));
       }
-      // (a) the bus type: free to switch
-      let box = sec('mybus', 'Bus');
+      // (a) the ride: the buses are free to switch; the other rides are tried on with one tap and bought with a second
+      let box = sec('mybus', 'Ride');
       fleetTypes().forEach((t) => {
-        tile(box, typePic(t.id), { i: n++, on: curType() === t.id, wide: true, label: TYPE_WORD[t.id] || t.name, tap: () => {
-          if (curType() === t.id) { BB.say(t.name + '!'); return; }
-          S.busType = t.id; BB.saveNow(); applyType(); BB.sfx.whoosh(); D.hop(); BB.say(t.name + '!');
-          BB.later(400, () => renderBody());
-        } });
+        const own = ownsVeh(t.id), price = VEH_PRICE[t.id] || 0, name = TYPE_SAY[t.id] || t.name;
+        tile(box, typePic(t.id), { i: n++, on: curType() === t.id && !(preview && preview.kind === 'vehicle'), preview: isPrev('vehicle', t.id), locked: !own,
+          price: own ? 0 : price, wide: true, label: TYPE_WORD[t.id] || t.name, tap: (el) => {
+            if (own) {
+              if (preview) setPreview(null);
+              if (curType() === t.id) { BB.say(name + '!'); renderBody(); return; }
+              S.busType = t.id; BB.saveNow(); applyType(); BB.sfx.whoosh(); D.hop(); BB.say(name + '!');
+              BB.later(400, () => renderBody());
+              return;
+            }
+            if (!isPrev('vehicle', t.id)) { setPreview({ kind: 'vehicle', id: t.id }); BB.sfx.whoosh(); D.hop(); speakPrice(name + '!', price); renderBody(); return; }
+            if (tooSoon()) return;
+            if (!buy(el, price)) return;
+            S.vehiclesOwned.push(t.id); S.busType = t.id; preview = null; BB.saveNow(); applyType();
+            BB.sfx.cheer(); BB.say(`Hooray! A ${name.toLowerCase()}!`);
+            BB.later(900, () => { D.hop(); BB.say(`I love my ${name.toLowerCase()}!`, { queue: true }); });
+            BB.later(700, () => renderBody());
+          } });
       });
-      // (c) the bus number (next to the types when there is room)
-      box = sec('number', 'Number');
-      tile(box, platePic(S.routeNo), { i: n++, wide: true, label: 'Change', tap: () => openPad() });
+      // (c) the bus number (next to the rides when there is room; buses only: the other rides have no route sign)
+      if (isBusKind(curType())) {
+        box = sec('number', 'Number');
+        tile(box, platePic(S.routeNo), { i: n++, wide: true, label: 'Change', tap: () => openPad() });
+      }
       // (b) the colour
       box = sec('colour', 'Colour', true);
       BB.PAINTS.forEach((p) => {

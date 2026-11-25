@@ -34,6 +34,8 @@
     const b = J.busy();
     if (b !== wasBusy) { wasBusy = b; BB.emit('jobs:busy', { on: b }); }
   }
+  // a vehicle job (taxi, fire engine, ambulance, ice cream van, tow truck): questions on the card only
+  const vmode = () => !!(J.current && J.current.vehicle);
   J.busy = () => J.phase === 'stop' || J.phase === 'question' || J.phase === 'tow';
 
   // ---------- difficulty ----------
@@ -547,11 +549,13 @@
     function holder(cls, inner) { const a = BB.el('div', 'bbs-at', root()); const e = BB.el('div', cls, a, inner); return { a, e }; }
     return {
       halo(i, on) {
+        if (vmode()) return;
         if (typeof BB.bus.seatWorld !== 'function') return;
         if (on && !halos.has(i)) halos.set(i, holder('bbs-halo'));
         else if (!on && halos.has(i)) { halos.get(i).a.remove(); halos.delete(i); }
       },
       bubble(i, label, cls) {
+        if (vmode()) return;
         if (typeof BB.bus.seatWorld !== 'function') return;
         for (let j = bubbles.length - 1; j >= 0; j--) if (bubbles[j].i === i) { bubbles[j].a.remove(); bubbles.splice(j, 1); }
         bubbles.forEach((b) => b.e.classList.add('old'));
@@ -758,6 +762,21 @@
       `<rect x="7" y="10" width="26" height="25" rx="5" fill="${c}"/><path d="M27 12 Q33 12 33 18 V30 Q33 35 28 35 H27Z" fill="#000" opacity=".13"/>` +
       `<rect x="7" y="19" width="26" height="4" fill="#ffd45c"/><circle cx="12" cy="37" r="2" fill="#3a2a3c"/><circle cx="28" cy="37" r="2" fill="#3a2a3c"/></svg>`;
   }
+  // Pictures for the vehicle jobs' questions (the same flat paper-cut style as the faces).
+  const ICONS = {
+    window: () => '<svg viewBox="0 0 40 40"><rect x="6" y="6" width="28" height="28" rx="4" fill="#c84a3c"/><rect x="10" y="10" width="20" height="20" rx="2" fill="#9cc7dc"/>' +
+      '<path d="M20 10 V30 M10 20 H30" stroke="#c84a3c" stroke-width="2.5"/><circle cx="16" cy="15" r="6" fill="#8a8290" opacity=".85"/><circle cx="24" cy="12" r="5" fill="#a8a0ae" opacity=".85"/></svg>',
+    fighter: (i) => `<svg viewBox="0 0 40 40"><path d="M8 40 Q8 26 20 26 Q32 26 32 40Z" fill="#3d5a80"/><rect x="12" y="31" width="16" height="3" fill="#ffd45c"/>` +
+      `<circle cx="20" cy="18" r="8" fill="${SKINS[(i * 3) % 5]}"/><path d="M9 16 Q10 6 20 6 Q30 6 31 16 H34 V18 H6 V16Z" fill="#ef5a4b"/><rect x="17" y="8" width="6" height="5" rx="1" fill="#ffd45c"/>` +
+      `<circle cx="17" cy="20" r="1.4" fill="#3a2a3c"/><circle cx="23" cy="20" r="1.4" fill="#3a2a3c"/><path d="M17.5 23.5 Q20 25.5 22.5 23.5" stroke="#c0614e" stroke-width="1.4" fill="none"/></svg>`,
+    teddy: () => '<svg viewBox="0 0 40 40"><circle cx="11" cy="9" r="5" fill="#b5793e"/><circle cx="29" cy="9" r="5" fill="#b5793e"/><ellipse cx="20" cy="29" rx="11" ry="10" fill="#b5793e"/>' +
+      '<circle cx="20" cy="16" r="10" fill="#c58a55"/><ellipse cx="20" cy="19" rx="4.5" ry="3.5" fill="#e2b07c"/><circle cx="20" cy="18" r="1.5" fill="#3a2a3c"/>' +
+      '<circle cx="16" cy="14" r="1.3" fill="#3a2a3c"/><circle cx="24" cy="14" r="1.3" fill="#3a2a3c"/><path d="M28 30 Q33 30 33 26" stroke="#9b6238" stroke-width="3" fill="none"/><rect x="15" y="26" width="10" height="5" rx="2" fill="#ff8fab"/></svg>',
+    icecream: (i) => `<svg viewBox="0 0 40 40"><path d="M12 20 L20 38 L28 20Z" fill="#e2b07c"/><path d="M14 23 L26 23 M16 28 L24 28" stroke="#c58a55" stroke-width="1.5"/>` +
+      `<circle cx="20" cy="15" r="9" fill="${['#ff8fab', '#fff3d6', '#8b5a3c', '#8fe0c4'][i % 4]}"/><circle cx="16" cy="11" r="2" fill="#fff" opacity=".6"/><circle cx="21" cy="5" r="2.5" fill="#ef5a4b"/></svg>`,
+    car: (i) => `<svg viewBox="0 0 40 40"><path d="M5 26 V21 Q5 18 8 18 L12 12 Q13 10 16 10 H25 Q28 10 29 12 L33 18 Q36 18 36 21 V26Z" fill="${['#4fa3e0', '#f5b83d', '#5cb85c', '#ef5a4b', '#8e62c8'][i % 5]}"/>` +
+      `<path d="M14 18 L16.5 13 H20 V18Z M22 18 V13 H25 L28 18Z" fill="#cfe9f5"/><circle cx="12" cy="27" r="4.5" fill="#3a2a3c"/><circle cx="29" cy="27" r="4.5" fill="#3a2a3c"/><circle cx="12" cy="27" r="1.8" fill="#c8c0b8"/><circle cx="29" cy="27" r="1.8" fill="#c8c0b8"/></svg>`,
+  };
   // Mina the mynah, the bus conductor: a round brown bird with a yellow eye patch and a teal conductor's cap.
   const BIRD = `<svg viewBox="0 0 80 80"><path d="M16 50 L2 58 L5 44Z" fill="#3f2b26"/>
     <ellipse cx="40" cy="48" rx="25" ry="23" fill="#6b4a3e"/>
@@ -809,13 +828,14 @@
   let tapped = [];                  // seats the child has tapped to count, in order
 
   // q.what 'bags' = the question counts suitcases (an airport job, every traveller has one); q.word = a themed group
-  const nPhrase = (n, q) => q && q.what === 'bags' ? `${n} ${plural(n, 'suitcase is', 'suitcases are')} on the bus.` : `${n} ${plural(n, 'friend is', 'friends are')} on the bus.`;
+  const nPhrase = (n, q) => q && q.text ? q.text.n : q && q.what === 'bags' ? `${n} ${plural(n, 'suitcase is', 'suitcases are')} on the bus.` : `${n} ${plural(n, 'friend is', 'friends are')} on the bus.`;
   const kPhrase = (q) => {
+    if (q.text) return q.text.k;
     if (q.what === 'bags') return q.kind === 'add' ? `${q.k} more ${plural(q.k, 'suitcase comes', 'suitcases come')} on.` : `${q.k} ${plural(q.k, 'suitcase goes', 'suitcases go')} off.`;
     if (q.word && q.kind === 'add') return `${q.k} ${plural(q.k, q.word[0], q.word[1])} ${plural(q.k, 'gets', 'get')} on.`;
     return q.kind === 'add' ? `${q.k} more ${plural(q.k, 'gets', 'get')} on.` : `${q.k} ${plural(q.k, 'gets', 'get')} off.`;
   };
-  const askPhrase = (q) => q.what === 'bags' ? (q.kind === 'add' ? 'How many suitcases are on the bus now?' : 'How many suitcases are left?')
+  const askPhrase = (q) => q.text ? q.text.ask : q.what === 'bags' ? (q.kind === 'add' ? 'How many suitcases are on the bus now?' : 'How many suitcases are left?')
     : q.kind === 'add' ? 'How many are on the bus now?' : 'How many are left on the bus?';
   J.sentence = (q) => `${nPhrase(q.n, q)} ${kPhrase(q)} ${askPhrase(q)}`;
 
@@ -828,7 +848,7 @@
     el.classList.toggle('new', state === 'new');
     el.classList.toggle('gone', state === 'gone');
     if (!state) el.innerHTML = '';
-    else if (!had) el.innerHTML = iconMode === 'bags' ? suitcase(i) : face(i);
+    else if (!had) el.innerHTML = iconMode === 'people' ? face(i) : iconMode === 'bags' ? suitcase(i) : (ICONS[iconMode] ? ICONS[iconMode](i) : face(i));
   }
   const isFull = (i) => seatEls[i] && (seatEls[i].dataset.state === 'full' || seatEls[i].dataset.state === 'new');
   function badge(i, num, big) {
@@ -852,8 +872,8 @@
   // and leans over it (the seat itself glows), or rests on the frame's top-right corner.
   // Mina points on the real bus (scene); on the card she stays at her spot on the frame.
   function birdTo(i, beside) {
-    scene.bird(i == null ? null : i);
-    if (i != null) i = null;
+    if (vmode()) scene.bird(null);              // vehicle jobs: Mina hops along the card's pictures
+    else { scene.bird(i == null ? null : i); if (i != null) i = null; }
     if (!bird || !frame) return;
     const bw = bird.offsetWidth, bh = bird.offsetHeight;
     const el = i == null ? null : seatEls[i];
@@ -874,8 +894,8 @@
     for (let i = 0; i < 10; i++) { const s = BB.el('div', 'bbq-seat', frame); s.dataset.i = i; seatEls.push(s); }
     bird = BB.el('div', 'bbq-bird', pic, BIRD);
     const side = BB.el('div', 'bbq-side', card);
-    iconMode = q.what === 'bags' ? 'bags' : 'people';
-    sumEl = BB.el('div', 'bbq-sum' + (iconMode === 'bags' ? ' bags' : ''), side);
+    iconMode = q.icon || (q.what === 'bags' ? 'bags' : 'people');
+    sumEl = BB.el('div', 'bbq-sum' + (iconMode !== 'people' ? ' bags' : ''), side);
     buildSum(q);
     const row = BB.el('div', 'bbq-row', side);
     const ask = BB.el('div', 'bbq-ask', row);
@@ -1275,6 +1295,8 @@
   J.start = function () {
     if (J.current) return;                    // a job is already running: starting twice must not make two
     if (timeUp()) { bedtime(); return; }
+    const vk = vehicleKind();
+    if (vk !== 'bus' && startVehicleJob(vk)) return;
     const theme = pickTheme();
     const job = { stops: pickStops(), index: 0, cash: 0, q: null, theme, groupOn: 0 };
     if (theme) {
@@ -1331,6 +1353,11 @@
     const job = J.current;
     if (!job) { J.start(); return; }
     if (timeUp()) { bedtime(); return; }
+    if (job.vehicle) {
+      if (vehicleKind() !== job.vehicle) { J.current = null; J.start(); return; }   // swapped vehicles in the garage
+      driveLeg(quiet); return;
+    }
+    if (vehicleKind() !== 'bus') { clearWaiting(); J.current = null; J.start(); return; }
     const stop = job.stops[job.index];
     if (!job.q || job.q.n !== (BB.bus.passengers | 0) + job.q.pre) { nextStop(quiet); return; }
     if (!J.waiting.length && (job.q.pre > 0 || job.q.kind === 'add')) setWaiting(stop, job.q);
@@ -1404,6 +1431,257 @@
     if (timeUp()) { bedtime(); return; }
     if (J.wantDepot || BB.bus.fuel <= BB.cfg.fuelLow + 0.06) J.goDepot(BB.bus.fuel <= BB.cfg.fuelLow + 0.06 ? 'fuel' : undefined);
     else J.start();
+  }
+
+  // ---------- vehicles kids can drive: a job kind per vehicle ----------
+  // Each vehicle job is a few legs: drive to a place, then a little scene with spoken lines and one or two questions on
+  // the card (the vehicle's own pictures + the written sum, every number 0-10, adding and taking away, the same
+  // teaching on wrong answers, 3 coins each, never lost). Everything new in bus.js / world.js is feature-detected.
+  const VEHICLES = ['taxi', 'fire', 'ambulance', 'icecream', 'tow'];
+  let legGen = 0;                  // bumps when a vehicle scene should stop (Home, bedtime); a right answer doesn't
+  function vehicleKind() {
+    const B = BB.bus, F = BB.fleet;
+    const k = B.kind || (F && F.KIND && F.KIND[B.type]) || B.type;
+    return VEHICLES.includes(k) ? k : 'bus';
+  }
+  J.vehicleKind = vehicleKind;
+  const vcall = (names, ...args) => { for (const n of names) if (typeof BB.bus[n] === 'function') { try { return BB.bus[n](...args); } catch (e) { console.error(e); } } return undefined; };
+  const siren = (on) => vcall(['setSiren', 'siren'], on);
+  const ladder = (on) => vcall(['setLadder', 'ladder', 'raiseLadder'], on);
+  const hatch = (on) => vcall(['setHatch', 'hatch', 'openHatch'], on);
+  // places: world.js scene spots and W.places when they exist, else the ordinary stops / the depot
+  // a scene spot for a tag ('fire' | 'car' | 'picnic' | 'icecream'), away from the bus (world.js W.sceneSpot)
+  function sceneSpot(tag) {
+    const W = BB.world, p = BB.bus.pos;
+    try { if (typeof W.sceneSpot === 'function') { const sp = W.sceneSpot(tag, p ? p.x : null, p ? p.z : null); if (sp && sp.pos) return sp; } } catch (e) { console.error(e); }
+    return farFrom(spots(), BB.bus.atStop || J.lastStop);
+  }
+  function spots() {
+    const W = BB.world, list = W.sceneSpots || W.spots || (W.places && W.places.spots) || [];
+    const ok = (Array.isArray(list) ? list : Object.values(list)).filter((s) => s && s.pos);
+    return ok.length ? ok : (W.stops || []).filter((s) => s && s.pos && s.say);
+  }
+  const place = (name, fallback) => { const P2 = BB.world.places; return (P2 && P2[name] && P2[name].pos) ? P2[name] : fallback; };
+  const sayOf = (t) => (t && t.say) || 'there';
+  function farFrom(list, here) { const l = list.filter((x) => x !== here && x !== J.lastStop); return BB.pick(l.length ? l : list); }
+
+  // A question about the vehicle's things: kind 'add' or 'sub' (sub becomes add before taking away is learned),
+  // n0 = how many there are now (null = pick), within this level's limits and 0-10.
+  function sceneQ(kind, n0, words, icon) {
+    const lv = level(), L = LEVELS[lv];
+    if (kind === 'sub' && !(L.sub > 0)) kind = 'add';
+    let n = n0, k;
+    if (kind === 'add') {
+      const hiN = Math.min(8, L.tot - 1);
+      if (n == null || n < 1 || n > hiN) n = BB.randInt(1, Math.max(1, Math.min(lv < 2 ? 3 : 6, hiN)));
+      k = BB.randInt(1, Math.max(1, Math.min(L.kMax, L.tot - n, 10 - n)));
+    } else {
+      if (n == null || n < 2 || n > Math.min(10, L.tot)) n = BB.randInt(3, Math.min(10, L.tot));
+      k = BB.randInt(1, Math.max(1, Math.min(L.subK || L.kMax, L.zero ? n : n - 1)));
+    }
+    const q = { kind, n, k, answer: kind === 'add' ? n + k : n - k, pre: 0, tries: 0, icon };
+    q.choices = makeChoices(q);
+    q.text = words(q);
+    return q;
+  }
+  const pl = (n, one, many) => `${n} ${plural(n, one, many)}`;
+  const isAre = (n) => plural(n, 'is', 'are');
+  const WORDS = {
+    bagsIn: (q) => q.kind === 'add'
+      ? { n: `${pl(q.n, 'bag', 'bags')} ${isAre(q.n)} in the boot.`, k: `${q.k} more ${plural(q.k, 'goes', 'go')} in.`, ask: 'How many bags are in the boot now?' }
+      : { n: `${pl(q.n, 'bag', 'bags')} ${isAre(q.n)} in the boot.`, k: `${q.k} ${plural(q.k, 'comes', 'come')} out.`, ask: 'How many bags are left in the boot?' },
+    fighters: (q) => ({ n: `${pl(q.n, 'firefighter is', 'firefighters are')} spraying water.`, k: `${q.k} more ${plural(q.k, 'comes', 'come')} to help.`, ask: 'How many firefighters now?' }),
+    windows: (q) => ({ n: `${pl(q.n, 'window has', 'windows have')} smoke.`, k: `${q.k} ${plural(q.k, 'is', 'are')} clear now.`, ask: 'How many windows still have smoke?' }),
+    teddies: (q) => q.kind === 'add'
+      ? { n: `${pl(q.n, 'teddy bear is', 'teddy bears are')} in the kit.`, k: `${q.k} more ${plural(q.k, 'goes', 'go')} in.`, ask: 'How many teddy bears now?' }
+      : { n: `${pl(q.n, 'teddy bear is', 'teddy bears are')} in the kit.`, k: `${q.k} ${plural(q.k, 'goes', 'go')} to children at the clinic.`, ask: 'How many teddy bears are left?' },
+    sold: (q) => q.kind === 'sub'
+      ? { n: `${pl(q.n, 'ice cream is', 'ice creams are')} in the van.`, k: `${q.k} ${plural(q.k, 'is', 'are')} sold.`, ask: 'How many ice creams are left?' }
+      : { n: `${pl(q.n, 'ice cream is', 'ice creams are')} in the van.`, k: `${q.k} more ${plural(q.k, 'goes', 'go')} in.`, ask: 'How many ice creams now?' },
+    cones: (q) => ({ n: `${pl(q.n, 'cone is', 'cones are')} in the box.`, k: `${q.k} more ${plural(q.k, 'goes', 'go')} in.`, ask: 'How many cones now?' }),
+    yard: (q) => q.kind === 'add'
+      ? { n: `${pl(q.n, 'car is', 'cars are')} in the yard.`, k: `${q.k} more ${plural(q.k, 'car comes', 'cars come')} in.`, ask: 'How many cars are in the yard now?' }
+      : { n: `${pl(q.n, 'car is', 'cars are')} in the yard.`, k: `${q.k} ${plural(q.k, 'is', 'are')} fixed and ${plural(q.k, 'drives', 'drive')} away.`, ask: 'How many cars are left?' },
+  };
+
+  // One question on the card: the story (pictures pop in or fade out as it's told), then the ask. Resolves on the
+  // right answer (after the praise and the coins), or never if the job stops (Home, bedtime).
+  function askScene(q) {
+    return new Promise((resolve) => {
+      const g = legGen, alive = () => g === legGen && !BB.bedtime && !!J.current && J.phase !== 'home';
+      (async () => {
+        buildCard(q); J.question = q;
+        await wait(350); if (!alive()) return;
+        for (let i = 0; i < q.n; i++) light(i, true);
+        showSum('n1'); litSum('n1');
+        await say(q.text.n);
+        for (let i = 0; i < q.n; i++) light(i, false);
+        litSum(null); if (!alive() || !card) return;
+        showSum('n2'); litSum('n2');
+        const pops = [];
+        for (let j = 0; j < q.k; j++) pops.push(wait(250 + j * 380).then(() => {
+          if (!card) return;
+          if (q.kind === 'add') setSeat(q.n + j, 'new'); else { const i = q.n - 1 - j; setSeat(i, 'gone'); seatEls[i].classList.add('bye'); }
+          BB.sfx.pop();
+        }));
+        await Promise.all([say(q.text.k), ...pops]);
+        litSum(null); if (!alive() || !card) return;
+        seatEls.forEach((el) => el.classList.remove('bye'));
+        setPhase('question');
+        q.onRight = (qq, cash) => { const job = J.current; if (job) job.cash += cash; BB.emit('job:stopDone', { correct: true, cash, vehicle: job && job.vehicle, tries: qq.tries }); resolve(); };
+        const s2 = ++seq;
+        showSum('ask'); litSum('ask');
+        await say(q.text.ask);
+        litSum(null);
+        if (s2 !== seq || !card) return;
+        card.classList.remove('wait');
+      })().catch((e) => console.error(e));
+    });
+  }
+  // people (a family, Auntie, a queue of children) appear by the vehicle's door and hop in, or hop out and walk away
+  async function hopIn(count, style) {
+    const list = [];
+    for (let i = 0; i < count; i++) { const m = person(BB.randInt(0, 7), style); m.position.copy(kerbSpot(2.2 + (i % 2) * 0.5, 1 + i * 0.9, false)); list.push(m); }
+    await wait(300);
+    await Promise.all(list.map((m, i) => wait(i * 350).then(async () => { await walkTo(m, doorOut(), 3.2); removePerson(m); BB.sfx.pop(); })));
+  }
+  async function hopOut(count, style) {
+    for (let i = 0; i < count; i++) {
+      const m = person(BB.randInt(0, 7), style); m.position.copy(doorOut()); J.extras.push(m);
+      walkTo(m, kerbSpot(2.2, -1 - i * 0.9, false), 3).then(() => { m.userData.jump = 1; m.userData.jumpDelay = 0; BB.later(1400, () => walkAway(m)); });
+      await wait(350);
+    }
+  }
+  function queueKids(count) {
+    clearWaiting();
+    for (let i = 0; i < count; i++) {
+      const m = person(BB.randInt(0, 7), { kid: true });
+      m.position.copy(kerbSpot(2.4, 1.2 + i * 0.9, false)); m.userData.seed = Math.random() * 6;
+      J.waiting.push(m);
+    }
+  }
+  // the broken-down car for the tow truck: our own little car, or the bus.js hook helper's
+  let towCar = null;
+  function brokenCar() {
+    if (towCar) return towCar;
+    const b = BB.mk.builder();
+    b.box(1.7, 0.7, 3.6, '#4fa3e0', 0, 0.35, 0); b.box(1.5, 0.6, 1.8, '#cfe9f5', 0, 1.05, -0.2); b.box(1.55, 0.12, 1.85, '#4fa3e0', 0, 1.62, -0.2);
+    for (const x of [-0.8, 0.8]) for (const z of [-1.2, 1.2]) b.cyl(0.35, 0.35, 0.25, 8, '#3a2a3c', x, 0.0, z, 0, 0, Math.PI / 2);
+    towCar = b.mesh(); towCar.name = 'brokenCar';
+    return towCar;
+  }
+
+  // The legs of each vehicle job: { to: place, go: line when setting off, run: async scene }.
+  function vehicleLegs(kind) {
+    const W = BB.world, here = BB.bus.atStop || J.lastStop, stops = (W.stops || []).filter((s) => s && s.pos && s.say);
+    const spot = sceneSpot({ taxi: 'picnic', fire: 'fire', ambulance: 'picnic', icecream: 'icecream', tow: 'car' }[kind]), landmark = farFrom(stops, spot);
+    const L = [];
+    const carry = { bags: null, teddies: null };
+    if (kind === 'taxi') {
+      const fam = BB.randInt(1, 4);
+      L.push({ to: spot, start: `Taxi job! A family needs a ride. Drive to ${sayOf(spot)}!`, run: async (ok) => {
+        await say(plural(fam, 'Hello, taxi! In I get!', 'Hello, taxi! In we get!')); if (!ok()) return;
+        hatch(true); await hopIn(fam); if (!ok()) return;
+        const q = sceneQ('add', null, WORDS.bagsIn, 'bags'); await askScene(q); carry.bags = q.answer; hatch(false);
+      } });
+      L.push({ to: landmark, go: `Now drive to ${sayOf(landmark)}!`, run: async (ok) => {
+        hatch(true);
+        await askScene(sceneQ('sub', carry.bags, WORDS.bagsIn, 'bags')); if (!ok()) return;
+        hatch(false); hopOut(fam); await say('Thank you, taxi! Bye bye!');
+      } });
+    } else if (kind === 'fire') {
+      const station = place('fireStation', W.depot);
+      L.push({ to: spot, start: `Fire engine! There's smoke at ${sayOf(spot)}. Siren on, let's go!`, onGo: () => siren(true), run: async (ok) => {
+        await say("We're here! Ladder up!"); ladder(true); if (!ok()) return;
+        await askScene(sceneQ('add', null, WORDS.fighters, 'fighter')); if (!ok()) return;
+        if (LEVELS[level()].sub > 0) { await askScene(sceneQ('sub', null, WORDS.windows, 'window')); if (!ok()) return; }
+        siren(false); ladder(false); BB.sfx.cheer(); if (BB.ui && BB.ui.confetti) BB.ui.confetti();
+        await say('The fire is out! Hooray!');
+      } });
+      L.push({ to: station, go: 'Back to the fire station!', run: async () => { await say('Thank you, firefighters!'); } });
+    } else if (kind === 'ambulance') {
+      const clinic = place('clinic', farFrom(stops, spot));
+      const auntie = { geo: (FRIENDS[2].geo || (FRIENDS[2].geo = friendGeo(FRIENDS[2].look))) };
+      L.push({ to: spot, start: `Ambulance! Auntie needs a check-up. Let's go to ${sayOf(spot)}!`, onGo: () => siren(true), run: async (ok) => {
+        siren(false);
+        await say('Hello, Auntie! Hop in!'); if (!ok()) return;
+        await hopIn(1, auntie); if (!ok()) return;
+        const q = sceneQ('add', null, WORDS.teddies, 'teddy'); await askScene(q); carry.teddies = q.answer;
+      } });
+      L.push({ to: clinic, go: 'Off to the clinic!', run: async (ok) => {
+        await askScene(sceneQ('sub', carry.teddies, WORDS.teddies, 'teddy')); if (!ok()) return;
+        hopOut(1, auntie); await say('All better! Thank you!');
+      } });
+    } else if (kind === 'icecream') {
+      const park = stopLike(/park/i) || farFrom(stops, here), beach = stopLike(/beach/i) || farFrom(stops, park);
+      L.push({ to: park, start: `Ice cream van! Let's go to ${sayOf(park)}!`, run: async (ok) => {
+        jingle(); queueKids(BB.randInt(2, 4)); hatch(true);
+        await say('Ice cream! Ice cream! The children are waiting!'); if (!ok()) return;
+        await askScene(sceneQ('sub', null, WORDS.sold, 'icecream')); if (!ok()) return;
+        for (const m of J.waiting.splice(0)) { m.userData.jump = 1; J.extras.push(m); BB.later(900, () => walkAway(m)); }
+        hatch(false); await say('Yummy! Thank you!');
+      } });
+      L.push({ to: beach, go: `Now drive to ${sayOf(beach)}!`, run: async (ok) => {
+        jingle(); queueKids(BB.randInt(2, 4)); hatch(true);
+        await askScene(sceneQ('add', null, WORDS.cones, 'icecream')); if (!ok()) return;
+        for (const m of J.waiting.splice(0)) { m.userData.jump = 1; J.extras.push(m); BB.later(900, () => walkAway(m)); }
+        hatch(false); await say('Yummy! Bye bye!');
+      } });
+    } else if (kind === 'tow') {
+      const yard = W.depot;
+      L.push({ to: spot, start: `Tow truck! A car has broken down at ${sayOf(spot)}. Let's help!`, run: async (ok) => {
+        const car = brokenCar();
+        if (!(BB.bus.has && BB.bus.has('hook')) || vcall(['hookOn', 'hookCar'], car) === undefined) {
+          // no hook helper: the car is lifted behind the truck
+          if (car.parent) car.parent.remove(car);
+          car.position.set(0, 0.35, -5.2); car.rotation.set(0.12, 0, 0); BB.bus.front.add(car);
+        }
+        BB.sfx.pop(); await say('Hook on! Up it goes!');
+      } });
+      L.push({ to: yard, go: 'Tow it to the depot!', run: async (ok) => {
+        if (typeof BB.bus.hookOn === 'function') vcall(['hookOn'], null);
+        if (towCar && towCar.parent) towCar.parent.remove(towCar);                    // the car stays in the yard (out of view)
+        await say('Here we are! The car is safe in the yard.'); if (!ok()) return;
+        const q = sceneQ('add', null, WORDS.yard, 'car'); await askScene(q); if (!ok()) return;
+        if (LEVELS[level()].sub > 0) await askScene(sceneQ('sub', q.answer, WORDS.yard, 'car'));
+      } });
+    }
+    return L;
+  }
+  function startVehicleJob(kind) {
+    const legs = vehicleLegs(kind);
+    if (!legs.length) return false;
+    const job = { vehicle: kind, legs, stops: legs.map((l) => l.to), index: 0, cash: 0, q: null };
+    J.current = job;
+    BB.emit('job:new', { job, vehicle: kind });
+    say(legs[0].start, { queue: true });
+    driveLeg(true);
+    return true;
+  }
+  function driveLeg(quiet) {
+    const job = J.current; if (!job || !job.vehicle) return;
+    const leg = job.legs[job.index];
+    if (leg.onGo) leg.onGo();
+    setPhase('drive');
+    J.stopStart = null;
+    BB.bus.stopAt(leg.to, () => arriveLeg(job, leg));
+    BB.emit('job:target', { stop: leg.to, job });
+    if (!quiet && leg.go) say(leg.go, { queue: true });
+  }
+  async function arriveLeg(job, leg) {
+    if (J.current !== job) return;
+    setPhase('stop'); J.lastStop = leg.to;
+    BB.sfx.ding();
+    const g = ++legGen, ok = () => g === legGen && J.current === job && !BB.bedtime && J.phase !== 'home';
+    await wait(900);                         // the scene camera settles
+    if (!ok()) return;
+    try { await leg.run(ok); } catch (e) { console.error(e); }
+    if (!ok()) return;
+    await wait(500);
+    job.index++;
+    if (job.index >= job.legs.length) { jobDone(); return; }
+    if (timeUp()) { bedtime(); return; }
+    driveLeg();
   }
 
   // ---------- depot trips, low fuel and the tow ----------
@@ -1575,6 +1853,7 @@
   J.update = function (dt) {
     if (J.phase === 'home') {
       if (J.stopStart) rewindStop();
+      if (J.current && J.current.vehicle && J.stopStart !== false) { legGen++; clearWaiting(); for (const m of J.extras) removePerson(m); J.extras = []; J.walkers = []; }
       return;                                  // nothing walks or boards while the home screen is up
     }
     for (let i = J.walkers.length - 1; i >= 0; i--) {
@@ -1630,8 +1909,8 @@
     // the glowing numbers above the seats pop in and the hint ones pulse
     marks.forEach((sp, i) => { if (sp.visible) placeMark(i); });
     const qq = J.question, canTap = card && J.phase === 'question' && qq && !qq.done;
-    scene.setHits(canTap ? BB.clamp(BB.bus.passengers | 0, 0, 10) : 0, (i) => { if (!card) return; if (J.teaching) skipTeach(); else if (J.phase === 'question') countTap(i); });
-    scene.update(dt);
+    scene.setHits(canTap && !vmode() ? BB.clamp(BB.bus.passengers | 0, 0, 10) : 0, (i) => { if (!card) return; if (J.teaching) skipTeach(); else if (J.phase === 'question') countTap(i); });
+    if (!vmode() && BB.bus.seats && BB.bus.seats.length >= 10) scene.update(dt);   // vehicles have no seats
     if (countTag && countTag.visible) placeCount();
     for (const sp of (countTag ? marks.concat(countTag) : marks)) {
       if (!sp.visible) continue;

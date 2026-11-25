@@ -112,6 +112,12 @@
   .lefty .bbu-wash { left: auto; right: calc(var(--sr) + 6px + var(--dt) + 14px); }
   .ctl-wheel .bbu-wash { left: calc(var(--sl) + 6px + var(--wh) + 16px); bottom: calc(var(--sb) + var(--dh) + 14px); }
   .ctl-wheel.lefty .bbu-wash { left: auto; right: calc(var(--sr) + 6px + var(--wh) + 16px); }
+  /* the Siren tile (fire engine, ambulance): beside Helper; in the wheel layout above Helper's column */
+  .bbu-siren { position: absolute; left: calc(var(--sl) + 6px + var(--dt) + 14px); bottom: calc(var(--sb) + var(--dh) + 14px); display: none; animation: bbu-pop .3s cubic-bezier(.2,1.5,.5,1); }
+  .bbu-siren.show { display: flex; }
+  .lefty .bbu-siren { left: auto; right: calc(var(--sr) + 6px + var(--dt) + 14px); }
+  .ctl-wheel .bbu-siren { left: calc(var(--sl) + 6px + var(--wh) + 16px + var(--dt) + 12px); }
+  .ctl-wheel.lefty .bbu-siren { left: auto; right: calc(var(--sr) + 6px + var(--wh) + 16px + var(--dt) + 12px); }
   .bbu-ask .price { display: flex; align-items: center; gap: 6px; font: 700 34px/1 ${BB.FONT}; color: #7a4a00; background: #ffd45c; border: 3px solid #d98700;
     border-radius: 24px; padding: 2px 16px 2px 6px; box-shadow: 0 3px 0 rgba(150,90,0,.3); }
   .bbu-ask .price canvas { width: 40px; height: 40px; }
@@ -293,6 +299,7 @@
     .ctl-wheel .bbu-assist { bottom: var(--cb); }
     .bbu-assist { bottom: calc(var(--cb) + var(--dh) + 12px); }
     .ctl-wheel .bbu-wash { bottom: calc(var(--cb) + var(--dh) + 12px); }
+    .bbu-siren { bottom: calc(var(--cb) + var(--dh) + 12px); }
     .bbu-uturn { bottom: calc(var(--cb) + var(--joy) + 12px); }
     .ctl-wheel .bbu-uturn { bottom: calc(var(--cb) + var(--pgh) + 14px); }
     .bbu-tip { bottom: calc(var(--cb) + var(--joy) / 4); }
@@ -349,7 +356,7 @@
   // swap a tile's picture (e.g. Music on/off)
   U.setIcon = function (b, icon) { const old = b.querySelector('canvas, svg'); const nu = BB.iconEl(icon, 128); if (old) b.replaceChild(nu, old); else b.prepend(nu); };
 
-  let uturnBtn, washBtn, facing = false, driving = true, tips = [];
+  let uturnBtn, washBtn, sirenEl, facing = false, driving = true, tips = [];
   let hud, cashEl, fuelEl, fuelCv, jobEl, jobPic, jobDots, joyEl, knobEl, wheelEl, wheelRot, pedGo, pedBack, hornEl, assistEl, titleEl, soundBtn, musicBtn, exitBtn, homeBtn, garageBtn, playBtn, famEl;
 
   U.init = function () {
@@ -450,6 +457,14 @@
     pedBack = pedal('back', 'back', 'Back'); pedGo = pedal('go', 'go', 'Go');
     hornEl = U.btn(hud, 'horn', 'Horn', () => BB.bus.horn(), 'drv bbu-horn');
     assistEl = U.btn(hud, 'helper', 'Helper', () => U.setAssist(!BB.save.assist), 'drv bbu-assist');
+    // the siren (fire engine, ambulance; bus.js: BB.bus.siren / setSiren): on and off, with the lights in the picture
+    sirenEl = U.btn(hud, 'siren', 'Siren', () => {
+      const B = BB.bus, on = !sirenOn();
+      try { if (typeof B.siren === 'function') B.siren(on); else if (typeof B.setSiren === 'function') B.setSiren(on); else B.siren = on; } catch (e) { console.error(e); }
+      BB.sfx.click(); BB.say(on ? 'Nee naw! Siren on!' : 'Siren off!'); syncSiren();
+    }, 'drv bbu-siren');
+    BB.on('bus:type', () => { syncSiren(); renderJob(); });
+    BB.on('bus:siren', syncSiren);
     U.setLefty(!!BB.save.leftHand, true);
     U.setControl(BB.save.control, true);
     // turn around: offered while the bus faces away from where it should go (bus.js emits bus:facingAway)
@@ -563,7 +578,26 @@
     washBtn.classList.toggle('on', washOK() && dusty() && driving && !washing && !washRoute && (ph === 'drive' || ph === 'done' || ph === 'idle'));
   }
   U.syncWash = syncWash;
-  setInterval(() => { if (hud && !hud.classList.contains('off')) syncWash(); }, 1000);
+  setInterval(() => { if (hud && !hud.classList.contains('off')) { syncWash(); syncSiren(); } }, 1000);
+  // ---------- the other rides ----------
+  // What kind of ride this is: 'bus', 'taxi', 'fire', 'ambulance', 'icecream' or 'tow' (fleet.js KIND when it says).
+  const KIND_OF = { fire: 'fire', fireEngine: 'fire', fireTruck: 'fire', ambulance: 'ambulance', medic: 'ambulance', checkup: 'ambulance',
+    icecream: 'icecream', iceCream: 'icecream', tow: 'tow', towTruck: 'tow', taxi: 'taxi' };
+  const rideKind = (type) => { const K = BB.fleet && BB.fleet.KIND; const k = (K && K[type]) || type; return KIND_OF[k] || KIND_OF[type] || 'bus'; };
+  U.rideKind = () => { const B = BB.bus; return B && typeof B.kind === 'string' ? (KIND_OF[B.kind] || 'bus') : rideKind(B && B.type); };
+  // bus.js: B.has('siren'), B.siren(on), B.sirenOn() (older or stand-in: a plain B.siren flag)
+  const hasSiren = () => {
+    const B = BB.bus; if (!B) return false;
+    if (typeof B.has === 'function') { try { return !!B.has('siren'); } catch (e) { return false; } }
+    const k = U.rideKind(); return (k === 'fire' || k === 'ambulance') && 'siren' in B;
+  };
+  const sirenOn = () => { const B = BB.bus; if (!B) return false; return typeof B.sirenOn === 'function' ? !!B.sirenOn() : typeof B.siren === 'function' ? false : !!B.siren; };
+  function syncSiren() {
+    if (!sirenEl) return;
+    const show = hasSiren() && driving, on = show && sirenOn();
+    sirenEl.classList.toggle('show', show);
+    if (sirenEl._on !== on) { sirenEl._on = on; sirenEl.classList.toggle('on', on); U.setIcon(sirenEl, on ? 'sirenOn' : 'siren'); }
+  }
   // put the job's own target back (its arrival callback too) after the wash, or if the child says no
   function washBack() {
     const r = washRoute; washRoute = null;
@@ -650,23 +684,28 @@
   function hideTip(cls) { tips = tips.filter((t) => { if (t.classList.contains(cls)) { t.remove(); return false; } return true; }); }
   U.driveTip = () => (isWheel() ? 'Hold the green pedal to go! Turn the wheel to steer!' : 'Push up to go! Slide to steer!');
   function setDriving(on) {
-    driving = on; syncUturn();
+    driving = on; syncUturn(); syncSiren();
     if (!on) U.hideTips();
-    for (const el of [joyEl, wheelEl, pedGo, pedBack, hornEl, assistEl, washBtn]) if (el) el.style.visibility = on ? '' : 'hidden';
+    for (const el of [joyEl, wheelEl, pedGo, pedBack, hornEl, assistEl, washBtn, sirenEl]) if (el) el.style.visibility = on ? '' : 'hidden';
     if (!on) U.releaseAll();
     syncWash();
   }
+  // the Next stop tile's word on a job of the other rides
+  const JOB_WORD = { fire: 'Fire!', ambulance: 'Check-up', icecream: 'Ice cream', tow: 'Tow' };
   function renderJob() {
     const job = BB.jobs.current, t = BB.bus.target;
     if (!t && !job) { jobEl.style.visibility = 'hidden'; return; }
     jobEl.style.visibility = 'visible';
     const stop = t || (job && job.stops[Math.min(job.index, job.stops.length - 1)]);
     const wash = !!(t && BB.bus.washBay && t === BB.bus.washBay);
-    const x = jobPic.getContext('2d'); x.clearRect(0, 0, 96, 96); if (stop) x.drawImage(wash ? BB.icon('wash', 96) : BB.pic(stop.pic, 96), 0, 0);
+    const depot = !!(t && t.id === 'depot');
+    // the picture of where the job is going (a job of the other rides may name its own: job.pic, or the target's pic)
+    const pic = wash ? null : (!depot && job && job.pic) || (stop && stop.pic);
+    const x = jobPic.getContext('2d'); x.clearRect(0, 0, 96, 96); if (stop) x.drawImage(wash ? BB.icon('wash', 96) : BB.pic(pic, 96), 0, 0);
     jobDots.innerHTML = '';
     // going to the garage: just its picture; on a job, a dot per stop
     if (job && !wash && !(t && t.id === 'depot')) job.stops.forEach((s, i) => BB.el('i', i < job.index ? 'done' : i === job.index ? 'now' : '', jobDots));
-    jobEl.querySelector('.lb').textContent = wash ? 'Wash' : t && t.id === 'depot' ? 'Garage' : 'Next stop';
+    jobEl.querySelector('.lb').textContent = wash ? 'Wash' : depot ? 'Garage' : (job && JOB_WORD[KIND_OF[job.kind] || KIND_OF[job.vehicle] || U.rideKind()]) || 'Next stop';
   }
 
   // ---------- Home ----------
