@@ -301,7 +301,9 @@
     return out;
   }
   function typePic(t, size = 128) {
-    const col = (BB.PAINTS.find((p) => p.id === S.paint) || {}).color || P.busGreen;
+    // a bus in the bus's colour; another ride in its own colour (save.vehiclePaint) or its classic one (fleet PAINT)
+    const own = !isBusKind(t) && ((BB.PAINTS.find((p) => p.id === S.vehiclePaint[t]) || {}).color || (BB.fleet && BB.fleet.PAINT && BB.fleet.PAINT[t]));
+    const col = own || (BB.PAINTS.find((p) => p.id === S.paint) || {}).color || P.busGreen;
     if (BB.fleet && typeof BB.fleet.preview === 'function' && BB.renderer) {
       try { return snapshot(t, col); } catch (e) { console.error(e); }
     }
