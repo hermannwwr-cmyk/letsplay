@@ -416,6 +416,8 @@
   W.build = function (scene) {
     W.scene = scene;
     scene.fog = new THREE.Fog(0xfbeed6, 95, 260);
+    // the town is big now: nothing past the fog is drawn (the camera's far plane), the sky dome sits inside it
+    if (BB.camera) { BB.camera.far = 380; BB.camera.updateProjectionMatrix(); }
     buildSky(scene);
     // soft, mostly flat light (paper-cut look): ambient + a little sky/ground + one gentle warm sun from the upper left
     amb = new THREE.AmbientLight(0xfff8ec, 0.5);
@@ -424,7 +426,7 @@
     scene.add(amb, hemi, sun);
 
     const ground = BB.mk.builder();
-    ground.disc(420, 40, P.grass, 0, 0, 0);
+    ground.disc(720, 48, P.grass, 140, 0, 0);
     scene.add(tag(ground.mesh(), 'ground'));
 
     const roads = BB.mk.builder(), town = BB.mk.builder(), green = BB.mk.builder(), lamps = BB.mk.builder();
@@ -436,10 +438,14 @@
     buildHDBs(town);
     buildLandmarks(town, green);
     buildViaduct(town, green);
+    const dist = BB.mk.builder();
+    buildDistricts(dist, green);
     buildStops(TREES);   // (with the props: the shelter hides when it stands between the stop camera and the bus)
     const poolPts = buildLamps(town, lamps);
     roadMat = new THREE.MeshLambertMaterial({ vertexColors: true });   // its own material: it darkens in the rain
-    scene.add(tag(roads.mesh(roadMat), 'roads'), tag(town.mesh(), 'town'), tag(green.mesh(), 'green'));
+    scene.add(tag(roads.mesh(roadMat), 'roads'), tag(town.mesh(), 'town'), tag(green.mesh(), 'green'), tag(dist.mesh(), 'districts'));
+    washFx = buildWashFx();
+    for (const m of [wheelRim, planes, boomN, boomS, washRig, washFx]) if (m) scene.add(m);
     scene.add(propMesh(TREES, fadeMat(new THREE.MeshLambertMaterial({ vertexColors: true })), 'trees'));
     TREES = null;
     winMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x000000 });
@@ -497,7 +503,7 @@
   W.sky = { share: 0, target: 0, night: 0, evening: 0, lights: 0 };
   let roadMat = null, puddles = null, rain = null, rainbow = null;
   function buildSky(scene) {
-    const geo = new THREE.SphereGeometry(420, 32, 16);
+    const geo = new THREE.SphereGeometry(360, 32, 16);
     const mat = new THREE.ShaderMaterial({
       uniforms: skyU, side: THREE.BackSide, depthWrite: false, fog: false,
       vertexShader: 'varying vec3 vDir; void main(){ vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
@@ -878,6 +884,7 @@
       b.ball(1.1 * s, light(col, 0.2), x - 0.7 * s, y0 + 4.6 * s, z - 0.6 * s, 0);
     }
     propEnd(b, p0, x + FRAME.x, z + FRAME.z, kind === 'rain' ? 4.3 * s : kind === 'flame' ? 3.6 * s : kind === 'palm' ? 3 * s : 2.4 * s);
+    TREE_SPOTS.push([x + FRAME.x, z + FRAME.z, y0 + (kind === 'rain' ? 4.6 : kind === 'palm' ? 5.4 : 4.0) * s, (kind === 'rain' ? 3.6 : kind === 'palm' ? 1.6 : 2.4) * s]);
   }
   W.tree = tree;
   // Where the resting cameras stand (each stop's view, the garage views): no trees or lamp posts there.
@@ -986,6 +993,7 @@
   function hdb(b, x, z, ry, len, dep, floors, sc, opt = {}) {
     sc = scheme(sc);
     const H = VD + floors * FH, far = opt.far, roof = opt.roof || (rnd() < 0.3 ? 'pitch' : 'flat');
+    if (!far) BLDG.push({ x: x + FRAME.x, z: z + FRAME.z, ry, len, dep, H });
     if (!far) addBoxAt(x, z, ry, 1.6, 0, len / 2 + 1.8, dep / 2 + 0.6, H + 2);
     A(b, x, 0, z, ry, (q) => {
       voidDeck(q, len, dep, sc, far ? 0 : opt.people != null ? opt.people : (rnd() < 0.6 ? 2 + (rnd() < 0.4 ? 1 : 0) : 0), far);
@@ -1032,6 +1040,7 @@
   function tower(b, x, z, ry, size, floors, sc, opt = {}) {
     sc = scheme(sc);
     const H = VD + floors * FH;
+    if (!opt.far) BLDG.push({ x: x + FRAME.x, z: z + FRAME.z, ry, len: size, dep: size, H: H + 0.9 });
     if (!opt.far) addBoxAt(x, z, ry, 0, 0, size / 2 + 0.3, size / 2 + 0.3, H + 5);
     A(b, x, 0, z, ry, (q) => {
       voidDeck(q, size - 0.6, size - 0.6, sc, opt.far ? 0 : rnd() < 0.5 ? 2 : 0, opt.far);
@@ -1059,6 +1068,7 @@
   function bayBlock(b, x, z, ry, len, dep, floors, sc) {
     sc = scheme(sc);
     const H = VD + floors * FH, cols = [sc.accent, sc.trim, light(sc.accent, 0.45)];
+    BLDG.push({ x: x + FRAME.x, z: z + FRAME.z, ry, len, dep, H });
     addBoxAt(x, z, ry, 0, 0, len / 2 + 0.4, dep / 2 + 1.0, H + 4);
     A(b, x, 0, z, ry, (q) => {
       voidDeck(q, len, dep, sc, rnd() < 0.7 ? 2 : 0);
@@ -1112,7 +1122,6 @@
       if (rnd() < 0.4) tower(b, x, z, a, 12, Math.round(rr(14, 19)), si++, { far: true });
       else hdb(b, x, z, a, rr(24, 30), 9, Math.round(rr(13, 18)), si++, { far: true, people: 0 });
     }
-  }
   }
 
   // ---------- landmarks ----------
@@ -1630,6 +1639,498 @@
     return m;
   }
 
+  // ---------- the wider map: the depot yard, the expressway, the airport, the city, old town, the waterfront ----------
+  // All static, merged into one vertex-coloured mesh ('districts'); lit windows go into WIN, trees and lamps into
+  // TREES (they fade out of the cameras' way). Landmark models come from BB.landmarks (js/landmarks.js) when it is
+  // loaded: each builder is called as BB.landmarks.<name>(q, opts) with q a BB.mk builder already placed and turned
+  // (local +z faces the road), drawing static parts into q (opts.win: the lit-windows builder in the same frame).
+  // Without it (or if one throws) the simple models below are used. Everything is generic: no names or logos.
+  function LM(name, q, opts) {
+    const L = BB.landmarks;
+    if (!L || typeof L[name] !== 'function') return false;
+    try { const r = L[name](q, Object.assign({ win: WIN }, opts || {})); return r !== false; } catch (e) { console.error('[landmarks] ' + name, e); return false; }
+  }
+  const TREE_SPOTS = [], BLDG = [];        // for the Christmas lights: tree crowns, building roof outlines
+  const XMAS_TREES = [];                   // where the big Christmas trees stand [x, z, height]
+  let wheelRim = null, planes = null, boomN = null, boomS = null, washRig = null, washFx = null;
+  const planeState = [];
+
+  // a cheap parked bus (no faces): body, glass band, roof, wheels; type 'single' | 'double' | 'bendy'
+  function cheapBus(q, type, col) {
+    const L = type === 'bendy' ? 7.2 : 10.8, H = type === 'double' ? 4.3 : 3.0;
+    const body = (z0, len) => {
+      bx(q, 2.5, H - 0.4, len, col, 0, 0.4, z0);
+      bx(q, 2.56, 0.9, len - 0.6, '#3d4f60', 0, 1.35, z0);
+      if (type === 'double') bx(q, 2.56, 0.9, len - 0.6, '#3d4f60', 0, 2.95, z0);
+      bx(q, 2.3, 0.25, len * 0.4, '#f1ebe0', 0, H, z0 - len * 0.1);
+      bx(q, 2.6, 0.18, len, '#fff6e0', 0, 1.0, z0);
+      for (const z of [z0 + len / 2 - 1.8, z0 - len / 2 + 2]) for (const sx of [-1.2, 1.2]) q.cyl(0.5, 0.5, 0.36, 8, '#3a3440', sx, 0.5, z, 0, 0, Math.PI / 2);
+    };
+    if (type === 'bendy') { body(4.1, L); body(-4.0, 6.4); bx(q, 2.3, 2.4, 1.0, '#4a4250', 0, 0.5, 0.0); } else body(0, L);
+    bx(q, 2.3, 0.5, 0.1, '#f7d36a', 0, 0.55, (type === 'bendy' ? 4.1 + L / 2 : L / 2) + 0.02);
+  }
+
+  // ---- the bus depot: an open-air yard with painted bays, parked buses, a fuel island, a drive-through wash, a big
+  // open workshop where the bus is made beautiful, a gatehouse and boom gates at both gates ----
+  function buildDepot(b) {
+    const Y = W.YARD, cx = (Y.x0 + Y.x1) / 2, cz = (Y.z0 + Y.z1) / 2;
+    b.box(Y.x1 - Y.x0, 0.03, Y.z1 - Y.z0, '#d6cec1', cx, 0.005, cz);                       // the yard's concrete
+    // fence round the yard (low, so the cameras look over it), open at the two gates
+    const fence = (x0, z0, x1, z1) => {
+      const len = Math.hypot(x1 - x0, z1 - z0), ry = Math.atan2(x1 - x0, z1 - z0), mx = (x0 + x1) / 2, mz = (z0 + z1) / 2;
+      b.box(0.12, 1.5, len, '#5aa848', mx, 0, mz, ry); b.box(0.16, 0.12, len, '#3f8a3a', mx, 1.5, mz, ry);
+      for (let k = 0; k <= Math.floor(len / 4); k++) { const t = k / Math.max(1, Math.floor(len / 4)); b.box(0.18, 1.7, 0.18, '#3f8a3a', x0 + (x1 - x0) * t, 0, z0 + (z1 - z0) * t); }
+      W.addBox(mx, mz, Math.abs(x1 - x0) / 2 + 0.2, Math.abs(z1 - z0) / 2 + 0.2, 0, 1.4);
+    };
+    fence(Y.x0, Y.z0, Y.x1, Y.z0); fence(Y.x0, Y.z1, Y.x1, Y.z1); fence(Y.x1, Y.z0, Y.x1, Y.z1);
+    fence(Y.x0, Y.z0, Y.x0, 117.5); fence(Y.x0, 138.5, Y.x0, 155.5);
+    // the middle island: painted bays and a row of parked buses (all three kinds), nose to the north aisle
+    b.box(70, 0.06, 18.4, '#c9c1b3', 81, 0, 147);
+    const types = ['single', 'double', 'bendy', 'single', 'double', 'single', 'bendy'], cols = ['#3fae49', '#ef5a4b', '#3d8fe0', '#f5b83d', '#3fae49', '#8e62c8', '#ef5a4b'];
+    for (let i = 0; i < 7; i++) {
+      const x = 52 + i * 9.4;
+      for (const sx of [-1.9, 1.9]) b.box(0.18, 0.02, 15.5, '#fff6e0', x + sx, 0.06, 147);
+      b.at(x, 0.06, types[i] === 'bendy' ? 146 : 147.5, Math.PI, (q) => cheapBus(q, types[i], cols[i]));
+      W.addBox(x, 147, 1.4, types[i] === 'bendy' ? 8.8 : 6.0, 0, 4.5);
+    }
+    // the gatehouse on the island's west end, boom gates across both aisles
+    b.at(42, 0.06, 147, 0, (q) => {
+      q.box(4.2, 2.8, 5.2, '#fff6e0', 0, 0, 0); q.box(4.6, 0.4, 5.6, P.teal, 0, 2.8, 0);
+      q.box(0.06, 1.0, 3.6, '#9fd3e8', 2.12, 1.2, 0); q.box(3.0, 1.0, 0.06, '#9fd3e8', 0, 1.2, 2.62); q.box(3.0, 1.0, 0.06, '#9fd3e8', 0, 1.2, -2.62);
+      for (const z of [-9.8, 9.8]) { q.box(0.5, 1.1, 0.5, '#e9e2d6', 0, 0, z); q.box(0.6, 0.3, 0.6, P.coral, 0, 1.1, z); }
+    });
+    W.addBox(42, 147, 2.3, 2.9, 0, 3.4);
+    const boomArm = (dir) => {
+      const q = BB.mk.builder();
+      for (let k = 0; k < 8; k++) q.box(0.16, 0.16, 2.0, k % 2 ? '#ef4b3c' : '#ffffff', 0, -0.08, dir * (k * 2.0 + 1.0));
+      const m = q.mesh(); m.position.set(42, 1.3, 147 + dir * 10.1); m.name = 'boom'; return m;
+    };
+    boomN = boomArm(-1); boomS = boomArm(1);
+    // the fuel island (north of the north aisle) under a canopy
+    b.at(104, 0.06, 111, 0, (q) => {
+      q.box(12, 0.3, 2.6, '#e9e2d6', 0, 0, 0);
+      for (const x of [-3, 3]) { q.box(1.0, 1.9, 0.9, P.coral, x, 0.3, 0); q.box(0.8, 0.5, 0.06, '#fff6e0', x, 1.4, 0.46); q.box(0.16, 0.7, 0.16, '#555', x + 0.62, 0.8, 0.2); }
+      for (const [x, z] of [[-5.5, -1.8], [5.5, -1.8], [-5.5, 1.8], [5.5, 1.8]]) q.box(0.3, 5.4, 0.3, '#e9e2d6', x, 0.3, z);
+      q.box(14, 0.5, 7, P.teal, 0, 5.7, 0); q.box(14.4, 0.25, 7.4, P.honey, 0, 6.2, 0);
+    });
+    W.addBox(104, 111, 6.2, 1.5, 0, 2.5);
+    // the drive-through bus wash on the south aisle: two portal frames over the bay (the brushes are their own mesh)
+    const wb = W.bayOf(W.washBay);
+    b.at(wb.x, 0.04, wb.z, wb.heading, (q) => {
+      for (const z of [-6.8, 6.8]) {
+        for (const x of [-2.75, 2.75]) q.box(0.45, 5.6, 0.45, '#5fb7e3', x, 0, z);
+        q.box(6.0, 0.6, 0.6, '#5fb7e3', 0, 5.3, z);
+        q.box(5.2, 0.5, 0.15, '#ffffff', 0, 4.4, z * 1.02);
+      }
+      for (const x of [-2.75, 2.75]) q.box(0.3, 0.3, 13.6, '#4a9ccc', x, 5.4, 0);
+      q.box(3.6, 0.03, 15.4, '#9fd3e8', 0, 0.01, 0);                                     // a blue wet floor
+      for (let z = -6; z <= 6; z += 1.2) q.box(3.2, 0.02, 0.12, '#cfeaf6', 0, 0.03, z);
+    });
+    for (const z of [-6.8, 6.8]) for (const x of [-2.75, 2.75]) { const c = Math.cos(wb.heading), s2 = Math.sin(wb.heading); W.addCircle(wb.x + x * c + z * s2, wb.z - x * s2 + z * c, 0.35); }
+    washRig = buildWashRig(wb);
+    // the workshop: a big open shed on pillars at the east end (the bus is made beautiful here)
+    const WS = W.workshop;
+    b.at(WS.x, 0.04, WS.z, 0, (q) => {
+      q.box(34, 0.12, 34, '#bdb5a8', 0, 0, 0);
+      for (let x = -16; x <= 16; x += 4) q.box(0.3, 0.02, 34, '#f2c94c', x, 0.12, 0);
+      for (const [x, z] of [[-16, -16], [0, -16], [16, -16], [-16, 16], [0, 16], [16, 16]]) { q.box(0.8, 9.6, 0.8, '#e9e2d6', x, 0, z); q.box(1.2, 0.5, 1.2, P.honey, x, 9.1, z); }
+      q.box(35, 0.7, 35, P.teal, 0, 9.6, 0); q.box(35.6, 0.35, 35.6, '#fff6e0', 0, 9.4, 0);
+      q.prism(35, 35, 2.4, '#16928a', 0, 10.3, 0, Math.PI / 2);
+      // tool walls and benches on the south side (the kerb side of the bus)
+      q.box(30, 2.6, 0.3, '#fff6e0', 0, 0, 16.6); q.box(30, 0.3, 0.4, P.coral, 0, 2.6, 16.6);
+      for (let x = -12; x <= 12; x += 6) { q.box(4, 1.0, 1.4, P.woodLight, x, 0, 15.4); q.box(3.6, 0.2, 1.2, P.wood, x, 1.0, 15.4); q.box(0.8, 0.6, 0.6, P.coral, x - 1, 1.2, 15.4); }
+      for (const [x, c] of [[-8, P.berry], [8, P.honey]]) { q.cyl(0.5, 0.5, 1.2, 8, c, x, 0, 13.6); q.cyl(0.5, 0.5, 1.2, 8, c, x + 1.1, 0, 13.6); }
+      // a row of new tyres and a stack of paint pots on the north side
+      for (let k = 0; k < 4; k++) q.cyl(0.55, 0.55, 0.35, 10, '#3a3440', -14 + k * 1.3, 0.15, -14.5, 0, 0, Math.PI / 2);
+      for (let k = 0; k < 5; k++) q.cyl(0.35, 0.35, 0.5, 8, BB.PAINTS[k].color, 10 + k * 0.8, 0.15, -14.6);
+    });
+    for (const [x, z] of [[-16, -16], [0, -16], [16, -16], [-16, 16], [0, 16], [16, 16]]) W.addCircle(WS.x + x, WS.z + z, 0.6);
+    W.addBox(WS.x, WS.z + 16.6, 15, 0.4, 0, 2.6);
+    SIGNS.push({ pic: 'depot', x: WS.x - 17.9, y: 12.4, z: WS.z, nx: -1, nz: 0, size: 3.6, ring: P.teal });
+    SIGNS.push({ pic: 'wash', x: wb.x - wb.fwd.x * 6.8, y: 7.0, z: wb.z - wb.fwd.z * 6.8, nx: -wb.fwd.x, nz: -wb.fwd.z, size: 2.0, ring: '#5fb7e3' });
+    XMAS_TREES.push([50, 111, 8]);
+  }
+  // The wash brushes: two tall ones (one each side of the bay) and one across the top, on a carriage that slides
+  // along the bay during a wash. Their stripes show the spin.
+  function buildWashRig(wb) {
+    const g = new THREE.Group(); g.name = 'washRig';
+    const brush = (horiz) => {
+      const q = BB.mk.builder(), n = 10;
+      for (let k = 0; k < n; k++) {
+        const a = k / n * Math.PI * 2;
+        q.box(0.32, 3.2, 0.32, k % 2 ? '#5fb7e3' : '#ff8fab', Math.cos(a) * 0.55, -1.6, Math.sin(a) * 0.55);
+      }
+      q.cyl(0.18, 0.18, 3.4, 6, '#e9e2d6', 0, -1.7, 0);
+      const m = q.mesh(); m.userData.horiz = horiz; return m;
+    };
+    const L = brush(false), R = brush(false), T = brush(true);
+    L.position.set(-1.95, 1.75, 0); R.position.set(1.95, 1.75, 0);
+    T.rotation.z = Math.PI / 2; T.position.set(0, 4.15, 0); T.scale.set(1, 1.2, 1);
+    const beam = BB.mk.builder(); beam.box(6.2, 0.5, 0.8, '#4a9ccc', 0, 4.9, 0); beam.box(0.4, 1.0, 0.6, '#4a9ccc', -2.8, 3.9, 0); beam.box(0.4, 1.0, 0.6, '#4a9ccc', 2.8, 3.9, 0);
+    g.add(beam.mesh(), L, R, T);
+    g.userData = { brushes: [L, R, T], bay: wb, t: 0, run: false };
+    g.position.set(wb.x + wb.fwd.x * 6.0, 0.04, wb.z + wb.fwd.z * 6.0); g.rotation.y = wb.heading;
+    return g;
+  }
+
+  // ---- the expressway: an interchange loop ramp by the town's north connector, an overpass and a tunnel far east,
+  // a big sign to the airport ----
+  function buildHighway(b) {
+    // the elevated loop ramp north of the expressway (decoration: the bus stays on the ground)
+    const cx = 60, cz = HZ - 34, R0 = 18;
+    const deck = [];
+    for (let k = 0; k <= 40; k++) { const a = -Math.PI / 2 + k / 40 * Math.PI * 1.6; deck.push({ x: cx + Math.cos(a) * R0, z: cz + Math.sin(a) * R0, y: 2 + 7 * Math.min(1, k / 18) }); }
+    for (let k = 0; k < deck.length - 1; k++) {
+      const p = deck[k], q2 = deck[k + 1], len = Math.hypot(q2.x - p.x, q2.z - p.z) + 0.2, ry = Math.atan2(q2.x - p.x, q2.z - p.z);
+      b.box(7, 0.8, len, '#e6dfd3', (p.x + q2.x) / 2, (p.y + q2.y) / 2, (p.z + q2.z) / 2, ry);
+      b.box(7.4, 0.7, len, '#7b7480', (p.x + q2.x) / 2, (p.y + q2.y) / 2 + 0.8, (p.z + q2.z) / 2, ry);
+      if (k % 4 === 0) { b.cyl(0.8, 0.9, p.y, 8, '#e3dacd', p.x, 0, p.z); W.addCircle(p.x, p.z, 0.9); }
+    }
+    // a straight deck carrying the loop over to the east, on tall piers
+    b.box(7, 1.0, 120, '#e6dfd3', cx + 64, 9, cz, Math.PI / 2); b.box(7.4, 0.8, 120, '#7b7480', cx + 64, 10, cz, Math.PI / 2);
+    for (let x = cx + 12; x <= cx + 120; x += 18) { b.cyl(0.9, 1.0, 9, 8, '#e3dacd', x, 0, cz); W.addCircle(x, cz, 1.0); }
+    for (const s2 of [-1, 1]) b.box(120, 0.9, 0.3, '#f1ebe0', cx + 64, 10.8, cz + s2 * 3.55);
+    // an overpass across the expressway beyond the airport turn, and the tunnel mouth at the far east end
+    b.box(9, 1.2, 46, '#e6dfd3', 480, 8.6, HZ); b.box(9.4, 0.8, 46, '#7b7480', 480, 9.8, HZ);
+    for (const z of [HZ - 19, HZ + 19]) { b.box(6, 8.6, 1.4, '#e3dacd', 480, 0, z); W.addBox(480, z, 3, 0.7, 0, 9); }
+    b.box(2, 14, 40, '#d8cfc2', 554, 0, HZ); b.box(2.2, 6.4, 28, '#2b2430', 552.9, 0, HZ);
+    b.ball(30, P.grassDark, 580, -6, HZ, 1, 1, 0.8, 1.6);
+    W.addBox(556, HZ, 3, 22, 0, 14);
+    // a big direction board over the expressway (a plane picture)
+    for (const z of [HZ - 15, HZ + 15]) b.box(0.6, 8, 0.6, '#5f8f5a', 300, 0, z);
+    b.box(0.8, 3.2, 31, '#2f8a55', 300, 8, HZ); b.box(0.9, 0.3, 31.4, '#fff6e0', 300, 11.2, HZ);
+    SIGNS.push({ pic: 'plane', x: 299.5, y: 9.6, z: HZ + 6.7, nx: -1, nz: 0, size: 2.6, ring: '#2f8a55' });
+    SIGNS.push({ pic: 'city', x: 299.5, y: 9.6, z: HZ - 6.7, nx: -1, nz: 0, size: 2.6, ring: '#2f8a55' });
+    BLDG.push({ x: cx + 64, z: cz, ry: Math.PI / 2, len: 120, dep: 7, H: 10.8 });
+  }
+
+  // ---- the airport, north of the expressway: a terminal with a curved roof facing the drop-off road, a control
+  // tower, a fenced apron and runway, planes parked, one taxiing and one taking off now and then ----
+  function planeModel(q, s) {
+    q.cyl(1.6 * s, 1.6 * s, 26 * s, 10, '#f7f4ee', 0, 0, 0, 0, Math.PI / 2);              // fuselage along z
+    q.ball(1.6 * s, '#f7f4ee', 0, 0, 13 * s, 1, 1, 1, 1.5);
+    q.add(new THREE.ConeGeometry(1.6 * s, 6 * s, 10), '#f7f4ee', 0, 0.6 * s, -15.8 * s, 0, -Math.PI / 2);
+    q.box(26 * s, 0.4 * s, 5 * s, '#e3e7ee', 0, -0.6 * s, 0.6 * s);                         // wings
+    q.box(9 * s, 0.3 * s, 2.6 * s, '#e3e7ee', 0, 0.6 * s, -16.5 * s);                       // tailplane
+    q.box(0.4 * s, 5 * s, 3.6 * s, '#4fa3e0', 0, 0.8 * s, -16.5 * s);                       // fin (a plain blue stripe: no logo)
+    for (const x of [-6.5, 6.5]) q.cyl(0.8 * s, 0.9 * s, 3.2 * s, 8, '#c9cfd8', x * s, -1.6 * s, 1.8 * s, 0, Math.PI / 2);
+    q.box(2.8 * s, 0.3 * s, 22 * s, '#4fa3e0', 0, 0.2 * s, 0.4 * s);                       // a cheerful stripe
+    for (let k = -4; k <= 4; k++) q.box(3.25 * s, 0.4 * s, 0.6 * s, '#4d6f8a', 0, 0.85 * s, k * 2.4 * s);   // windows (both sides)
+    for (const z of [9, -2]) q.box(0.3 * s, 1.6 * s, 0.3 * s, '#5a5260', 0, -3.2 * s, z * s);
+  }
+  function buildAirport(b, green) {
+    // the terminal (west of the drop-off road), its forecourt and glass front
+    b.box(14, 0.18, 70, P.pave, 385, 0, HZ - 56);
+    const TX = 350, TZ = HZ - 56;
+    W.addBox(TX, TZ, 28, 22, 0, 13);
+    A(b, TX, 0, TZ, Math.PI / 2, (q) => {
+      if (LM('airportTerminal', q, { w: 44, d: 56, h: 12 })) return;
+      bx(q, 44, 9, 54, '#f1ebe0', 0, 0, 0);
+      bx(q, 44.4, 0.8, 54.4, '#d8cfc2', 0, 9, 0);
+      q.add(new THREE.CylinderGeometry(30, 30, 46, 16, 1, false, -0.55, 1.1), '#e9e2d6', 0, -17.6, 0, 0, Math.PI / 2, 0, 1, 1, 1);
+      for (let x = -20; x <= 20; x += 4) pane(q, x, 4.6, 27.05, 0, 3.4, 6.8, rnd() < 0.7, '#a9d6ec');
+      bx(q, 46, 0.6, 3, '#fff6e0', 0, 8.4, 28.6);
+      for (let x = -20; x <= 20; x += 8) bx(q, 0.4, 8.4, 0.4, '#e9e2d6', x, 0, 29.8);
+      bx(q, 46, 0.3, 4, P.teal, 0, 8.8, 29.5);
+    });
+    SIGNS.push({ pic: 'plane', x: 378.8, y: 11.5, z: TZ, nx: 1, nz: 0, size: 3.6, ring: P.teal });
+    // the airside: apron, taxiway and runway behind a fence
+    b.box(330, 0.04, 34, '#a6a0a8', 385, 0, -340);
+    for (let x = 230; x <= 540; x += 14) b.box(6, 0.02, 0.8, '#fff6e0', x, 0.05, -340);
+    for (const x of [228, 542]) for (let k = -3; k <= 3; k++) b.box(1.2, 0.02, 4, '#fff6e0', x, 0.05, -340 + k * 3.6);
+    b.box(300, 0.04, 14, '#b4aeb6', 380, 0, -316);
+    b.box(120, 0.04, 30, '#b9b3bb', 290, 0, -310);
+    for (let x = 216; x <= 546; x += 3.5) b.box(0.12, 2.0, 0.12, '#8f96a0', x, 0, -299);
+    b.box(330, 0.08, 0.05, '#cfd4da', 381, 1.0, -299); b.box(330, 0.08, 0.05, '#cfd4da', 381, 1.9, -299);
+    // the control tower
+    A(b, 262, 0, -318, 0, (q) => {
+      if (LM('controlTower', q, { h: 32 })) return;
+      q.cyl(2.2, 3.0, 26, 10, '#f1ebe0', 0, 0, 0);
+      q.cyl(4.8, 3.6, 1.2, 10, '#d8cfc2', 0, 26, 0);
+      q.cyl(5.0, 5.0, 3.4, 10, '#4d6f8a', 0, 27.2, 0);
+      for (let k = 0; k < 10; k++) { const a = k / 10 * Math.PI * 2; pane(q, Math.sin(a) * 5.05, 28.9, Math.cos(a) * 5.05, a, 2.8, 2.6, true, '#9fd3e8'); }
+      q.cyl(5.6, 5.2, 0.8, 10, P.teal, 0, 30.6, 0);
+      q.cyl(0.15, 0.15, 3, 4, '#8f96a0', 0, 31.4, 0); q.ball(0.4, '#ff4a3a', 0, 34.6, 0);
+    });
+    // parked planes at the apron
+    for (const [x, z, h] of [[248, -308, Math.PI * 0.95], [318, -306, Math.PI * 1.05]]) b.at(x, 3.0, z, h, (q) => { if (!LM('plane', q, { len: 26 })) planeModel(q, 1); });
+    // two moving planes (one instanced mesh): one taxis to and fro, one takes off down the runway now and then
+    const pb = BB.mk.builder(); planeModel(pb, 1);
+    planes = new THREE.InstancedMesh(pb.geometry(), new THREE.MeshLambertMaterial({ vertexColors: true }), 2);
+    planes.name = 'planes'; planes.frustumCulled = false;
+    planeState.push({ kind: 'taxi', t: 0 }, { kind: 'takeoff', t: rr(0, 20) });
+    // grass round the airfield, a windsock
+    b.box(0.2, 7, 0.2, '#8f96a0', 540, 0, -322); b.add(new THREE.ConeGeometry(0.7, 3, 8, 1, true), '#ff8a3a', 540, 6.6, -320.6, 0, Math.PI / 2);
+    BLDG.push({ x: TX, z: TZ, ry: Math.PI / 2, len: 44, dep: 54, H: 9.2 });
+    XMAS_TREES.push([418, HZ - 56, 7]);
+  }
+  function updatePlanes(dt) {
+    for (let i = 0; i < 2; i++) {
+      const st = planeState[i]; st.t += dt;
+      let x, y = 3.0, z, h, pitch = 0;
+      if (st.kind === 'taxi') {                         // to and fro along the taxiway, turning at each end
+        const T = 70, u = (st.t % T) / T, w = u < 0.5 ? u * 2 : 2 - u * 2;
+        x = 240 + 280 * (w * w * (3 - 2 * w)); z = -316; h = u < 0.5 ? Math.PI / 2 : -Math.PI / 2;
+      } else {                                          // roll, rotate, climb away, pause unseen, again
+        const T = 46, u = st.t % T;
+        if (u > 32) { planes.setMatrixAt(i, _m4.compose(_p4.set(0, -200, 0), _q4.identity(), _s4.set(0.01, 0.01, 0.01))); continue; }
+        const s0 = Math.min(u, 14), vx = 0.9 * s0 * s0 + Math.max(0, u - 14) * 25.2;
+        x = 230 + vx; z = -340; h = Math.PI / 2;
+        const air = Math.max(0, x - 400); y = 3.0 + air * air * 0.0016 + air * 0.08; pitch = -Math.min(0.22, air * 0.004);
+      }
+      _q4.setFromEuler(new THREE.Euler(pitch, h, 0, 'YXZ'));
+      planes.setMatrixAt(i, _m4.compose(_p4.set(x, y, z), _q4, _s4.set(1, 1, 1)));
+    }
+    planes.instanceMatrix.needsUpdate = true;
+  }
+
+  // ---- the city: glassy towers east of the town, between the expressway and the east connector, and a few more
+  // south of it (generic shapes: slabs, stepped and tapered towers with rooftop crowns) ----
+  function buildCity(b) {
+    const cols = ['#9cc7dc', '#8fd3c6', '#b9d2ff', '#f1ebe0', '#a9c4e0', '#ffe1b0'];
+    const spots = [];
+    for (const z of [-158, -130, -102, -76, -50]) for (const x of [120, 144, 168]) spots.push([x, z]);
+    for (const z of [52, 80]) for (const x of [120, 144, 168]) spots.push([x, z]);
+    let i = 0;
+    for (const [x, z] of spots) {
+      if ((i++ * 7) % 11 === 3) continue;              // a few gaps (little plazas)
+      const w = rr(10, 13), d = rr(10, 13), h = rr(28, 78), col = rpick(cols), ry = 0;
+      W.addBox(x, z, w / 2 + 0.3, d / 2 + 0.3, ry, h + 4);
+      A(b, x, 0, z, ry, (q) => {
+        if (LM('skylineTower', q, { w, d, h, seed: i })) return;
+        const steps = h > 55 ? 3 : 2;
+        let cw = w, cd = d, y = 0;
+        for (let k = 0; k < steps; k++) {
+          const sh = (h / steps) * (k === steps - 1 ? 1.0 : 1.05);
+          bx(q, cw, sh, cd, k % 2 ? light(col, 0.25) : col, 0, y, 0);
+          for (let yy = y + 3; yy < y + sh - 2; yy += 3.6) { bx(q, cw + 0.15, 0.25, cd + 0.15, '#f7f4ee', 0, yy, 0); }
+          for (let yy = y + 4.5; yy < y + sh - 2; yy += 7.2) { pane(q, 0, yy, cd / 2 + 0.06, 0, cw - 1.6, 1.8, rnd() < 0.55, '#bfe3f2'); pane(q, -cw / 2 - 0.06, yy, 0, -Math.PI / 2, cd - 1.6, 1.8, rnd() < 0.55, '#bfe3f2'); }
+          y += sh; cw *= 0.78; cd *= 0.78;
+        }
+        bx(q, cw * 0.9, 1.4, cd * 0.9, '#e9e2d6', 0, y, 0);
+        if (h > 60) { q.cyl(0.18, 0.25, 7, 4, '#8f96a0', 0, y + 1.4, 0); q.ball(0.35, '#ff4a3a', 0, y + 8.5, 0); }
+        else q.add(new THREE.ConeGeometry(Math.min(cw, cd) * 0.55, 4, 4), P.teal, 0, y + 1.4 + 2, 0, Math.PI / 4);
+      });
+      BLDG.push({ x, z, ry, len: w, dep: d, H: h * 0.5 });
+    }
+    XMAS_TREES.push([99, -62, 8]);
+  }
+
+  // ---- old town: two rows of colourful two-storey shophouses facing each other across the west road, with
+  // lanterns strung over the road ----
+  function oldTownRow(q, len) {
+    const walls = ['#ffc9a0', '#9fdcc4', '#ffb3c6', '#b9d2ff', '#ffe58a', '#ffbe98', '#cdbcff', '#a8e6a1'];
+    const n = Math.floor(len / 5);
+    for (let k = 0; k < n; k++) {
+      const x = -len / 2 + 2.5 + k * 5, col = walls[(k * 3) % walls.length];
+      bx(q, 5, 3.2, 8, light(col, 0.25), x, 0, -1);
+      bx(q, 5, 3.6, 9.6, col, x, 3.2, -0.2);
+      bx(q, 5.2, 0.3, 10, '#fff6e6', x, 3.1, -0.2);
+      pane(q, x, 1.5, 3.02, 0, 3.2, 1.8, true, '#ffe1a0');
+      pane(q, x - 1.2, 4.9, 4.62, 0, 1.0, 1.6); pane(q, x + 1.2, 4.9, 4.62, 0, 1.0, 1.6);
+      bx(q, 5.1, 0.4, 0.5, '#fff6e6', x, 6.8, 4.5);
+      q.prism(5.2, 9.6, 2.0, k % 2 ? '#c85a3a' : '#d9673f', x, 6.8, -0.2);
+      q.ball(0.4, '#e8473b', x, 2.6, 3.8, 0, 1, 1.2, 1);
+      bx(q, 0.4, 3.2, 0.4, '#fff6e6', x - 2.3, 0, 4.4);
+    }
+  }
+  function buildOldTown(b) {
+    const X = -OX;
+    for (const [z0, z1] of [[-142, -50], [-6, 142]]) {
+      const len = z1 - z0, zc = (z0 + z1) / 2;
+      // east row (faces west, its front 15 from the road's middle) and west row (faces east)
+      for (const [x, ry] of [[X + 29, -Math.PI / 2], [X - 29, Math.PI / 2]]) {
+        A(b, x, 0, zc, ry, (q) => { if (!LM('chinatownRow', q, { len })) oldTownRow(q, len); });
+        W.addBox(x, zc, 5.4, len / 2, 0, 9);
+        BLDG.push({ x, z: zc, ry, len, dep: 10, H: 7.2 });
+      }
+      b.box(9, 0.2, len, P.pave, X + 19.7, 0, zc); b.box(9, 0.2, len, P.pave, X - 19.7, 0, zc);
+      // lantern strings across the road every 14
+      for (let z = z0 + 6; z < z1 - 4; z += 14) {
+        b.box(48, 0.06, 0.06, '#7a5a3a', X, 7.8, z);
+        for (let x = X - 21; x <= X + 21; x += 3.5) b.ball(0.5, (Math.round(x) % 2) ? '#ef4b3c' : '#ffb81f', x, 7.2, z, 0, 1, 1.25, 1);
+      }
+    }
+    // a red gate with green tiles at the north end of the street
+    b.at(X, 0, -146, 0, (q) => {
+      for (const x of [-11, 11]) { q.box(1.4, 9, 1.4, '#d9473b', x, 0, 0); q.box(2.2, 0.6, 2.2, '#c13a30', x, 0, 0); }
+      q.box(26, 1.2, 1.6, '#d9473b', 0, 8.2, 0); q.prism(28, 3.4, 1.6, '#2f8a55', 0, 9.4, 0); q.box(8, 1.4, 0.4, '#ffb81f', 0, 6.4, 0.8);
+    });
+    for (const x of [-11, 11]) W.addCircle(X + x, -146, 1.0);
+    XMAS_TREES.push([X - 30, -28, 8]);
+  }
+
+  // ---- the waterfront: a promenade along the sea, the beach park (west), a garden of tall glowing tree towers and a
+  // giant observation wheel (east) ----
+  function superTree(q, h, col) {
+    q.cyl(1.2, 0.9, h, 8, dark(col, 0.1), 0, 0, 0);
+    for (let k = 0; k < 6; k++) { const a = k / 6 * Math.PI * 2; q.box(0.25, h * 0.9, 0.25, light(col, 0.2), Math.cos(a) * 1.0, 0, Math.sin(a) * 1.0, -a, 0, 0); }
+    q.add(new THREE.CylinderGeometry(h * 0.32, 1.2, h * 0.28, 10, 1, true), col, 0, h * 0.86, 0);
+    q.add(new THREE.CylinderGeometry(h * 0.32, h * 0.32, 0.5, 10), dark(col, 0.15), 0, h, 0);
+    for (let k = 0; k < 10; k++) { const a = k / 10 * Math.PI * 2; q.ball(0.7, rpick(['#6fc45a', '#8fd06a', '#ff8fc0']), Math.cos(a) * h * 0.3, h + 0.3, Math.sin(a) * h * 0.3); }
+  }
+  function buildWaterfront(b, green) {
+    b.box(370, 0.06, 900, '#57b2dd', 60, 0.0, SZ + 24 + 450);                              // the sea
+    b.box(370, 0.08, 6, '#7fc8ea', 60, 0.0, SZ + 26);
+    b.box(350, 0.2, 12, P.pave, 0, 0, SZ + 17.5);                                          // the promenade
+    for (let x = -170; x <= 170; x += 3) b.box(0.12, 1.1, 0.12, '#e9e2d6', x, 0.2, SZ + 23.3);
+    b.box(344, 0.1, 0.1, '#e9e2d6', 0, 1.3, SZ + 23.3);
+    // beach park (west): sand, palms, umbrellas, loungers, a lifeguard tower
+    A(b, -106, 0, SZ + 40, 0, (q) => {
+      if (LM('beachPark', q, { w: 130, d: 40 })) return;
+      q.box(132, 0.12, 30, '#f6d98e', 0, 0, 0);
+      const um = [P.coral, P.honey, P.teal, P.rose, P.berry];
+      for (let k = 0; k < 9; k++) {
+        const x = -56 + k * 14, z = (k % 2) * 6 - 2;
+        q.cyl(0.08, 0.08, 2.6, 4, '#e9e2d6', x, 0.1, z); q.add(new THREE.ConeGeometry(2.0, 0.8, 8), um[k % um.length], x, 2.9, z);
+        q.box(0.9, 0.25, 2.0, '#fff6e0', x + 1.6, 0.12, z + 0.6, 0.3);
+      }
+      q.box(3, 0.3, 3, '#e9e2d6', 30, 3, -6); for (const [x, z] of [[-1.3, -1.3], [1.3, -1.3], [-1.3, 1.3], [1.3, 1.3]]) q.box(0.2, 3, 0.2, '#e9e2d6', 30 + x, 0, -6 + z);
+      q.box(2.6, 1.8, 2.6, P.coral, 30, 3.3, -6); q.prism(3.2, 3.2, 1, '#fff6e0', 30, 5.1, -6);
+    });
+    for (let k = 0; k < 8; k++) tree(green, -168 + k * 17, SZ + 33 + (k % 2) * 8, 0.12, 'palm', 1.1);
+    // the garden of tree towers
+    A(b, 64, 0, SZ + 44, 0, (q) => {
+      q.box(70, 0.14, 34, '#7fcf6a', 0, 0, 0);
+      if (LM('superTrees', q, { n: 7, w: 70, d: 34 })) return;
+      const T = [[-26, -6, 18, '#b07ad8'], [-12, 8, 24, '#ff8fab'], [0, -8, 28, '#8e62c8'], [12, 6, 22, '#ffb81f'], [26, -4, 17, '#19a79b'], [-2, 12, 15, '#ff6b5c'], [22, 12, 14, '#5d73e8']];
+      for (const [x, z, h, c] of T) q.at(x, 0.1, z, 0, (r) => superTree(r, h, c));
+    });
+    for (const [x, z] of [[38, SZ + 38], [52, SZ + 52], [64, SZ + 36], [76, SZ + 50], [90, SZ + 40]]) W.addCircle(x, z, 1.4);
+    // the observation wheel: legs and a boarding hall (static), the rim (turns)
+    const WX = 134, WZ = SZ + 46, HUB = 31, RW = 25;
+    b.at(WX, 0, WZ, 0, (q) => {
+      for (const s2 of [-1, 1]) for (const zz of [-5, 5]) {
+        const lx = s2 * 14, len = Math.hypot(14, HUB), ang = Math.atan2(14, HUB);
+        q.box(1.0, len, 1.0, '#e9e2d6', lx / 2, HUB / 2 - len / 2, zz * 0.6, 0, 0, s2 * ang);
+      }
+      q.add(new THREE.CylinderGeometry(1.2, 1.2, 9, 10), '#d8cfc2', 0, HUB, -1, 0, Math.PI / 2);
+      q.box(30, 4.5, 12, '#fff6e0', 0, 0, 10); q.box(31, 0.6, 13, P.teal, 0, 4.5, 10);
+    });
+    W.addBox(WX, WZ + 10, 15, 6, 0, 5);
+    const rim = BB.mk.builder(), cols = ['#ff6b5c', '#ffb81f', '#19a79b', '#5d73e8', '#ff8fab', '#6fc45a', '#8e62c8', '#ffd45c'];
+    rim.add(new THREE.TorusGeometry(RW, 0.45, 5, 48), '#f1ebe0', 0, 0, 0.9); rim.add(new THREE.TorusGeometry(RW, 0.45, 5, 48), '#f1ebe0', 0, 0, -0.9);
+    for (let k = 0; k < 24; k++) {
+      const a = k / 24 * Math.PI * 2;
+      const m = new THREE.Matrix4().makeRotationZ(a - Math.PI / 2).setPosition(Math.cos(a) * RW / 2, Math.sin(a) * RW / 2, 0);
+      rim.addM(new THREE.BoxGeometry(0.16, RW, 0.16), '#d8cfc2', m);
+      rim.ball(1.5, cols[k % cols.length], Math.cos(a) * (RW + 1.4), Math.sin(a) * (RW + 1.4), 0, 1);
+    }
+    wheelRim = rim.mesh(); wheelRim.name = 'wheelRim'; wheelRim.position.set(WX, HUB, WZ - 4.5); wheelRim.rotation.y = 0;
+    XMAS_TREES.push([96, SZ + 17, 8]);
+  }
+
+  function buildDistricts(dist, green) {
+    buildDepot(dist); buildHighway(dist); buildAirport(dist, green); buildCity(dist); buildOldTown(dist); buildWaterfront(dist, green);
+  }
+
+  // ---------- the bus wash show (bus.js runs the clock: W.washShow(t) each frame, null to stop) ----------
+  // 0-0.6 s the brushes come up to speed; 0.6-4.4 s the carriage rolls along the bus and back, foam flies; 4.4-5.6 s
+  // a rinse of blue spray; then everything settles.
+  const FOAM_N = 180;
+  function buildWashFx() {
+    const geo = new THREE.BufferGeometry(), pos = new Float32Array(FOAM_N * 3), col = new Float32Array(FOAM_N * 3);
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    const c = document.createElement('canvas'); c.width = c.height = 32;
+    const x = c.getContext('2d'), gr = x.createRadialGradient(16, 16, 2, 16, 16, 15);
+    gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.7, 'rgba(255,255,255,0.85)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = gr; x.fillRect(0, 0, 32, 32);
+    const m = new THREE.Points(geo, new THREE.PointsMaterial({ size: 0.55, map: new THREE.CanvasTexture(c), vertexColors: true, transparent: true, depthWrite: false }));
+    m.frustumCulled = false; m.visible = false; m.name = 'washFx';
+    m.userData.p = []; for (let i = 0; i < FOAM_N; i++) m.userData.p.push({ x: 0, y: -50, z: 0, vy: 0, life: 0 });
+    return m;
+  }
+  W.washShow = function (t, dt) {
+    if (!washRig) return;
+    const u = washRig.userData, wb = u.bay;
+    dt = dt || 0;
+    if (t == null) { u.run = false; if (washFx) washFx.visible = false; washRig.position.set(wb.x + wb.fwd.x * 6.0, 0.04, wb.z + wb.fwd.z * 6.0); return; }
+    u.run = true;
+    // the carriage: from the bay's front end to its back and back again
+    const k = t < 0.6 ? 0 : t < 4.4 ? (t - 0.6) / 3.8 : 1, along = 6.0 - 12.0 * Math.sin(Math.PI * k);
+    washRig.position.set(wb.x + wb.fwd.x * along, 0.04, wb.z + wb.fwd.z * along);
+    const spin = t < 5.6 ? Math.min(1, t / 0.6) : Math.max(0, 1 - (t - 5.6) / 0.6);
+    for (const br of u.brushes) br.rotation.y += dt * 14 * spin * (br === u.brushes[1] ? -1 : 1);
+    // foam (white, pink, pale blue) while brushing, blue spray when rinsing
+    if (!washFx) return;
+    washFx.visible = t < 6.4;
+    const P0 = washFx.userData.p, pos = washFx.geometry.attributes.position.array, col = washFx.geometry.attributes.color.array;
+    const rinse = t > 4.4, emit = t > 0.5 && t < 5.6;
+    for (let i = 0; i < FOAM_N; i++) {
+      const q = P0[i];
+      q.life -= dt;
+      if (q.life <= 0 && emit && Math.random() < dt * 9) {
+        const side = Math.random() < 0.5 ? -1 : 1, a = along + (Math.random() - 0.5) * (rinse ? 12 : 3);
+        q.x = wb.x + wb.fwd.x * a + wb.side.x * side * (1.0 + Math.random() * 0.6); q.z = wb.z + wb.fwd.z * a + wb.side.z * side * (1.0 + Math.random() * 0.6);
+        q.y = rinse ? 4.6 : 0.6 + Math.random() * 3.0; q.vy = rinse ? -6 - Math.random() * 3 : 0.3 + Math.random() * 0.5; q.life = rinse ? 0.7 : 1.4 + Math.random();
+        const c = rinse ? [0.55, 0.8, 1.0] : rpick([[1, 1, 1], [1, 0.85, 0.92], [0.85, 0.95, 1]]);
+        col[i * 3] = c[0]; col[i * 3 + 1] = c[1]; col[i * 3 + 2] = c[2];
+      }
+      if (q.life > 0) { q.y = Math.max(0.1, q.y + q.vy * dt); pos[i * 3] = q.x; pos[i * 3 + 1] = q.y; pos[i * 3 + 2] = q.z; }
+      else { pos[i * 3 + 1] = -50; }
+    }
+    washFx.material.size = rinse ? 0.3 : 0.6;
+    washFx.geometry.attributes.position.needsUpdate = true; washFx.geometry.attributes.color.needsUpdate = true;
+  };
+
+  // ---------- Christmas: W.setXmas(on) ----------
+  // Big decorated trees (the depot yard, the waterfront, the city, old town, the airport), wreaths on the bus stop
+  // shelters, and fairy lights (one Points draw call) on the street trees and along the roofs; they glow at night.
+  let xmasDecor = null, xmasLights = null, xmasOn = false;
+  function bigXmasTree(q, h) {
+    q.cyl(0.45, 0.6, h * 0.16, 6, P.woodDark, 0, 0, 0);
+    for (let k = 0; k < 4; k++) q.add(new THREE.ConeGeometry(h * (0.36 - k * 0.07), h * 0.32, 9), k % 2 ? '#2f8a55' : '#3a9d5f', 0, h * (0.28 + k * 0.17), 0);
+    q.add(new THREE.OctahedronGeometry(h * 0.07), '#ffd45c', 0, h * 1.02, 0);
+    for (const [x, z, c] of [[1.2, 0.8, P.coral], [-1.0, 1.1, P.berry], [0.4, -1.3, P.honey], [-1.3, -0.6, P.teal]]) { q.box(0.9, 0.7, 0.9, c, x, 0, z); q.box(0.95, 0.12, 0.2, '#fff6e0', x, 0.7, z); }
+  }
+  function buildXmas() {
+    const xb = BB.mk.builder(), lp = [], lc = [];
+    const cols = [[1, 0.35, 0.3], [1, 0.82, 0.3], [0.35, 0.85, 0.5], [0.45, 0.6, 1], [1, 0.55, 0.85]];
+    const light = (x, y, z, i) => { lp.push(x, y, z); const c = cols[i % cols.length]; lc.push(c[0], c[1], c[2]); };
+    for (const [x, z, h] of XMAS_TREES) {
+      xb.at(x, 0.2, z, 0, (q) => { if (!LM('xmasTree', q, { h })) bigXmasTree(q, h); });
+      for (let k = 0; k < 40; k++) { const t = k / 40, a = t * Math.PI * 9, r = h * 0.34 * (1 - t) + 0.3; light(x + Math.cos(a) * r, 0.2 + h * (0.2 + t * 0.75), z + Math.sin(a) * r, k); }
+    }
+    for (const st of W.stops) {
+      const p = st.pos, wx = p.x - st.side.x * 0.1, wz = p.z - st.side.z * 0.1;
+      xb.at(wx, 2.9, wz, st.heading + Math.PI / 2, (q) => {
+        if (LM('wreath', q, { r: 0.6 })) return;
+        q.add(new THREE.TorusGeometry(0.55, 0.18, 5, 12), '#2f8a55', 0, 0, 0); q.box(0.4, 0.3, 0.12, '#e8473b', 0, -0.55, 0.1);
+      });
+      for (let k = 0; k < 10; k++) light(p.x + st.fwd.x * (k - 4.5) * 0.8 - st.side.x * 1.3, 3.05, p.z + st.fwd.z * (k - 4.5) * 0.8 - st.side.z * 1.3, k);
+    }
+    let i = 0;
+    for (const [x, z, y, r] of TREE_SPOTS) for (let k = 0; k < 5; k++) { const a = k / 5 * Math.PI * 2 + i; light(x + Math.cos(a) * r * 0.85, y + (k % 2) * 0.6 - 0.2, z + Math.sin(a) * r * 0.85, i + k); i++; }
+    for (const B of BLDG) {
+      const c = Math.cos(B.ry), s2 = Math.sin(B.ry);
+      const corner = (lx, lz) => ({ x: B.x + lx * c + lz * s2, z: B.z - lx * s2 + lz * c });
+      const hl = B.len / 2 + 0.3, hd = B.dep / 2 + 0.3, pts = [corner(-hl, -hd), corner(hl, -hd), corner(hl, hd), corner(-hl, hd), corner(-hl, -hd)];
+      for (let k = 0; k < 4; k++) {
+        const a = pts[k], b2 = pts[k + 1], n = Math.max(2, Math.floor(Math.hypot(b2.x - a.x, b2.z - a.z) / 1.6));
+        for (let j = 0; j < n; j++) light(a.x + (b2.x - a.x) * j / n, B.H + 0.4, a.z + (b2.z - a.z) * j / n, i++);
+      }
+    }
+    xmasDecor = xb.mesh(); xmasDecor.name = 'xmasDecor'; xmasDecor.matrixAutoUpdate = false; xmasDecor.updateMatrix();
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(lp, 3)); geo.setAttribute('color', new THREE.Float32BufferAttribute(lc, 3));
+    const c = document.createElement('canvas'); c.width = c.height = 32;
+    const x = c.getContext('2d'), gr = x.createRadialGradient(16, 16, 1, 16, 16, 15);
+    gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.35, 'rgba(255,255,255,0.9)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = gr; x.fillRect(0, 0, 32, 32);
+    xmasLights = new THREE.Points(geo, new THREE.PointsMaterial({ size: 0.5, map: new THREE.CanvasTexture(c), vertexColors: true, transparent: true, depthWrite: false, fog: true }));
+    xmasLights.name = 'xmasLights'; xmasLights.frustumCulled = false;
+    W.scene.add(xmasDecor, xmasLights);
+    if (BB.renderer && BB.camera) try { BB.renderer.compile(W.scene, BB.camera); } catch (e) { /* compiled on first draw */ }
+  }
+  W.setXmas = function (on) {
+    xmasOn = !!on;
+    if (xmasOn && !xmasDecor && W.built) buildXmas();
+    if (xmasDecor) { xmasDecor.visible = xmasOn; xmasLights.visible = xmasOn; }
+    BB.emit('world:xmas', { on: xmasOn });
+    return xmasOn;
+  };
+  W.isXmas = () => xmasOn;
+
   // ---------- per frame ----------
   let clock = 0, skyTimer = 0;
   W.update = function (dt) {
@@ -1661,7 +2162,14 @@
       rainbow.position.set(cp.x - sd.x / l * 300, -30, cp.z - sd.z / l * 300);
       rainbow.lookAt(cp.x, -30, cp.z);
     }
-    if (clouds) clouds.rotation.y += dt * 0.004;
+    if (clouds) { clouds.rotation.y += dt * 0.004; if (BB.camera) { clouds.position.x = BB.camera.position.x; clouds.position.z = BB.camera.position.z; } }
+    if (wheelRim) wheelRim.rotation.z += dt * 0.07;
+    if (planes) updatePlanes(dt);
+    if (boomN && Bs && Bs.front) {                 // the boom gates lift for the bus
+      const near = (zg) => Math.hypot(Bs.front.position.x - 42, Bs.front.position.z - zg) < 26 || Math.hypot(Bs.rear.position.x - 42, Bs.rear.position.z - zg) < 22;
+      for (const [m, zg, sg] of [[boomN, 128, 1], [boomS, 166, -1]]) { const want = near(zg) ? 1.35 : 0; m.userData.a = (m.userData.a || 0) + BB.clamp(want - (m.userData.a || 0), -dt * 1.6, dt * 1.6); m.rotation.x = sg * m.userData.a; }
+    }
+    if (xmasOn && xmasLights) xmasLights.material.size = 0.45 + 0.35 * W.sky.lights + 0.08 * Math.sin(clock * 3);
     if (train) {                           // glides back and forth, pausing at the station
       if (trainWait > 0) trainWait -= dt;
       else {

@@ -702,44 +702,84 @@
   }
 
   // =====================================================================
-  //  The bendy bus: a green Singapore-style articulated bus, front on the left.
+  //  The child's own bus from Little Bus Captain (its saved type, paint and number; the bendy green 88 when the
+  //  save can't be read, e.g. from file://): bendy, double-decker or single-decker, front on the left.
   //  Local units: about 300 long, wheels on y = 0. o = { dist, kneel, door, lit, asleep, bob }
   // =====================================================================
-  const BUS_G = '#5dbb46', BUS_GD = '#3f8f30', BUS_GL = '#9ad97a';
+  let BUS_G = '#5dbb46', BUS_GD = '#3f8f30', BUS_GL = '#9ad97a';
+  const BUS_PAINTS = { green: '#5dbb46', red: '#ef5a4b', blue: '#3d8fe0', yellow: '#f5b83d', purple: '#8e62c8', pink: '#ff8fab' };
+  // per type: body top, sections [x0, x1, front], the joint, windows (lower deck; upper deck), doors, wheels
+  const SINGLE_WINS = [[-112, -88], [-84, -62], [-58, -36], [-32, -10], [-6, 16], [20, 36], [66, 92], [96, 122], [126, 142]];
+  const BUS_TYPES = {
+    bendy: { top: -96, sections: [[-150, 2, true], [12, 150, false]], joint: true, wins: [[-112, -88], [-84, -66], [-36, -6], [16, 36], [66, 92], [96, 122], [126, 142]], up: [], doors: [[-140, -116], [-62, -40], [40, 62]], wheels: [-112, -24, 108] },
+    single: { top: -96, sections: [[-150, 150, true]], joint: false, wins: SINGLE_WINS, up: [], doors: [[-140, -116], [40, 62]], wheels: [-112, 108] },
+    double: { top: -152, sections: [[-150, 150, true]], joint: false, wins: SINGLE_WINS, up: [[-136, -108], [-102, -74], [-68, -40], [-34, -6], [0, 28], [34, 62], [68, 96], [102, 130]], doors: [[-140, -116], [40, 62]], wheels: [-112, 108] },
+  };
+  let myBus = { type: 'bendy', no: '88' }, myBusKey = '';
+  const busType = () => BUS_TYPES[myBus.type] || BUS_TYPES.bendy;
+  // Read the bus from the game's save (same origin on https); a change repaints the bus's glow sprites.
+  function refreshMyBus() {
+    let sv = null;
+    try { sv = JSON.parse(localStorage.getItem('bus3d.save') || 'null'); } catch (e) { sv = null; }
+    const type = sv && BUS_TYPES[sv.busType] ? sv.busType : 'bendy';
+    const col = (sv && BUS_PAINTS[sv.paint]) || BUS_PAINTS.green;
+    const no = sv && /^[1-9][0-9]{0,2}$/.test(String(sv.routeNo)) ? String(sv.routeNo) : '88';
+    const key = type + col + no;
+    if (key === myBusKey) return false;
+    myBusKey = key; myBus = { type, no };
+    BUS_G = col; BUS_GD = col === '#5dbb46' ? '#3f8f30' : dark(col, 0.28); BUS_GL = col === '#5dbb46' ? '#9ad97a' : light(col, 0.4);
+    if (typeof layerCache === 'object') for (const k in layerCache) if (/^busWin/.test(k)) delete layerCache[k];
+    if (typeof GAME_CONFETTI === 'object') GAME_CONFETTI.bus = [BUS_G, BUS_GL, '#ffd23f', '#ffffff', BUS_GD];
+    return true;
+  }
   const SKIN = ['#f5cfa6', '#e0a878', '#b9784d', '#8a5634', '#f2c49b'];
   const HAIR = ['#3a2a3c', '#6b3e26', '#2b2b40', '#c98a3c', '#8a4b2a'];
-  const BUS_WINS = [[-112, -88], [-84, -66], [-36, -6], [16, 36], [66, 92], [96, 122], [126, 142]];
+  // Christmas (1 December to 6 January, the bus game's own date rule): a wreath on the bus stop, lights on its tree
+  const isXmas = (d = new Date()) => d.getMonth() === 11 || (d.getMonth() === 0 && d.getDate() <= 6);
+  let xmasNow = isXmas();
+  setInterval(() => { xmasNow = isXmas(); }, 60000);
   function drawBusHero(o) {
-    const top = -96, bot = -16, wheelR = 16;
+    const T = busType(), top = T.top, bot = -16, wheelR = 16;
     const lit = o.lit || 0, asleep = !!o.asleep;
     const wheelA = (o.dist || 0) / wheelR;
     ellipse(0, 3, 162, 8, P.shadow);
     ctx.save();
     ctx.translate(0, (o.bob || 0) + (o.kneel || 0));
-    // accordion joint
-    const wob = Math.sin(time * 5) * (o.moving ? 1.4 : 0.3);
-    const joint = rr(-2, top + 7, 16, bot - top - 10, 3);
-    ctx.fillStyle = '#4c4658'; ctx.fill(joint);
-    ctx.strokeStyle = '#6c6578'; ctx.lineWidth = 1.6;
-    ctx.beginPath(); for (let x = 0; x <= 12; x += 3 + wob * 0.15) { ctx.moveTo(x, top + 9); ctx.lineTo(x, bot - 4); } ctx.stroke();
+    // accordion joint (the bendy)
+    if (T.joint) {
+      const wob = Math.sin(time * 5) * (o.moving ? 1.4 : 0.3);
+      const joint = rr(-2, top + 7, 16, bot - top - 10, 3);
+      ctx.fillStyle = '#4c4658'; ctx.fill(joint);
+      ctx.strokeStyle = '#6c6578'; ctx.lineWidth = 1.6;
+      ctx.beginPath(); for (let x = 0; x <= 12; x += 3 + wob * 0.15) { ctx.moveTo(x, top + 9); ctx.lineTo(x, bot - 4); } ctx.stroke();
+    }
+    const band = lit ? mixColor('#34495a', '#5b5040', lit) : '#34495a';
     const section = (x0, x1, front) => {
-      const p = rr(x0, top, x1 - x0, bot - top, front ? [24, 5, 5, 9] : [5, 18, 8, 5]);
+      const p = rr(x0, top, x1 - x0, bot - top, front ? (x1 > 100 ? [24, 14, 8, 9] : [24, 5, 5, 9]) : [5, 18, 8, 5]);
       ctx.save(); ctx.clip(p);
       ctx.fillStyle = BUS_G; ctx.fillRect(x0, top, x1 - x0, bot - top);
       ctx.fillStyle = '#f7faf2'; ctx.fillRect(x0, top, x1 - x0, 12);
       ctx.fillStyle = BUS_GL; ctx.fillRect(x0, top + 12, x1 - x0, 2.5);
-      ctx.fillStyle = lit ? mixColor('#34495a', '#5b5040', lit) : '#34495a'; ctx.fillRect(x0, -80, x1 - x0, 32);
+      if (T.up.length) { ctx.fillStyle = band; ctx.fillRect(x0, -140, x1 - x0, 32); ctx.fillStyle = BUS_GL; ctx.fillRect(x0, -100, x1 - x0, 3); }
+      ctx.fillStyle = band; ctx.fillRect(x0, -80, x1 - x0, 32);
       ctx.fillStyle = BUS_GL; ctx.fillRect(x0, -38, x1 - x0, 3);
       ctx.fillStyle = BUS_GD; ctx.fillRect(x0, -27, x1 - x0, 12);
       ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.fillRect(x0, top + 2, x1 - x0, 2);
       ctx.restore();
       shadeEdge(p, 6); rimOf(p, dark(BUS_G, 0.36), 2.2);
     };
-    section(-150, 2, true);
-    section(12, 150, false);
-    // windows with passengers peeking out
+    T.sections.forEach(([x0, x1, front]) => section(x0, x1, front));
+    // windows with passengers peeking out (the double-decker's upper deck too)
     const glass = lit ? mixColor('#bfe6f7', '#ffe9a8', lit) : '#bfe6f7';
-    BUS_WINS.forEach(([a, b], i) => {
+    T.up.forEach(([a, b], i) => {
+      const p = rr(a, -137, b - a, 26, 4);
+      ctx.fillStyle = glass; ctx.fill(p);
+      ctx.save(); ctx.clip(p);
+      if (i % 3 === 1 && !asleep) { const hx = (a + b) / 2; ctx.fillStyle = ['#5d9de0', '#ff8f6b', '#ffcf4a'][i % 3]; ctx.fill(rr(hx - 7, -120, 14, 14, 5)); circle(hx, -124, 6.2, SKIN[(i + 2) % SKIN.length]); ctx.fillStyle = HAIR[(i + 1) % HAIR.length]; ctx.beginPath(); ctx.arc(hx, -125.5, 6.4, Math.PI * 1.05, Math.PI * 1.95); ctx.fill(); }
+      ctx.fillStyle = 'rgba(255,255,255,.4)'; ctx.beginPath(); ctx.moveTo(a + 4, -137); ctx.lineTo(a + 11, -137); ctx.lineTo(a + 3, -111); ctx.lineTo(a - 4, -111); ctx.fill();
+      ctx.restore();
+    });
+    T.wins.forEach(([a, b], i) => {
       const p = rr(a, -77, b - a, 26, 4);
       ctx.fillStyle = glass; ctx.fill(p);
       ctx.save(); ctx.clip(p);
@@ -756,7 +796,7 @@
     });
     // doors: two leaves that slide apart
     const door = o.door || 0;
-    [[-140, -116], [-62, -40], [40, 62]].forEach(([a, b]) => {
+    T.doors.forEach(([a, b]) => {
       const w = b - a, h = bot - 4 - (-82);
       ctx.fillStyle = '#5b4a40'; ctx.fill(rr(a, -82, w, h, 3));
       ctx.fillStyle = '#ffd23f'; ctx.fillRect(a + w / 2 - 1, -76, 2, h - 12);
@@ -770,9 +810,10 @@
     });
     // windscreen, route box, lights
     ctx.fillStyle = glass; ctx.fill(rr(-149, -84, 7, 52, [10, 2, 2, 4]));
-    ctx.fillStyle = '#2f2a3a'; ctx.fill(rr(-140, -93, 24, 9, 2));
+    if (T.up.length) ctx.fill(rr(-149, -142, 7, 32, [10, 2, 2, 4]));
+    ctx.fillStyle = '#2f2a3a'; ctx.fill(rr(-140, top + 3, 24, 9, 2));
     ctx.font = `700 7.5px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = asleep ? '#6b5a3a' : '#ffb000'; ctx.fillText('88', -128, -88.3);
+    ctx.fillStyle = asleep ? '#6b5a3a' : '#ffb000'; ctx.fillText(myBus.no, -128, top + 7.7);
     circle(-145, -25, 4.6, asleep ? '#b8b4a8' : '#fff6c7'); circle(-145, -25, 2.6, asleep ? '#9a968c' : '#ffe066');
     ctx.fillStyle = '#e8524a'; ctx.fill(rr(146, -40, 4, 12, 1.5));
     ctx.fillStyle = '#ffb300'; ctx.fill(rr(146, -54, 4, 8, 1.5));
@@ -781,7 +822,8 @@
     ctx.beginPath(); ctx.moveTo(-148, -80); ctx.lineTo(-158, -82); ctx.lineTo(-158, -74); ctx.stroke();
     ctx.fillStyle = '#4a4555'; ctx.fill(rr(-162, -76, 6, 14, 2));
     if (asleep) {
-      // a sleepy face on the front window, and a big nightcap with a bobbing pom-pom
+      // a sleepy face on the front window, and a big nightcap with a bobbing pom-pom (on the roof, whatever the bus)
+      ctx.save(); ctx.translate(0, top + 96);
       inkLine(2.4);
       ctx.beginPath(); ctx.arc(-100, -68, 6.5, 0.12 * Math.PI, 0.88 * Math.PI); ctx.stroke();
       for (let i = 0; i < 3; i++) { const a = (0.3 + i * 0.2) * Math.PI; ctx.beginPath(); ctx.moveTo(-100 + Math.cos(a) * 6.5, -68 + Math.sin(a) * 6.5); ctx.lineTo(-100 + Math.cos(a) * 9.5, -68 + Math.sin(a) * 9.5); ctx.stroke(); }
@@ -795,13 +837,14 @@
       ctx.lineCap = 'round';
       [[dark(P.cream, 0.3), 12], [P.cream, 8]].forEach(([c, w]) => { ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(-150, -96); ctx.quadraticCurveTo(-120, -104, -88, -97); ctx.stroke(); });
       solid(ell(-48, -114 + pb, 10, 10), P.cream, { depth: 3, rim: 2 });
+      ctx.restore();
     }
     ctx.restore();
     // wheels don't bob
-    [-112, -24, 108].forEach(wx => {
+    T.wheels.forEach(wx => {
       ctx.fillStyle = '#3a3346'; ctx.beginPath(); ctx.arc(wx, bot + (o.kneel || 0) * 0.5, 21, Math.PI, 0); ctx.fill();
     });
-    [-112, -24, 108].forEach(wx => {
+    T.wheels.forEach(wx => {
       const wy = -wheelR + 0.5;
       solid(ell(wx, wy, wheelR, wheelR), '#3b3646', { depth: 3, rim: 0 });
       circle(wx, wy, 9, '#e8e4dc');
@@ -1490,6 +1533,20 @@
     solid(rr(-163, -146, 26, 11, 5), '#7a7287', { depth: 0, rim: 1.6 });
     circle(-150, -130, 6, lit > 0.05 ? '#fff3c4' : '#f3ecd8');
     drawRoundTree(158, -14, 0.62, '#58b96a');
+    if (xmasNow) {
+      // twinkling lights on the tree (a few dots) and a wreath with a red bow on the stop sign
+      const cols = ['#ff5a4e', '#ffd23f', '#5fb8ff', '#fff3c4', '#ff8fd0'];
+      for (let i = 0; i < 9; i++) {
+        const a = i * 2.3, rx = Math.cos(a) * (8 + (i % 3) * 6), ry = Math.sin(a * 1.3) * 12;
+        const on = (Math.sin(time * 3 + i * 1.7) + 1) / 2;
+        circle(158 + rx * 0.62 * 2.2, -14 - 66 * 0.62 + ry * 0.62 * 1.6, 2.6, mixColor('#7a6a50', cols[i % cols.length], 0.35 + 0.65 * on));
+      }
+      ctx.lineWidth = 6; ctx.strokeStyle = '#2f8f4a'; ctx.beginPath(); ctx.arc(-101.5, sy, 21, 0, Math.PI * 2); ctx.stroke();
+      ctx.lineWidth = 2; ctx.strokeStyle = '#4fbf6a'; ctx.beginPath(); ctx.arc(-102.5, sy - 1, 21, Math.PI * 0.9, Math.PI * 1.7); ctx.stroke();
+      for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3 + 0.3; circle(-101.5 + Math.cos(a) * 21, sy + Math.sin(a) * 21, 2.2, '#e8473c'); }
+      solid(rr(-108, sy + 16, 6, 8, 2), '#e8473c', { depth: 1, rim: 1.2 }); solid(rr(-101, sy + 16, 6, 8, 2), '#e8473c', { depth: 1, rim: 1.2 });
+      circle(-101.5, sy + 18, 3.2, '#c8332b');
+    }
     const hop = busHop();
     ctx.save(); ctx.translate(14, 6 - hop);
     drawBusHero({ dist: bus.dist, kneel: bus.kneel + bus.kick * Math.abs(Math.sin(time * 14)) * 4, door: bus.door, lit, asleep, moving: bus.v > 5, bob: busBob(asleep) });
@@ -2598,10 +2655,12 @@
   }
   function busLights(asleep) {
     const bk = L.places.bus.k;
-    return glowSprite(asleep ? 'busWinZ' : 'busWin', -112 - 36, -77 - 36, 254 + 72, 26 + 72, bk * DPR, g => {
+    const T = busType(), y0 = T.up.length ? -137 : -77;
+    return glowSprite('busWin' + myBus.type + (asleep ? 'Z' : ''), -136 - 36, y0 - 36, 278 + 72, -51 - y0 + 72, bk * DPR, g => {
       g.shadowColor = 'rgba(255,196,90,.95)'; g.shadowBlur = 14 * DPR * bk;
       g.fillStyle = `rgba(255,215,106,${asleep ? 0.35 : 0.82})`;
-      BUS_WINS.forEach(([a, b], i) => { if (!(asleep && i === 0)) g.fill(rr(a, -77, b - a, 26, 4)); });
+      T.wins.forEach(([a, b], i) => { if (!(asleep && i === 0)) g.fill(rr(a, -77, b - a, 26, 4)); });
+      T.up.forEach(([a, b]) => g.fill(rr(a, -137, b - a, 26, 4)));
     });
   }
   function trainLights(asleep) {
@@ -2615,6 +2674,7 @@
   // Build the painted layers and the glow sprites ahead of the first frame that needs them (after a
   // layout, and behind the closed iris when a game closes), so an evening sky never builds them mid-frame.
   function warmLayers() {
+    refreshMyBus();
     if (!L || !canvas.width || canvas.width < 2) return;
     peaksLayer(); L.bands.forEach((b, i) => bandLayer(i));
     townLights(); busLights(false); busLights(true); trainLights(false); trainLights(true);
@@ -2893,6 +2953,7 @@
   window.addEventListener('storage', e => {
     if (!e.key || e.key === 'hub-mute' || e.key === 'hub-music') setSound(!!load('hub-mute', muted), load('hub-music', musicOn) !== false);
     if (!e.key || e.key === 'hub-limit' || e.key === 'hub-play') reloadPlayTime();
+    if ((!e.key || e.key === 'bus3d.save') && refreshMyBus() && L) busLights(false);
   });
   let hiddenAt = 0;
   document.addEventListener('visibilitychange', () => {
@@ -2903,6 +2964,7 @@
     if (hiddenAt) { const away = now - hiddenAt; frameBorn += away; if (frameLoadedAt) frameLoadedAt += away; hiddenAt = 0; }
     try { if (window.speechSynthesis) window.speechSynthesis.resume(); } catch (e) { /* ignore */ }
     reloadPlayTime();
+    if (refreshMyBus() && L) busLights(false);
   });
 
   // =====================================================================

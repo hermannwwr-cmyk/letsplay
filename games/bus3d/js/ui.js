@@ -500,8 +500,14 @@
   // put the job's own target back (its arrival callback too) after the wash, or if the child says no
   function washBack() {
     const r = washRoute; washRoute = null;
-    try { if (r) BB.bus.stopAt(r.target || null, r.cb || null); } catch (e) { console.error(e); }
-    renderJob(); syncWash();
+    // (bus.js refuses a new target while the bus is still pulling into a bay: try again a moment later)
+    const put = (tries) => {
+      let done = true;
+      try { if (r) done = BB.bus.stopAt(r.target || null, r.cb || null) !== false; } catch (e) { console.error(e); }
+      if (!done && tries > 0 && !washRoute) BB.later(400, () => put(tries - 1));
+      renderJob(); syncWash();
+    };
+    put(25);
   }
   U.goWash = function () {
     if (!washOK() || washing || washRoute || BB.bedtime) return;
