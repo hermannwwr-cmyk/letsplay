@@ -1,3 +1,4 @@
+# Deployed by Cloudflare Workers Builds from this folder (deploy command: npx wrangler deploy).
 name = "bus-captain-rooms"
 main = "worker.js"
 compatibility_date = "2026-11-01"
