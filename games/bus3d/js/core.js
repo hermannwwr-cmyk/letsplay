@@ -62,6 +62,7 @@
     busType: null, routeNo: '88', assist: false, leftHand: false, control: 'joystick', xmas: 'auto', dirt: 0, spotted: {}, friendsMet: [],
     washPaid: 0,                 // coins paid for a bus wash that hasn't finished yet (a reload mid-wash gives them back)
     vehiclesOwned: ['bendy', 'double', 'single'],   // the rides the child may drive (the buses are free; the others are bought in the garage)
+    vehiclePaint: {},            // a colour per other ride ({fire: 'blue'}); none = its classic colours
   });
   // Hats were sold in an earlier build; they're gone from the shop, and depot.js gives their coins back.
   const HAT_PRICES = { party: 5, flowers: 6, bunny: 8, crown: 10 };
@@ -85,6 +86,7 @@
       s.washPaid = Math.max(0, Math.min(10, +s.washPaid | 0));
       s.vehiclesOwned = (Array.isArray(s.vehiclesOwned) ? s.vehiclesOwned : []).filter((v) => typeof v === 'string');
       for (const v of ['single', 'double', 'bendy']) if (!s.vehiclesOwned.includes(v)) s.vehiclesOwned.unshift(v);
+      if (!s.vehiclePaint || typeof s.vehiclePaint !== 'object' || Array.isArray(s.vehiclePaint)) s.vehiclePaint = {};
     }
     return s;
   })();

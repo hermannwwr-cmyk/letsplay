@@ -74,7 +74,7 @@
       const id = typeof t === 'string' ? t : t && t.id;
       const nm = (t && t.name) || (F.NAMES && (F.NAMES[id] || (Array.isArray(F.NAMES) && F.NAMES[F.TYPES.indexOf(t)]))) || (MY_TYPES.find((m) => m.id === id) || {}).name || String(id);
       return { id: String(id), name: String(nm) };
-    }).filter((t) => t.id && (!BB.bus || !Array.isArray(BB.bus.TYPES) || BB.bus.TYPES.includes(String(t.id))));   // (only what bus.js can drive)
+    }).filter((t) => t.id);
   }
   // The other rides (fleet.js: taxi, ice cream van, tow truck, ambulance, fire engine) are bought once with coins; the
   // three buses are free. Owned ones are saved in save.vehiclesOwned.
@@ -83,6 +83,8 @@
   const ownsVeh = (id) => !VEH_PRICE[id] || S.vehiclesOwned.includes(id);
   // a bus (route sign, number) or one of the other rides
   const isBusKind = (id) => BUS_KINDS.includes(id) || !!(BB.fleet && BB.fleet.KIND && BB.fleet.KIND[id] === 'bus');
+  // the ride on show is a bus? (bus.js says B.kind once it is built)
+  const isRideBus = (id) => (BB.bus && BB.bus.type === id && typeof BB.bus.kind === 'string' ? BB.bus.kind === 'bus' : isBusKind(id));
   D.ownsVehicle = ownsVeh; D.VEH_PRICE = VEH_PRICE;
   const curType = () => S.busType || fleetTypes()[0].id;
   const DIGITS = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
@@ -394,7 +396,7 @@
   function syncVehicle() {
     const B = BB.bus; if (!B || typeof B.setType !== 'function') return;
     const want = preview && preview.kind === 'vehicle' ? preview.id : curType();
-    if (!want || B.type === want || (Array.isArray(B.TYPES) && !B.TYPES.includes(want))) return;
+    if (!want || B.type === want || !fleetTypes().some((t) => t.id === want)) return;
     try { B.setType(want); } catch (e) { console.error(e); }
     for (const m of placed) if (m.parent) m.parent.remove(m);
     fallback = null; placed.length = 0;
@@ -404,10 +406,15 @@
   D.applyLooks = function (look) {
     const B = BB.bus; if (!B || !B.front) return;
     syncVehicle();
+    const tryPaint = !!(look && look.paint);
     look = Object.assign({ paint: S.paint, stickers: S.stickers }, look || {});
     const parts = Object.assign({}, S.parts, look.parts || {});
+    // the other rides wear their classic colours unless the child gave them one (save.vehiclePaint); the bus's own
+    // colour stays saved for when it comes back (bus.js: setPaint(c, true) repaints a ride anyway)
+    const veh = !isRideBus(B.type), vp = veh ? (tryPaint ? look.paint : S.vehiclePaint[B.type]) : null;
     // bus.js applies paint and parts; stickers are ours (so it is given none of its own to show)
-    try { B.applyCustom(Object.assign({}, S, { paint: look.paint, stickers: [], parts })); } catch (e) { console.error(e); }
+    try { B.applyCustom(Object.assign({}, S, { busType: B.type || S.busType, paint: veh ? S.paint : look.paint, stickers: [], parts })); } catch (e) { console.error(e); }
+    if (vp && typeof B.setPaint === 'function') { try { B.setPaint(vp, true); } catch (e) { console.error(e); } }
     if (B.setPart) for (const k of PART_KINDS) { try { B.setPart(k, parts[k] || partsOf(k)[0].id); } catch (e) { console.error(e); } }
     for (const m of placed) if (m.parent) m.parent.remove(m);
     placed.length = 0;
@@ -985,7 +992,7 @@
       }
       // (a) the ride: the buses are free to switch; the other rides are tried on with one tap and bought with a second
       let box = sec('mybus', 'Ride');
-      fleetTypes().forEach((t) => {
+      fleetTypes().sort((a, b) => (VEH_PRICE[a.id] || 0) - (VEH_PRICE[b.id] || 0)).forEach((t) => {   // (buses first, then by price)
         const own = ownsVeh(t.id), price = VEH_PRICE[t.id] || 0, name = TYPE_SAY[t.id] || t.name;
         tile(box, typePic(t.id), { i: n++, on: curType() === t.id && !(preview && preview.kind === 'vehicle'), preview: isPrev('vehicle', t.id), locked: !own,
           price: own ? 0 : price, wide: true, label: TYPE_WORD[t.id] || t.name, tap: (el) => {
@@ -1010,16 +1017,22 @@
         box = sec('number', 'Number');
         tile(box, platePic(S.routeNo), { i: n++, wide: true, label: 'Change', tap: () => openPad() });
       }
-      // (b) the colour
+      // (b) the colour: the bus's own; the other rides keep one each (save.vehiclePaint), or their classic colours
       box = sec('colour', 'Colour', true);
+      const vt = curType(), veh = !isRideBus(vt), chosen = veh ? S.vehiclePaint[vt] || null : S.paint;
+      const classic = veh && BB.fleet && BB.fleet.PAINT && BB.fleet.PAINT[vt];
+      if (veh) tile(box, paintPic(typeof classic === 'string' ? classic : '#ef4b3c'), { i: n++, on: !chosen && !preview, label: 'Classic', tap: () => {
+        setPreview(null); delete S.vehiclePaint[vt]; BB.saveNow(); D.applyLooks(); BB.sfx.pop(); D.hop(); BB.say('Classic colours!'); renderBody();
+      } });
+      const choose = (id) => { if (veh) S.vehiclePaint[vt] = id; else S.paint = id; };
       BB.PAINTS.forEach((p) => {
         const own = S.paints.includes(p.id);
-        tile(box, paintPic(p.color), { i: n++, on: S.paint === p.id && !preview, preview: isPrev('paint', p.id), price: own ? 0 : PAINT_PRICE, label: PAINT_WORD[p.id] || p.id, tap: (el) => {
-          if (own) { setPreview(null); S.paint = p.id; BB.saveNow(); D.applyLooks(); BB.sfx.pop(); D.hop(); BB.say(PAINT_SAY[p.id] || 'Lovely!'); paintChanged(); return; }
+        tile(box, paintPic(p.color), { i: n++, on: chosen === p.id && !preview, preview: isPrev('paint', p.id), price: own ? 0 : PAINT_PRICE, label: PAINT_WORD[p.id] || p.id, tap: (el) => {
+          if (own) { setPreview(null); choose(p.id); BB.saveNow(); D.applyLooks(); BB.sfx.pop(); D.hop(); BB.say(PAINT_SAY[p.id] || 'Lovely!'); paintChanged(); return; }
           if (!isPrev('paint', p.id)) { setPreview({ kind: 'paint', id: p.id }); BB.sfx.whoosh(); speakPrice(PAINT_SAY[p.id], PAINT_PRICE); renderBody(); return; }
           if (tooSoon()) return;
           if (!buy(el, PAINT_PRICE)) return;
-          S.paints.push(p.id); S.paint = p.id; BB.saveNow(); preview = null; D.applyLooks();
+          S.paints.push(p.id); choose(p.id); BB.saveNow(); preview = null; D.applyLooks();
           BB.say(['Shiny!', 'So pretty!', 'Lovely!'][Math.floor(Math.random() * 3)]);
           showOff('paint', p.id, `I love my ${p.id} paint!`);
           BB.later(700, paintChanged);
