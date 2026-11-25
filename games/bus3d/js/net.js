@@ -258,8 +258,10 @@
     const T = {};
     let ws = null, state = 'idle', openT = 0, pingT = 0, heard = 0;
     const call = (fn, ...a) => { if (T[fn]) { try { T[fn](...a); } catch (e) { console.error(e); } } };
+    const offline = () => end('lost');                         // the device says the network went away
     function cleanup() {
       clearTimeout(openT); clearInterval(pingT); openT = pingT = 0;
+      removeEventListener('offline', offline);
       if (ws) { const w = ws; ws = null; w.onopen = w.onmessage = w.onclose = w.onerror = null; try { w.close(1000, 'bye'); } catch (e) { /* closed */ } }
     }
     const fail = (k) => { if (state === 'done') return; state = 'done'; cleanup(); call('onError', k); };
@@ -289,6 +291,7 @@
             if (performance.now() - heard > 50000) { end('lost'); return; }   // no pong: the link is dead
             T.send({ t: 'ping' });
           }, 20000);
+          addEventListener('offline', offline);
           call('onOpen', { self: m.id | 0, peers });
         } else if (m.t === 'full') fail('full');
         else if (state !== 'open') return;
@@ -413,6 +416,7 @@
       if (T !== t) return;
       N.self = self; members = new Set(peers); N.state = 'room'; retries = 0;
       for (const id of [...N.remotes.keys()]) if (!members.has(id)) removeRemote(id, null, true);
+      for (const r of N.remotes.values()) r.lost = false;
       lastKey = ''; skyAt = 0;
       sendHi(true); tick();
       clearInterval(tickT); tickT = setInterval(tick, 100);
@@ -445,10 +449,13 @@
     if (retries >= 4) { wentHome(lastBye); return; }
     const wait = 1500 * Math.pow(2, retries);                // 1.5, 3, 6, 12 s
     retries++; N.state = 'opening'; N.code = code;
-    setTimeout(() => {
+    const go = () => {
       if (N.state !== 'opening' || N.code !== code) return;
+      if (navigator.onLine === false && waited < 90) { waited += 3; setTimeout(go, 3000); return; }   // wait for the network
       start(code, false, (err) => { if (!err) return; if (err === 'offline' || err === 'failed') retry(code, lastBye); else wentHome(lastBye); }, true);
-    }, wait);
+    };
+    let waited = 0;
+    setTimeout(go, wait);
   }
   function wentHome(why) {
     stopRoom();
@@ -644,6 +651,7 @@
     const mx = B.front ? (B.front.position.x + B.rear.position.x) / 2 : 0, mz = B.front ? (B.front.position.z + B.rear.position.z) / 2 : 0;
     const atStop = !!(B.atStop || (B.isSettling && B.isSettling()));
     const bay = B.target && W.bayOf ? W.bayOf(B.target) : null;
+    const cam = BB.camera ? BB.camera.position : null;
     let wi = 0, si = 0, bi = 0;
     for (const r of [...N.remotes.values()]) {
       const p = sample(r, now - DELAY);
@@ -661,6 +669,13 @@
         if (d < 13) a = 0.35;
         if (atStop && d < 26) a = Math.min(a, 0.25);
         if (bay && Math.hypot(cx - bay.x, cz - bay.z) < 16 && Math.hypot(mx - bay.x, mz - bay.z) < 50) a = Math.min(a, 0.3);
+      }
+      // nothing big right in front of the camera: fade a friend's bus near the camera or on the line to our bus
+      if (cam) {
+        const vx = mx - cam.x, vz = mz - cam.z, wx = cx - cam.x, wz = cz - cam.z, L2 = vx * vx + vz * vz || 1;
+        const k = BB.clamp((wx * vx + wz * vz) / L2, 0, 1), off = Math.hypot(wx - vx * k, wz - vz * k), dc = Math.hypot(wx, wz);
+        if (k < 0.95 && off < 4.5) a = Math.min(a, 0.2);
+        if (dc < 16) a = Math.min(a, BB.clamp((dc - 7) / 9, 0, 1) * 0.4);
       }
       if (r.lost) a *= 0.45;
       if (r.leaving) a = 0;
@@ -969,8 +984,10 @@
   .bbn-friends.hide { display: none; }
   .bbn-friend { pointer-events: auto; display: flex; flex-direction: column; align-items: center; background: #fff6e0; border: 3px solid #d9b57f; border-radius: 18px;
     padding: 2px 6px 0; box-shadow: 0 3px 0 rgba(120,80,40,.15); cursor: pointer; touch-action: manipulation; animation: bbn-pop .3s cubic-bezier(.2,1.5,.5,1); }
-  .bbn-friend canvas { width: 48px; height: 32px; }
-  .bbn-friend b { font: 800 15px/16px 'Courier New', monospace; color: #3a2a3c; margin-bottom: 2px; }
+  .bbn-friend canvas { width: 44px; height: 29px; }
+  .bbn-friend b { font: 800 14px/15px 'Courier New', monospace; color: #3a2a3c; margin-bottom: 2px; }
+  .bbn-friends.many { gap: 4px; } .bbn-friends.many .bbn-friend { padding: 1px 3px 0; border-radius: 14px; border-width: 2px; }
+  .bbn-friends.many .bbn-friend canvas { width: 34px; height: 23px; } .bbn-friends.many .bbn-friend b { font-size: 12px; line-height: 13px; }
   .bbn-friend.me { border-color: #19a79b; }
   .bbn-card .bbn-friends { position: static; transform: none; }
   @media (max-height: 520px) {
@@ -1014,6 +1031,7 @@
     friendsEl.innerHTML = '';
     const show = N.state === 'room' && n > 0 && !(BB.depot && BB.depot.isOpen) && !BB.bedtime;
     friendsEl.classList.toggle('hide', !show);
+    friendsEl.classList.toggle('many', n > 4);
     if (show) fillFriends(friendsEl, false);
     if (panelKind === 'code' && card) { const f = card.querySelector('.bbn-friends'); if (f) { f.innerHTML = ''; fillFriends(f, true); } }
   }
@@ -1103,10 +1121,10 @@
     const code = codeOf(N.code);
     BB.say(pre + code.map((i) => PICS[i]).join(', ') + '.' + post);
     if (codeT) BB.cancelLater(codeT);
+    cells.forEach((el) => el.classList.remove('lit'));
     let k = 0;
-    const step = () => { cells.forEach((el, j) => el.classList.toggle('lit', j === k)); k++; codeT = k <= cells.length ? BB.later(k === 1 ? 900 + pre.length * 45 : 750, step) : null; };
-    step(); cells.forEach((el) => el.classList.remove('lit'));
-    k = 0; codeT = BB.later(pre.length * 55 + 300, step);
+    const step = () => { cells.forEach((el, j) => el.classList.toggle('lit', j === k)); k++; codeT = k <= cells.length ? BB.later(750, step) : null; };
+    codeT = BB.later(300 + pre.length * 55, step);
   }
   function showEnter(again) {
     const c = panel('enter');
