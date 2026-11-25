@@ -1508,6 +1508,15 @@
     q.text = words(q);
     return q;
   }
+  // the questions of the leg being played, kept so a replay after Home asks exactly the same ones
+  let curLeg = null;
+  function legQ(kind, n0, words, icon) {
+    const L2 = curLeg;
+    if (L2 && L2._qs && L2._qs[L2._qi]) { const q = L2._qs[L2._qi++]; q.tries = 0; q.done = false; q.onRight = null; return q; }
+    const q = sceneQ(kind, n0, words, icon);
+    if (L2 && L2._qs) L2._qs[L2._qi++] = q;
+    return q;
+  }
   const pl = (n, one, many) => `${n} ${plural(n, one, many)}`;
   const isAre = (n) => plural(n, 'is', 'are');
   const WORDS = {
@@ -1758,20 +1767,20 @@
       L.push({ to: spot, start: `Taxi job! A family is waiting${where(spot)}. Let's go!`, run: async (ok) => {
         await say(plural(fam, 'Hello, taxi! In I get!', 'Hello, taxi! In we get!')); if (!ok()) return;
         hatch(true); await hopIn(fam); if (!ok()) return;
-        const q = sceneQ('add', null, WORDS.bagsIn, 'bags'); q.scene = bagScene(); await askScene(q); carry.bags = q.answer; hatch(false);
+        const q = legQ('add', null, WORDS.bagsIn, 'bags'); q.scene = bagScene(); await askScene(q); carry.bags = q.answer; hatch(false);
       } });
       L.push({ to: landmark, go: `Now drive to ${sayOf(landmark)}!`, run: async (ok) => {
         hatch(true);
-        const qb = sceneQ('sub', carry.bags, WORDS.bagsIn, 'bags'); qb.scene = bagScene(); await askScene(qb); if (!ok()) return;
+        const qb = legQ('sub', carry.bags, WORDS.bagsIn, 'bags'); qb.scene = bagScene(); await askScene(qb); if (!ok()) return;
         hatch(false); hopOut(fam); await say('Thank you, taxi! Bye bye!');
       } });
     } else if (kind === 'fire') {
       const station = place('fireStation', W.depot);
       L.push({ to: spot, start: `Fire engine! There's smoke${where(spot)}! Siren on, let's go!`, onGo: () => siren(true), run: async (ok) => {
-        const subOk = LEVELS[level()].sub > 0, qw = subOk ? sceneQ('sub', null, WORDS.windows, 'window') : null;
+        const subOk = LEVELS[level()].sub > 0, qw = subOk ? legQ('sub', null, WORDS.windows, 'window') : null;
         const fs = fireScene(qw ? qw.n : 4);
         await say("We're here! Ladder up!"); ladder(true); if (!ok()) return;
-        const qf = sceneQ('add', null, WORDS.fighters, 'fighter'); qf.scene = fs.fighters;
+        const qf = legQ('add', null, WORDS.fighters, 'fighter'); qf.scene = fs.fighters;
         await askScene(qf); if (!ok()) return;
         if (qw) { qw.scene = fs.windows; await askScene(qw); if (!ok()) return; }
         siren(false); ladder(false); BB.sfx.cheer(); if (BB.ui && BB.ui.confetti) BB.ui.confetti();
@@ -1785,10 +1794,10 @@
         siren(false);
         await say('Hello, Auntie! Hop in!'); if (!ok()) return;
         await hopIn(1, auntie); if (!ok()) return;
-        const q = sceneQ('add', null, WORDS.teddies, 'teddy'); q.scene = teddyScene(); await askScene(q); carry.teddies = q.answer;
+        const q = legQ('add', null, WORDS.teddies, 'teddy'); q.scene = teddyScene(); await askScene(q); carry.teddies = q.answer;
       } });
       L.push({ to: clinic, go: 'Off to the clinic!', run: async (ok) => {
-        const qt = sceneQ('sub', carry.teddies, WORDS.teddies, 'teddy'); qt.scene = teddyScene(); await askScene(qt); if (!ok()) return;
+        const qt = legQ('sub', carry.teddies, WORDS.teddies, 'teddy'); qt.scene = teddyScene(); await askScene(qt); if (!ok()) return;
         hopOut(1, auntie); await say('All better! Thank you!');
       } });
     } else if (kind === 'icecream') {
@@ -1796,13 +1805,13 @@
       L.push({ to: park, start: `Ice cream van! Let's go to ${sayOf(park)}!`, run: async (ok) => {
         jingle(); queueKids(BB.randInt(2, 4)); hatch(true);
         await say('Ice cream! Ice cream! The children are waiting!'); if (!ok()) return;
-        await askScene(sceneQ('sub', null, WORDS.sold, 'icecream')); if (!ok()) return;
+        await askScene(legQ('sub', null, WORDS.sold, 'icecream')); if (!ok()) return;
         for (const m of J.waiting.splice(0)) { m.userData.jump = 1; J.extras.push(m); BB.later(900, () => walkAway(m)); }
         hatch(false); await say('Yummy! Thank you!');
       } });
       L.push({ to: beach, go: `Now drive to ${sayOf(beach)}!`, run: async (ok) => {
         jingle(); queueKids(BB.randInt(2, 4)); hatch(true);
-        await askScene(sceneQ('add', null, WORDS.cones, 'icecream')); if (!ok()) return;
+        await askScene(legQ('add', null, WORDS.cones, 'icecream')); if (!ok()) return;
         for (const m of J.waiting.splice(0)) { m.userData.jump = 1; J.extras.push(m); BB.later(900, () => walkAway(m)); }
         hatch(false); await say('Yummy! Bye bye!');
       } });
@@ -1822,8 +1831,8 @@
         if (towCar && towCar.parent) towCar.parent.remove(towCar);                    // the car stays in the yard (out of view)
         await say('Here we are! The car is safe in the yard.'); if (!ok()) return;
         const ys = yardScene();
-        const q = sceneQ('add', null, WORDS.yard, 'car'); q.scene = ys; await askScene(q); if (!ok()) return;
-        if (LEVELS[level()].sub > 0) { const q2 = sceneQ('sub', q.answer, WORDS.yard, 'car'); q2.scene = ys; await askScene(q2); }
+        const q = legQ('add', null, WORDS.yard, 'car'); q.scene = ys; await askScene(q); if (!ok()) return;
+        if (LEVELS[level()].sub > 0) { const q2 = legQ('sub', q.answer, WORDS.yard, 'car'); q2.scene = ys; await askScene(q2); }
       } });
     }
     return L;
@@ -1841,6 +1850,7 @@
   function driveLeg(quiet) {
     const job = J.current; if (!job || !job.vehicle) return;
     const leg = job.legs[job.index];
+    try { BB.bus.closeDoors(); } catch (e) { console.error(e); }   // leaves the scene spot (clears atStop) so it can drive
     if (leg.onGo) leg.onGo();
     setPhase('drive');
     J.stopStart = null;
@@ -1850,6 +1860,7 @@
   }
   async function arriveLeg(job, leg) {
     if (J.current !== job) return;
+    curLeg = leg; leg._qi = 0; leg._qs = leg._qs || [];
     setPhase('stop'); J.lastStop = leg.to;
     BB.sfx.ding();
     const g = ++legGen, ok = () => g === legGen && J.current === job && !BB.bedtime && J.phase !== 'home';

@@ -68,6 +68,8 @@
   // the bus builder's BB.bus.holdArrival(seconds): delays settling into the next bay while an event plays
   const holdable = () => { const B = Bs(); return !!(B && typeof B.holdArrival === 'function'); };
   function holdArrival(sec) { const B = Bs(); if (holdable()) safe(() => B.holdArrival(Math.min(8, sec))); }
+  // straight-line distance to the bay the bus is heading for (Infinity: none)
+  function targetDist() { const B = Bs(), w = W(), st = B && B.target; if (!st || !w.bayOf) return Infinity; const bay = safe(() => w.bayOf(st)); return bay ? Math.hypot(bay.x - B.pos.x, bay.z - B.pos.z) : Infinity; }
   const pullingIn = () => { const B = Bs(); return !!(B && (B.atStop || (B.isSettling && B.isSettling()))); };
   // may a new event start?
   function canStart() {
@@ -77,7 +79,7 @@
     if (B.atStop || (B.isSettling && B.isSettling()) || (B.isSpinning && B.isSpinning()) || (B.isWashing && B.isWashing()) || B.inWash) return false;
     if (B.inDepot && B.inDepot()) return false;
     if (ui().asking && ui().asking()) return false;
-    if (targetNear(holdable() ? 40 : 60)) return false;   // (the bus is about to pull into its stop)
+    if (targetNear(holdable() ? 25 : 35)) return false;   // (the bus is about to pull into its stop)
     return true;
   }
   // no event speech, prompts or bubbles right now (a stop, a question, a card, ...)
@@ -587,7 +589,7 @@
   // ---------- roads: routes along the graph ----------
   // walk(e, s, dir, L): from distance s along edge e, travelling dir (+1 = a->b), for L units, going as straight as
   // possible at junctions (never into the depot yard). Returns segments [{e, dir, s0, s1}].
-  function routeDirAt(x, z) {                    // the ribbon's direction just past the point nearest (x, z), or null
+  function routeDirAt(x, z) {   // (findPark/buildingsAhead also stop short of the target bay)                    // the ribbon's direction just past the point nearest (x, z), or null
     const pts = Bs() && Bs().route; if (!pts || pts.length < 3) return null;
     let bi = -1, bd = 18;
     for (let i = 0; i < pts.length; i++) { const d = Math.hypot(pts[i].x - x, pts[i].z - z); if (d < bd) { bd = d; bi = i; } }
@@ -993,7 +995,7 @@
       if (Math.abs(c.x - B.pos.x) > 160 || Math.abs(c.z - B.pos.z) > 160) continue;
       if (w.inDepotYard && w.inDepotYard(c.x, c.z)) continue;
       const pr = r.sign > 0 ? project(r, c.x, c.z, r.bus, r.len) : project(r, c.x, c.z, 0, r.bus); if (!pr) continue;
-      const ahead = aheadOf(r, pr.d); if (ahead < aheadMin || ahead > aheadMax) continue;
+      const ahead = aheadOf(r, pr.d); if (ahead < aheadMin || ahead > Math.min(aheadMax, targetDist() - 14)) continue;
       const face = pr.lat - Math.min(c.hw, c.hd);
       if (pr.lat < pr.half + 4 || face > pr.half + faceMax) continue;
       out.push({ c, d: pr.d, lat: pr.lat, face });
@@ -1049,6 +1051,7 @@
   }
   // a parking distance on an oncoming route, `aheadMin..aheadMax` in front of the bus, for a vehicle of len x w
   function findPark(r, aheadMin, aheadMax, len, w) {
+    aheadMax = Math.min(aheadMax, targetDist() - 14);              // (before the bus's next stop, not beyond it)
     for (let a = aheadMin; a <= aheadMax; a += 3) {
       const d = r.bus + (r.sign > 0 ? a : -a); if (d < len + 20 || d > r.len - len - 20) break;
       const p = r.at(d), o = parkOff(r, d, w);
@@ -1882,7 +1885,7 @@
     const B = Bs(), jp = J() ? J().phase : '';
     if (!canRun()) return 'run'; if (jobBusy()) return 'busy:' + jp; if (lastMinute()) return 'lastMin';
     if (B.atStop || (B.isSettling && B.isSettling())) return 'atStop'; if (B.inDepot && B.inDepot()) return 'depot';
-    if (targetNear(holdable() ? 40 : 60)) return 'targetNear'; return 'other:' + jp;
+    if (targetNear(holdable() ? 25 : 35)) return 'targetNear'; return 'other:' + jp;
   }
   function schedule(dt) {
     const w = W(), n = w.night ? w.night() : 0;

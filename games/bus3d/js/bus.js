@@ -1358,6 +1358,12 @@
     for (const pitch of [15, 22, 30, 38]) cands.push([0, pitch, near, true]);
     for (const pitch of [15, 22, 30, 38]) cands.push([0, pitch, near, false]);
     for (const yaw of [10, -10]) for (const pitch of [15, 24]) cands.push([yaw, pitch, near, false]);
+    // a job's scene (target.frame): low views from further along the kerb, either way, before any high one, so the
+    // props' front faces show (a building behind the pavement often blocks the straight side-on spot)
+    if (st && Array.isArray(st.frame) && st.frame.length) {
+      for (const yaw of [22, -22, 34, -34, 46, -46]) for (const pitch of [12, 20, 28]) cands.push([yaw, pitch, near, false]);
+      for (const yaw of [0, 22, -22, 34, -34]) for (const pitch of [16, 26]) cands.push([yaw, pitch, Hd <= 520 ? 6 : 7, false]);
+    }
     for (const pitch of [38, 46, 54, 62]) cands.push([0, pitch, near, true]);
     for (const yaw of [18, -18]) for (const pitch of [24, 40]) cands.push([yaw, pitch, near, false]);
     // the first clear one whose neighbouring heads are well apart; on a small screen where none is, the clear one
