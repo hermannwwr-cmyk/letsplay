@@ -612,6 +612,7 @@
     const B = BB.bus;
     if (!B || typeof B.boost !== 'function' || !driving || BB.bedtime) return;
     if (typeof B.boostReady === 'function' && !B.boostReady()) return;         // (cooling down, or near a stop: just the horn)
+    if (typeof B.isLooking === 'function' && B.isLooking()) return;           // (an event's look-up: just the horn)
     let r = false; try { r = B.boost(); } catch (e) { console.error(e); }
     if (r === false) return;
     if (BB.sfx.turbo) BB.sfx.turbo(); else BB.sfx.whoosh();
