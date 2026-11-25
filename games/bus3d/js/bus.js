@@ -1125,6 +1125,14 @@
     if (B.group) B.group.updateMatrixWorld(true);
     const mw = B.front.matrixWorld, w = new THREE.Vector3(), t = new THREE.Vector3();
     let first = null;
+    // in the workshop, stay under its roof (about 9.4 up): a lower look where the view would be from above it
+    if (B.inWorkshop) {
+      for (let pt = sp.pitch; pt >= -2; pt -= 4) {
+        const pl = fitGarage(Object.assign({}, sp, { pitch: pt }));
+        w.copy(pl.pos).applyMatrix4(mw);
+        if (w.y < 8.4 || pt <= -2) return pl;
+      }
+    }
     for (let k = 0; k < 9; k++) {
       const s2 = Object.assign({}, sp, { phi: sp.phi > 90 ? Math.max(90, sp.phi - 7 * k) : sp.phi, pitch: sp.phi > 90 ? sp.pitch + 2 * k : sp.pitch + 6 * k });
       const pl = fitGarage(s2);
@@ -1162,7 +1170,7 @@
     return { pos: gCam.position.clone(), look: look.clone(), centre: T.clone(), orbit: sp.orbit || 0 };
   }
   function garagePlan(mode) {
-    const m = GARAGE[mode] === 1 ? mode : GARAGE[mode], key = m + '|' + B.type + '|' + innerWidth + 'x' + innerHeight + '|' + BB.camera.fov;
+    const m = GARAGE[mode] === 1 ? mode : GARAGE[mode], key = m + '|' + B.type + '|' + innerWidth + 'x' + innerHeight + '|' + BB.camera.fov + '|' + (B.inWorkshop ? 'ws' : 'x');
     if (!gplans[key]) gplans[key] = planGarage(m);
     return gplans[key];
   }
