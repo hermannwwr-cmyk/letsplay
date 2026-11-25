@@ -979,6 +979,7 @@
   // ---------- the family (net.js keeps a saved family code of 5 pictures and plays together whenever online) ----------
   // My family: the status (together / waiting / looking / playing on my own: a friendly picture, never an error), the
   // 5 code pictures big with Say it, who is here now, then Join a family (the picture keypad) and a small New family.
+  const famOn = () => !!(BB.net && typeof BB.net.family === 'function' && typeof BB.net.status === 'function');
   const FAM_NAMES = ['bus', 'star', 'cat', 'sun', 'flower', 'fish', 'heart', 'moon', 'tree', 'kite', 'ball', 'boat'];
   const famNames = () => (BB.net && Array.isArray(BB.net.PICS) && BB.net.PICS.length === 12 ? BB.net.PICS : FAM_NAMES);
   // the code as picture indices (family() gives picture ids such as 'star'; indices are accepted too)
@@ -1005,11 +1006,7 @@
   function renderFamily(n) {
     const N = BB.net, code = famCode();
     famShown = famKey();
-    if (!code) {                       // (an older net.js without the family: its room buttons)
-      if (N.make) tile(bodyEl, N.pic('make', 160), { i: n++, big: true, label: 'New room', tap: () => { BB.sfx.pop(); N.make(); } });
-      if (N.join) tile(bodyEl, N.pic('join', 160), { i: n++, big: true, label: 'Join room', tap: () => { BB.sfx.pop(); N.join(); } });
-      return;
-    }
+    if (!code) return;
     const f = BB.ui.family() || { status: 'alone', friends: [] }, ST = BB.ui.FAMILY[f.status] || BB.ui.FAMILY.alone;
     const st = BB.el('button', 'bbd-famstat st-' + f.status, bodyEl); st.type = 'button';
     st.appendChild(BB.iconEl(ST.icon, 128)); BB.el('span', 'lb', st, ST.words);
@@ -1054,7 +1051,7 @@
     renderBody();
   }
   function setTab(id, quiet) {
-    if (id === 'together' && !BB.net) id = 'bus';
+    if (id === 'together' && !famOn()) id = 'bus';
     tab = id;
     if (preview) { preview = null; D.applyLooks(); }
     panel.querySelectorAll('.bbd-tab').forEach((b) => b.classList.toggle('on', b.dataset.tab === id));
@@ -1090,7 +1087,7 @@
     panel.innerHTML = '';
     const tabs = BB.el('div', 'bbd-tabs', panel);
     for (const t of SECTIONS) {
-      if (t.id === 'together' && !BB.net) continue;
+      if (t.id === 'together' && !famOn()) continue;
       const b = BB.el('button', 'bbd-tab', tabs); b.type = 'button'; b.dataset.tab = t.id;
       b.appendChild(BB.iconEl(t.icon, 128)); BB.el('span', 'lb', b, t.label); b.setAttribute('aria-label', t.label);
       BB.tap(b, () => setTab(t.id));

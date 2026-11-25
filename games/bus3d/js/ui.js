@@ -619,8 +619,7 @@
   U.homeShown = () => titleEl.style.display !== 'none';
   U.titleShown = U.homeShown;
   U.showTitle = () => U.showHome(); U.hideTitle = () => U.hideHome();
-  // the family strip: the family's status picture and the buses here now (BB.net: status(), friends(); older net.js:
-  // its room state and remotes)
+  // the family strip: the family's status picture and the buses here now (BB.net.status(), BB.net.friends())
   const miniCache = {};
   function miniBus(type, paint) {
     const k = type + paint; if (miniCache[k]) return miniCache[k];
@@ -632,12 +631,9 @@
   }
   U.miniBus = (type, paint) => { const src = miniBus(type, paint), c = document.createElement('canvas'); c.width = src.width; c.height = src.height; c.getContext('2d').drawImage(src, 0, 0); return c; };
   U.family = function () {
-    const N = BB.net; if (!N) return null;
+    const N = BB.net; if (!N || typeof N.status !== 'function' || typeof N.friends !== 'function') return null;
     let status, friends;
-    try {
-      status = typeof N.status === 'function' ? N.status() : N.state === 'room' ? 'together' : 'alone';
-      friends = typeof N.friends === 'function' ? (N.friends() || []) : [...(N.remotes || new Map()).values()].filter((r) => !r.leaving && r.look).map((r) => ({ id: r.id, type: r.look.ty, paint: r.look.pa, routeNo: r.look.no }));
-    } catch (e) { console.error(e); return null; }
+    try { status = N.status(); friends = N.friends() || []; } catch (e) { console.error(e); return null; }
     if (status === 'together' && !friends.length) status = 'alone';
     return { status, friends };
   };
