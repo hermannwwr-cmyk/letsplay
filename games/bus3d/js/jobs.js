@@ -97,6 +97,54 @@
   }
   J.makeChoices = makeChoices;
 
+  // An adding question with k from kMin up to kMaxWanted (a group getting on), inside this level's limits.
+  function makeAddQuestion(n0, kMin, kMaxWanted) {
+    const L = LEVELS[level()];
+    let n = n0;
+    const hiN = Math.max(1, Math.min(7, L.tot - kMin));
+    if (n < 1 || n > hiN) n = BB.randInt(1, Math.max(1, Math.min(3, hiN)));
+    const kHi = Math.max(1, Math.min(kMaxWanted, L.tot - n, 10 - n));
+    const k = BB.randInt(Math.min(kMin, kHi), kHi);
+    const q = { kind: 'add', n, k, answer: n + k, pre: n - n0, tries: 0 };
+    q.choices = makeChoices(q);
+    return q;
+  }
+
+  // ---------- special jobs: school run, airport rush, party bus (at most about 1 job in 3) ----------
+  // A themed group gets on at the first stop (that is the question: "3 children get on") and gets off at the second.
+  const THEMES = {
+    school: { word: ['child', 'children'], prop: 'bag', kid: true, start: 'School run! Good morning!', drop: 'School time! Bye bye, children!' },
+    airport: { word: ['traveller', 'travellers'], prop: 'case', start: 'Airport rush! The planes have landed!', drop: 'Welcome to the city! Have a lovely trip!' },
+    party: { word: ['party friend', 'party friends'], prop: 'balloon', start: 'Party bus! A birthday group is waiting!', drop: 'Happy birthday! Bye bye!' },
+  };
+  const stopLike = (re) => (BB.world.stops || []).find((s) => s && re.test((s.id || '') + ' ' + (s.name || '') + ' ' + (s.pic || '')));
+  function morning() {
+    const W = BB.world, d = W && W.day;
+    if (W && typeof W.night === 'function' && +W.night() > 0.3) return false;
+    return !!(d && typeof d.t === 'number' && d.t >= 0.03 && d.t <= 0.3);
+  }
+  function pickTheme() {
+    if (level() < 1 || (BB.save.jobsDone | 0) < 1) return null;
+    if ((J.sinceSpecial == null ? 2 : J.sinceSpecial) < 2 || Math.random() > 0.5) return null;
+    const ok = [];
+    if (morning()) ok.push('school');
+    if (stopLike(/airport/i)) ok.push('airport');
+    if (stopLike(/beach|park/i)) ok.push('party');
+    return ok.length ? BB.pick(ok) : null;
+  }
+  function themeStop(id) {
+    if (id === 'school') return stopLike(/school/i);
+    if (id === 'airport') return stopLike(/airport/i);
+    if (id === 'party') return stopLike(/beach/i) || stopLike(/park/i);
+    return null;
+  }
+  // a short original "good morning" jingle (C major, up and down)
+  function jingle() {
+    if (typeof BB.tone !== 'function') return;
+    const f = (semi) => 440 * Math.pow(2, (semi - 9) / 12);
+    [12, 16, 19, 24, 19, 24].forEach((n, i) => { try { BB.tone(f(n), i === 5 ? 0.4 : 0.16, { type: 'triangle', vol: 0.08, at: i * 0.15 }); } catch (e) { /* no sound */ } });
+  }
+
   // ---------- people (low-poly, one mesh each, shared geometries) ----------
   const LOOKS = [];
   function buildLooks() {
@@ -113,7 +161,72 @@
       LOOKS.push(b.geometry());
     }
   }
-  function person(i) { const m = new THREE.Mesh(LOOKS[i % LOOKS.length], BB.mk.mat); m.name = 'person'; BB.scene.add(m); return m; }
+  // style: { kid, prop: 'bag'|'case'|'balloon'|'umbrella'|'cat'|'kite'|'durian'|'paper', geo (a friend's own look) }
+  const KID_LOOKS = [2, 5];
+  function person(i, style) {
+    style = style || {};
+    const geo = style.geo || LOOKS[(style.kid ? KID_LOOKS[i % 2] : i) % LOOKS.length];
+    const m = new THREE.Mesh(geo, BB.mk.mat); m.name = 'person'; BB.scene.add(m);
+    if (style.prop && PROPS[style.prop]) {
+      const pm = new THREE.Mesh(PROPS[style.prop], BB.mk.mat); pm.name = 'prop';
+      if (style.kid) pm.scale.setScalar(0.72);
+      m.add(pm); m.userData.prop = pm; m.userData.propKind = style.prop;
+    }
+    if (style.friend) m.userData.friend = style.friend;
+    return m;
+  }
+
+  // ---------- props and the passenger friends ----------
+  // Props are tiny merged meshes in the people's paper-cut colours (y is the bottom of a box/cylinder, a ball's centre).
+  const PROPS = {};
+  function buildProps() {
+    const mk = (fn) => { const b = BB.mk.builder(); fn(b); return b.geometry(); };
+    PROPS.bag = mk((b) => { b.box(0.46, 0.52, 0.2, P.coral, 0, 0.74, -0.32); b.box(0.36, 0.12, 0.04, P.honeyLight, 0, 0.92, -0.43); });
+    PROPS.case = mk((b) => { b.box(0.44, 0.6, 0.26, P.berry, 0.66, 0.04, 0); b.box(0.44, 0.07, 0.27, P.honeyLight, 0.66, 0.32, 0); b.box(0.07, 0.24, 0.07, '#3a2a3c', 0.66, 0.64, 0); });
+    PROPS.balloon = mk((b) => { b.cyl(0.015, 0.015, 1.3, 4, '#fff6e0', 0.4, 1.0, 0); b.ball(0.32, P.rose, 0.4, 2.62, 0, 1, 0.92, 1.12, 0.92); b.ball(0.06, '#ff6f91', 0.4, 2.26, 0); });
+    PROPS.umbrella = mk((b) => { b.cyl(0.03, 0.03, 1.5, 4, '#3a2a3c', 0.32, 1.1, 0); b.cyl(0.06, 0.9, 0.38, 8, P.teal, 0.32, 2.5, 0); b.cyl(0.2, 0.06, 0.12, 8, '#127a71', 0.32, 2.88, 0); });
+    PROPS.cat = mk((b) => {
+      b.box(0.5, 0.32, 0.36, P.woodLight, 0.52, 0.58, 0.12); b.box(0.52, 0.06, 0.38, P.wood, 0.52, 0.9, 0.12);
+      b.ball(0.15, '#f28b4b', 0.52, 1.05, 0.12); b.box(0.06, 0.1, 0.04, '#f28b4b', 0.45, 1.13, 0.12); b.box(0.06, 0.1, 0.04, '#f28b4b', 0.59, 1.13, 0.12);
+    });
+    PROPS.kite = mk((b) => { b.box(0.62, 0.62, 0.04, P.coral, 0.75, 2.55, -0.3, 0, 0, Math.PI / 4); b.box(0.04, 0.62, 0.05, P.honeyLight, 0.75, 2.55, -0.3, 0, 0, Math.PI / 4); b.cyl(0.012, 0.012, 1.5, 4, '#fff6e0', 0.48, 1.0, -0.15); });
+    PROPS.durian = mk((b) => { b.ball(0.2, '#8bbf3a', 0.44, 0.98, 0.22, 0); b.ball(0.17, '#6fa52e', 0.46, 1.01, 0.25, 0, 1.15, 1.15, 1.15); b.box(0.04, 0.1, 0.04, '#9b6238', 0.44, 1.15, 0.22); });
+    PROPS.paper = mk((b) => { b.box(0.52, 0.38, 0.03, '#f4f1ea', 0, 1.12, 0.34); b.box(0.42, 0.05, 0.035, '#8a8290', 0, 1.38, 0.34); b.box(0.3, 0.05, 0.035, '#8a8290', -0.04, 1.26, 0.34); });
+  }
+  // Recurring passenger friends (generic, the game's own people style). Met once -> BB.save.friendsMet, 'friend:met'.
+  const FRIENDS = [
+    { id: 'granny', name: 'Granny Mei', prop: 'cat', look: { shirt: P.plum, skin: '#f1c7a0', hair: '#e8e4dc', bun: true } },
+    { id: 'kai', name: 'Kai', prop: 'kite', look: { shirt: '#f28b4b', skin: '#d9a679', hair: '#1f1b22', kid: true } },
+    { id: 'rose', name: 'Auntie Rose', prop: 'durian', look: { shirt: P.leaf, skin: '#a8714a', hair: '#3a2a2c', bun: true } },
+    { id: 'tan', name: 'Uncle Tan', prop: 'paper', look: { shirt: '#9fb6c8', skin: '#f5d3b5', hair: '#8a8290' } },
+  ];
+  J.FRIENDS = FRIENDS.map((f) => ({ id: f.id, name: f.name, prop: f.prop }));
+  function friendGeo(L) {
+    const b = BB.mk.builder(), s = L.kid ? 0.72 : 1, pants = '#4a5a78';
+    b.box(0.22 * s, 0.8 * s, 0.24 * s, pants, -0.13 * s, 0, 0); b.box(0.22 * s, 0.8 * s, 0.24 * s, pants, 0.13 * s, 0, 0);
+    b.cyl(0.26 * s, 0.32 * s, 0.85 * s, 6, L.shirt, 0, 0.78 * s, 0);
+    b.ball(0.27 * s, L.skin, 0, 1.9 * s, 0);
+    b.ball(0.28 * s, L.hair, 0, 2.0 * s, -0.05 * s, 0, 1, 0.7, 1);
+    if (L.bun) b.ball(0.13 * s, L.hair, 0, 2.18 * s, -0.24 * s);
+    b.box(0.12 * s, 0.6 * s, 0.14 * s, L.shirt, -0.36 * s, 0.95 * s, 0); b.box(0.12 * s, 0.6 * s, 0.14 * s, L.shirt, 0.36 * s, 0.95 * s, 0);
+    return b.geometry();
+  }
+  function friendsMet() {
+    let a = Array.isArray(BB.save.friendsMet) ? BB.save.friendsMet : null;
+    if (!a) { const b = BB.store.get('friendsMet', []); a = Array.isArray(b) ? b.slice() : []; BB.save.friendsMet = a; }
+    return a;
+  }
+  function meetFriend(id) {
+    const f = FRIENDS.find((x) => x.id === id); if (!f) return false;
+    const met = friendsMet();
+    if (met.includes(id)) return false;
+    met.push(id); BB.save.friendsMet = met; BB.saveNow();
+    BB.store.set('friendsMet', met);                     // kept here too, in case the save drops unknown keys
+    BB.emit('friend:met', { id: f.id, name: f.name });
+    return true;
+  }
+  J.friendsMet = () => friendsMet().slice();
+  function friendStyle(f) { if (!f.geo) f.geo = friendGeo(f.look); return { geo: f.geo, prop: f.prop, kid: !!f.look.kid, friend: f.id }; }
   const removePerson = (m) => { BB.scene.remove(m); };
   function clearWaiting() { for (const m of J.waiting) removePerson(m); J.waiting = []; }
   const GROUND = 0.25;
@@ -143,8 +256,13 @@
     clearWaiting();
     if (!stop || !q) return;
     const pre = Math.max(0, q.pre), total = pre + (q.kind === 'add' ? q.k : 0);
+    const friendAt = q.friend && q.kind === 'add' ? total - 1 : -1;
     for (let i = 0; i < total; i++) {
-      const m = person(BB.randInt(0, 7));
+      let style = i < pre ? q.preStyle : q.style;
+      if (i === friendAt) { const f = FRIENDS.find((x) => x.id === q.friend); if (f) style = friendStyle(f); }
+      if (q.bonus) style = Object.assign({}, style || {}, { prop: style && style.prop ? style.prop : 'umbrella' });
+      const m = person(BB.randInt(0, 7), style);
+      if (q.bonus) m.userData.waveDown = true;
       // one clear line along the pavement just past the shelter, nearest first, so every person can be counted
       const along = 3.4 + i * 0.95, off = -1.0;     // negative = toward the road, in front of the shelter
       m.position.set(stop.pos.x + stop.fwd.x * along + stop.side.x * off, GROUND, stop.pos.z + stop.fwd.z * along + stop.side.z * off);
@@ -176,12 +294,12 @@
   }
   // One person gets off: the last seated leaves first (seat n-1), steps out of the door and walks away along the
   // pavement, waving goodbye with a little hop.
-  async function alightOne(onLeave, stay) {
+  async function alightOne(onLeave, stay, style) {
     const seat = (BB.bus.passengers | 0) - 1;
     if (seat < 0) return;
     BB.bus.passengers = seat;
     if (onLeave) onLeave(seat);
-    const m = person(BB.randInt(0, 7));
+    const m = person(BB.randInt(0, 7), style);
     m.position.copy(doorIn(true));
     BB.sfx.pop();
     await walkTo(m, doorOut(true), 2.8);
@@ -191,6 +309,7 @@
     J.extras.push(m);
     walkTo(m, spot, 3).then(async () => {
       m.userData.jump = 1; m.userData.jumpDelay = 0;
+      if (m.userData.propKind === 'balloon') popBalloon(m, style && style.onPop);
       await wait(1300);
       if (stay && !m.userData.released) return;          // stays in view until the question is answered
       walkAway(m);
@@ -199,8 +318,10 @@
   // A spot on the pavement for the k-th person who got off: in view of the stop camera, clear of the seats (so the
   // count on the bus stays readable) and of the question card, nearest the exit door first. Works for every bus
   // type and screen size because it is worked out on screen; falls back to a spot next to the exit door.
-  function waveSpot(k) {
-    const fallback = kerbSpot(1.7 + (k % 2) * 0.5, -0.8 - k * 0.9, true);
+  function waveSpot(k) { return freeSpot(J.extras.map((m) => m.userData.spot).filter(Boolean), false, kerbSpot(1.7 + (k % 2) * 0.5, -0.8 - k * 0.9, true)); }
+  // A free pavement spot in view (not over the seats, not under the card, not on another person), nearest the front
+  // door (front) or the exit door. With no card yet, the card's usual place is kept clear.
+  function freeSpot(taken, front, fallback) {
     try {
       const W = innerWidth, H = innerHeight, cam = BB.camera;
       const proj = (p) => { const q = p.clone().project(cam); return q.z > 1 ? null : [(q.x + 1) / 2 * W, (1 - q.y) / 2 * H]; };
@@ -211,11 +332,11 @@
         for (const dy of [0, 1.5]) { const s2 = proj(new THREE.Vector3(a.x, a.y + dy, a.z)); if (s2) { x0 = Math.min(x0, s2[0]); x1 = Math.max(x1, s2[0]); y0 = Math.min(y0, s2[1]); y1 = Math.max(y1, s2[1]); } }
       }
       const seatBox = [x0 - 30, y0 - 40, x1 + 30, y1 + 20];
-      const c = document.querySelector('.bbq'), cr = c ? c.getBoundingClientRect() : null;
+      const c = document.querySelector('.bbq');
+      const cr = c ? c.getBoundingClientRect() : H <= 520 ? { left: 0, top: 0, right: 345, bottom: H } : { left: W / 2 - 440, top: H - 280, right: W / 2 + 440, bottom: H };
       const hit = (r, b) => b && r[0] < b[2] && r[2] > b[0] && r[1] < b[3] && r[3] > b[1];
-      const exit = doorFrame(true), front = doorFrame(false);
-      const span = (exit.d.x - front.d.x) * front.fx + (exit.d.z - front.d.z) * front.fz;   // exit door along the bus
-      const taken = J.extras.map((m) => m.userData.spot).filter(Boolean);
+      const exit = doorFrame(true), frontD = doorFrame(false);
+      const span = front ? 0 : (exit.d.x - frontD.d.x) * frontD.fx + (exit.d.z - frontD.d.z) * frontD.fz;   // the door, along the bus
       const cands = [];
       for (const out of [2.4, 3.4, 1.6]) {
         for (let along = span + 4; along >= span - 14; along -= 0.9) {
@@ -234,6 +355,25 @@
       return cands[0].p;
     } catch (e) { return fallback; }
   }
+  // At arrival the queue steps up to spots the stop camera sees, nearest the front door, and faces the bus.
+  function queueIntoView() {
+    const taken = [];
+    J.waiting.forEach((m, i) => {
+      const p = freeSpot(taken, true, kerbSpot(1.6 + (i % 2) * 0.5, 1.2 + i * 0.9, false));
+      taken.push(p); m.userData.spot = p;
+      walkTo(m, p, 3.8).then(() => { const d = doorOut(); m.rotation.y = Math.atan2(d.x - m.position.x, d.z - m.position.z); });
+    });
+  }
+  // a party friend's balloon floats up out of their hand and pops in a little burst (onPop once per group)
+  function popBalloon(m, onPop) {
+    const b = m.userData.prop; if (!b) return;
+    m.userData.prop = null; m.userData.propKind = null;
+    const y0 = b.position.y;
+    tween(1.1, (t) => { b.position.y = y0 + t * t * 2.6; b.rotation.z = Math.sin(t * 9) * 0.2; }).then(() => {
+      m.remove(b); BB.sfx.pop();
+      if (onPop) onPop();
+    });
+  }
   function walkAway(m) {
     if (m.userData.gone) return;
     m.userData.gone = true;
@@ -244,9 +384,9 @@
   // the people who got off for the question walk away (after the answer, or when the stop ends)
   function releaseExtras() { for (const m of J.extras.slice()) { m.userData.released = true; walkAway(m); } scene.unwave(); }
   // several people get off one after another, overlapping (a new one every 0.45 s), so 4 take about 3 s
-  async function alightPeople(count, onLeave, stay) {
+  async function alightPeople(count, onLeave, stay, style) {
     const all = [];
-    for (let i = 0; i < count; i++) { all.push(alightOne(onLeave, stay)); if (i < count - 1) await wait(450); }
+    for (let i = 0; i < count; i++) { all.push(alightOne(onLeave, stay, style)); if (i < count - 1) await wait(450); }
     await Promise.all(all);
   }
   // Everybody gets off and walks away (e.g. for a goodnight moment). cb when the bus is empty.
@@ -538,6 +678,7 @@
     radial-gradient(circle at 50% 27%, var(--pc) 0 26%, transparent 28%),
     radial-gradient(ellipse 50% 42% at 50% 100%, var(--pc) 0 98%, transparent 100%); }
   .bbq-term.n2.add .bbq-dots { --pc: #19a79b; }
+  .bbq-sum.bags .bbq-dots i { background: var(--pc); border-radius: 5px; height: 80%; margin-top: 20%; box-shadow: inset 0 -4px 0 rgba(0,0,0,.14), inset 0 4px 0 rgba(255,212,92,.9); }
   .bbq-term.n2.sub .bbq-dots { --pc: #ff6b5c; } .bbq-term.n2.sub .bbq-dots i { opacity: .45; }
   .bbq-btn { width: 88px; height: 88px; border-radius: 26px; border: none; font: 700 50px/1 'Fredoka', 'Baloo 2', system-ui, sans-serif;
     color: #fff; background: #4fa3e0; box-shadow: inset -5px -6px 0 rgba(0,0,0,.12), 0 6px 0 #2f7fbc; cursor: pointer;
@@ -609,6 +750,14 @@
       `<circle cx="14" cy="20" r="1.8" fill="#ff8fab" opacity=".55"/><circle cx="26" cy="20" r="1.8" fill="#ff8fab" opacity=".55"/>` +
       `<path d="M17 21 Q20 23.5 23 21" stroke="#c0614e" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>`;
   }
+  // A suitcase picture for the ten-frame when the question counts suitcases.
+  let iconMode = 'people';
+  function suitcase(i) {
+    const c = SHIRTS[(i * 3 + 1) % 10];
+    return `<svg viewBox="0 0 40 40"><rect x="15" y="5" width="10" height="7" rx="3" fill="none" stroke="#3a2a3c" stroke-width="2.6"/>` +
+      `<rect x="7" y="10" width="26" height="25" rx="5" fill="${c}"/><path d="M27 12 Q33 12 33 18 V30 Q33 35 28 35 H27Z" fill="#000" opacity=".13"/>` +
+      `<rect x="7" y="19" width="26" height="4" fill="#ffd45c"/><circle cx="12" cy="37" r="2" fill="#3a2a3c"/><circle cx="28" cy="37" r="2" fill="#3a2a3c"/></svg>`;
+  }
   // Mina the mynah, the bus conductor: a round brown bird with a yellow eye patch and a teal conductor's cap.
   const BIRD = `<svg viewBox="0 0 80 80"><path d="M16 50 L2 58 L5 44Z" fill="#3f2b26"/>
     <ellipse cx="40" cy="48" rx="25" ry="23" fill="#6b4a3e"/>
@@ -659,10 +808,16 @@
   let seq = 0;                      // bumps whenever a talking sequence (story, teaching) should stop
   let tapped = [];                  // seats the child has tapped to count, in order
 
-  const nPhrase = (n) => `${n} ${plural(n, 'friend is', 'friends are')} on the bus.`;
-  const kPhrase = (q) => q.kind === 'add' ? `${q.k} more ${plural(q.k, 'gets', 'get')} on.` : `${q.k} ${plural(q.k, 'gets', 'get')} off.`;
-  const askPhrase = (q) => q.kind === 'add' ? 'How many are on the bus now?' : 'How many are left on the bus?';
-  J.sentence = (q) => `${nPhrase(q.n)} ${kPhrase(q)} ${askPhrase(q)}`;
+  // q.what 'bags' = the question counts suitcases (an airport job, every traveller has one); q.word = a themed group
+  const nPhrase = (n, q) => q && q.what === 'bags' ? `${n} ${plural(n, 'suitcase is', 'suitcases are')} on the bus.` : `${n} ${plural(n, 'friend is', 'friends are')} on the bus.`;
+  const kPhrase = (q) => {
+    if (q.what === 'bags') return q.kind === 'add' ? `${q.k} more ${plural(q.k, 'suitcase comes', 'suitcases come')} on.` : `${q.k} ${plural(q.k, 'suitcase goes', 'suitcases go')} off.`;
+    if (q.word && q.kind === 'add') return `${q.k} ${plural(q.k, q.word[0], q.word[1])} ${plural(q.k, 'gets', 'get')} on.`;
+    return q.kind === 'add' ? `${q.k} more ${plural(q.k, 'gets', 'get')} on.` : `${q.k} ${plural(q.k, 'gets', 'get')} off.`;
+  };
+  const askPhrase = (q) => q.what === 'bags' ? (q.kind === 'add' ? 'How many suitcases are on the bus now?' : 'How many suitcases are left?')
+    : q.kind === 'add' ? 'How many are on the bus now?' : 'How many are left on the bus?';
+  J.sentence = (q) => `${nPhrase(q.n, q)} ${kPhrase(q)} ${askPhrase(q)}`;
 
   // Seat states on the card: '' empty, 'full', 'new' (just got on), 'gone' (just got off).
   function setSeat(i, state) {
@@ -673,7 +828,7 @@
     el.classList.toggle('new', state === 'new');
     el.classList.toggle('gone', state === 'gone');
     if (!state) el.innerHTML = '';
-    else if (!had) el.innerHTML = face(i);
+    else if (!had) el.innerHTML = iconMode === 'bags' ? suitcase(i) : face(i);
   }
   const isFull = (i) => seatEls[i] && (seatEls[i].dataset.state === 'full' || seatEls[i].dataset.state === 'new');
   function badge(i, num, big) {
@@ -719,7 +874,8 @@
     for (let i = 0; i < 10; i++) { const s = BB.el('div', 'bbq-seat', frame); s.dataset.i = i; seatEls.push(s); }
     bird = BB.el('div', 'bbq-bird', pic, BIRD);
     const side = BB.el('div', 'bbq-side', card);
-    sumEl = BB.el('div', 'bbq-sum', side);
+    iconMode = q.what === 'bags' ? 'bags' : 'people';
+    sumEl = BB.el('div', 'bbq-sum' + (iconMode === 'bags' ? ' bags' : ''), side);
     buildSum(q);
     const row = BB.el('div', 'bbq-row', side);
     const ask = BB.el('div', 'bbq-ask', row);
@@ -786,6 +942,21 @@
   async function runStop(stop, q, onRight) {
     const g = ++stopGen;
     const alive = () => g === stopGen && J.phase === 'stop' && !BB.bedtime;
+    await wait(450);                          // the stop camera settles about 1 s after arrival
+    if (!alive()) return;
+    queueIntoView();
+    await wait(450);
+    if (!alive()) return;
+    // a passenger friend in the queue waves and says hello (met for the first time: added to the friends list)
+    if (q.friend) {
+      const f = FRIENDS.find((x) => x.id === q.friend), fm = J.waiting.find((m) => m.userData.friend === q.friend);
+      if (f) {
+        if (fm) { fm.userData.jump = 1; fm.userData.jumpDelay = 0; }
+        const first = meetFriend(f.id);
+        await say(first ? `Hello, Captain! I'm ${f.name}!` : `Hello again, Captain! It's me, ${f.name}!`);
+        if (!alive()) return;
+      }
+    }
     // first, people who get on (or, rarely, off) without a question, so the question starts from a good group.
     // Getting off happens quietly: anything spoken here would sound like the question.
     if (q.pre > 0) {
@@ -808,10 +979,11 @@
       await say('We count the people downstairs!');
       if (!alive()) return;
     }
+    if (q.what === 'bags') { await say('Every traveller has one suitcase. Let\'s count the suitcases!'); if (!alive()) return; }
     // the story, told while it happens
     for (let i = 0; i < q.n; i++) light(i, true);
     showSum('n1'); litSum('n1'); showCount(q.n);
-    await say(nPhrase(q.n));
+    await say(nPhrase(q.n, q));
     hideCount();
     for (let i = 0; i < q.n; i++) light(i, false);
     litSum(null);
@@ -860,7 +1032,7 @@
       BB.save.questions = (BB.save.questions | 0) + 1; BB.saveNow();
       J.lastKey = qKey(q);
       J.recent = (J.recent || []).concat(J.lastKey).slice(-5);
-      const cash = q.tries ? CASH_STOP_RETRY : CASH_STOP;
+      const cash = (q.tries ? CASH_STOP_RETRY : CASH_STOP) + (q.bonus ? 1 : 0);   // +1 for stopping in the rain
       // celebrate: every friend on the bus bounces, coins fly to the cash counter
       clearMarks();
       seatEls.forEach((el, i) => { if (isFull(i)) { el.classList.add('lit'); BB.later(160 + i * 60, () => el.classList.remove('lit')); } });
@@ -1077,19 +1249,53 @@
   J.start = function () {
     if (J.current) return;                    // a job is already running: starting twice must not make two
     if (timeUp()) { bedtime(); return; }
-    const job = { stops: pickStops(), index: 0, cash: 0, q: null };
+    const theme = pickTheme();
+    const job = { stops: pickStops(), index: 0, cash: 0, q: null, theme, groupOn: 0 };
+    if (theme) {
+      // the themed stop first (the school, the airport, the beach/park), then one other stop for the drop
+      const ts = themeStop(theme), here = BB.bus.atStop || J.lastStop;
+      if (ts && ts !== here) job.stops = [ts].concat(job.stops.filter((x) => x !== ts)).slice(0, 2);
+      else job.stops = job.stops.slice(0, 2);
+      J.lastJobStops = job.stops.slice();
+      J.sinceSpecial = 0;
+    } else J.sinceSpecial = (J.sinceSpecial == null ? 2 : J.sinceSpecial) + 1;
     J.current = job;
-    BB.emit('job:new', { job });
-    say(`New job! Drive to ${job.stops[0].say}!`, { queue: true });
+    BB.emit('job:new', { job, theme });
+    if (theme === 'school') jingle();
+    say(theme ? `${THEMES[theme].start} Drive to ${job.stops[0].say}!` : `New job! Drive to ${job.stops[0].say}!`, { queue: true });
     nextStop(true);
   };
   // Head for the job's current stop: a new question (and the people for it waiting at the shelter).
   function nextStop(quiet) {
     const job = J.current; if (!job) return;
-    const stop = job.stops[job.index];
-    job.q = makeQuestion(BB.bus.passengers | 0, J.lastKey);
+    // raining: someone with an umbrella waves the bus down at an extra stop on the way (once a job, one more coin)
+    let bonusLine = null;
+    const raining = BB.world && typeof BB.world.isRaining === 'function' && BB.world.isRaining();
+    if (raining && !job.theme && !job.bonusDone && job.index > 0 && level() >= 1 && Math.random() < 0.5) {
+      const here = BB.bus.atStop || J.lastStop;
+      const extra = BB.shuffle((BB.world.stops || []).filter((x) => x && x.pos && x.say && x !== here && !job.stops.includes(x)))[0];
+      if (extra) {
+        job.stops.splice(job.index, 0, extra); job.bonusIdx = job.index; job.bonusDone = true;
+        bonusLine = `Look! Someone is waving in the rain! Let's stop at ${extra.say}!`;
+      }
+    }
+    const stop = job.stops[job.index], n0 = BB.bus.passengers | 0;
+    if (job.theme && job.index === 0) {
+      const T = THEMES[job.theme], L = LEVELS[level()];
+      const q = makeAddQuestion(n0, 2, Math.max(2, Math.min(4, L.kMax + 1)));
+      q.word = T.word; q.style = { prop: T.prop, kid: !!T.kid }; q.group = job.theme;
+      // at the airport, when the bus starts empty everyone aboard is a traveller: sometimes count the suitcases
+      if (job.theme === 'airport' && n0 === 0 && q.pre >= 0) { q.preStyle = { prop: 'case' }; if (Math.random() < 0.5) q.what = 'bags'; }
+      job.q = q;
+    } else if (job.bonusIdx === job.index) {
+      job.q = makeAddQuestion(n0, 1, Math.max(1, Math.min(3, LEVELS[level()].kMax)));
+      job.q.bonus = true;
+    } else job.q = makeQuestion(n0, J.lastKey);
+    // now and then one of the people getting on is a passenger friend (at most one a job)
+    if (job.q.kind === 'add' && !job.q.group && !job.friendDone && Math.random() < 0.3) { job.q.friend = BB.pick(FRIENDS).id; job.friendDone = true; }
     setWaiting(stop, job.q);
-    driveTo(stop, quiet);
+    driveTo(stop, bonusLine ? 'silent' : quiet);
+    if (bonusLine) { BB.emit('job:new', { job, bonus: true }); say(bonusLine, { queue: true }); }
   }
   J.nextStop = nextStop;
   J.setWaiting = setWaiting;
@@ -1109,7 +1315,7 @@
     setPhase('drive');
     BB.bus.stopAt(stop, onArrive);
     BB.emit('job:target', { stop, job });
-    if (!quiet) say(`Now drive to ${stop.say}!`, { queue: true });
+    if (!quiet) say(`Now drive to ${stop.say}!`, { queue: true });          // quiet: true, or 'silent' (another line says it)
   }
   function onArrive(stop) {
     const job = J.current; if (!job) return;
@@ -1121,14 +1327,25 @@
   async function afterRight(stop, q, cash) {
     const job = J.current; if (!job) return;
     job.cash += cash;
-    BB.emit('job:stopDone', { correct: true, cash, stop, tries: q.tries });
+    BB.emit('job:stopDone', { correct: true, cash, stop, tries: q.tries, bonus: !!q.bonus });
+    if (q.group) job.groupOn = q.k + (q.preStyle ? Math.max(0, q.pre) : 0);   // the themed group now on board
+    if (q.bonus) await say('Thank you for stopping in the rain!');
     await wait(500);
     if (J.current !== job || BB.bedtime) return;
     job.index++;
     if (job.index >= job.stops.length) {
-      // end of the line: everybody gets off with a wave (so the next job starts fresh, no getting-off warm-ups)
-      if ((BB.bus.passengers | 0) > 0) {
-        await Promise.all([say('Last stop! Everybody off. Thank you, bus!'), alightPeople(BB.bus.passengers | 0)]);
+      // end of the line: everybody gets off with a wave (so the next job starts fresh, no getting-off warm-ups).
+      // A themed group leaves with its props and its own goodbye (balloons float up and pop: "Happy birthday!").
+      const all = BB.bus.passengers | 0;
+      if (all > 0) {
+        if (job.theme && job.groupOn > 0) {
+          const T = THEMES[job.theme], g = Math.min(job.groupOn, all);
+          let popped = false;
+          const style = { prop: T.prop, kid: !!T.kid, onPop: () => { if (!popped && BB.ui && BB.ui.confetti) { popped = true; BB.ui.confetti(); } } };
+          await Promise.all([say(T.drop), alightPeople(g, null, false, style).then(() => all - g > 0 ? alightPeople(all - g) : null)]);
+        } else {
+          await Promise.all([say('Last stop! Everybody off. Thank you, bus!'), alightPeople(all)]);
+        }
         if (J.current !== job || BB.bedtime) return;
       }
       BB.bus.closeDoors();
@@ -1321,6 +1538,17 @@
       const s = m.userData.seed || i;
       m.position.y = GROUND + Math.max(0, Math.sin(now * 2 + s)) * 0.05 + Math.max(0, Math.sin(now * 1.3 + s * 2) - 0.92) * 3;
     });
+    // in the rain, the people with umbrellas at the bonus stop hop and wave as the bus comes near
+    if (J.phase === 'drive' && BB.bus.pos) {
+      for (const m of J.waiting) {
+        const u = m.userData;
+        if (!u.waveDown || u.jump > 0) continue;
+        if (Math.hypot(m.position.x - BB.bus.pos.x, m.position.z - BB.bus.pos.z) < 45) {
+          u.waveT = (u.waveT || Math.random()) - dt;
+          if (u.waveT <= 0) { u.waveT = 1.6 + Math.random(); u.jump = 1; u.jumpDelay = 0; }
+        }
+      }
+    }
     // a horn toot: two happy jumps with a wiggle, facing the bus
     const bp = BB.bus.pos;
     for (const m of J.waiting.concat(J.extras, J.walkers.map((w) => w.m))) {
@@ -1357,5 +1585,5 @@
     }
   };
 
-  J.init = function () { buildLooks(); BB.later(0, () => { try { buildUpstairs(); } catch (e) { console.error(e); } }); };
+  J.init = function () { buildLooks(); buildProps(); BB.later(0, () => { try { buildUpstairs(); } catch (e) { console.error(e); } }); };
 })();

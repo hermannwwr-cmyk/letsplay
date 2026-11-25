@@ -141,15 +141,14 @@
     const N = (id) => nodeById[id], mk = (id, x, z) => addNodeXY(id, x, z);
     const H1 = mk('H1', 28, HZ), NWa = mk('NWa', -OX + CR, HZ), NWb = mk('NWb', -OX, HZ + CR), W1 = mk('W1', -OX, -28);
     const SWb = mk('SWb', -OX, SZ - CR), SWa = mk('SWa', -OX + CR, SZ), S1 = mk('S1', 28, SZ), SEa = mk('SEa', OX - CR, SZ);
-    const SEb = mk('SEb', OX, SZ - CR), E1 = mk('E1', OX, 28), NEa = mk('NEa', OX, HZ + CR), NEb = mk('NEb', OX - CR, HZ);
+    const SEb = mk('SEb', OX, SZ - CR), E1 = mk('E1', OX, 28), NE = mk('NE', OX, HZ);   // (a plain T junction: the expressway runs on east)
     const AJ = mk('AJ', 400, HZ), AP1 = mk('AP1', 400, HZ - 26), AP2 = mk('AP2', 400, HZ - 86);
     const Yg1 = mk('Yg1', 28, 128), Yg2 = mk('Yg2', 28, 166), Ya = mk('Ya', 118, 128), Yb = mk('Yb', 118, 166);
     const kind = (e, k, h) => { e.kind = k; e.half = h || RH; return e; };
-    for (const [a, b] of [[NWa, H1], [H1, NEb], [NEb, AJ]]) kind(straight(a, b), 'highway', 13.2);
+    for (const [a, b] of [[NWa, H1], [H1, NE], [NE, AJ]]) kind(straight(a, b), 'highway', 13.2);
     kind(arc(NWa, NWb, -OX + CR, HZ + CR), 'outer'); kind(straight(NWb, W1), 'outer'); kind(straight(W1, SWb), 'outer');
     kind(arc(SWb, SWa, -OX + CR, SZ - CR), 'outer'); kind(straight(SWa, S1), 'outer'); kind(straight(S1, SEa), 'outer');
-    kind(arc(SEa, SEb, OX - CR, SZ - CR), 'outer'); kind(straight(SEb, E1), 'outer'); kind(straight(E1, NEa), 'outer');
-    kind(arc(NEa, NEb, OX - CR, HZ + CR), 'outer');
+    kind(arc(SEa, SEb, OX - CR, SZ - CR), 'outer'); kind(straight(SEb, E1), 'outer'); kind(straight(E1, NE), 'outer');
     for (const [a, b] of [[N('n20'), H1], [N('n01'), W1], [N('n23'), Yg1], [Yg1, Yg2], [Yg2, S1], [N('n32'), E1]]) kind(straight(a, b), 'outer');
     kind(straight(AJ, AP1), 'outer'); kind(straight(AP1, AP2), 'outer'); kind(arc(AP2, AP1, 400, HZ - 56), 'outer');
     kind(straight(Yg1, Ya), 'yard'); kind(arc(Ya, Yb, 118, 147), 'yard'); kind(straight(Yb, Yg2), 'yard');
@@ -204,7 +203,7 @@
     { id: 'mrt', name: 'MRT Station', say: 'the MRT station', pic: 'train', from: 'n21', to: 'n22', t: 0.55, toward: [S, 0] },
     // the wider map
     { id: 'airport', name: 'Airport', say: 'the airport', pic: 'plane', from: 'AP1', to: 'AP2', t: 0.5, toward: [430, HZ - 56] },
-    { id: 'city', name: 'City', say: 'the city', pic: 'city', from: 'E1', to: 'NEa', t: 0.42, toward: [260, -50] },
+    { id: 'city', name: 'City', say: 'the city', pic: 'city', from: 'E1', to: 'NE', t: 0.37, toward: [260, -50] },
     { id: 'chinatown', name: 'Old Town', say: 'old town', pic: 'lantern', from: 'W1', to: 'SWb', t: 0.45, toward: [-150, 50] },
     { id: 'beach', name: 'Beach', say: 'the beach', pic: 'beach', from: 'S1', to: 'SEa', t: 0.68, toward: [118, 260] },
     { id: 'gardens', name: 'Gardens', say: 'the gardens', pic: 'supertree', from: 'SWa', to: 'S1', t: 0.61, toward: [-45, 120] },
@@ -1213,12 +1212,12 @@
   // Shophouse row (block west-middle), facades facing the loop road to the west: bright two-storey shopfronts with a
   // shaded five-foot way, louvred shutters, white cornices, pediments, red lanterns, potted plants, a tiled roof.
   function shophouses(b, green) {
-    W.addBox(-49.1, 0, 5.6, 17.6);              // (set back 5 from where it first stood: a wider pavement for the stop view)
+    W.addBox(-45.1, 0, 5.6, 17.6);              // (set back 9 from where it first stood: a wide pavement for the stop's side view)
     const walls = ['#ffc9a0', '#9fdcc4', '#ffb3c6', '#b9d2ff', '#ffe58a', '#ffbe98', '#cdbcff'];
     const shut = ['#2f9e7a', '#4f7fe0', '#19a79b', '#e0527a', '#8e62c8', '#2f9e7a', '#f28b4b'];
     for (let k = 0; k < 7; k++) {
       const z = -15 + k * 5.0, col = walls[k], sc = shut[k];
-      A(b, -49, 0.25, z, -Math.PI / 2, (q) => {               // local +z = facing west (toward the road)
+      A(b, -45, 0.25, z, -Math.PI / 2, (q) => {               // local +z = facing west (toward the road)
         bx(q, 5, 3.4, 9, light(col, 0.25), 0, 0, -0.8);          // ground floor (behind the five-foot way)
         bx(q, 5, 0.06, 2.2, k % 2 ? '#e8b48a' : '#f0c9a2', 0, 0, 4.7);   // five-foot way tiles
         q.add(QUAD, '#5a4652', 0, 1.35, 3.71, 0, 0, 0, 2.0, 2.6, 1);    // open shop door
@@ -1244,8 +1243,7 @@
         q.prism(5.2, 10.6, 2.3, k % 3 === 1 ? '#c85a3a' : '#d9673f', 0, 7.65, -0.2);
       });
     }
-    hdb(b, -37.5, 0, Math.PI / 2, 22, 7, 6, 6, { roof: 'pitch', people: 3 });
-    tree(green, -36, -17.5, 0.27, 'round'); tree(green, -36, 16, 0.27, 'flame');
+    for (const z of [-15, -5, 5, 15]) tree(green, -32, z, 0.27, z % 10 ? 'round' : 'flame');   // (a row of trees behind the shophouses)
   }
 
   // The park (centre): a pond with lily pads, ducks and a little red bridge, a looping path, a gazebo,

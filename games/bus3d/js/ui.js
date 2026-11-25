@@ -488,7 +488,8 @@
   // show, "Sparkly clean!", and the job's own way back.
   const WASH_PRICE = 3;
   const washOK = () => !!(BB.bus && BB.bus.washBay && typeof BB.bus.wash === 'function');
-  const dusty = () => (+BB.save.dirt || 0) > 0.4;
+  const dirt = () => (BB.bus && typeof BB.bus.dirt === 'number' ? BB.bus.dirt : +BB.save.dirt || 0);
+  const dusty = () => dirt() > 0.4;
   let washRoute = null, washing = false, washDeclined = false;
   function syncWash() {
     if (!washBtn) return;
@@ -520,8 +521,9 @@
   };
   U.atWash = function () {
     if (!washOK() || washing || washDeclined || BB.bedtime || askEl || BB.depot.isOpen) return;
+    if (BB.bus.inWash === false) return;                  // (bus.js: only once the bus is really in the bay)
     U.releaseAll();
-    if (!dusty() && (+BB.save.dirt || 0) < 0.15) { BB.say('Your bus is already clean and shiny!'); if (washRoute) washBack(); return; }
+    if (!dusty() && dirt() < 0.15) { BB.say('Your bus is already clean and shiny!'); if (washRoute) washBack(); return; }
     const price = BB.el('div', 'price', null); price.appendChild(BB.iconEl('coin', 96)); BB.el('span', '', price, String(WASH_PRICE));
     U.ask({ pic: 'wash', words: 'Wash the bus?', extra: price, say: `A wash costs ${WASH_PRICE} coins. Wash the bus?`,
       yes: () => payWash(), no: () => { washDeclined = true; BB.say('OK! Maybe next time.'); washBack(); } });
@@ -536,8 +538,15 @@
     flyCoinsOut(WASH_PRICE); BB.sfx.jingle();
     BB.depot.spend(WASH_PRICE);
     washing = true; syncWash();
-    BB.later(700, () => { try { const r = BB.bus.wash(); if (r && r.then) r.then(() => washDone(), () => washDone()); } catch (e) { console.error(e); washDone(); } });
-    BB.later(30000, () => { if (washing) washDone(); });     // (never stuck)
+    BB.later(700, () => {
+      let r = false;
+      try { r = BB.bus.wash(); } catch (e) { console.error(e); }
+      if (r === false) { washing = false; BB.depot.add(WASH_PRICE); BB.say("Let's drive right into the bus wash first!"); washBack(); return; }   // (coins back)
+      if (r && r.then) r.then(() => washDone(), () => washDone());
+    });
+    // never stuck: if bus.js never says it's done (the show itself runs ~6.4 s on the game clock)
+    const safety = () => { if (!washing) return; if (BB.bus.locked && BB.bus.inWash) { BB.later(5000, safety); return; } washDone(); };
+    BB.later(20000, safety);
   }
   function washDone() {
     if (!washing) return;
