@@ -484,6 +484,7 @@
     if (W.sky.target >= 0.999) { W.day.bed = true; if (instant || !W.built) W.setDayTime(0.78); }
   };
   function bedtime() { const H = BB.hub; return W.day.bed || !!(H && H.on && H.limit > 0 && H.left != null && H.left <= 60); }
+  W.bedSky = bedtime;                    // (net.js: a friend's sky isn't copied while our own bedtime night shows)
   function updateDay(dt) {
     const d = W.day;
     if (bedtime()) {                                               // ease forward into the night and stay

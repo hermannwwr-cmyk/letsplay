@@ -731,9 +731,23 @@
     return g;
   }
 
+  // Plain sizes of a type, for the cheap low-detail buses of friends in a family room (net.js): carriage lengths, the
+  // joint gap, axle z (front carriage centre / rear carriage centre), door z, roof height, decks, tyre radius, wheel x.
+  function dims(type) {
+    const roofOf = (deck) => (deck === 2 ? 2.84 + 0.36 + 0.98 + 0.68 : 2.84 + 0.72);
+    const base = { tyre: TYRE_R, wheelX: WHEEL_X, width: WIDTH };
+    if (type === 'bendy' || !SPECS[type]) {
+      const s = SPECS.bendy;
+      return Object.assign(base, { type: 'bendy', LF: s.LF, LR: s.LR, GAP: s.GAP, axlesF: s.front.axles.slice(), axlesR: s.rear.axles.slice(),
+        doorsF: s.front.doors.map((d) => d.z), doorsR: s.rear.doors.map((d) => d.z), deck: 1, roof: roofOf(1) });
+    }
+    const s = SPECS[type];
+    return Object.assign(base, { type, LF: s.L, LR: 0, GAP: 0, axlesF: s.axles.slice(), axlesR: [], doorsF: s.doors.map((d) => d.z), doorsR: [], deck: s.deck, roof: roofOf(s.deck) });
+  }
+
   BB.fleet = {
     TYPES: ['bendy', 'double', 'single'],
     NAMES: { bendy: 'Bendy bus', double: 'Double-decker', single: 'Single-decker' },
-    build, preview,
+    build, preview, dims,
   };
 })();

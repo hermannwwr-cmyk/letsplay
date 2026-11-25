@@ -1,5 +1,5 @@
 /* Bendy Bus 3D: boot, renderer, resize, main loop, and the hub-mode flow.
-   Boot order: core.js (BB, audio, storage) -> world -> jobs -> depot -> ui -> bus -> title screen -> hub hello.
+   Boot order: core.js (BB, audio, storage) -> world -> jobs -> depot -> ui -> bus -> net (family room) -> garage -> hub hello.
    The loop pauses while the page is hidden or the hub holds the game (BB.held); one error in a frame is logged and
    the next frame carries on. Hub mode (only with ?hub=1 in a frame, see /CLAUDE.md): the last-minute warning between
    stops, the goodnight moment once time is up (after the stop in progress), stars, the evening sky. */
@@ -32,6 +32,7 @@
     BB.depot.init();
     BB.ui.init();
     BB.bus.build();
+    if (BB.net) safe(() => BB.net.init());
     if (BB.depot.afterBus) BB.depot.afterBus();
 
     resize();
@@ -47,6 +48,7 @@
       BB.jobs.update(dt);
       if (BB.depot.update) BB.depot.update(dt);
       BB.ui.update(dt);
+      if (BB.net) BB.net.update(dt);
       if (BB.HUB) hubUpdate(dt);
     };
     BB.render = () => renderer.render(BB.scene, BB.camera);
@@ -145,6 +147,7 @@
   async function goodnight() {
     if (BB.bedtime) return;
     BB.bedtime = true;
+    if (BB.net) safe(() => BB.net.goodnight());           // friends see the bus park and its lights go off
     const J = BB.jobs, B = BB.bus;
     J.phase = 'bedtime'; J.wantDepot = false;
     safe(() => { if (J.hideQuestion) J.hideQuestion(); });
@@ -177,6 +180,7 @@
     await BB.say('Goodnight, bus!');
     BB.sfx.snore();
     await BB.wait(2600);
+    if (BB.net) safe(() => BB.net.leave('sleep'));
     H.sleep();
   }
   BB.goodnight = goodnight;

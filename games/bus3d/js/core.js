@@ -388,10 +388,11 @@
     beep() { tone(N(24), 0.08, { type: 'sine', vol: 0.07 }); },
     cheer() { [0, 4, 7, 12, 16, 19, 24].forEach((s, i) => tone(N(12 + s), 0.18, { type: 'square', vol: 0.05, at: i * 0.07 })); },
     // The horn: a cheerful two-tone honk; the "horn tune" upgrade plays a little tune instead.
-    horn(tune) {
-      if (tune) { [0, 4, 7, 4, 12].forEach((s, i) => tone(N(7 + s), 0.16, { type: 'sawtooth', vol: 0.06, at: i * 0.13 })); return; }
-      tone(N(7), 0.22, { type: 'sawtooth', vol: 0.06 }); tone(N(11), 0.22, { type: 'sawtooth', vol: 0.05 });
-      tone(N(7), 0.3, { type: 'sawtooth', vol: 0.06, at: 0.26 }); tone(N(11), 0.3, { type: 'sawtooth', vol: 0.05, at: 0.26 });
+    // k scales the volume (a friend's bus far away honks more quietly).
+    horn(tune, k = 1) {
+      if (tune) { [0, 4, 7, 4, 12].forEach((s, i) => tone(N(7 + s), 0.16, { type: 'sawtooth', vol: 0.06 * k, at: i * 0.13 })); return; }
+      tone(N(7), 0.22, { type: 'sawtooth', vol: 0.06 * k }); tone(N(11), 0.22, { type: 'sawtooth', vol: 0.05 * k });
+      tone(N(7), 0.3, { type: 'sawtooth', vol: 0.06 * k, at: 0.26 }); tone(N(11), 0.3, { type: 'sawtooth', vol: 0.05 * k, at: 0.26 });
     },
     tick() { tone(N(31), 0.04, { type: 'sine', vol: 0.05 }); },
     // buying something: a bright little cash-register jingle
