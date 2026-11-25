@@ -4,7 +4,7 @@ Three kids' games in one app, for children around 6–7, played mostly on a tabl
 
 | | Game | What it is |
 |---|---|---|
-| 🚌 | **Bendy Bus** | Count the passengers getting on and off a Singapore bendy bus at every stop (up to 5). |
+| 🚌 | **Little Bus Captain** | Drive your own Singapore-style bus (bendy, double-decker or single-decker) around a 3D town; at each stop count who gets on and off and answer an adding or taking-away sum (numbers up to 10). Earn coins for paint, stickers and real bus parts. |
 | 🐻 | **Grizzly and the Lemmings** | 20 gentle mini games: catching, counting, adding and taking away with pictures, mazes, puzzles and more. |
 | 🚆 | **MRT Train** | Ride a real MRT line and answer adding and taking-away questions (numbers up to 10) as passengers get on and off. |
 
@@ -26,7 +26,8 @@ Like any web page, this can be undone by clearing the browser's site data. For a
 | Path | What it is |
 |---|---|
 | `index.html` | The home screen ("hub"): the storybook world, the shared play-time limit, the grown-up settings and the bedtime scene |
-| `games/bus/` | Bendy Bus Counting Fun |
+| `games/bus3d/` | Little Bus Captain (3D) |
+| `games/bus/` | The old 2D Bendy Bus (no longer used) |
 | `games/grizzly/index.html` | Grizzly and the Lemmings |
 | `games/mrt/index.html` | MRT Math Express |
 | `sw.js` | Keeps a copy of the app for the offline Home Screen app (bump its `VERSION` on every release) |
