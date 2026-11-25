@@ -3,7 +3,7 @@
 //
 // Bump VERSION on every release (any change to index.html, games/ or icons/), so the new files are
 // fetched and the old copy is dropped.
-const VERSION = 'lets-play-v6';
+const VERSION = 'lets-play-v7';
 const FONTS = 'lets-play-fonts';            // the bus game's Google Font, cached the first time it loads
 
 // Must all exist: if one is missing the install fails and the old copy stays in use.
@@ -24,6 +24,8 @@ const CORE = [
   './games/bus3d/js/jobs.js',
   './games/bus3d/js/depot.js',
   './games/bus3d/js/ui.js',
+  './games/bus3d/js/net.js',
+  './games/bus3d/vendor/peerjs.min.js',
   './games/bus3d/js/main.js',
   './games/grizzly/index.html',
   './games/mrt/index.html',
