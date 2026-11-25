@@ -537,12 +537,20 @@
     if (m.roofMaterial) wallMats.push({ mat: m.roofMaterial, glassOnly: true, u: solidGlass(m.roofMaterial) });   // (the road side and the doors)
     const pm = m.partMounts || {};
     M = { type, roofParts, roofMats, wallMats, roofMaterial: m.roofMaterial || null, wallParts: m.kerbWallParts || [], height: m.height || 3.1, routeSign: m.routeSign || null, doorLocal: m.doorLocal || { x: 1.6, y: 0, z: LF / 2 - 1.0 },
-      roofY: m.roofY || m.height || 3.1, paintMats, setPaint: m.setPaint, setLights: m.setLights, dispose: m.dispose,
+      roofY: m.roofY || m.height || 3.1, paintMats, setPaint: m.setPaint, setLights: m.setLights, dispose: m.dispose, setCabin: m.setCabinLight, cabinLevel: -1,
       mounts: { lights: pm.lights || pm.lightsFront, bumpersFront: pm.bumpersFront || pm.bumperFront, bumpersRear: pm.bumpersRear || pm.bumperRear, roof: pm.roofFront || null,
         glow: [pm.underglow, pm.underglowRear].filter(Boolean) } };
     B.type = type; B.length = LF + GAP + LR; lastRoofT = -1; lastWallT = -1;
     // passengers, headlight beams, the (empty) old hat mount, sticker anchors
     B.front.add(B.paxGroup); seatPassengers();
+    // the seated people glow with this model's cabin lights at night (the same materials across a swap: unpatched and
+    // patched again onto the new model's light)
+    if (typeof m.lightUp === 'function') for (const pm of [heads.material, hair.material, shirts.material]) {
+      const ud = pm.userData;
+      if (ud.cabinPatched) { pm.onBeforeCompile = ud.obc0; pm.customProgramCacheKey = ud.key0; delete ud.cabinPatched; }
+      else { ud.obc0 = pm.onBeforeCompile; ud.key0 = pm.customProgramCacheKey; }
+      try { m.lightUp(pm); } catch (e) { console.error(e); }
+    }
     lightCones.position.set(0, 0, LF / 2); B.front.add(lightCones);
     B.hatMount = new THREE.Group(); B.hatMount.name = 'hatMount'; B.hatMount.position.set(0, M.roofY, LF / 2 - 1.7); B.front.add(B.hatMount);
     B.stickerAnchors = m.stickerAnchors || [[], [], []];
@@ -2131,6 +2139,12 @@
     lightCones.visible = lit > 0.05;
     lightCones.material.opacity = 0.22 * lit * (up ? 1.2 : 0.8);
     lampMat.color.setScalar(B.lightsOn ? 1 : 0.45);
+    // cabin lights: from dusk, full at night (off for the goodnight moment), eased
+    if (M && M.setCabin) {
+      const want = B.lightsOn ? BB.clamp((night - 0.15) / 0.55, 0, 1) : 0;
+      const lv = M.cabinLevel < 0 ? want : M.cabinLevel + BB.clamp(want - M.cabinLevel, -dt * 0.8, dt * 0.8);
+      if (lv !== M.cabinLevel) { M.cabinLevel = lv; try { M.setCabin(lv); } catch (e) { /* ignore */ } }
+    }
     glassMat.emissive.set('#ffd98a').multiplyScalar(0.35 * night * (B.lightsOn ? 1 : 0.2));
 
     // guidance: ribbon flow, the target marker and bay glow, the way arrow
