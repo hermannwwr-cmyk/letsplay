@@ -59,7 +59,7 @@
   const DEFAULT_SAVE = () => ({
     paint: 'green', upgrades: {}, stickers: [], fuel: 1, jobsDone: 0, questions: 0, seen: {},
     paints: ['green'], stickersOwned: [], parts: {}, partsOwned: [],
-    busType: null, routeNo: '88', assist: false, leftHand: false, control: 'joystick',
+    busType: null, routeNo: '88', assist: false, leftHand: false, control: 'joystick', xmas: 'auto',
   });
   // Hats were sold in an earlier build; they're gone from the shop, and depot.js gives their coins back.
   const HAT_PRICES = { party: 5, flowers: 6, bunny: 8, crown: 10 };
@@ -75,6 +75,7 @@
       s.routeNo = /^[1-9][0-9]{0,2}$/.test(String(s.routeNo)) ? String(s.routeNo) : '88';
       if (s.busType != null && typeof s.busType !== 'string') s.busType = null;
       s.assist = !!s.assist; s.leftHand = !!s.leftHand; s.control = s.control === 'wheel' ? 'wheel' : 'joystick';
+      s.xmas = s.xmas === 'on' || s.xmas === 'off' ? s.xmas : 'auto';
       if (Array.isArray(got.hatsOwned)) BB.saveMigrate.hatRefund = got.hatsOwned.reduce((n, id) => n + (HAT_PRICES[id] || 0), 0);
       s.fuel = Math.max(0, Math.min(1, +s.fuel || 0));
     }
@@ -504,6 +505,25 @@
           sideBus(x, 8, 50, 1.0, paint, 'single');
           paper(x, (p) => { arcP(p, 36, 30, 13); arcP(p, 54, 22, 16); arcP(p, 70, 32, 11); rrP(p, 26, 28, 54, 16, 8); }, '#d5e3ef', { rimColor: '#9fb4c8' });
           break;
+        // Christmas: a little tree with a star and baubles (On), the same greyed with a slash (Off), with a calendar
+        // page (Auto: by the date)
+        case 'xmasOn': case 'xmasOff': case 'xmasAuto': {
+          const off = name === 'xmasOff', auto = name === 'xmasAuto';
+          if (off) x.globalAlpha = 0.55;
+          const sx = auto ? -8 : 0;
+          paper(x, (p) => rrP(p, 44 + sx, 76, 12, 16, 3), P.woodDark, { depth: 0.4 });
+          paper(x, (p) => { p.moveTo(50 + sx, 10); p.lineTo(80 + sx, 50); p.lineTo(68 + sx, 50); p.lineTo(86 + sx, 80); p.lineTo(14 + sx, 80); p.lineTo(32 + sx, 50); p.lineTo(20 + sx, 50); p.closePath(); }, off ? '#9aa89a' : P.pine);
+          if (!off) for (const [bx, by, c] of [[40, 44, P.coral], [58, 58, P.honey], [36, 68, '#4fa3e0'], [64, 72, P.coral], [50, 34, P.rose]]) paper(x, (p) => arcP(p, bx + sx, by, 4.6), c, { depth: 0.3, rimW: 1.2 });
+          paper(x, (p) => starP(p, 50 + sx, 12, 11, 4.6), off ? '#c9c2a8' : P.honey, { depth: 0.4 });
+          x.globalAlpha = 1;
+          if (off) { x.save(); x.translate(50, 50); x.rotate(Math.PI / 4); paper(x, (p) => rrP(p, -52, -7, 104, 14, 7), P.coral, { depth: 0.4 }); x.restore(); }
+          if (auto) {
+            paper(x, (p) => rrP(p, 62, 50, 34, 40, 6), '#ffffff', { rimColor: '#d9c3a0' });
+            paper(x, (p) => rrP(p, 62, 50, 34, 11, [6, 6, 0, 0]), P.coral, { depth: 0.3, rim: false });
+            x.fillStyle = '#3a2a3c'; x.font = `700 20px ${BB.FONT}`; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('12', 79, 75);
+          }
+          break;
+        }
         case 'play':
           paper(x, (p) => arcP(p, 50, 50, 44), '#fff6e0', { rimColor: '#d9b57f' });
           paper(x, (p) => { p.moveTo(38, 27); p.lineTo(75, 50); p.lineTo(38, 73); p.closePath(); }, '#3fae49', { depth: 0.6 });
@@ -717,8 +737,26 @@
     eng.g.gain.setTargetAtTime(0.012 + level * 0.03, t, 0.2);
   };
 
-  // ---------- music: an original, bouncy 4-bar loop (C major pentatonic) ----------
-  // TODO(polish): more tunes (depot tune, bedtime lullaby).
+  // ---------- Christmas ----------
+  // Automatic from 1 December to 6 January, or the grown-up/child's choice in the garage's Settings (save.xmas:
+  // 'auto' | 'on' | 'off'). BB.xmas is the answer; 'xmas:changed' tells the rest (main.js passes it on to
+  // BB.world.setXmas when world.js has it).
+  BB.xmasByDate = (d = new Date()) => (d.getMonth() === 11) || (d.getMonth() === 0 && d.getDate() <= 6);
+  const xmasNow = () => (BB.save.xmas === 'on' ? true : BB.save.xmas === 'off' ? false : BB.xmasByDate());
+  BB.xmas = xmasNow();
+  BB.setXmas = function (pref) {
+    if (pref) { BB.save.xmas = pref === 'on' || pref === 'off' ? pref : 'auto'; BB.saveNow(); }
+    const was = BB.xmas; BB.xmas = xmasNow();
+    document.documentElement.classList.toggle('xmas', BB.xmas);
+    if (was !== BB.xmas) BB.emit('xmas:changed', { on: BB.xmas });
+  };
+  document.documentElement.classList.toggle('xmas', BB.xmas);
+  // (a game left open over midnight on 30 November / 6 January follows the date)
+  setInterval(() => { if (BB.save.xmas === 'auto') BB.setXmas(); }, 60000);
+
+  // ---------- music ----------
+  // The everyday tune: an original, bouncy 4-bar loop (C major pentatonic). In Christmas mode: public-domain carols
+  // (melodies only, our own little arrangement with a bell sound), each played twice, in turn.
   const SONG = {
     bpm: 116,
     // 8th-note steps, semitones from C4, null = rest
@@ -727,7 +765,39 @@
     bass: [0, null, 7, null, 5, null, 7, null, 9, null, 7, null, 5, null, 7, null,
            0, null, 7, null, 5, null, 9, null, 7, null, 2, null, 0, null, 7, null],
   };
-  const M = BB.music = { on: false, step: 0, next: 0, timer: null };
+  // bars of [semitone | null, length in 8ths]; roots: one chord root per bar (semitones from C4); bar: 8ths per bar
+  function carol(bpm, bar, bars, roots, opts = {}) {
+    const lead = [], hold = [], bass = [];
+    bars.forEach((notes, bi) => {
+      let n = 0;
+      for (const [semi, len] of notes) { lead.push(semi); hold.push(len); for (let k = 1; k < len; k++) { lead.push(null); hold.push(0); } n += len; }
+      while (n < bar) { lead.push(null); hold.push(0); n++; }
+      const r = roots[bi] - 12;
+      for (let k = 0; k < bar; k++) bass.push(k === 0 ? r : k === (bar === 6 ? 4 : 4) ? r + 7 : null);
+    });
+    return Object.assign({ bpm, lead, hold, bass, bell: true }, opts);
+  }
+  const JB1 = [[[16, 2], [16, 2], [16, 4]], [[16, 2], [16, 2], [16, 4]], [[16, 2], [19, 2], [12, 3], [14, 1]], [[16, 8]],
+    [[17, 2], [17, 2], [17, 3], [17, 1]], [[17, 2], [16, 2], [16, 2], [16, 1], [16, 1]]];
+  const DECK = [[[19, 3], [17, 1], [16, 2], [14, 2]], [[12, 2], [14, 2], [16, 2], [12, 2]], [[14, 1], [16, 1], [17, 1], [14, 1], [16, 3], [14, 1]], [[12, 2], [11, 2], [12, 4]]];
+  const TREE = [[[19, 3], [19, 1], [19, 2]], [[21, 2], [23, 3], [23, 1]], [[23, 2], [21, 2], [23, 2]], [[24, 2], [18, 2], [21, 2]]];
+  const CAROLS = [
+    // Jingle Bells (the chorus), with sleigh bells
+    carol(124, 8, [...JB1, [[16, 2], [14, 2], [14, 2], [16, 2]], [[14, 4], [19, 4]], ...JB1, [[19, 2], [19, 2], [17, 2], [14, 2]], [[12, 8]]],
+      [0, 0, 0, 0, 5, 0, 7, 7, 0, 0, 0, 0, 5, 0, 7, 0], { sleigh: true }),
+    // Deck the Halls
+    carol(112, 8, [...DECK, ...DECK, [[14, 3], [16, 1], [17, 2], [14, 2]], [[16, 3], [17, 1], [19, 2], [14, 2]], [[16, 1], [18, 1], [19, 2], [21, 1], [23, 1], [24, 2]], [[23, 2], [21, 2], [19, 4]], ...DECK],
+      [0, 0, 7, 0, 0, 0, 7, 0, 7, 0, 7, 7, 0, 0, 7, 0]),
+    // We Wish You a Merry Christmas (3/4)
+    carol(116, 6, [[[null, 4], [7, 2]], [[12, 2], [12, 1], [14, 1], [12, 1], [11, 1]], [[9, 2], [9, 2], [9, 2]], [[14, 2], [14, 1], [16, 1], [14, 1], [12, 1]], [[11, 2], [7, 2], [7, 2]],
+      [[16, 2], [16, 1], [17, 1], [16, 1], [14, 1]], [[12, 2], [9, 2], [7, 1], [7, 1]], [[9, 2], [14, 2], [11, 2]], [[12, 6]]],
+      [7, 0, 5, 2, 7, 4, 9, 5, 0]),
+    // O Christmas Tree (3/4)
+    carol(96, 6, [[[null, 4], [14, 2]], ...TREE, [[19, 4], [14, 2]], ...TREE, [[19, 6]]], [2, 7, 2, 7, 2, 7, 7, 2, 7, 2, 7]),
+  ];
+  const M = BB.music = { on: false, step: 0, next: 0, timer: null, carol: 0, plays: 0 };
+  M.song = () => (BB.xmas ? CAROLS[M.carol % CAROLS.length] : SONG);
+  BB.on('xmas:changed', () => { M.step = 0; M.plays = 0; });
   M.start = function () {
     if (M.on || BB.hub.paused) return; M.on = true;
     const ctx = A.ensure(); if (!ctx) return;
@@ -737,13 +807,25 @@
   M.stop = function () { M.on = false; clearInterval(M.timer); M.timer = null; };
   M.tick = function () {
     const ctx = A.ctx; if (!ctx || ctx.state !== 'running' || BB.held) return;
-    const dur = 60 / SONG.bpm / 2;
     if (M.next < ctx.currentTime - 0.2) M.next = ctx.currentTime + 0.05;   // skip notes missed while paused
     while (M.next < ctx.currentTime + 0.25) {
-      const i = M.step % SONG.lead.length, at = M.next - ctx.currentTime;
-      const l = SONG.lead[i], b = SONG.bass[i];
-      if (l != null) tone(N(l), dur * 0.9, { type: 'triangle', vol: 0.045, at, bus: A.musicBus });
-      if (b != null) tone(N(b), dur * 1.6, { type: 'sine', vol: 0.06, at, bus: A.musicBus });
+      const song = M.song(), dur = 60 / song.bpm / 2, len = song.lead.length;
+      if (M.step >= len) {                    // the end of the tune: carols take turns, each played twice
+        M.step = 0;
+        if (BB.xmas && ++M.plays >= 2) { M.plays = 0; M.carol++; continue; }
+      }
+      const i = M.step, at = M.next - ctx.currentTime;
+      const l = song.lead[i], b = song.bass[i];
+      if (song.bell) {
+        // a bell: a sine with a short ring an octave up (peaks: lead 0.04 + ring 0.015 + bass 0.06 + sleigh 0.012)
+        if (l != null) {
+          const hold = Math.max(1, song.hold[i]);
+          tone(N(l), dur * hold * 0.95, { type: 'sine', vol: 0.04, at, bus: A.musicBus, attack: 0.006 });
+          tone(N(l + 12), Math.min(0.35, dur * hold * 0.6), { type: 'sine', vol: 0.015, at, bus: A.musicBus, attack: 0.004 });
+        }
+        if (song.sleigh && i % 2 === 0) tone(N(43 + (i % 4 ? 2 : 0)), 0.05, { type: 'square', vol: 0.008, at, bus: A.musicBus, attack: 0.002 });
+      } else if (l != null) tone(N(l), dur * 0.9, { type: 'triangle', vol: 0.045, at, bus: A.musicBus });
+      if (b != null) tone(N(b), dur * (song.bell ? 2.4 : 1.6), { type: 'sine', vol: 0.06, at, bus: A.musicBus });
       M.step++; M.next += dur;
     }
   };

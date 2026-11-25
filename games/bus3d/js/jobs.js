@@ -801,17 +801,7 @@
     J.question = q;
     await wait(350);
     if (!alive()) return;
-    // the first time adding / taking away: Mina shows a worked example with different numbers, then it's our turn
-    if (!BB.save.seen[q.kind]) {
-      BB.save.seen[q.kind] = true; BB.saveNow();
-      await J.teach(demoFor(q), 'demo');
-      if (!alive() || !card) return;
-      showGroup(q.n);
-      BB.bus.passengers = q.n;
-      buildSum(q);
-      await wait(400);
-      if (!alive()) return;
-    }
+    // (no worked example before the first question: the owner removed it; Mina teaches after a wrong answer)
     // the first time on a double-decker: only the people downstairs count
     if (BB.bus.type === 'double' && !BB.save.seen.downstairs) {
       BB.save.seen.downstairs = true; BB.saveNow();
@@ -853,15 +843,11 @@
     for (let i = 0; i < 10; i++) setSeat(i, '');
     for (let i = 0; i < n; i++) setSeat(i, 'full');
   }
-  // A worked example of the same kind with different numbers (and a different answer) from the real question.
-  function demoFor(q) {
-    const list = q.kind === 'add' ? [[3, 2], [2, 2], [4, 1], [1, 2], [5, 1]] : [[5, 2], [4, 1], [6, 3], [3, 1], [5, 1]];
-    const pick = list.find(([n, k]) => (q.kind === 'add' ? n + k : n - k) !== q.answer && !(n === q.n && k === q.k)) || list[0];
-    const [n, k] = pick;
-    return { kind: q.kind, n, k, answer: q.kind === 'add' ? n + k : n - k, demo: true };
-  }
+
 
   const PRAISE = ['Well done!', 'Super counting!', 'Hooray!', 'You got it!'];
+  const XMAS_PRAISE = ['Ho ho ho! Well done!', 'Merry counting!', 'Jingle jingle, you got it!'];
+  const praise = () => BB.pick(BB.xmas && Math.random() < 0.6 ? XMAS_PRAISE : PRAISE);
   const sumWords = (q) => q.kind === 'add' ? `${q.n} plus ${q.k} makes ${q.answer}!` : `${q.n} take away ${q.k} leaves ${q.answer}!`;
   async function answer(q, v, btn) {
     if (!card || J.teaching || q.done || card.classList.contains('wait')) return;
@@ -880,7 +866,7 @@
       seatEls.forEach((el, i) => { if (isFull(i)) { el.classList.add('lit'); BB.later(160 + i * 60, () => el.classList.remove('lit')); } });
       const counted = flyCoins(btn, cash);
       showSum('n1', 'n2', 'ask'); litSum(null); fillSum(q.answer);
-      await Promise.all([say(`Yes! ${sumWords(q)} ${BB.pick(PRAISE)}`), wait(1500), counted]);
+      await Promise.all([say(`Yes! ${sumWords(q)} ${praise()}`), wait(1500), counted]);
       hideQuestion();
       if (q.onRight) q.onRight(q, cash);
     } else {
@@ -1076,7 +1062,7 @@
   function pickStops() {
     const count = (BB.save.jobsDone | 0) < 1 ? 2 : BB.randInt(2, 3);
     const here = BB.bus.atStop || J.lastStop, before = J.lastJobStops || [];
-    const all = BB.world.stops.filter((s) => s !== here);
+    const all = (BB.world.stops || []).filter((s) => s && s !== here && s.pos && s.edge != null && s.say);
     const fresh = BB.shuffle(all.filter((s) => !before.includes(s))), old = BB.shuffle(all.filter((s) => before.includes(s)));
     const list = fresh.concat(old).slice(0, count);
     J.lastJobStops = list;
@@ -1163,7 +1149,7 @@
     BB.sfx.cheer();
     celebrateJob(job.cash);
     BB.emit('job:done', { cash: job.cash, job });
-    await Promise.all([say('Job done! Great driving!'), wait(2800)]);
+    await Promise.all([say(BB.xmas ? 'Ho ho ho! Job done! Great driving!' : 'Job done! Great driving!'), wait(2800)]);
     if (J.phase !== 'done' || BB.bedtime) return;
     if (timeUp()) { bedtime(); return; }
     if (J.wantDepot || BB.bus.fuel <= BB.cfg.fuelLow + 0.06) J.goDepot(BB.bus.fuel <= BB.cfg.fuelLow + 0.06 ? 'fuel' : undefined);
