@@ -967,7 +967,7 @@
     weight: 3,
     plan() {
       const r = oncoming(160, 90); if (!r || r.bus < 120) return null;
-      for (const cand of buildingsAhead(r, 45, 105)) {
+      for (const cand of buildingsAhead(r, 32, 80)) {
         const v = VEH.fire, dPark = cand.d;
         if (dPark < 30 || !parkOK(r, dPark, parkOff(r, dPark, v.w), v.len / 2)) continue;
         return { r, cand, dPark };
@@ -1110,7 +1110,7 @@
     plan() { const r = oncoming(150, 80); if (!r || r.bus < 130) return null; return { r, balloon: Math.random() < 0.5 }; },
     start({ r, balloon }) {
       const v = vehicle('police'), Cc = C();
-      const d0 = r.bus - 100, pav = (d) => r.at(d).half + 1.6;
+      const d0 = r.bus - 80, pav = (d) => r.at(d).half + 1.6;
       const item = { d: d0, off: balloon ? Cc.lane : pav(d0), sp: balloon ? 2.4 : 3.2, caught: false, y: 0 };
       const dr = new Driver(v, r, { d: Math.max(0, d0 - 30), vmax: 7.5 });
       v.setLights(true);
@@ -1177,7 +1177,7 @@
     weight: 2,
     plan() {
       const r = oncoming(150, 90); if (!r || r.bus < 120) return null;
-      const dCar = findPark(r, 45, 92, VEH.car.len + 9, VEH.tow.w); if (dCar == null) return null;
+      const dCar = findPark(r, 32, 75, VEH.car.len + 9, VEH.tow.w); if (dCar == null) return null;
       return { r, dCar };
     },
     start({ r, dCar }) {
@@ -1241,7 +1241,7 @@
       if (W().isRaining && W().isRaining()) return null;
       if (!nearStop(['park', 'playground', 'gardens', 'beach', 'wheel'], 170)) return null;
       const r = oncoming(140, 80); if (!r || r.bus < 110) return null;
-      const d = findPark(r, 40, 85, VEH.iceCream.len + 2, VEH.iceCream.w); if (d == null) return null;
+      const d = findPark(r, 30, 70, VEH.iceCream.len + 2, VEH.iceCream.w); if (d == null) return null;
       return { r, d };
     },
     start({ r, d }) {
@@ -1313,7 +1313,7 @@
     plan() {
       const dt = W().day ? W().day.t : 0.3; if (!(dt < 0.24 || dt > 0.93)) return null;
       const r = oncoming(150, 80); if (!r || r.bus < 110) return null;
-      for (const cand of buildingsAhead(r, 40, 95, 6, 60)) {
+      for (const cand of buildingsAhead(r, 30, 75, 6, 60)) {
         const dPark = cand.d; if (dPark < 30 || !parkOK(r, dPark, parkOff(r, dPark, VEH.milk.w), VEH.milk.len / 2 + 1)) continue;
         return { r, cand, dPark };
       }
@@ -1381,7 +1381,7 @@
     plan() {
       if (W().night && W().night() > 0.5) return null;
       const r = oncoming(150, 80); if (!r || r.bus < 115) return null;
-      const d = findPark(r, 45, 88, VEH.rubbish.len + 10, VEH.rubbish.w); if (d == null) return null;
+      const d = findPark(r, 35, 72, VEH.rubbish.len + 10, VEH.rubbish.w); if (d == null) return null;
       return { r, d };
     },
     start({ r, d }) {
@@ -1502,7 +1502,7 @@
     start({ r }) {
       const xmas = !!BB.xmas;
       const line = xmas ? [['elfBell', 1.6], ['float', 3.4], ['elf', 2.2], ['elfBell', 1.6]] : [['flag', 1.6], ['lion', 3.6], ['drummer', 2.4], ['cymbal', 1.8], ['drummer', 1.8], ['flag', 1.6]];
-      let s = r.bus - 70; const mem = [];
+      let s = r.bus - 48; const mem = [];
       for (const [lk, gap] of line) { s -= gap; mem.push({ lk, s0: s, seed: Math.random() * 6 }); }
       const off = (d) => r.at(d).half + 1.7, sp = 1.5;
       let t = 0, beat = 0, beatT = 0, said = false, bellT = 0;
