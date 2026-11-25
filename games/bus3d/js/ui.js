@@ -260,6 +260,8 @@
   .bbu-fam .bus { display: flex; flex-direction: column; align-items: center; background: #fff; border: 2px solid #ecd3a8; border-radius: 12px; padding: 2px 4px 1px; }
   .bbu-fam .bus canvas { width: 46px; height: 31px; display: block; }
   .bbu-fam .bus b { font: 800 13px/14px 'Courier New', monospace; color: #3a2a3c; }
+  .bbu-fam .cnt { position: absolute; top: -9px; left: -7px; min-width: 26px; height: 26px; border-radius: 13px; background: #5cb85c; color: #fff;
+    font: 700 17px/26px ${BB.FONT}; text-align: center; box-shadow: 0 3px 0 #3f913f; padding: 0 4px; box-sizing: border-box; }
   .bbu-fam .more { font: 700 18px/1 ${BB.FONT}; color: #6b5440; padding: 0 2px; }
   @media (max-height: 520px) {
     .bbu-play { height: 84px; font-size: 40px; padding: 0 34px 0 14px; border-radius: 44px; gap: 12px; } .bbu-play canvas { width: 58px; height: 58px; }
@@ -919,18 +921,17 @@
     return { status, friends };
   };
   U.FAMILY = {
-    together: { icon: 'together', words: 'Playing together!' },
-    alone: { icon: 'famAlone', words: 'Waiting for family' },
-    connecting: { icon: 'famWait', words: 'Looking for family' },
+    together: { icon: 'world', words: 'Playing with friends!' },
+    alone: { icon: 'famWait', words: 'Looking for friends…' },
+    connecting: { icon: 'famWait', words: 'Looking for friends…' },
     offline: { icon: 'famOffline', words: 'Playing on my own' },
   };
   U.familySay = function (f) {
     if (!f) return '';
     const n = f.friends.length;
-    if (f.status === 'together') return n === 1 ? 'Your family is here! One friend is playing too.' : `Your family is here! ${n} friends are playing too.`;
-    if (f.status === 'connecting') return 'Looking for your family!';
+    if (f.status === 'together') return n === 1 ? 'One friend is playing too!' : `${n} friends are playing too!`;
     if (f.status === 'offline') return 'No internet right now. We can play on our own!';
-    return 'Your family is not here yet.';
+    return 'Looking for friends!';
   };
   let famKey = '';
   function syncFam() {
@@ -940,10 +941,11 @@
     famKey = key; famEl.innerHTML = '';
     if (!f) return;
     const S = U.FAMILY[f.status] || U.FAMILY.alone;
-    const b = U.btn(famEl, null, 'Family', () => BB.say(U.familySay(U.family())), 'bbu-famb');
+    const b = U.btn(famEl, null, 'Friends', () => BB.say(U.familySay(U.family())), 'bbu-famb');
     b.querySelector('.lb').remove();
     const col = BB.el('span', 'col', null); b.prepend(col);
-    col.appendChild(BB.iconEl(S.icon, 128)); BB.el('span', 'lb', col, 'Family');
+    col.appendChild(BB.iconEl(S.icon, 128)); BB.el('span', 'lb', col, 'Friends');
+    if (f.status === 'together' && f.friends.length) BB.el('span', 'cnt', b, String(f.friends.length));   // (how many friends)
     for (const fr of f.friends.slice(0, 4)) { const d = BB.el('span', 'bus', b); d.appendChild(U.miniBus(fr.type, fr.paint)); BB.el('b', '', d, String(fr.routeNo || '')); }
     if (f.friends.length > 4) BB.el('span', 'more', b, '+' + (f.friends.length - 4));
   }

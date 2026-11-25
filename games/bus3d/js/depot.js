@@ -602,6 +602,12 @@
   .bbd-tile.code { background: #fffaf0; }
   .bbd-tile.code.lit { border-color: #ffb81f; box-shadow: 0 0 0 5px rgba(255,212,92,.7); }
   .bbd-tile.small { opacity: .92; }
+  /* the grown-up tile: a ring fills while it is held (2 s) */
+  .bbd-tile.hold::before { content: ''; position: absolute; inset: -5px; border-radius: 25px; pointer-events: none; opacity: 0;
+    background: conic-gradient(#19a79b var(--hp, 0turn), transparent 0); -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 0); mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 0); }
+  .bbd-tile.hold.holding::before { opacity: 1; animation: bbd-holdring 2s linear forwards; }
+  @property --hp { syntax: '<angle>'; inherits: false; initial-value: 0turn; }
+  @keyframes bbd-holdring { to { --hp: 1turn; } }
   .bbd-friend { display: flex; flex-direction: column; align-items: center; background: #fff6e0; border: 3px solid #d9b57f; border-radius: 16px; padding: 3px 7px 1px;
     cursor: pointer; touch-action: manipulation; min-width: 64px; min-height: 56px; box-sizing: border-box; justify-content: center; }
   .bbd-friend canvas { width: 50px; height: 33px; }
@@ -730,7 +736,7 @@
     { id: 'bus', icon: 'mybus', label: 'My ride', say: 'My ride! Choose what to drive, its colour and its number.' },
     { id: 'shop', icon: 'shop', label: 'Shop', say: 'The shop! Buy cool things with your coins.' },
     { id: 'settings', icon: 'settings', label: 'Settings', say: 'Settings! How do you like to drive?' },
-    { id: 'together', icon: 'together', label: 'Family', say: 'My family!' },
+    { id: 'together', icon: 'world', label: 'Friends', say: 'Friends!' },
   ];
   const SHOP = [
     { id: 'sticker', icon: 'stickers', label: 'Stickers', say: 'Stickers!' },
@@ -1161,20 +1167,21 @@
     const step = () => { cells.forEach((el, j) => el.classList.toggle('lit', j === k)); k++; famT = k <= cells.length ? BB.later(750, step) : null; };
     famT = BB.later(300 + pre.length * 55, step);
   }
+  // net.js modes: 'world' (everyone: public rooms, joined by itself) or 'family' (a private room by the 5 pictures)
+  const netMode = () => { try { return BB.net && typeof BB.net.mode === 'function' ? BB.net.mode() : 'family'; } catch (e) { return 'family'; } };
+  const setNetMode = (m) => { try { if (BB.net && typeof BB.net.setMode === 'function') BB.net.setMode(m); } catch (e) { console.error(e); } };
+  let famOpen = false;              // the grown-up part (private family room) is open
+  // Friends: the status (playing with friends / looking / on my own: a friendly picture, never an error) and the friends'
+  // little buses. Under a small grown-up tile (hold for 2 seconds): the private family room, with the 5-picture code,
+  // Say it, Join, New, and Everyone (back to the public rooms).
   function renderFamily(n) {
-    const N = BB.net, code = famCode();
+    const N = BB.net, code = famCode(), mode = netMode();
     famShown = famKey();
-    if (!code) return;
     const f = BB.ui.family() || { status: 'alone', friends: [] }, ST = BB.ui.FAMILY[f.status] || BB.ui.FAMILY.alone;
     const st = BB.el('button', 'bbd-famstat st-' + f.status, bodyEl); st.type = 'button';
-    st.appendChild(BB.iconEl(ST.icon, 128)); BB.el('span', 'lb', st, ST.words);
+    st.appendChild(BB.iconEl(ST.icon, 128));
+    BB.el('span', 'lb', st, f.status === 'together' ? `${ST.words} ${f.friends.length + 1} buses` : ST.words);
     BB.tap(st, () => BB.say(BB.ui.familySay(BB.ui.family())));
-    const box = sec('together', 'My family', true);
-    const cells = code.map((ci) => {
-      const t = tile(box, famPic(ci), { i: n++, label: cap(famNames()[ci]), tap: () => BB.say(cap(famNames()[ci]) + '!') });
-      t.classList.add('code'); return t;
-    });
-    tile(box, BB.icon('speak', 128), { i: n++, label: 'Say it', tap: () => famSayCode(cells) });
     if (f.friends.length) {
       const fr = sec('mybus', 'Here now', true);
       for (const x of f.friends) {
@@ -1182,17 +1189,38 @@
         d.appendChild(BB.ui.miniBus(x.type, x.paint)); BB.el('b', '', d, String(x.routeNo || ''));
         BB.tap(d, () => BB.say(`Bus ${x.routeNo}!`));
       }
-    } else BB.el('div', 'bbd-hint fam', bodyEl, 'Show these pictures on another iPad to play together!');
+    }
+    const family = mode === 'family' || famOpen;
+    if (!family) {
+      // the grown-up option: a long press, so a quick tap only says what it is
+      const acts = BB.el('div', 'bbd-tiles', bodyEl);
+      const g = tile(acts, N && N.pic ? N.pic('make', 160) : BB.icon('settings', 128), { i: n++, wide: true, label: 'Private room', tap: () => { if (!g._held) BB.say('For grown-ups: hold to make a private family room.'); } });
+      g.classList.add('small', 'hold');
+      let ht = null;
+      const stop = () => { if (ht) { BB.cancelLater(ht); ht = null; } g.classList.remove('holding'); };
+      g.addEventListener('pointerdown', () => { g._held = false; g.classList.add('holding'); ht = BB.later(2000, () => { ht = null; g._held = true; g.classList.remove('holding'); famOpen = true; BB.sfx.sparkle(); BB.say('Private family room. Show these pictures on another iPad, or join one.'); renderBody(); }); });
+      for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) g.addEventListener(ev, stop);
+      return;
+    }
+    if (!code) return;
+    const box = sec('together', mode === 'family' ? 'My family room' : 'Private family room', true);
+    const cells = code.map((ci) => {
+      const t = tile(box, famPic(ci), { i: n++, label: cap(famNames()[ci]), tap: () => BB.say(cap(famNames()[ci]) + '!') });
+      t.classList.add('code'); return t;
+    });
+    tile(box, BB.icon('speak', 128), { i: n++, label: 'Say it', tap: () => famSayCode(cells) });
     const acts = BB.el('div', 'bbd-tiles', bodyEl);
-    tile(acts, N.pic('join', 160), { i: n++, wide: true, label: 'Join a family', tap: () => { BB.sfx.pop(); N.enterFamily(); } });
+    tile(acts, N.pic('join', 160), { i: n++, wide: true, label: 'Join a family', tap: () => { BB.sfx.pop(); setNetMode('family'); N.enterFamily(); } });
+    if (mode !== 'family') tile(acts, BB.icon('together', 128), { i: n++, wide: true, label: 'Use this room', tap: () => { setNetMode('family'); BB.sfx.sparkle(); BB.say('Playing in your family room!'); renderBody(); } });
     const nf = tile(acts, N.pic('make', 160), { i: n++, wide: true, label: 'New family', tap: () => askNewFamily() });
     nf.classList.add('small');
+    tile(acts, BB.icon('world', 128), { i: n++, wide: true, label: 'Everyone', tap: () => { setNetMode('world'); famOpen = false; BB.sfx.pop(); BB.say('Playing with everyone!'); renderBody(); } });
   }
   function askNewFamily() {
     const pic = cv(BB.net.pic('make', 160));
     BB.ui.ask({ pic, words: 'New family?', say: 'Make a new family code? Your friends will need the new pictures.',
       yes: () => {
-        try { BB.net.newFamily(); } catch (e) { console.error(e); }
+        try { BB.net.newFamily(); setNetMode('family'); } catch (e) { console.error(e); }
         BB.sfx.sparkle(); renderBody();
         const cells = bodyEl ? [...bodyEl.querySelectorAll('.bbd-tile.code')] : [];
         famSayCode(cells, 'Your new family code is: ');
@@ -1202,7 +1230,7 @@
   // the My bus tab's picture shows the bus's colour: repaint it after a new paint
   function paintChanged() {
     if (BB.iconRefresh) BB.iconRefresh();
-    for (const [id, icon] of [['bus', 'mybus'], ['together', 'together']]) {
+    for (const [id, icon] of [['bus', 'mybus'], ['together', 'world']]) {
       const b = panel && panel.querySelector(`.bbd-tab[data-tab="${id}"] canvas`);
       if (b) b.replaceWith(BB.iconEl(icon, 128));
     }
@@ -1220,7 +1248,7 @@
       BB.sfx.click();
       const sct = SECTIONS.find((t) => t.id === id) || {};
       if (id === 'shop') BB.say(sct.say + ' ' + ((SHOP.find((t) => t.id === shopTab) || {}).say || ''));
-      else if (id === 'together') { const f = BB.ui.family(); BB.say(f && f.status === 'together' ? 'My family! Your family is here, playing too!' : 'My family! Show these pictures on another iPad to play together!'); }
+      else if (id === 'together') { famOpen = false; BB.say('Friends! ' + BB.ui.familySay(BB.ui.family())); }
       else BB.say(sct.say || '');
     }
   }

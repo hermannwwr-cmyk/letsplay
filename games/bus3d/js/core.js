@@ -503,7 +503,7 @@
   const iconCache = {};
   BB.icon = function (name, size = 96) {
     const paint = (BB.PAINTS.find((p) => p.id === BB.save.paint) || BB.PAINTS[0]).color;
-    const key = name + ':' + size + (/^(mybus|together|fam)/.test(name) ? paint : '');
+    const key = name + ':' + size + (/^(mybus|together|fam|world)/.test(name) ? paint : '');
     if (iconCache[key]) return iconCache[key];
     const P = BB.P, paper = BB.paper;
     const c = board(size, (x) => {
@@ -617,6 +617,15 @@
           paper(x, (p) => arcP(p, 50, 50, 15), P.cream, { depth: -0.6 });
           break;
         }
+        // Friends (everyone, public rooms): little buses driving round a globe
+        case 'world':
+          paper(x, (p) => arcP(p, 50, 46, 30), '#4fb6e8', { rimColor: '#2f8fc4' });
+          paper(x, (p) => { p.moveTo(34, 30); p.quadraticCurveTo(44, 22, 52, 30); p.quadraticCurveTo(48, 40, 38, 42); p.quadraticCurveTo(30, 38, 34, 30); p.closePath(); p.moveTo(56, 50); p.quadraticCurveTo(68, 44, 72, 54); p.quadraticCurveTo(66, 66, 56, 64); p.quadraticCurveTo(50, 58, 56, 50); p.closePath(); }, P.leaf, { depth: 0.3, rimW: 1.4 });
+          shine(x, 38, 30, 7, 4, -0.6, 0.45);
+          sideBus(x, -2, 62, 0.5, paint === '#3d8fe0' ? '#3fae49' : '#3d8fe0', 'single');
+          sideBus(x, 50, 66, 0.5, paint, 'single');
+          paper(x, (p) => heartP(p, 82, 16, 0.32), '#ef5a4b', { depth: 0.3 });
+          break;
         case 'together':
           sideBus(x, 2, 44, 0.6, paint === '#3d8fe0' ? '#3fae49' : '#3d8fe0', 'single');
           sideBus(x, 42, 54, 0.6, paint, 'single');
@@ -897,7 +906,7 @@
     return (spotCache[key] = c);
   };
   // forget cached icons that show the bus's colour or number (after the child changes them)
-  BB.iconRefresh = () => { for (const k in iconCache) if (/^(mybus|together|number|fam\w*):/.test(k)) delete iconCache[k]; };
+  BB.iconRefresh = () => { for (const k in iconCache) if (/^(mybus|together|world|number|fam\w*):/.test(k)) delete iconCache[k]; };
   // A fresh canvas copy of an icon, sized by CSS (several elements can't share one canvas).
   BB.iconEl = function (name, size = 96, pic) {
     const src = pic ? BB.pic(name, size) : BB.icon(name, size);
