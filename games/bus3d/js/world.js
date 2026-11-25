@@ -205,9 +205,8 @@
     { id: 'playground', name: 'Playground', say: 'the playground', pic: 'slide', from: 'n13', to: 'n23', t: 0.5, toward: [0, S] },
     { id: 'mrt', name: 'MRT Station', say: 'the MRT station', pic: 'train', from: 'n21', to: 'n22', t: 0.55, toward: [S, 0] },
     // the wider map
-    // (on the terminal's side of the drop-off road: the bus comes straight down from the expressway into it, and goes
-    // round the loop after; the old bay on the loop side was only reachable by a tight 90-degree turn off the loop)
-    { id: 'airport', name: 'Airport', say: 'the airport', pic: 'plane', from: 'AP1', to: 'AP2', t: 0.55, toward: [360, HZ - 56] },
+    // (nearer the expressway end: the bus comes off the loop with a 90-degree turn and needs room to line up)
+    { id: 'airport', name: 'Airport', say: 'the airport', pic: 'plane', from: 'AP1', to: 'AP2', t: 0.3, toward: [430, HZ - 56] },
     { id: 'city', name: 'City', say: 'the city', pic: 'city', from: 'E1', to: 'NE', t: 0.37, toward: [260, -50] },
     { id: 'chinatown', name: 'Old Town', say: 'old town', pic: 'lantern', from: 'W1', to: 'SWb', t: 0.45, toward: [-150, 50] },
     { id: 'beach', name: 'Beach', say: 'the beach', pic: 'beach', from: 'S1', to: 'SEa', t: 0.68, toward: [118, 260] },
