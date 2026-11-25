@@ -221,15 +221,16 @@
   .bbu-newst canvas { width: 64px; height: 64px; }
   @keyframes bbu-newst { 0% { transform: translate(-50%, -30px) scale(.5); opacity: 0; } 12% { transform: translate(-50%, 0) scale(1.08); opacity: 1; } 20%, 85% { transform: translate(-50%, 0) scale(1); opacity: 1; } 100% { transform: translate(-50%, -20px); opacity: 0; } }
   @media (max-height: 520px) { .bbu-newst { font-size: 20px; } .bbu-newst canvas { width: 46px; height: 46px; } }
-  /* Christmas: a Santa hat on the lettering, snow drifting over the home screen, festive confetti */
+  /* Christmas: a Santa hat on the lettering, a few twinkling sparkles on the home screen (no snow: Singapore), festive confetti */
   .bbu-logo { position: relative; }
   html.xmas .bbu-logo::before { content: ''; position: absolute; left: -.32em; top: -.52em; width: .95em; height: .86em; transform: rotate(-16deg);
     background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 90'%3E%3Cpath d='M14 70 Q30 14 66 12 Q86 12 92 44 Q78 30 70 40 Q60 58 62 70Z' fill='%23d63c35'/%3E%3Cpath d='M30 66 Q40 26 66 18 Q60 40 58 68Z' fill='%23ef5a4b'/%3E%3Crect x='6' y='62' width='66' height='18' rx='9' fill='%23fff6e0' stroke='%23e2d3b5' stroke-width='3'/%3E%3Ccircle cx='90' cy='50' r='10' fill='%23fff6e0' stroke='%23e2d3b5' stroke-width='3'/%3E%3C/svg%3E") center/contain no-repeat; filter: drop-shadow(0 3px 0 rgba(0,0,0,.15)); pointer-events: none; }
   .bbu-snow { position: absolute; inset: 0; pointer-events: none !important; overflow: hidden; display: none; }
   html.xmas .bbu-snow { display: block; }
-  .bbu-snow i { position: absolute; top: -12px; width: 9px; height: 9px; border-radius: 50%; background: #fff; opacity: .85; box-shadow: 0 0 4px rgba(255,255,255,.8);
-    animation: bbu-snowfall linear infinite; }
-  @keyframes bbu-snowfall { to { transform: translate(30px, 110vh); } }
+  .bbu-snow i { position: absolute; width: 12px; height: 12px; opacity: 0; background: #ffe27a;
+    clip-path: polygon(50% 0, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0 50%, 39% 39%); animation: bbu-twinkle2 ease-in-out infinite; }
+  .bbu-snow i:nth-child(3n) { background: #fffbe8; }
+  @keyframes bbu-twinkle2 { 0%, 100% { opacity: 0; transform: scale(.4) rotate(0deg); } 50% { opacity: .9; transform: scale(1) rotate(45deg); } }
   .bbu-confetti.flake { border-radius: 0; background: #fff !important; clip-path: polygon(50% 0, 60% 38%, 98% 25%, 66% 50%, 98% 75%, 60% 62%, 50% 100%, 40% 62%, 2% 75%, 34% 50%, 2% 25%, 40% 38%); width: 18px; height: 18px; }
   .bbu-confetti.star { border-radius: 0; background: #ffd45c !important; clip-path: polygon(50% 0, 62% 36%, 100% 38%, 70% 60%, 80% 98%, 50% 76%, 20% 98%, 30% 60%, 0 38%, 38% 36%); width: 18px; height: 18px; }
   #ui.home .bbn-friends { display: none; }       /* (the home screen has its own family strip) */
@@ -450,9 +451,9 @@
     famEl = BB.el('div', 'bbu-fam', titleEl);
     U.btn(titleEl, 'book', 'Book', () => U.openBook(), 'bbu-bookbtn');
     const snow = BB.el('div', 'bbu-snow', titleEl);
-    for (let i = 0; i < 18; i++) {
-      const f = BB.el('i', '', snow), sz = 5 + Math.random() * 7;
-      f.style.cssText = `left:${Math.random() * 100}%;width:${sz}px;height:${sz}px;animation-duration:${7 + Math.random() * 7}s;animation-delay:${-Math.random() * 14}s`;
+    for (let i = 0; i < 14; i++) {        // (twinkling sparkles in the sky, not snow)
+      const f = BB.el('i', '', snow), sz = 9 + Math.random() * 9;
+      f.style.cssText = `left:${4 + Math.random() * 92}%;top:${4 + Math.random() * 50}%;width:${sz}px;height:${sz}px;animation-duration:${2.2 + Math.random() * 2.5}s;animation-delay:${-Math.random() * 4}s`;
     }
     for (const ev of ['net:status', 'net:friends', 'net:changed']) BB.on(ev, () => { if (U.titleShown()) syncFam(); });
     // standalone portrait card (the hub shows its own card in hub mode)

@@ -1563,9 +1563,9 @@
           t += dt;
           if (n < total && (next -= dt) <= 0) {
             next = rand(1.4, 2.6); n++;
-            const cam = BB.camera ? BB.camera.position : Bs().pos;
-            const x = clamp(cam.x + rand(-60, 60), -180, 380), z = seaZ() + rand(50, 100);
-            rockets.push({ x, y: 1, z, vy: rand(30, 36), top: rand(42, 62), c1: pick(cols), c2: pick(cols) });
+            const cam = BB.camera ? BB.camera.position : Bs().pos, hb = Bs().heading + rand(-0.35, 0.35), ahead = rand(85, 120);
+            const x = clamp(cam.x + Math.sin(hb) * ahead, -180, 380), z = Math.max(seaZ() + 30, cam.z + Math.cos(hb) * ahead);   // ahead of the camera, over the sea side
+            rockets.push({ x, y: 1, z, vy: rand(30, 36), top: rand(30, 48), c1: pick(cols), c2: pick(cols) });
             SND.whistle(near(x, z, 260));
           }
           for (let i = rockets.length - 1; i >= 0; i--) {
@@ -1605,7 +1605,8 @@
       const f = { x: Math.sin(B.heading), z: Math.cos(B.heading) };
       const S = { x: B.pos.x - f.x * 80, y: 78, z: B.pos.z - f.z * 80 };
       const Ap = east ? { x: 150, y: 16, z: RZ } : { x: 640, y: 16, z: RZ }, T = east ? { x: 270, y: 0, z: RZ } : { x: 520, y: 0, z: RZ }, R = east ? { x: 470, y: 0, z: RZ } : { x: 320, y: 0, z: RZ };
-      const legs = [[S, Ap, 36], [Ap, T, 30], [T, R, 0]];
+      const M = { x: B.pos.x + f.x * 75, y: 30, z: B.pos.z + f.z * 75 };      // over the road ahead, in the camera's view
+      const legs = [[S, M, 36], [M, Ap, 36], [Ap, T, 30], [T, R, 0]], LAST = legs.length - 1;
       let g = null, mat = null;
       if (BB.landmarks && typeof BB.landmarks.plane === 'function') {
         g = safe(() => BB.landmarks.plane(0));
@@ -1619,7 +1620,7 @@
         g = new THREE.Group(); g.add(b.mesh(new THREE.MeshLambertMaterial({ vertexColors: true, fog: false })));
       }
       g.name = 'ev:plane'; BB.scene.add(g);
-      let leg = 0, u = 0, sp = 36, h = Math.atan2(Ap.x - S.x, Ap.z - S.z), t = 0, whoosh = null, said = false, rollT = 0, bank = 0;
+      let leg = 0, u = 0, sp = 36, h = Math.atan2(M.x - S.x, M.z - S.z), t = 0, whoosh = null, said = false, rollT = 0, bank = 0;
       const pos = { x: S.x, y: S.y, z: S.z };
       whoosh = noise(1, { type: 'lowpass', freq: 520, vol: 0.001, hold: true, attack: 0.5 });
       return {
@@ -1627,19 +1628,19 @@
         update(dt) {
           t += dt;
           const [a, b, v1] = legs[leg], L = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z) || 1;
-          if (leg === 2) sp = Math.max(6, sp - dt * 6); else sp += ((v1 || 30) - sp) * Math.min(1, dt);
+          if (leg === LAST) sp = Math.max(6, sp - dt * 6); else sp += ((v1 || 30) - sp) * Math.min(1, dt);
           u += sp * dt / L;
-          if (u >= 1) { if (leg < 2) { leg++; u = 0; if (leg === 2) SND.clunk(near(T.x, T.z, 200) + 0.2); } else u = 1; }
+          if (u >= 1) { if (leg < LAST) { leg++; u = 0; if (leg === LAST) SND.clunk(near(T.x, T.z, 200) + 0.2); } else u = 1; }
           const [a2, b2] = legs[leg];
           pos.x = a2.x + (b2.x - a2.x) * u; pos.y = a2.y + (b2.y - a2.y) * u; pos.z = a2.z + (b2.z - a2.z) * u;
           const ht = Math.atan2(b2.x - a2.x, b2.z - a2.z), dh = wrapA(ht - h) * Math.min(1, dt * 1.2);
           h += dh; bank += (clamp(-dh / Math.max(dt, 1e-3) * 0.8, -0.4, 0.4) - bank) * Math.min(1, dt * 2);
-          const pitch = leg === 2 ? 0 : -Math.atan2(b2.y - a2.y, Math.hypot(b2.x - a2.x, b2.z - a2.z)) * 0.6 - (leg === 1 && u > 0.8 ? 0.06 : 0);
+          const pitch = leg === LAST ? 0 : -Math.atan2(b2.y - a2.y, Math.hypot(b2.x - a2.x, b2.z - a2.z)) * 0.6 - (leg === LAST - 1 && u > 0.8 ? 0.06 : 0);
           g.position.set(pos.x, pos.y, pos.z); g.rotation.set(0, 0, 0); g.rotation.order = 'YXZ'; g.rotation.y = h; g.rotation.x = pitch; g.rotation.z = bank;
           const k = clamp(1 - Math.hypot(pos.x - Bs().pos.x, pos.y, pos.z - Bs().pos.z) / 220, 0, 1);
           if (whoosh) whoosh.set(0.07 * k * duck());
-          if (!said && k > 0.3 && inView(pos.x, pos.y, pos.z, 260)) { said = true; talk('Look up! A plane is coming in to land!'); }
-          if (leg === 2 && u >= 1) rollT += dt;
+          if (!said && k > 0.35 && (inView(pos.x, pos.y, pos.z, 260) || Math.hypot(pos.x - Bs().pos.x, pos.z - Bs().pos.z) < 60)) { said = true; talk('Look up! A plane is coming in to land!'); }
+          if (leg === LAST && u >= 1) rollT += dt;
           return rollT < 2 && t < 50;
         },
         end() { if (whoosh) whoosh.stop(); if (g.parent) g.parent.remove(g); if (mat) mat.dispose(); },
@@ -1733,7 +1734,7 @@
     const c = E.current; if (!c || !c.spots) return;
     if ((frT -= dt) > 0) return;
     frT = 0.35; updateFrustum();
-    for (const [id, x, y, z] of c.spots() || []) if (!c.spotted[id] && inView(x, y, z, id === 'plane' || id === 'fireworks' ? 300 : 95)) { c.spotted[id] = true; E.spot(id); }
+    for (const [id, x, y, z] of c.spots() || []) if (!c.spotted[id] && inView(x, y, z, id === 'plane' || id === 'fireworks' ? 300 : 125)) { c.spotted[id] = true; E.spot(id); }
   }
 
   function init() {
