@@ -304,6 +304,8 @@
   /* narrower screens: the clock moves under Coins */
   @media (max-width: 900px) { .bbu-top .bbu-clock { position: absolute; left: 0; top: calc(var(--bh) + 8px); margin-top: 0; font-size: 25px; } .bbu-top .bbu-clock svg { width: 30px; height: 30px; }
     .lefty .bbu-top .bbu-clock { left: auto; right: 0; } }   /* (left-handed: Turn around is on the left, so the clock goes right) */
+  /* small phones: the sides are full (Turn around, Controls above the wheel), so the clock sits in the middle, under Next stop */
+  @media (max-width: 900px) and (max-height: 430px) { .bbu-top .bbu-clock, .lefty .bbu-top .bbu-clock { left: 50%; right: auto; transform: translateX(-50%); } }
   /* small phones held sideways: the wheel, the pedals and the joystick are sized from the height (the wheel at most
      about 40% of it), lifted a little off the bottom edge so their shadows and glows show, and never under 64 px */
   @media (max-height: 430px) {
