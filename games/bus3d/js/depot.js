@@ -592,7 +592,7 @@
   .bbd-status { position: absolute; z-index: 12; top: var(--st); left: var(--sl); display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px;
     max-width: calc(100% - var(--pw) - var(--sl) - 12px); pointer-events: none; }
   .bbd-status > * { pointer-events: auto; }
-  .bbd-status .bbd-home > canvas { width: var(--ic); height: var(--ic); }
+  .bbd-status .bbd-home > canvas, .bbd-status .bbd-book > canvas { width: var(--ic); height: var(--ic); }
   .bbd-status .bbd-cash .row b { font-size: calc(var(--ic) * .74); line-height: 1; color: #3a2a3c; }
   .bbd-status .row canvas { width: var(--ic); height: var(--ic); }
   .bbd-cash.bump { animation: bbd-bump .5s; } @keyframes bbd-bump { 40% { transform: scale(1.15); } }
@@ -1169,6 +1169,7 @@
     // over the 3D view: coins, fuel, (the clock)
     statusEl.innerHTML = '';
     BB.ui.btn(statusEl, 'home', 'Home', () => { if (BB.bedtime) return; BB.sfx.whoosh(); BB.say('Home!'); D.close({ home: true }); }, 'bbd-home');
+    if (BB.ui.openBook) BB.ui.btn(statusEl, 'book', 'Book', () => BB.ui.openBook(), 'bbd-book');
     cashBox = BB.ui.btn(statusEl, null, 'Coins', () => BB.say(D.cash === 1 ? 'You have 1 coin.' : `You have ${D.cash} coins.`), 'bbd-cash');
     const crow = BB.el('span', 'row', null); cashBox.prepend(crow); crow.appendChild(coinCv(42)); cashSpan = BB.el('b', '', crow, String(D.cash));
     fuelBtn = BB.ui.btn(statusEl, null, 'Fuel', () => fillUp(false), 'bbd-fuel' + (BB.bus.fuel >= 0.98 ? ' gone' : ''));

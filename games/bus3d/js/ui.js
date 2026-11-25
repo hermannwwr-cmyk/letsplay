@@ -183,6 +183,44 @@
   @keyframes bbu-pulse { 50% { transform: scale(1.06); } }
   @keyframes bbu-wiggle { 20% { rotate: -3deg; } 40% { rotate: 3deg; } 60% { rotate: -2deg; } 80% { rotate: 1deg; } }
   .bbu-fam { position: absolute; top: var(--st); right: var(--sr); }
+  .bbu-title .bbu-bookbtn { position: absolute; left: var(--sl); bottom: var(--sb); }
+  /* the spotter book: two paper pages, a sticker per find (grey "?" outlines for the rest) */
+  .bbu-book { position: absolute; inset: 0; z-index: 59; background: rgba(40,30,50,.4); display: flex; align-items: center; justify-content: center;
+    pointer-events: auto; animation: bbu-fadein .2s; padding: var(--st) var(--sr) var(--sb) var(--sl); box-sizing: border-box; --sk: 92px; --skl: 14px; }
+  .bbu-book .bk { position: relative; display: flex; gap: 0; background: #b06e3c; padding: 10px; border-radius: 26px; box-shadow: 0 10px 0 rgba(80,40,20,.3);
+    animation: bbu-pop .3s cubic-bezier(.2,1.5,.5,1); max-height: 100%; box-sizing: border-box; }
+  .bbu-book .pg { background: linear-gradient(90deg, #fffaf0, #fdf0d6); padding: 12px 16px 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .bbu-book .pg:first-of-type { border-radius: 18px 4px 4px 18px; box-shadow: inset -10px 0 12px -10px rgba(120,80,40,.35); }
+  .bbu-book .pg:last-of-type { border-radius: 4px 18px 18px 4px; background: linear-gradient(90deg, #fdf0d6, #fffaf0); box-shadow: inset 10px 0 12px -10px rgba(120,80,40,.35); }
+  .bbu-book h3 { margin: 0; font: 700 22px/1.1 ${BB.FONT}; color: #8a5a2c; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+  .bbu-book h3 canvas { width: 30px; height: 30px; }
+  .bbu-book .grid { display: grid; gap: 8px; }
+  .bbu-book .stk { width: var(--sk); display: flex; flex-direction: column; align-items: center; gap: 2px; border: none; background: none; padding: 0; cursor: pointer;
+    touch-action: manipulation; font: 700 var(--skl)/1.05 ${BB.FONT}; color: #5a3e2b; text-align: center; }
+  .bbu-book .stk canvas, .bbu-book .stk .q { width: var(--sk); height: var(--sk); display: block; }
+  .bbu-book .stk canvas { filter: drop-shadow(0 3px 0 rgba(120,80,40,.25)); }
+  .bbu-book .stk .q { box-sizing: border-box; border: 3px dashed #d0bfa0; border-radius: 22px; display: flex; align-items: center; justify-content: center;
+    font: 700 calc(var(--sk) * .5)/1 ${BB.FONT}; color: #d0bfa0; background: rgba(255,255,255,.4); }
+  .bbu-book .stk .lb { min-height: 1.05em; white-space: nowrap; }
+  .bbu-book .stk.pressed { transform: translateY(3px); }
+  .bbu-book .stk.fresh canvas { animation: bbu-pop .5s cubic-bezier(.2,1.6,.5,1); }
+  .bbu-book .x { position: absolute; z-index: 3; top: -18px; right: -18px; width: 64px; height: 64px; border: none; background: none; padding: 0; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; touch-action: manipulation; }
+  .bbu-book .x canvas { width: 60px; height: 60px; }
+  .bbu-book .x .lb { font: 700 13px/1 ${BB.FONT}; color: #4a3424; background: #fff6e0; border: 2px solid #d9b57f; border-radius: 9px; padding: 1px 6px 2px; margin-top: -6px; }
+  .bbu-book .count { font: 700 16px/1 ${BB.FONT}; color: #a07a50; margin-left: auto; }
+  @media (max-height: 820px) { .bbu-book { --sk: 80px; } }
+  @media (max-height: 700px) { .bbu-book { --sk: 70px; --skl: 13px; } }
+  @media (max-height: 520px) { .bbu-book { --sk: 56px; --skl: 12px; } .bbu-book h3 { font-size: 17px; } .bbu-book h3 canvas { width: 22px; height: 22px; }
+    .bbu-book .pg { padding: 8px 10px 10px; gap: 5px; } .bbu-book .grid { gap: 5px 6px; } .bbu-book .bk { padding: 7px; }
+    .bbu-book .x { width: 56px; height: 56px; top: -14px; right: -14px; } .bbu-book .x canvas { width: 52px; height: 52px; } }
+  /* "New sticker!" while driving */
+  .bbu-newst { position: absolute; z-index: 21; left: 50%; top: calc(var(--st) + var(--bh) + 14px); transform: translateX(-50%); display: flex; align-items: center; gap: 10px;
+    background: #fff6e0; border: 4px solid #ffb81f; border-radius: 26px; padding: 6px 18px 6px 8px; box-shadow: 0 6px 0 rgba(150,90,0,.25); pointer-events: none;
+    font: 700 26px/1 ${BB.FONT}; color: #9a5d00; animation: bbu-newst 2.8s ease-in-out forwards; white-space: nowrap; }
+  .bbu-newst canvas { width: 64px; height: 64px; }
+  @keyframes bbu-newst { 0% { transform: translate(-50%, -30px) scale(.5); opacity: 0; } 12% { transform: translate(-50%, 0) scale(1.08); opacity: 1; } 20%, 85% { transform: translate(-50%, 0) scale(1); opacity: 1; } 100% { transform: translate(-50%, -20px); opacity: 0; } }
+  @media (max-height: 520px) { .bbu-newst { font-size: 20px; } .bbu-newst canvas { width: 46px; height: 46px; } }
   /* Christmas: a Santa hat on the lettering, snow drifting over the home screen, festive confetti */
   .bbu-logo { position: relative; }
   html.xmas .bbu-logo::before { content: ''; position: absolute; left: -.32em; top: -.52em; width: .95em; height: .86em; transform: rotate(-16deg);
@@ -410,6 +448,7 @@
     playBtn.appendChild(BB.iconEl('play', 128)); BB.el('span', 'lb', playBtn, 'Play');
     BB.tap(playBtn, () => U.play());
     famEl = BB.el('div', 'bbu-fam', titleEl);
+    U.btn(titleEl, 'book', 'Book', () => U.openBook(), 'bbu-bookbtn');
     const snow = BB.el('div', 'bbu-snow', titleEl);
     for (let i = 0; i < 18; i++) {
       const f = BB.el('i', '', snow), sz = 5 + Math.random() * 7;
@@ -788,7 +827,100 @@
   }
   U.showExit = function (on) { if (exitBtn) exitBtn.style.display = on && !BB.hub.slept && !BB.bedtime ? '' : 'none'; };
   // hide everything for the goodnight moment
-  U.hideAll = function () { U.hideHome(); hud.classList.add('off'); U.showExit(false); U.closeAsk(); U.releaseAll(); };
+  U.hideAll = function () { U.closeBook(); U.hideHome(); hud.classList.add('off'); U.showExit(false); U.closeAsk(); U.releaseAll(); };
+
+  // ---------- the spotter book ----------
+  // "Things I spotted" (events.js: 'spot' {id, name} the first time each special vehicle or sight is seen; BB.events.seen)
+  // and "My passenger friends" (jobs.js: J.FRIENDS, J.friendsMet(), 'friend:met'). Found ones are picture stickers
+  // (tap: the name), the rest grey "?" outlines. Something new while driving: a "New sticker!" pop, never over a question.
+  const SPOTS = [['fireTruck', 'Fire truck'], ['ambulance', 'Ambulance'], ['police', 'Police car'], ['towTruck', 'Tow truck'], ['iceCream', 'Ice cream van'],
+    ['milkVan', 'Milk van'], ['rubbishTruck', 'Rubbish truck'], ['otters', 'Otters'], ['parade', 'Parade'], ['fireworks', 'Fireworks'], ['plane', 'Aeroplane']];
+  const FRIEND_LOOK = { granny: { shirt: P.plum, skin: '#f1c7a0', hair: '#e8e4dc', bun: true }, kai: { shirt: '#f28b4b', skin: '#d9a679', hair: '#1f1b22' },
+    rose: { shirt: P.leaf, skin: '#a8714a', hair: '#3a2a2c', bun: true }, tan: { shirt: '#9fb6c8', skin: '#f5d3b5', hair: '#8a8290' } };
+  function spotList() {
+    const E = BB.events, list = E && Array.isArray(E.LIST) ? E.LIST : E && Array.isArray(E.KINDS) ? E.KINDS : null;
+    if (list) return list.map((k) => (typeof k === 'string' ? [k, (SPOTS.find((q) => q[0] === k) || [k, k])[1]] : [k.id, k.name || k.id]));
+    return SPOTS;
+  }
+  function spotSeen() {
+    const out = new Set(Array.isArray(BB.save.spotted) ? BB.save.spotted : []), seen = BB.events && BB.events.seen;
+    try {
+      if (seen instanceof Set) seen.forEach((v) => out.add(v));
+      else if (Array.isArray(seen)) seen.forEach((v) => out.add(v));
+      else if (seen && typeof seen === 'object') for (const k in seen) if (seen[k]) out.add(k);
+    } catch (e) { /* ignore */ }
+    return out;
+  }
+  function friendList() {
+    const J = BB.jobs, list = (J && Array.isArray(J.FRIENDS)) ? J.FRIENDS : [];
+    let met = [];
+    try { met = J && typeof J.friendsMet === 'function' ? J.friendsMet() : (BB.save.friendsMet || []); } catch (e) { met = []; }
+    return list.map((f) => ({ id: f.id, name: f.name, prop: f.prop, look: f.look || FRIEND_LOOK[f.id], met: met.includes(f.id) }));
+  }
+  let bookEl = null, freshIds = new Set();
+  U.closeBook = function () { if (bookEl) { bookEl.remove(); bookEl = null; } };
+  U.openBook = function () {
+    U.closeBook(); U.releaseAll();
+    const w = bookEl = BB.el('div', 'bbu-book', U.root), bk = BB.el('div', 'bk', w);
+    const x = BB.el('button', 'x', bk); x.type = 'button'; x.appendChild(BB.iconEl('cross', 96)); BB.el('span', 'lb', x, 'Close'); x.setAttribute('aria-label', 'Close');
+    BB.tap(x, () => { BB.sfx.click(); U.closeBook(); });
+    BB.tap(w, (e) => { if (e.target === w) U.closeBook(); });
+    const page = (icon, title, cols, items) => {
+      const pg = BB.el('div', 'pg', bk), h = BB.el('h3', '', pg);
+      h.appendChild(icon); BB.el('span', '', h, title);
+      BB.el('span', 'count', h, `${items.filter((i) => i.found).length}/${items.length}`);
+      const g = BB.el('div', 'grid', pg); g.style.gridTemplateColumns = `repeat(${cols}, var(--sk))`;
+      for (const it of items) {
+        const b = BB.el('button', 'stk' + (freshIds.has(it.id) ? ' fresh' : ''), g); b.type = 'button';
+        if (it.found) {
+          const src = it.pic(), c = document.createElement('canvas'); c.width = src.width; c.height = src.height; c.getContext('2d').drawImage(src, 0, 0);
+          b.appendChild(c); BB.el('span', 'lb', b, it.name); b.setAttribute('aria-label', it.name);
+        }
+        else { BB.el('span', 'q', b, '?'); BB.el('span', 'lb', b, ''); b.setAttribute('aria-label', 'not found yet'); }
+        BB.tap(b, () => { BB.sfx.pop(); BB.say(it.found ? it.name + '!' : it.missing); });
+      }
+    };
+    const seen = spotSeen();
+    page(BB.spotPic('fireTruck', 64), 'Things I spotted', 4, spotList().map(([id, name]) => ({ id, name, found: seen.has(id), pic: () => BB.spotPic(id, 160), missing: 'Not found yet! Keep your eyes open when you drive!' })));
+    page(BB.friendPic({ id: 'granny', look: FRIEND_LOOK.granny, prop: 'cat' }, 64), 'My passenger friends', 2, friendList().map((f) => ({ id: 'friend-' + f.id, name: f.name, found: f.met, pic: () => BB.friendPic(f, 160), missing: 'Not met yet! Maybe they will get on your bus one day!' })));
+    freshIds.clear();
+    BB.sfx.page();
+    BB.say('My sticker book!');
+  };
+  // something new: remember it, then a "New sticker!" pop at a calm moment
+  const newQueue = [];
+  function calmForPop() {
+    if (BB.bedtime || BB.held || !hud || hud.classList.contains('off') || BB.depot.isOpen || U.titleShown() || askEl || bookEl) return false;
+    const J = BB.jobs; if ((J.busy && J.busy()) || J.phase === 'question' || document.querySelector('.bbq')) return false;
+    return true;
+  }
+  function popNext() {
+    if (!newQueue.length || document.querySelector('.bbu-newst') || !calmForPop()) return;
+    const it = newQueue.shift();
+    const el = BB.el('div', 'bbu-newst', U.root); el.appendChild(it.pic()); BB.el('span', '', el, 'New sticker!');
+    BB.sfx.page(); BB.later(250, () => BB.sfx.sparkle());
+    BB.say(`New sticker! ${it.name}!`, { queue: true });
+    BB.later(2900, () => el.remove());
+  }
+  setInterval(popNext, 1000);
+  function gotSticker(id, name, pic) {
+    if (newQueue.some((q) => q.id === id)) return;
+    freshIds.add(id);
+    newQueue.push({ id, name, pic: () => { const src = pic(), c = document.createElement('canvas'); c.width = src.width; c.height = src.height; c.getContext('2d').drawImage(src, 0, 0); return c; } });
+    popNext();
+  }
+  BB.on('spot', (d) => {
+    if (!d || !d.id) return;
+    const list = Array.isArray(BB.save.spotted) ? BB.save.spotted : (BB.save.spotted = []);
+    if (list.includes(d.id)) return;
+    list.push(d.id); BB.saveNow();
+    gotSticker(d.id, d.name || (SPOTS.find((q) => q[0] === d.id) || [0, d.id])[1], () => BB.spotPic(d.id, 128));
+  });
+  BB.on('friend:met', (d) => {
+    if (!d || !d.id) return;
+    const f = friendList().find((x) => x.id === d.id) || { id: d.id, name: d.name };
+    gotSticker('friend-' + d.id, d.name || f.name, () => BB.friendPic(f, 128));
+  });
 
   // ---------- play clock chip (hub mode) ----------
   const clocks = [];

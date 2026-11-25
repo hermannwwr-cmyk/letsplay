@@ -59,7 +59,7 @@
   const DEFAULT_SAVE = () => ({
     paint: 'green', upgrades: {}, stickers: [], fuel: 1, jobsDone: 0, questions: 0, seen: {},
     paints: ['green'], stickersOwned: [], parts: {}, partsOwned: [],
-    busType: null, routeNo: '88', assist: false, leftHand: false, control: 'joystick', xmas: 'auto', dirt: 0,
+    busType: null, routeNo: '88', assist: false, leftHand: false, control: 'joystick', xmas: 'auto', dirt: 0, spotted: [], friendsMet: [],
   });
   // Hats were sold in an earlier build; they're gone from the shop, and depot.js gives their coins back.
   const HAT_PRICES = { party: 5, flowers: 6, bunny: 8, crown: 10 };
@@ -70,7 +70,7 @@
       for (const k in s) if (k in got && got[k] != null) s[k] = got[k];
       if (typeof s.upgrades !== 'object') s.upgrades = {};
       if (typeof s.seen !== 'object') s.seen = {};
-      for (const k of ['stickers', 'paints', 'stickersOwned', 'partsOwned']) if (!Array.isArray(s[k])) s[k] = k === 'paints' ? ['green'] : [];
+      for (const k of ['stickers', 'paints', 'stickersOwned', 'partsOwned', 'spotted', 'friendsMet']) if (!Array.isArray(s[k])) s[k] = k === 'paints' ? ['green'] : [];
       if (!s.parts || typeof s.parts !== 'object' || Array.isArray(s.parts)) s.parts = {};
       s.routeNo = /^[1-9][0-9]{0,2}$/.test(String(s.routeNo)) ? String(s.routeNo) : '88';
       if (s.busType != null && typeof s.busType !== 'string') s.busType = null;
@@ -535,6 +535,16 @@
             shine(x, bx - r * 0.35, by - r * 0.35, r * 0.28, r * 0.18, -0.6, 0.9);
           }
           break;
+        // the spotter book: an open book with a bookmark
+        case 'book':
+          paper(x, (p) => { p.moveTo(50, 26); p.quadraticCurveTo(30, 16, 8, 22); p.lineTo(8, 80); p.quadraticCurveTo(30, 74, 50, 84); p.closePath(); }, '#4fa3e0');
+          paper(x, (p) => { p.moveTo(50, 26); p.quadraticCurveTo(70, 16, 92, 22); p.lineTo(92, 80); p.quadraticCurveTo(70, 74, 50, 84); p.closePath(); }, '#3d8fe0');
+          paper(x, (p) => { p.moveTo(50, 30); p.quadraticCurveTo(32, 22, 14, 27); p.lineTo(14, 74); p.quadraticCurveTo(32, 69, 50, 78); p.closePath(); }, '#fffaf0', { depth: 0.3 });
+          paper(x, (p) => { p.moveTo(50, 30); p.quadraticCurveTo(68, 22, 86, 27); p.lineTo(86, 74); p.quadraticCurveTo(68, 69, 50, 78); p.closePath(); }, '#fffaf0', { depth: 0.3 });
+          paper(x, (p) => starP(p, 31, 50, 11, 5), P.honey, { depth: 0.3 });
+          paper(x, (p) => arcP(p, 69, 50, 9), P.coral, { depth: 0.3 });
+          paper(x, (p) => { p.moveTo(62, 26); p.lineTo(70, 26); p.lineTo(70, 44); p.lineTo(66, 40); p.lineTo(62, 44); p.closePath(); }, P.coral, { depth: 0.2, rimW: 1.4 });
+          break;
         case 'play':
           paper(x, (p) => arcP(p, 50, 50, 44), '#fff6e0', { rimColor: '#d9b57f' });
           paper(x, (p) => { p.moveTo(38, 27); p.lineTo(75, 50); p.lineTo(38, 73); p.closePath(); }, '#3fae49', { depth: 0.6 });
@@ -616,6 +626,130 @@
     });
     iconCache[key] = c;
     return c;
+  };
+  // ---------- the spotter book's stickers: special vehicles and sights, and the passenger friends ----------
+  // BB.spotPic(id, size): fireTruck, ambulance, police, towTruck, iceCream, milkVan, rubbishTruck, otters, parade,
+  // fireworks, plane (anything else: a star). BB.friendPic(friend, size): a round portrait (no faces on vehicles, only
+  // on people) with the friend's colours and their thing. Cached.
+  const spotCache = {};
+  function vehicle(x, o) {
+    // a little side-view vehicle facing right: cab + box (or one body), two wheels
+    const body = o.body, top = o.top || 34;
+    if (o.box) paper(x, (p) => rrP(p, 6, top, 56, 74 - top, 6), o.box);
+    paper(x, (p) => rrP(p, o.box ? 60 : 8, o.cabTop || 44, o.box ? 34 : 86, 74 - (o.cabTop || 44), [12, 14, 4, 4]), body);
+    x.fillStyle = '#d4eef8'; x.beginPath(); rrP(x, o.box ? 74 : 70, (o.cabTop || 44) + 6, 16, 12, 3); x.fill();
+    if (!o.box) { x.beginPath(); rrP(x, 16, (o.cabTop || 44) + 6, 44, 12, 3); x.fill(); }
+    for (const wx of [24, 76]) { paper(x, (p) => arcP(p, wx, 76, 9), '#3a343f', { depth: 0.5, rim: false }); dot(x, wx, 76, 4, '#c9d2db'); }
+  }
+  BB.spotPic = function (id, size = 128) {
+    const key = id + size; if (spotCache[key]) return spotCache[key];
+    const P = BB.P, paper = BB.paper;
+    const c = board(size, (x) => {
+      switch (id) {
+        case 'fireTruck':
+          vehicle(x, { body: '#e8473c', box: '#e8473c', top: 40, cabTop: 38 });
+          BB.paperStroke(x, (p) => { p.moveTo(10, 32); p.lineTo(64, 24); }, '#c9d2db', 5);
+          for (let i = 0; i < 5; i++) BB.paperStroke(x, (p) => { p.moveTo(16 + i * 10, 31 - i * 1.4); p.lineTo(16 + i * 10, 26 - i * 1.4); }, '#c9d2db', 2.5);
+          paper(x, (p) => rrP(p, 70, 30, 12, 8, 3), '#4fa3e0', { depth: 0.2 });
+          break;
+        case 'ambulance':
+          vehicle(x, { body: '#fdfbf6', box: '#fdfbf6', top: 30, cabTop: 40 });
+          x.fillStyle = '#5cb85c'; x.fillRect(6, 58, 88, 5);
+          x.fillStyle = '#e8473c'; x.fillRect(26, 40, 16, 5); x.fillRect(31.5, 34.5, 5, 16);
+          paper(x, (p) => rrP(p, 70, 33, 12, 7, 3), '#4fa3e0', { depth: 0.2 });
+          break;
+        case 'police':
+          vehicle(x, { body: '#3d6fc4', cabTop: 46 });
+          x.fillStyle = '#fdfbf6'; x.fillRect(8, 62, 86, 5);
+          paper(x, (p) => rrP(p, 40, 37, 10, 8, 3), '#e8473c', { depth: 0.2 }); paper(x, (p) => rrP(p, 50, 37, 10, 8, 3), '#4fa3e0', { depth: 0.2 });
+          break;
+        case 'towTruck':
+          vehicle(x, { body: '#f5b83d', box: '#7a7385', top: 56, cabTop: 40 });
+          BB.paperStroke(x, (p) => { p.moveTo(40, 56); p.lineTo(14, 30); p.lineTo(6, 44); }, '#5a5260', 5);
+          BB.paperStroke(x, (p) => { p.moveTo(6, 44); p.quadraticCurveTo(2, 54, 10, 52); }, '#5a5260', 3);
+          paper(x, (p) => rrP(p, 70, 33, 12, 7, 3), P.honey, { depth: 0.2 });
+          break;
+        case 'iceCream':
+          vehicle(x, { body: '#ff9ec0', cabTop: 40 });
+          x.fillStyle = '#fff6e0'; for (let i = 0; i < 6; i++) x.fillRect(10 + i * 14, 62, 7, 6);
+          paper(x, (p) => { p.moveTo(36, 40); p.lineTo(48, 40); p.lineTo(42, 22); p.closePath(); }, P.woodLight, { depth: 0.3 });
+          paper(x, (p) => arcP(p, 42, 18, 8), '#fff6e0', { depth: 0.3 }); dot(x, 42, 11, 3, P.coral);
+          break;
+        case 'milkVan':
+          vehicle(x, { body: '#fdfbf6', cabTop: 42 });
+          x.fillStyle = '#4fa3e0'; x.fillRect(8, 60, 86, 6);
+          paper(x, (p) => { rrP(p, 34, 22, 14, 22, 4); }, '#ffffff', { rimColor: '#9cc7dc' }); paper(x, (p) => rrP(p, 36, 16, 10, 7, 2), '#4fa3e0', { depth: 0.2 });
+          break;
+        case 'rubbishTruck':
+          vehicle(x, { body: '#3fae49', box: '#2f8f3a', top: 30, cabTop: 40 });
+          for (let i = 0; i < 3; i++) { x.fillStyle = 'rgba(255,255,255,.3)'; x.fillRect(12 + i * 16, 38, 8, 26); }
+          break;
+        case 'otters':
+          for (const [ox, s2] of [[34, 1], [68, 0.85]]) {
+            x.save(); x.translate(ox, 58); x.scale(s2, s2);
+            dot(x, -16, -18, 7, '#8a5a38'); dot(x, 16, -18, 7, '#8a5a38');
+            paper(x, (p) => p.ellipse(0, 0, 24, 22, 0, 0, Math.PI * 2), '#a8724a');
+            x.beginPath(); x.ellipse(0, 8, 14, 9, 0, 0, Math.PI * 2); x.fillStyle = '#f3dcc0'; x.fill();
+            dot(x, -8, -4, 3, '#3a2a3c'); dot(x, 8, -4, 3, '#3a2a3c'); x.beginPath(); x.ellipse(0, 4, 4, 3, 0, 0, Math.PI * 2); x.fillStyle = '#3a2a3c'; x.fill();
+            x.restore();
+          }
+          BB.paperStroke(x, (p) => { p.moveTo(4, 88); p.quadraticCurveTo(26, 80, 50, 88); p.quadraticCurveTo(74, 96, 96, 88); }, '#4fa3e0', 5);
+          break;
+        case 'parade':
+          BB.paperStroke(x, (p) => { p.moveTo(4, 30); p.quadraticCurveTo(50, 50, 96, 30); }, '#9b6238', 2.5);
+          [P.coral, P.honey, '#4fa3e0', P.leaf, P.plum].forEach((cc, i) => { const fx2 = 12 + i * 19, fy = 33 + Math.sin((i + 0.5) / 5 * Math.PI) * 9; paper(x, (p) => { p.moveTo(fx2 - 7, fy); p.lineTo(fx2 + 7, fy); p.lineTo(fx2, fy + 14); p.closePath(); }, cc, { depth: 0.3, rimW: 1.4 }); });
+          paper(x, (p) => p.ellipse(50, 74, 18, 14, 0, 0, Math.PI * 2), P.coral);
+          x.strokeStyle = '#fff6e0'; x.lineWidth = 3; x.beginPath(); x.moveTo(34, 68); x.lineTo(50, 82); x.lineTo(66, 68); x.stroke();
+          BB.paperStroke(x, (p) => { p.moveTo(30, 54); p.lineTo(42, 64); p.moveTo(70, 54); p.lineTo(58, 64); }, P.woodLight, 3.5);
+          break;
+        case 'fireworks':
+          x.fillStyle = '#2c3566'; x.beginPath(); rrP(x, 4, 4, 92, 92, 18); x.fill();
+          for (const [fx2, fy, cc, r] of [[36, 38, P.honey, 22], [70, 56, P.rose, 18], [40, 74, '#7fd1ff', 12]]) {
+            for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; BB.paperStroke(x, (p) => { p.moveTo(fx2 + Math.cos(a) * r * 0.35, fy + Math.sin(a) * r * 0.35); p.lineTo(fx2 + Math.cos(a) * r, fy + Math.sin(a) * r); }, cc, 3); }
+            dot(x, fx2, fy, 3, '#fff6e0');
+          }
+          break;
+        case 'plane':
+          x.fillStyle = '#bfe6f7'; x.beginPath(); rrP(x, 4, 4, 92, 92, 18); x.fill();
+          paper(x, (p) => { arcP(p, 24, 74, 10); arcP(p, 38, 70, 12); arcP(p, 52, 76, 9); }, '#ffffff', { rimColor: '#c9dceb' });
+          paper(x, (p) => { p.moveTo(46, 34); p.lineTo(30, 18); p.lineTo(38, 16); p.lineTo(60, 32); p.closePath(); p.moveTo(46, 50); p.lineTo(30, 66); p.lineTo(38, 68); p.lineTo(60, 52); p.closePath(); }, '#9aa4b0', { depth: 0.3 });
+          paper(x, (p) => { p.moveTo(14, 42); p.quadraticCurveTo(50, 34, 86, 40); p.quadraticCurveTo(94, 42, 86, 46); p.quadraticCurveTo(50, 50, 14, 46); p.closePath(); }, '#f4f1ea');
+          paper(x, (p) => { p.moveTo(14, 42); p.lineTo(10, 28); p.lineTo(20, 28); p.lineTo(26, 41); p.closePath(); }, P.coral, { depth: 0.3 });
+          break;
+        default:
+          paper(x, (p) => starP(p, 50, 52, 40, 18), P.honey);
+      }
+    });
+    return (spotCache[key] = c);
+  };
+  BB.friendPic = function (f, size = 128) {
+    const key = 'fr-' + f.id + size; if (spotCache[key]) return spotCache[key];
+    const L2 = f.look || {}, P = BB.P, paper = BB.paper;
+    const c = board(size, (x) => {
+      x.save(); const clip = new Path2D(); arcP(clip, 50, 50, 46); x.clip(clip);
+      x.fillStyle = '#fff1d6'; x.fillRect(0, 0, 100, 100);
+      paper(x, (p) => p.ellipse(50, 104, 38, 34, 0, 0, Math.PI * 2), L2.shirt || P.teal);
+      x.restore();
+      paper(x, (p) => arcP(p, 50, 46, 22), L2.skin || '#f1c7a0', { rimColor: BB.dark(L2.skin || '#f1c7a0', 0.25) });
+      x.beginPath(); x.arc(50, 42, 23, Math.PI * 1.02, Math.PI * 1.98); x.fillStyle = L2.hair || '#3a2a3c'; x.fill();
+      if (L2.bun) dot(x, 50, 18, 9, L2.hair || '#3a2a3c');
+      dot(x, 42, 48, 2.6, '#3a2a3c'); dot(x, 58, 48, 2.6, '#3a2a3c');
+      x.beginPath(); x.ellipse(37, 55, 4, 2.5, 0, 0, Math.PI * 2); x.ellipse(63, 55, 4, 2.5, 0, 0, Math.PI * 2); x.fillStyle = 'rgba(255,120,130,.45)'; x.fill();
+      x.strokeStyle = '#3a2a3c'; x.lineWidth = 2.2; x.beginPath(); x.arc(50, 54, 6, 0.2 * Math.PI, 0.8 * Math.PI); x.stroke();
+      x.lineWidth = 4; x.strokeStyle = '#ffffff'; x.beginPath(); x.arc(50, 50, 46, 0, Math.PI * 2); x.stroke();
+      x.lineWidth = 2.5; x.strokeStyle = BB.dark(L2.shirt || P.teal, 0.2); x.beginPath(); x.arc(50, 50, 47.5, 0, Math.PI * 2); x.stroke();
+      // their thing, in the corner
+      const prop = f.prop;
+      x.save(); x.translate(76, 76); x.scale(0.3, 0.3); x.translate(-50, -50);
+      paper(x, (p) => arcP(p, 50, 50, 46), '#ffffff', { rimColor: '#e2c99a', rimW: 5 });
+      if (prop === 'cat') { paper(x, (p) => { p.moveTo(24, 46); p.lineTo(28, 14); p.lineTo(46, 32); p.closePath(); p.moveTo(76, 46); p.lineTo(72, 14); p.lineTo(54, 32); p.closePath(); arcP(p, 50, 56, 30); }, '#f5a23d'); }
+      else if (prop === 'kite') paper(x, (p) => { p.moveTo(50, 8); p.lineTo(84, 44); p.lineTo(50, 90); p.lineTo(16, 44); p.closePath(); }, P.plum);
+      else if (prop === 'durian') { paper(x, (p) => p.ellipse(50, 56, 32, 34, 0, 0, Math.PI * 2), '#9bbf3a'); for (let i = 0; i < 8; i++) dot(x, 34 + (i % 3) * 16, 36 + Math.floor(i / 3) * 18, 4, '#6e8f22'); }
+      else if (prop === 'paper') paper(x, (p) => rrP(p, 20, 18, 60, 66, 6), '#f4f1ea');
+      else paper(x, (p) => starP(p, 50, 52, 40, 18), P.honey);
+      x.restore();
+    });
+    return (spotCache[key] = c);
   };
   // forget cached icons that show the bus's colour or number (after the child changes them)
   BB.iconRefresh = () => { for (const k in iconCache) if (/^(mybus|together|number|fam\w*):/.test(k)) delete iconCache[k]; };
@@ -731,6 +865,8 @@
       [[16, 0], [12, 0.5], [14, 1.0], [7, 1.5], [12, 2.2], [9, 2.7], [7, 3.2], [0, 3.9]]
         .forEach(([s, at]) => tone(N(s), 0.7, { type: 'sine', vol: 0.07, at, attack: 0.08 }));
     },
+    // turning a page in the sticker book
+    page() { tone(N(26), 0.09, { type: 'triangle', vol: 0.05, slide: N(33) }); tone(N(33), 0.12, { type: 'sine', vol: 0.045, at: 0.08, slide: N(38) }); },
     snore() { tone(N(0), 0.9, { type: 'sine', vol: 0.04, slide: N(5), attack: 0.3 }); },
   };
   // Engine hum, level 0..1 (called every frame by bus.js). Kept above 130 Hz for phone speakers.
