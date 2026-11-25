@@ -1,0 +1,1145 @@
+/* Little Bus Captain: playing together (the family room).
+   Each child drives their own bus (own type, colour and number) in the same town and sees the others' buses; they can
+   honk (a friend's bus nearby flashes its lights back: a wave). Gentle: no racing, no scores, buses pass through each
+   other (a friend's bus is ghosted when it is close to ours or near our stop), and each device keeps its own jobs,
+   questions and coins. No names, no chat, no free text: only bus state, the bus's looks and the room code are sent.
+
+   Kid flow: the "Play together" tile in the garage -> Make a room (a PICTURE CODE of 5 pictures is shown and spoken)
+   or Join a room (tap the same 5 pictures). Anyone with the code joins (the owner left out an accept step); up to 10
+   buses in a room. Offline, from a blocked network or when the connection service can't be reached: "Playing
+   together needs the internet." (spoken, with a cloud picture). Single-player never needs any of this.
+
+   Layers (the room logic never knows which transport carries it):
+   1. Transport (a room as a message bus). Interface:
+        const t = transport();
+        t.connect(code, { create })   create: make the room (error 'taken' if it exists); otherwise join ('noroom')
+        t.onOpen = ({ self, peers })  self: my member id (a small integer, lower = joined earlier among those present;
+                                       an id can be given again after its member left), peers: the ids already there
+        t.onPeerJoin = (id)  t.onPeerLeave = (id, why: 'left' | 'lost')
+        t.onMessage = (from, msg)     msg: a small JSON object from member `from`
+        t.onError = (kind)            before open: 'offline' | 'noroom' | 'taken' | 'full' | 'failed'
+        t.onClose = (why)             after open: 'ended' (the room is gone) | 'lost' (our link dropped)
+        t.send(msg)                   to everyone else in the room;  t.close()  leave (quietly, no callbacks)
+        connect(code, { rejoin: true }) after a dropped link: join or (re)make the room, whichever applies.
+      wsTransport(url) (the DEFAULT once RELAY below is filled in): the Cloudflare relay in /relay (a Worker and one
+      Durable Object per room, no device hosts, the room lives while anyone is in it): a WebSocket to
+      <RELAY>/room/lbc-<code>; it answers welcome {id, members}, join/leave, full; passes our JSON objects on with
+      {from}; we ping every 20 s (mobile networks). It has no "create" step, so: making a room that already has members
+      counts as 'taken' (a new code is drawn), and joining an empty room counts as 'noroom'.
+      starTransport(endpoint) (the fallback while RELAY is still the placeholder) implements it over peer-to-peer endpoints: the room's creator owns the PeerJS id
+      'lbcap-q7k2-<code>', the others connect to it and it forwards everyone's messages, batched every 50 ms. It also
+      enforces the 10-bus limit. When the creator leaves, the room ends (a relay could keep it going).
+   2. Endpoints for the star: PeerJS (the free public PeerJS cloud server, default STUN/TURN), or, ONLY with the test
+      flag ?net=local, a fake in-browser one over BroadcastChannel (pages in one browser profile), or ?net=off (a
+      connection service that never answers, to test the "needs internet" card).
+   3. Room logic (transport-agnostic, below): every member sends its own state about 10 times a second (less when
+      standing still, nothing while the page is hidden), looks ('hi') when it arrives or someone new comes, honks and
+      waves. Day/night and weather follow the earliest member still in the room (the sky authority, which sends them
+      every 3 s); our own bedtime night (hub mode) always wins.
+   4. Friends' buses: cheap low-detail models (one draw call per bus, bending in the vertex shader for bendies) plus
+      ONE instanced mesh for all their wheels, one for all their blob shadows and one for all their floating
+      route-number badges: ~12 draw calls for 9 friends. Interpolated ~200 ms behind.
+   Exposes BB.net = { init, update(dt), open(), leave(why), goodnight(), state, remotes, code, transports }. */
+(function () {
+  'use strict';
+  const BB = window.BB, P = BB.P;
+  const N = BB.net = { state: 'solo', remotes: new Map(), code: null, self: -1, MAX: 10 };
+
+  const APP = 'lbcap-q7k2-';                      // app prefix on the shared server, so codes can't meet other apps' ids
+  const LETTERS = 'bcdfghjkmnpq';                 // picture index -> a letter in the peer id
+  const PICS = ['bus', 'star', 'cat', 'sun', 'flower', 'fish', 'heart', 'moon', 'tree', 'kite', 'ball', 'boat'];
+  const CODE_LEN = 5;
+  const MODE = (location.search.match(/[?&]net=(local|off)\b/) || [])[1] || 'peer';
+  // The family-room relay (relay/worker.js on Cloudflare). While this is the placeholder, PeerJS is used instead.
+  const RELAY = 'wss://bus-captain-rooms.REPLACE.workers.dev';
+  // test only: ?relay=ws://127.0.0.1:8787 (a local `wrangler dev`); only localhost addresses are accepted
+  const RELAY_TEST = (location.search.match(/[?&]relay=(wss?:\/\/(?:127\.0\.0\.1|localhost)(?::\d{2,5})?)(?=[&#/]|$)/) || [])[1] || null;
+  const RELAY_URL = MODE !== 'peer' ? null : RELAY_TEST || (/REPLACE/.test(RELAY) ? null : RELAY);
+  const wrapA = (a) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
+  const randId = (n = 10) => { const a = new Uint8Array(n); crypto.getRandomValues(a); return Array.from(a, (v) => (v % 36).toString(36)).join(''); };
+
+  // ================= endpoints (peer-to-peer links under the star transport) =================
+  // ep = { onopen(id), onerror(type), onconnection(conn), connect(id) -> conn, destroy() }
+  // conn = { onopen(), ondata(obj), onclose(), send(obj), close() }
+  function pjEndpoint(id) {
+    const ep = { dead: false, opened: false };
+    let p;
+    try { p = new window.Peer(id, { debug: 0 }); } catch (e) {
+      setTimeout(() => ep.onerror && ep.onerror('browser-incompatible'), 0);
+      ep.connect = () => null; ep.destroy = () => {}; return ep;
+    }
+    p.on('open', (pid) => { ep.opened = true; if (ep.onopen) ep.onopen(pid); });
+    p.on('error', (err) => { if (!ep.dead && ep.onerror) ep.onerror((err && err.type) || 'error'); });
+    p.on('connection', (c) => { if (ep.onconnection) ep.onconnection(pjConn(c)); });
+    // losing the signalling server doesn't break the data links; reconnect so new friends can still join
+    p.on('disconnected', () => {
+      if (ep.dead || !ep.opened) return;
+      setTimeout(() => { if (!ep.dead && p.disconnected && !p.destroyed) { try { p.reconnect(); } catch (e) { /* later */ } } }, 3000);
+    });
+    ep.connect = (to) => { try { return pjConn(p.connect(to, { serialization: 'json', reliable: true })); } catch (e) { return null; } };
+    ep.destroy = () => { ep.dead = true; try { p.destroy(); } catch (e) { /* gone */ } };
+    return ep;
+  }
+  function pjConn(c) {
+    const w = {};
+    let closed = false;
+    const shut = () => { if (closed) return; closed = true; if (w.onclose) w.onclose(); };
+    c.on('open', () => { if (w.onopen) w.onopen(); });
+    c.on('data', (d) => { if (w.ondata) w.ondata(d); });
+    c.on('close', shut);
+    c.on('error', shut);
+    w.send = (o) => { try { if (c.open) c.send(o); } catch (e) { /* dropped */ } };
+    w.close = () => { try { c.close(); } catch (e) { /* gone */ } };
+    return w;
+  }
+  // Test only (?net=local): the same endpoint over a BroadcastChannel between pages of one browser profile.
+  // Ids are claimed (an id already open answers 'taken'); a connect nobody answers fails as 'peer-unavailable'.
+  const bc = MODE === 'local' && typeof BroadcastChannel === 'function' ? new BroadcastChannel('lbcap-net-test') : null;
+  const bcEps = new Set();
+  if (bc) bc.onmessage = (e) => { for (const ep of bcEps) ep._in(e.data); };
+  function bcEndpoint(id) {
+    const ep = { open: false }, uid = randId(12), conns = new Map(), pend = new Map();
+    const post = (m) => { try { bc.postMessage(Object.assign({ from: id, uid }, m)); } catch (e) { /* closed */ } };
+    bcEps.add(ep);
+    let claimT = setTimeout(() => { claimT = 0; ep.open = true; if (ep.onopen) ep.onopen(id); }, 250);
+    post({ k: 'claim' });
+    function mkConn(cid, remote) {
+      const c = { cid, remote, closed: false };
+      c.send = (o) => { if (!c.closed) post({ k: 'data', to: remote, cid, d: JSON.parse(JSON.stringify(o)) }); };
+      c.close = () => { if (c.closed) return; c.closed = true; conns.delete(cid); post({ k: 'close', to: remote, cid }); setTimeout(() => c.onclose && c.onclose(), 0); };
+      conns.set(cid, c);
+      return c;
+    }
+    ep._in = (m) => {
+      if (!m || m.uid === uid) return;
+      if (m.k === 'claim' && ep.open && m.from === id) post({ k: 'taken', to: id, re: m.uid });
+      else if (m.k === 'taken' && m.re === uid && claimT) { clearTimeout(claimT); claimT = 0; if (ep.onerror) ep.onerror('unavailable-id'); }
+      else if (m.to !== id) return;
+      else if (m.k === 'conn' && ep.open) {
+        const c = mkConn(m.cid, m.from);
+        post({ k: 'acc', to: m.from, cid: m.cid });
+        if (ep.onconnection) ep.onconnection(c);
+        setTimeout(() => c.onopen && c.onopen(), 0);
+      } else if (m.k === 'acc' && pend.has(m.cid)) { const c = pend.get(m.cid); pend.delete(m.cid); clearTimeout(c.timer); conns.set(c.cid, c); if (c.onopen) c.onopen(); }
+      else if (m.k === 'data' && conns.has(m.cid)) { const c = conns.get(m.cid); if (c.ondata) c.ondata(m.d); }
+      else if (m.k === 'close' && conns.has(m.cid)) { const c = conns.get(m.cid); c.closed = true; conns.delete(m.cid); if (c.onclose) c.onclose(); }
+    };
+    ep.connect = (to) => {
+      const c = mkConn(randId(8), to); conns.delete(c.cid); pend.set(c.cid, c);
+      c.timer = setTimeout(() => { if (pend.delete(c.cid) && ep.onerror) ep.onerror('peer-unavailable'); }, 1500);
+      post({ k: 'conn', to, cid: c.cid });
+      return c;
+    };
+    ep.destroy = () => { clearTimeout(claimT); for (const c of [...conns.values()]) c.close(); bcEps.delete(ep); ep.open = false; };
+    return ep;
+  }
+  // Test only (?net=off): a connection service that can't be reached.
+  function offEndpoint() {
+    const ep = { connect: () => null, destroy() {} };
+    setTimeout(() => ep.onerror && ep.onerror('network'), 400);
+    return ep;
+  }
+
+  // ================= the star transport (implements the room interface over endpoints) =================
+  // Wire format: control objects {c:'hello'|'welcome'|'full'|'join'|'leave'|'end'|'bye'}; data as arrays:
+  // guest -> creator [msg, ...]; creator -> guest [[from, msg], ...].
+  function starTransport(makeEp) {
+    const T = {};
+    let ep = null, state = 'idle', role = null, flushT = 0, liveT = 0, openT = 0;
+    const members = new Map();             // creator: conn -> { id, out, heard, conn }
+    let nextId = 1, hostConn = null, hostHeard = 0, out = [];
+    const call = (fn, ...a) => { if (T[fn]) { try { T[fn](...a); } catch (e) { console.error(e); } } };
+    function cleanup() {
+      clearInterval(flushT); clearInterval(liveT); clearTimeout(openT); flushT = liveT = openT = 0;
+      if (ep) { const e = ep; ep = null; setTimeout(() => e.destroy(), 250); }
+    }
+    const fail = (k) => { if (state === 'done') return; state = 'done'; cleanup(); call('onError', k); };
+    const end = (why) => { if (state !== 'open') return; state = 'done'; cleanup(); call('onClose', why); };
+    T.connect = function (code, opts) {
+      const pid = APP + code;
+      role = opts && opts.create ? 'host' : 'join';
+      state = 'opening';
+      openT = setTimeout(() => fail('offline'), 12000);
+      ep = makeEp(role === 'host' ? pid : APP + 'j-' + randId());
+      ep.onerror = (type) => {
+        if (state !== 'opening' && state !== 'joining') return;      // once open, the signalling server may come and go
+        if (type === 'unavailable-id') fail('taken');
+        else if (type === 'peer-unavailable') fail('noroom');
+        else if (state === 'joining') fail(type === 'network' || type === 'server-error' || type === 'socket-error' ? 'offline' : 'failed');
+        else fail('offline');
+      };
+      ep.onopen = () => {
+        if (state !== 'opening') return;
+        if (role === 'host') {
+          clearTimeout(openT); state = 'open';
+          flushT = setInterval(flush, 50);
+          liveT = setInterval(() => { const now = performance.now(); for (const [c, m] of members) if (now - m.heard > 60000) drop(c, 'lost'); }, 2000);
+          call('onOpen', { self: 0, peers: [] });
+        } else { state = 'joining'; join(pid); }
+      };
+      if (role === 'host') ep.onconnection = guest;
+    };
+    // ----- joining: connect to the creator, say hello, wait for welcome -----
+    function join(pid) {
+      clearTimeout(openT); openT = setTimeout(() => fail('failed'), 15000);
+      const c = hostConn = ep.connect(pid);
+      if (!c) { fail('offline'); return; }
+      c.onopen = () => c.send({ c: 'hello', v: 1 });
+      c.ondata = (d) => {
+        hostHeard = performance.now();
+        if (!d || typeof d !== 'object') return;
+        if (Array.isArray(d)) {
+          if (state === 'open') for (const it of d) if (Array.isArray(it) && it.length === 2 && Number.isInteger(it[0])) call('onMessage', it[0], it[1]);
+          return;
+        }
+        if (d.c === 'welcome' && state === 'joining') {
+          clearTimeout(openT); state = 'open';
+          flushT = setInterval(() => { if (out.length && hostConn) { hostConn.send(out); out = []; } }, 50);
+          liveT = setInterval(() => { if (performance.now() - hostHeard > 60000) end('lost'); }, 2000);
+          call('onOpen', { self: d.self | 0, peers: (Array.isArray(d.peers) ? d.peers : []).filter(Number.isInteger) });
+        } else if (d.c === 'full') fail('full');
+        else if (state !== 'open') return;
+        else if (d.c === 'join' && Number.isInteger(d.id)) call('onPeerJoin', d.id);
+        else if (d.c === 'leave' && Number.isInteger(d.id)) call('onPeerLeave', d.id, d.why === 'lost' ? 'lost' : 'left');
+        else if (d.c === 'end') end('ended');
+      };
+      c.onclose = () => { if (state === 'open') end('lost'); else if (state === 'joining') fail('failed'); };
+    }
+    // ----- the creator: welcome guests (up to the limit) and forward everyone's messages -----
+    const count = () => { let n = 1; for (const m of members.values()) if (m.id >= 0) n++; return n; };
+    function guest(c) {
+      const m = { id: -1, out: [], heard: performance.now(), conn: c };
+      c.ondata = (d) => {
+        m.heard = performance.now();
+        if (Array.isArray(d)) { if (m.id >= 0) for (const msg of d.slice(0, 40)) relay(m, msg); return; }
+        if (!d || typeof d !== 'object') return;
+        if (d.c === 'hello' && m.id < 0 && state === 'open') {
+          if (count() >= N.MAX) { c.send({ c: 'full' }); setTimeout(() => c.close(), 600); return; }
+          m.id = nextId++;
+          const peers = [0]; for (const o of members.values()) if (o.id >= 0) peers.push(o.id);
+          members.set(c, m);
+          c.send({ c: 'welcome', self: m.id, peers });
+          for (const o of members.values()) if (o !== m) o.conn.send({ c: 'join', id: m.id });
+          call('onPeerJoin', m.id);
+        } else if (d.c === 'bye') drop(c, 'left');
+      };
+      c.onclose = () => drop(c, 'lost');
+      setTimeout(() => { if (m.id < 0) c.close(); }, 15000);          // never said hello
+    }
+    function relay(m, msg) {
+      if (!msg || typeof msg !== 'object' || Array.isArray(msg)) return;
+      call('onMessage', m.id, msg);
+      for (const o of members.values()) if (o !== m) queue(o, [m.id, msg]);
+    }
+    function queue(o, item) { o.out.push(item); if (o.out.length > 300) o.out.splice(0, o.out.length - 300); }
+    function flush() { for (const o of members.values()) if (o.out.length) { o.conn.send(o.out); o.out = []; } }
+    function drop(c, why) {
+      const m = members.get(c); if (!m) return;
+      members.delete(c);
+      try { c.close(); } catch (e) { /* gone */ }
+      for (const o of members.values()) o.conn.send({ c: 'leave', id: m.id, why });
+      call('onPeerLeave', m.id, why);
+    }
+    T.send = function (msg) {
+      if (state !== 'open') return;
+      if (role === 'host') { for (const o of members.values()) queue(o, [0, msg]); } else { out.push(msg); if (out.length > 300) out.splice(0, out.length - 300); }
+    };
+    T.close = function () {
+      if (state === 'open') {
+        if (role === 'host') { flush(); for (const o of members.values()) o.conn.send({ c: 'end' }); }
+        else if (hostConn) { if (out.length) hostConn.send(out); out = []; hostConn.send({ c: 'bye' }); }
+      }
+      state = 'done'; cleanup();
+    };
+    return T;
+  }
+  // ================= the relay transport (WebSocket to the Cloudflare room) =================
+  function wsTransport(base) {
+    const T = {};
+    let ws = null, state = 'idle', openT = 0, pingT = 0, heard = 0;
+    const call = (fn, ...a) => { if (T[fn]) { try { T[fn](...a); } catch (e) { console.error(e); } } };
+    function cleanup() {
+      clearTimeout(openT); clearInterval(pingT); openT = pingT = 0;
+      if (ws) { const w = ws; ws = null; w.onopen = w.onmessage = w.onclose = w.onerror = null; try { w.close(1000, 'bye'); } catch (e) { /* closed */ } }
+    }
+    const fail = (k) => { if (state === 'done') return; state = 'done'; cleanup(); call('onError', k); };
+    const end = (why) => { if (state !== 'open') return; state = 'done'; cleanup(); call('onClose', why); };
+    T.connect = function (code, opts) {
+      opts = opts || {};
+      state = 'opening';
+      try { ws = new WebSocket(base.replace(/\/+$/, '') + '/room/lbc-' + code); } catch (e) { setTimeout(() => fail('offline'), 0); return; }
+      openT = setTimeout(() => fail('offline'), 10000);
+      ws.onmessage = (e) => {
+        heard = performance.now();
+        if (typeof e.data !== 'string' || e.data.length > 8192) return;
+        let m; try { m = JSON.parse(e.data); } catch (err) { return; }
+        if (!m || typeof m !== 'object' || Array.isArray(m)) return;
+        if ('from' in m) {                                   // a friend's message
+          if (state !== 'open' || !Number.isInteger(m.from)) return;
+          const from = m.from; delete m.from;
+          call('onMessage', from, m);
+          return;
+        }
+        if (m.t === 'welcome' && state === 'opening') {
+          const peers = (Array.isArray(m.members) ? m.members : []).filter(Number.isInteger);
+          if (!opts.rejoin && opts.create && peers.length) { fail('taken'); return; }
+          if (!opts.rejoin && !opts.create && !peers.length) { fail('noroom'); return; }
+          clearTimeout(openT); state = 'open';
+          pingT = setInterval(() => {
+            if (performance.now() - heard > 50000) { end('lost'); return; }   // no pong: the link is dead
+            T.send({ t: 'ping' });
+          }, 20000);
+          call('onOpen', { self: m.id | 0, peers });
+        } else if (m.t === 'full') fail('full');
+        else if (state !== 'open') return;
+        else if (m.t === 'join' && Number.isInteger(m.id)) call('onPeerJoin', m.id);
+        else if (m.t === 'leave' && Number.isInteger(m.id)) call('onPeerLeave', m.id, 'left');
+      };
+      ws.onclose = (e) => { if (state === 'open') end('lost'); else fail(e && e.code === 4001 ? 'full' : 'offline'); };
+      ws.onerror = () => { /* onclose follows */ };
+    };
+    T.send = function (msg) {
+      if (state !== 'open' || !ws || ws.readyState !== 1 || ws.bufferedAmount > 65536) return;
+      try { ws.send(JSON.stringify(msg)); } catch (e) { /* dropped */ }
+    };
+    T.close = function () { state = 'done'; cleanup(); };
+    return T;
+  }
+
+  const makeTransport = () => (RELAY_URL ? wsTransport(RELAY_URL)
+    : starTransport(MODE === 'local' ? bcEndpoint : MODE === 'off' ? offEndpoint : pjEndpoint));
+  N.transports = { relay: wsTransport, star: starTransport, peerjs: pjEndpoint, local: bcEndpoint, make: makeTransport };
+  N.via = RELAY_URL ? 'relay' : MODE === 'peer' ? 'peerjs' : MODE;
+  // Can we even try? (the device thinks it is online, and WebSocket / PeerJS and WebRTC are there.) Test modes skip it.
+  N.canTry = () => MODE !== 'peer' || (navigator.onLine !== false && (RELAY_URL ? typeof WebSocket === 'function'
+    : typeof window.Peer === 'function' && typeof window.RTCPeerConnection === 'function'));
+
+  // ================= room logic (transport-agnostic) =================
+  let T = null, members = new Set(), tickT = 0, retries = 0, lastHi = '';
+  const authority = () => { let a = N.self; for (const m of members) if (m < a) a = m; return a; };
+  N.isAuthority = () => N.state === 'room' && authority() === N.self;
+  const send = (msg) => { if (T && N.state === 'room') T.send(msg); };
+
+  function myLook() {
+    const S = BB.save;
+    return { ty: S.busType || 'bendy', pa: S.paint || 'green', no: String(S.routeNo || '88'), st: (S.stickers || []).slice(0, 3), pt: Object.assign({}, S.parts || {}) };
+  }
+  function sendHi(force) {
+    const look = myLook(), key = JSON.stringify(look);
+    if (!force && key === lastHi) return;
+    lastHi = key; send({ t: 'hi', look });
+  }
+  function cleanLook(l) {
+    if (!l || typeof l !== 'object') return null;
+    const types = (BB.fleet && BB.fleet.TYPES) || ['bendy', 'double', 'single'];
+    const word = (v) => typeof v === 'string' && /^[a-z0-9]{1,12}$/.test(v);
+    const pt = {};
+    if (l.pt && typeof l.pt === 'object') for (const k of ['lights', 'bumpers', 'wheels', 'rims']) if (word(l.pt[k])) pt[k] = l.pt[k];
+    return {
+      ty: types.indexOf(l.ty) >= 0 ? l.ty : 'bendy',
+      pa: BB.PAINTS.some((p) => p.id === l.pa) ? l.pa : 'green',
+      no: /^[1-9][0-9]{0,2}$/.test(String(l.no)) ? String(l.no) : '10',
+      st: Array.isArray(l.st) ? l.st.filter(word).slice(0, 3) : [], pt,
+    };
+  }
+  // my state: [x, z, heading, rear heading, speed, steer, flags]; flags 1 doors, 2 lights, 4 at a stop, 8 asleep,
+  // 16 parked (hidden or held), 32 in the garage
+  function myState(parked) {
+    const B = BB.bus; if (!B || !B.front) return [0, 0, 0, 0, 0, 0, 16];
+    const r2 = (v) => Math.round(v * 100) / 100, r3 = (v) => Math.round(v * 1000) / 1000;
+    const held = !!(parked || BB.held);
+    let fl = 0;
+    if (B.doorsOpen) fl |= 1;
+    if (B.lightsOn && !BB.bedtime) fl |= 2;
+    if (B.atStop) fl |= 4;
+    if (BB.bedtime) fl |= 8;
+    if (held) fl |= 16;
+    if (BB.depot && BB.depot.isOpen) fl |= 32;
+    return [r2(B.front.position.x), r2(B.front.position.z), r3(wrapA(B.front.rotation.y)), r3(wrapA((B.rear || B.front).rotation.y)),
+      held ? 0 : r2(B.speed || 0), r2(B.steer || 0), fl];
+  }
+  function cleanState(d) {
+    if (!Array.isArray(d) || d.length !== 7) return null;
+    for (const v of d) if (typeof v !== 'number' || !isFinite(v)) return null;
+    if (Math.abs(d[0]) > 1000 || Math.abs(d[1]) > 1000) return null;
+    return { x: d[0], z: d[1], h: wrapA(d[2]), hr: wrapA(d[3]), sp: BB.clamp(d[4], -20, 20), st: BB.clamp(d[5], -1, 1), fl: d[6] | 0 };
+  }
+
+  let lastKey = '', lastAt = 0, skyAt = 0, parkedSent = false;
+  function tick() {
+    if (!T || N.state !== 'room') return;
+    const now = performance.now();
+    if (document.hidden) { if (!parkedSent) { parkedSent = true; send({ t: 's', d: myState(true) }); } return; }
+    parkedSent = false;
+    const d = myState(false), key = d.join(',');
+    if (key !== lastKey || now - lastAt > 500) { send({ t: 's', d }); lastKey = key; lastAt = now; }
+    const W = BB.world;
+    if (N.isAuthority()) {
+      if (W && !W.weatherAuto) W.weatherAuto = true;                  // (we just became the sky authority)
+      if (members.size && now - skyAt > 3000) { skyAt = now; sendSky(); }
+    }
+  }
+  function sendSky() { const W = BB.world; if (W) send({ t: 'sky', d: Math.round(W.dayTime * 10000) / 10000, w: W.weather }); }
+  function applySky(d, w) {
+    const W = BB.world; if (!W) return;
+    if (typeof w === 'string' && W.WEATHERS.indexOf(w) >= 0) { W.weatherAuto = false; if (W.weather !== w) W.setWeather(w); }
+    if (typeof d !== 'number' || !isFinite(d) || (W.bedSky && W.bedSky())) return;
+    let diff = Math.abs(((d - W.dayTime) % 1 + 1.5) % 1 - 0.5);
+    if (diff > 0.003) W.setDayTime(d);
+  }
+
+  function onMsg(from, m) {
+    if (!Number.isInteger(from) || from === N.self || !m || typeof m !== 'object') return;
+    if (!members.has(from)) members.add(from);                       // (a message can arrive just before its join)
+    const r = N.remotes.get(from);
+    switch (m.t) {
+      case 's': { const s = cleanState(m.d); if (s && r) pushSnap(r, s); else if (s) pending.set(from, s); break; }
+      case 'hi': { const look = cleanLook(m.look); if (look) upsertRemote(from, look); break; }
+      case 'sky': if (from === authority()) applySky(m.d, m.w); break;
+      case 'honk': if (r) friendHonk(r, !!m.tune); break;
+      case 'wave': if (r) friendWave(r); break;
+      case 'bye': if (r) r.byeWhy = m.why === 'sleep' ? 'sleep' : 'home'; break;
+    }
+  }
+  const pending = new Map();             // a state that came before the looks
+
+  // Start a room (create) or join one. cb(errorKind | null).
+  function start(code, create, cb, rejoin) {
+    stopRoom();
+    const t = T = makeTransport();
+    N.code = code; N.state = 'opening';
+    t.onError = (k) => { if (T !== t) return; T = null; N.state = 'solo'; N.code = null; cb(k); };
+    t.onOpen = ({ self, peers }) => {
+      if (T !== t) return;
+      N.self = self; members = new Set(peers); N.state = 'room'; retries = 0;
+      for (const id of [...N.remotes.keys()]) if (!members.has(id)) removeRemote(id, null, true);
+      lastKey = ''; skyAt = 0;
+      sendHi(true); tick();
+      clearInterval(tickT); tickT = setInterval(tick, 100);
+      syncFriends();
+      cb(null);
+    };
+    t.onPeerJoin = (id) => { if (T !== t) return; members.add(id); if (N.remotes.has(id)) removeRemote(id, null, true); sendHi(true); lastKey = ''; if (N.isAuthority()) { skyAt = performance.now(); sendSky(); } };
+    t.onPeerLeave = (id) => { if (T !== t) return; members.delete(id); pending.delete(id); removeRemote(id); };
+    t.onMessage = (from, msg) => { if (T === t) onMsg(from, msg); };
+    t.onClose = (why) => { if (T !== t) return; T = null; roomLost(why); };
+    t.connect(code, { create, rejoin: !!rejoin });
+  }
+  function stopRoom() {
+    clearInterval(tickT); tickT = 0;
+    if (T) { const t = T; T = null; t.close(); }
+    members = new Set(); pending.clear();
+    if (BB.world) BB.world.weatherAuto = true;
+  }
+  // Our link dropped: try to get back in quietly a few times (friends' buses go see-through meanwhile); if the room
+  // is gone, carry on alone with a gentle word.
+  function roomLost(why) {
+    clearInterval(tickT); tickT = 0;
+    const code = N.code;
+    let lastBye = null;
+    for (const r of N.remotes.values()) { if (r.id === authority() || lastBye == null) lastBye = r.byeWhy; r.lost = true; }
+    if (why === 'lost' && code) { retry(code, lastBye); return; }
+    wentHome(lastBye);
+  }
+  function retry(code, lastBye) {
+    if (retries >= 4) { wentHome(lastBye); return; }
+    const wait = 1500 * Math.pow(2, retries);                // 1.5, 3, 6, 12 s
+    retries++; N.state = 'opening'; N.code = code;
+    setTimeout(() => {
+      if (N.state !== 'opening' || N.code !== code) return;
+      start(code, false, (err) => { if (!err) return; if (err === 'offline' || err === 'failed') retry(code, lastBye); else wentHome(lastBye); }, true);
+    }, wait);
+  }
+  function wentHome(why) {
+    stopRoom();
+    const had = N.remotes.size > 0 || N.state !== 'solo';
+    for (const id of [...N.remotes.keys()]) removeRemote(id, null, true);
+    N.state = 'solo'; N.code = null; N.self = -1; retries = 0;
+    syncFriends(); refreshPanel();
+    if (!had || BB.bedtime) return;
+    if (why === 'sleep') { BB.ui.toast('🌙', 2200); BB.say('Your friend went to bed. Goodnight!', { queue: true }); }
+    else { BB.ui.toast('👋', 2200); BB.say('Your friend went home! Let\'s keep driving.', { queue: true }); }
+  }
+  // Leave the room (the child tapped "go home", bedtime, or the hub removes the frame).
+  N.leave = function (why) {
+    if (N.state === 'solo') return;
+    if (N.state === 'room') send({ t: 'bye', why: why === 'sleep' ? 'sleep' : 'home' });
+    stopRoom();
+    for (const id of [...N.remotes.keys()]) removeRemote(id, null, true);
+    N.state = 'solo'; N.code = null; N.self = -1;
+    syncFriends(); refreshPanel();
+  };
+  N.goodnight = function () { lastKey = ''; tick(); hidePanel(); if (tile) tile.style.display = 'none'; };
+
+  // ================= friends' buses (low detail) =================
+  const MAXB = 12;                                        // atlas slots (9 friends need 9)
+  let shared = null;
+  function paintHex(id) { return (BB.PAINTS.find((p) => p.id === id) || BB.PAINTS[0]).color; }
+  const darkHex = (c, t) => (BB.ui && BB.ui.darkHex ? BB.ui.darkHex(c, t) : c);
+  function dimsOf(type) {
+    if (BB.fleet && BB.fleet.dims) { try { return BB.fleet.dims(type); } catch (e) { /* fall back */ } }
+    return { type: 'bendy', LF: 7.4, LR: 6, GAP: 1, axlesF: [1.7, -1.9], axlesR: [-1.2], doorsF: [3.0], doorsR: [1.4], deck: 1, roof: 3.56, tyre: 0.52, wheelX: 1.08, width: 2.5 };
+  }
+  function buildShared() {
+    if (shared) return shared;
+    const scene = BB.scene;
+    // all friends' wheels: one instanced mesh (tyre, hub and a bar that shows them turning)
+    const wb = BB.mk.builder();
+    wb.add(new THREE.CylinderGeometry(0.52, 0.52, 0.36, 12), '#3a343f', 0, 0, 0, 0, 0, Math.PI / 2);
+    wb.add(new THREE.CylinderGeometry(0.28, 0.28, 0.38, 10), '#c9d2db', 0, 0, 0, 0, 0, Math.PI / 2);
+    wb.add(new THREE.BoxGeometry(0.4, 0.46, 0.1), '#8a8290', 0, 0, 0);
+    const wheels = new THREE.InstancedMesh(wb.geometry(), BB.mk.mat, 9 * 8);
+    wheels.name = 'friendWheels'; wheels.count = 0; wheels.frustumCulled = false; wheels.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    scene.add(wheels);
+    // all friends' blob shadows (one per carriage)
+    const shadows = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({ map: BB.mk.blobTex, transparent: true, depthWrite: false }), 9 * 2);
+    shadows.name = 'friendShadows'; shadows.count = 0; shadows.frustumCulled = false; shadows.renderOrder = 1; shadows.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    scene.add(shadows);
+    // all floating route-number badges: one instanced quad, each instance picks its slot in a 4x3 atlas
+    const atlas = document.createElement('canvas'); atlas.width = 512; atlas.height = 192;
+    const tex = new THREE.CanvasTexture(atlas);
+    const slotAttr = new THREE.InstancedBufferAttribute(new Float32Array(MAXB), 1); slotAttr.setUsage(THREE.DynamicDrawUsage);
+    const bg = new THREE.PlaneGeometry(1, 0.5); bg.setAttribute('aSlot', slotAttr);
+    const bmat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, fog: false });
+    bmat.onBeforeCompile = (sh) => {
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute float aSlot;')
+        .replace('#include <uv_vertex>', '#include <uv_vertex>\n\tvUv = (vUv + vec2(mod(aSlot, 4.0), 2.0 - floor(aSlot / 4.0))) / vec2(4.0, 3.0);');
+    };
+    const badges = new THREE.InstancedMesh(bg, bmat, MAXB);
+    badges.name = 'friendBadges'; badges.count = 0; badges.frustumCulled = false; badges.renderOrder = 3; badges.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    scene.add(badges);
+    shared = { wheels, shadows, badges, atlas, tex, slotAttr };
+    return shared;
+  }
+  function drawBadge(r) {
+    const s = buildShared(), x = s.atlas.getContext('2d'), col = paintHex(r.look.pa);
+    const ox = (r.slot % 4) * 128, oy = Math.floor(r.slot / 4) * 64;
+    x.clearRect(ox, oy, 128, 64);
+    const rr = (X, Y, W, H, R, f) => { x.beginPath(); x.roundRect ? x.roundRect(X, Y, W, H, R) : x.rect(X, Y, W, H); x.fillStyle = f; x.fill(); };
+    rr(ox + 4, oy + 4, 120, 56, 18, darkHex(col, 0.25));
+    rr(ox + 4, oy + 3, 117, 53, 17, col);
+    rr(ox + 13, oy + 11, 100, 38, 10, '#2b2430');
+    x.fillStyle = '#ffb81f'; x.font = '800 32px "Courier New", monospace'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.fillText(r.look.no, ox + 63, oy + 31);
+    s.tex.needsUpdate = true;
+  }
+  // One merged mesh per friend: body, windows (glow a little at night) and lamps, each part flagged with how much it
+  // bends (0 front carriage, 0.5 the joint, 1 the rear carriage) about the hitch.
+  function buildBody(r) {
+    const D = r.dims = dimsOf(r.look.ty), col = paintHex(r.look.pa), deep = darkHex(col, 0.22);
+    const parts = [];
+    const kit = (bend, glow) => { const b = BB.mk.builder(); parts.push({ b, bend, glow }); return b; };
+    const GLASS = '#a9d4e6', TOP = D.roof;
+    function carriage(bend, L, zc, front, back, doors, axles) {
+      const b = kit(bend, 0), w = kit(bend, 0.35), l = kit(bend, 1);
+      b.box(2.5, TOP - 0.1 - 0.36, L, col, 0, 0.36, zc);
+      b.box(2.36, 0.12, L - 0.3, '#fff6e0', 0, TOP - 0.12, zc);
+      b.box(2.54, 0.24, L - 0.1, deep, 0, 0.34, zc);                               // a deeper skirt
+      for (const az of axles) b.box(2.56, 0.5, 1.3, '#3f3744', 0, 0.3, zc + az);    // wheel arches
+      const bands = D.deck === 2 ? [[1.45, 2.6], [3.35, 4.4]] : [[1.45, 2.75]];
+      const wl = L - (front ? 1.9 : 0.7) - (back ? 0.5 : 0.2), wz = zc - (front ? 0.55 : 0) + (back ? 0.15 : 0);
+      for (const [y0, y1] of bands) w.box(2.54, y1 - y0, wl, GLASS, 0, y0, wz);
+      for (const dz of doors) w.box(0.06, 2.0, 1.1, '#6f8fa8', 1.26, 0.6, zc + dz);
+      if (front) {
+        w.box(2.3, 1.6, 0.06, GLASS, 0, 1.15, zc + L / 2);
+        b.box(1.5, 0.32, 0.08, '#2b2430', 0, TOP - 0.6, zc + L / 2 + 0.01);
+        for (const sx of [-0.82, 0.82]) l.box(0.42, 0.2, 0.08, '#fff3c4', sx, 0.55, zc + L / 2 + 0.01);
+      }
+      if (back) for (const sx of [-0.95, 0.95]) l.box(0.3, 0.42, 0.08, '#ff5a4a', sx, 0.7, zc - L / 2 - 0.05);
+    }
+    const art = D.LR > 0;
+    r.hitch = art ? -(D.LF / 2 + D.GAP / 2) : 0;
+    carriage(0, D.LF, 0, true, !art, D.doorsF, D.axlesF);
+    if (art) {
+      const zr = -(D.LF / 2 + D.GAP + D.LR / 2);
+      kit(0.5, 0).box(2.3, TOP - 0.8, D.GAP + 0.3, '#5a5260', 0, 0.45, r.hitch);
+      carriage(1, D.LR, zr, false, true, D.doorsR, D.axlesR);
+    }
+    const gs = parts.filter((p) => p.b.parts.length).map((p) => ({ g: p.b.geometry(), bend: p.bend, glow: p.glow }));
+    let n = 0; for (const p of gs) n += p.g.attributes.position.count;
+    const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), colA = new Float32Array(n * 3), bend = new Float32Array(n), glow = new Float32Array(n);
+    let o = 0;
+    for (const p of gs) {
+      const c = p.g.attributes.position.count;
+      pos.set(p.g.attributes.position.array, o * 3); nor.set(p.g.attributes.normal.array, o * 3); colA.set(p.g.attributes.color.array, o * 3);
+      bend.fill(p.bend, o, o + c); glow.fill(p.glow, o, o + c); o += c; p.g.dispose();
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(colA, 3)); geo.setAttribute('aBend', new THREE.BufferAttribute(bend, 1));
+    geo.setAttribute('aGlow', new THREE.BufferAttribute(glow, 1));
+    geo.computeBoundingSphere(); geo.boundingSphere.radius += art ? D.LR : 0;
+    const u = r.u = { uBend: { value: 0 }, uHitch: { value: r.hitch }, uLamp: { value: 0 }, uNight: { value: 0 } };
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    mat.onBeforeCompile = (sh) => {
+      Object.assign(sh.uniforms, u);
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute float aBend;\nattribute float aGlow;\nuniform float uBend;\nuniform float uHitch;\nvarying float vGlow;\n'
+          + 'vec3 bendV(vec3 v) { float a = uBend * aBend; float c = cos(a), s = sin(a); return vec3(c * v.x + s * v.z, v.y, -s * v.x + c * v.z); }')
+        .replace('#include <beginnormal_vertex>', 'vec3 objectNormal = bendV(vec3( normal ));\n#ifdef USE_TANGENT\nvec3 objectTangent = vec3( tangent.xyz );\n#endif')
+        .replace('#include <begin_vertex>', 'vec3 transformed = bendV(position - vec3(0.0, 0.0, uHitch)) + vec3(0.0, 0.0, uHitch);\nvGlow = aGlow;');
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\nuniform float uLamp;\nuniform float uNight;\nvarying float vGlow;')
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n\ttotalEmissiveRadiance += diffuseColor.rgb * (vGlow > 0.9 ? uLamp : vGlow * uNight);');
+    };
+    r.mat = mat; r.mesh = new THREE.Mesh(geo, mat); r.mesh.name = 'friend:' + r.id; r.mesh.visible = false;
+    BB.scene.add(r.mesh);
+  }
+  function disposeBody(r) { if (r.mesh) { BB.scene.remove(r.mesh); r.mesh.geometry.dispose(); r.mat.dispose(); r.mesh = null; } }
+  function freeSlot() { const used = new Set([...N.remotes.values()].map((r) => r.slot)); for (let i = 0; i < MAXB; i++) if (!used.has(i)) return i; return 0; }
+  function upsertRemote(id, look) {
+    let r = N.remotes.get(id);
+    if (r && r.leaving) { removeRemote(id, null, true); r = null; }
+    if (r && JSON.stringify(r.look) === JSON.stringify(look)) return;
+    const fresh = !r;
+    if (fresh) {
+      if (N.remotes.size >= N.MAX - 1) return;
+      r = { id, look, snaps: [], alpha: 0, spin: 0, gy: 0, flash: 0, byeWhy: null, leaving: false, lost: false, slot: freeSlot(), pose: null };
+      N.remotes.set(id, r);
+    } else disposeBody(r);
+    r.look = look; buildShared(); buildBody(r); drawBadge(r);
+    if (pending.has(id)) { pushSnap(r, pending.get(id)); pending.delete(id); }
+    syncFriends();
+    const lk = JSON.stringify(look), back = recent.get(lk) > performance.now() - 120000;
+    if (fresh && !BB.bedtime && !back) { BB.sfx.sparkle(); BB.say(`Bus ${look.no} is here!`, { queue: true }); }
+  }
+  function removeRemote(id, why, now) {
+    const r = N.remotes.get(id); if (!r) return;
+    if (now) { disposeBody(r); N.remotes.delete(id); syncFriends(); return; }
+    if (r.leaving) return;
+    r.leaving = true;
+    recent.set(JSON.stringify(r.look), performance.now());
+    if (!BB.bedtime && N.state === 'room' && r.byeWhy) BB.say(r.byeWhy === 'sleep' ? `Goodnight, bus ${r.look.no}!` : `Bye bye, bus ${r.look.no}!`, { queue: true });
+    syncFriends();
+  }
+  const recent = new Map();              // looks of buses that left lately (a dropped link that comes back isn't news)
+  function pushSnap(r, s) {
+    s.t = performance.now() / 1000;
+    r.snaps.push(s); if (r.snaps.length > 40) r.snaps.splice(0, r.snaps.length - 40);
+    r.heard = s.t;
+  }
+  const DELAY = 0.2;                     // seconds behind: room for the 10 Hz updates to arrive
+  function sample(r, t) {
+    const s = r.snaps; if (!s.length) return null;
+    while (s.length > 2 && s[1].t <= t) s.shift();
+    const a = s[0], b = s[1];
+    if (!b || t <= a.t) {
+      if (t <= a.t || a.sp === 0) return a;
+      const k = Math.min(0.25, t - a.t) * a.sp, f = Math.sin(a.h), g = Math.cos(a.h);   // a moment of dead reckoning
+      return Object.assign({}, a, { x: a.x + f * k, z: a.z + g * k });
+    }
+    const k = BB.clamp((t - a.t) / Math.max(0.001, b.t - a.t), 0, 1);
+    return { x: a.x + (b.x - a.x) * k, z: a.z + (b.z - a.z) * k, h: a.h + wrapA(b.h - a.h) * k, hr: a.hr + wrapA(b.hr - a.hr) * k,
+      sp: a.sp + (b.sp - a.sp) * k, st: a.st + (b.st - a.st) * k, fl: b.fl };
+  }
+
+  const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(0, 0, 0, 'YXZ'), _p = new THREE.Vector3(), _s = new THREE.Vector3();
+  N.update = function (dt) {
+    updatePuffs(dt);
+    if (!N.remotes.size) { if (shared && (shared.wheels.count || shared.badges.count || shared.shadows.count)) shared.wheels.count = shared.badges.count = shared.shadows.count = 0; return; }
+    const S = buildShared(), B = BB.bus, W = BB.world, now = performance.now() / 1000;
+    const night = W.night ? W.night() : 0;
+    const mx = B.front ? (B.front.position.x + B.rear.position.x) / 2 : 0, mz = B.front ? (B.front.position.z + B.rear.position.z) / 2 : 0;
+    const atStop = !!(B.atStop || (B.isSettling && B.isSettling()));
+    const bay = B.target && W.bayOf ? W.bayOf(B.target) : null;
+    let wi = 0, si = 0, bi = 0;
+    for (const r of [...N.remotes.values()]) {
+      const p = sample(r, now - DELAY);
+      if (!p || !r.mesh) { if (r.leaving) { disposeBody(r); N.remotes.delete(r.id); } continue; }
+      const D = r.dims, art = D.LR > 0, h = p.h, hr = art ? p.hr : p.h;
+      const fx = Math.sin(h), fz = Math.cos(h), rx = Math.sin(hr), rz = Math.cos(hr);
+      const hx = p.x - fx * (D.LF / 2 + D.GAP / 2), hz = p.z - fz * (D.LF / 2 + D.GAP / 2);
+      const rcx = hx - rx * (D.GAP / 2 + D.LR / 2), rcz = hz - rz * (D.GAP / 2 + D.LR / 2);
+      const cx = art ? (p.x + rcx) / 2 : p.x, cz = art ? (p.z + rcz) / 2 : p.z;
+      // gentle: see-through when close to our bus, at our stop, or in the garage; fades in and out
+      const d = Math.hypot(cx - mx, cz - mz);
+      let a = 1;
+      if (BB.depot && BB.depot.isOpen) { if (d < 26) a = 0; }
+      else {
+        if (d < 13) a = 0.35;
+        if (atStop && d < 26) a = Math.min(a, 0.25);
+        if (bay && Math.hypot(cx - bay.x, cz - bay.z) < 16 && Math.hypot(mx - bay.x, mz - bay.z) < 50) a = Math.min(a, 0.3);
+      }
+      if (r.lost) a *= 0.45;
+      if (r.leaving) a = 0;
+      r.alpha += BB.clamp(a - r.alpha, -dt * 1.6, dt * 1.6);
+      if (r.leaving && r.alpha <= 0.01) { disposeBody(r); N.remotes.delete(r.id); syncFriends(); continue; }
+      const vis = r.alpha > 0.02;
+      r.mesh.visible = vis;
+      if (!vis) continue;
+      const tr = r.alpha < 0.99;
+      if (r.mat.transparent !== tr) { r.mat.transparent = tr; r.mat.depthWrite = !tr; r.mat.needsUpdate = true; }
+      r.mat.opacity = r.alpha;
+      r.gy += ((W.groundY ? W.groundY(p.x, p.z) : 0) - r.gy) * Math.min(1, dt * 8);
+      r.mesh.position.set(p.x, r.gy, p.z); r.mesh.rotation.y = h;
+      r.u.uBend.value = art ? wrapA(hr - h) : 0;
+      const parked = (p.fl & 16) !== 0, asleep = (p.fl & 8) !== 0, lights = (p.fl & 2) !== 0;
+      r.flash = Math.max(0, r.flash - dt);
+      const blink = r.flash > 0 ? (Math.floor(r.flash * 8) % 2 ? 1.2 : 0) : null;
+      r.u.uLamp.value = blink != null ? blink : lights ? 0.2 + 0.8 * night : 0;
+      r.u.uNight.value = asleep ? 0 : night * 0.7;
+      const sp = parked ? 0 : p.sp;
+      r.spin += sp * dt / D.tyre;
+      // wheels
+      if (r.alpha > 0.3) {
+        const wheel = (ccx, ccz, yaw, ox, oz, steer) => {
+          if (wi >= 72) return;
+          const c = Math.cos(yaw), s = Math.sin(yaw);
+          _p.set(ccx + ox * c + oz * s, r.gy + D.tyre, ccz - ox * s + oz * c);
+          _e.set(r.spin, yaw + steer, 0); _q.setFromEuler(_e);
+          S.wheels.setMatrixAt(wi++, _m.compose(_p, _q, _s.set(1, 1, 1)));
+        };
+        const front = Math.max(...D.axlesF);
+        for (const az of D.axlesF) for (const sx of [-1, 1]) wheel(p.x, p.z, h, sx * (D.wheelX + 0.04), az, az === front ? p.st * 0.8 : 0);
+        if (art) for (const az of D.axlesR) for (const sx of [-1, 1]) wheel(rcx, rcz, hr, sx * (D.wheelX + 0.04), az, 0);
+        // shadows
+        const shadow = (x, z, yaw, L) => { if (si >= 18) return; _e.set(-Math.PI / 2, yaw, 0); _q.setFromEuler(_e); S.shadows.setMatrixAt(si++, _m.compose(_p.set(x, r.gy + 0.08, z), _q, _s.set(3.6, L + 1.6, 1))); };
+        shadow(p.x, p.z, h, D.LF); if (art) shadow(rcx, rcz, hr, D.LR);
+      }
+      // the floating route-number badge over the front carriage (bigger further away, so it stays readable)
+      if (r.alpha > 0.3 && BB.camera && bi < MAXB) {
+        const bx = p.x, by = r.gy + D.roof + 1.4, bz = p.z;
+        const dist = BB.camera.position.distanceTo(_p.set(bx, by, bz));
+        const k = BB.clamp(dist / 14, 1.3, 3.2);
+        S.badges.setMatrixAt(bi, _m.compose(_p, BB.camera.quaternion, _s.set(k * 1.6, k * 1.6, 1)));
+        S.slotAttr.array[bi] = r.slot; bi++;
+      }
+      r.pose = { x: p.x, z: p.z, cx, cz, y: r.gy + D.roof };
+    }
+    S.wheels.count = wi; S.shadows.count = si; S.badges.count = bi;
+    if (wi) S.wheels.instanceMatrix.needsUpdate = true;
+    if (si) S.shadows.instanceMatrix.needsUpdate = true;
+    if (bi) { S.badges.instanceMatrix.needsUpdate = true; S.slotAttr.needsUpdate = true; }
+  };
+
+  // ================= honks and waves =================
+  let honkAt = 0, waveAt = 0;
+  function myMid() { const B = BB.bus; return B.front ? { x: (B.front.position.x + B.rear.position.x) / 2, z: (B.front.position.z + B.rear.position.z) / 2 } : { x: 0, z: 0 }; }
+  function friendHonk(r, tune) {
+    if (!r.pose || r.leaving) return;
+    const m = myMid(), d = Math.hypot(r.pose.cx - m.x, r.pose.cz - m.z);
+    BB.sfx.horn(tune, BB.clamp(1 - d / 160, 0.2, 0.7));
+    puff('note', r.pose.x, r.pose.y + 0.6, r.pose.z);
+    // a friend honked close by: our bus waves back (flashes its lights), and they see it
+    const now = performance.now();
+    if (d < 45 && !BB.bedtime && now - waveAt > 2500) {
+      waveAt = now;
+      BB.later(450, () => { if (N.state !== 'room' || BB.bedtime) return; flashMine(); send({ t: 'wave' }); });
+    }
+  }
+  function friendWave(r) { if (!r.pose || r.leaving) return; r.flash = 1.3; puff('heart', r.pose.x, r.pose.y + 0.6, r.pose.z); }
+  function flashMine() {
+    const B = BB.bus, was = B.lightsOn;
+    const p = myMid(); puff('heart', p.x, (B.front ? B.front.position.y : 0) + 4.4, p.z);
+    for (let i = 0; i < 6; i++) BB.later(i * 160, () => { if (!BB.bedtime) B.setLights(i % 2 === 1 ? was : !was); });
+    BB.later(6 * 160, () => { if (!BB.bedtime) B.setLights(was); });
+  }
+  // little floating pictures (a music note for a honk, a heart for a wave)
+  const puffs = [], puffTex = {};
+  function puffPic(kind) {
+    if (puffTex[kind]) return puffTex[kind];
+    const c = document.createElement('canvas'); c.width = c.height = 64;
+    const x = c.getContext('2d'); x.scale(0.64, 0.64);
+    if (kind === 'note') {
+      x.fillStyle = '#d98700'; x.beginPath(); x.ellipse(36, 74, 15, 11, -0.4, 0, Math.PI * 2); x.fill(); x.fillRect(46, 18, 7, 56);
+      x.beginPath(); x.moveTo(46, 18); x.quadraticCurveTo(70, 20, 78, 42); x.quadraticCurveTo(66, 32, 53, 34); x.fill();
+      x.fillStyle = '#ffb81f'; x.beginPath(); x.ellipse(33, 71, 15, 11, -0.4, 0, Math.PI * 2); x.fill(); x.fillRect(43, 15, 7, 56);
+    } else { pathHeart(x, 50, 52, 1.05, '#c9433a'); pathHeart(x, 47, 48, 1.0, '#ef5a4b'); }
+    return (puffTex[kind] = new THREE.CanvasTexture(c));
+  }
+  function pathHeart(x, cx, cy, s, f) {
+    x.beginPath(); x.moveTo(cx, cy + 30 * s);
+    x.bezierCurveTo(cx - 44 * s, cy + 2 * s, cx - 30 * s, cy - 34 * s, cx, cy - 14 * s);
+    x.bezierCurveTo(cx + 30 * s, cy - 34 * s, cx + 44 * s, cy + 2 * s, cx, cy + 30 * s); x.fillStyle = f; x.fill();
+  }
+  function puff(kind, x, y, z) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: puffPic(kind), transparent: true, depthWrite: false, fog: false }));
+    sp.position.set(x, y, z); sp.scale.setScalar(1.8); sp.renderOrder = 4; sp.userData.t = 0;
+    BB.scene.add(sp); puffs.push(sp);
+  }
+  function updatePuffs(dt) {
+    for (let i = puffs.length - 1; i >= 0; i--) {
+      const sp = puffs[i]; sp.userData.t += dt;
+      const t = sp.userData.t;
+      sp.position.y += dt * 1.6; sp.position.x += Math.sin(t * 6) * dt * 0.6;
+      sp.material.opacity = BB.clamp(1.6 - t, 0, 1);
+      sp.scale.setScalar(1.8 + Math.min(0.6, t));
+      if (t > 1.6) { BB.scene.remove(sp); sp.material.dispose(); puffs.splice(i, 1); }
+    }
+  }
+
+  // ================= pictures (paper-cut: flat shapes, a darker crescent lower right) =================
+  const picCache = {};
+  function shaded(x, build, f) {
+    const p = new Path2D(); build(p);
+    x.fillStyle = darkHex(f, 0.2); x.fill(p);
+    x.save(); x.clip(p); x.translate(-4, -5); x.fillStyle = f; x.fill(p); x.restore();
+  }
+  const rrP = (p, X, Y, W, H, R) => { if (p.roundRect) p.roundRect(X, Y, W, H, R); else p.rect(X, Y, W, H); };
+  const circ = (x, X, Y, R, f) => { x.beginPath(); x.arc(X, Y, R, 0, Math.PI * 2); x.fillStyle = f; x.fill(); };
+  function starP(p, cx, cy, R, r, n = 5) { for (let i = 0; i < n * 2; i++) { const a = -Math.PI / 2 + i * Math.PI / n, rad = i % 2 ? r : R; if (i) p.lineTo(cx + Math.cos(a) * rad, cy + Math.sin(a) * rad); else p.moveTo(cx + Math.cos(a) * rad, cy + Math.sin(a) * rad); } p.closePath(); }
+  function heartP(p, cx, cy, s) { p.moveTo(cx, cy + 30 * s); p.bezierCurveTo(cx - 44 * s, cy + 2 * s, cx - 30 * s, cy - 34 * s, cx, cy - 14 * s); p.bezierCurveTo(cx + 30 * s, cy - 34 * s, cx + 44 * s, cy + 2 * s, cx, cy + 30 * s); }
+  function sideBus(x, ox, oy, s, col, type) {   // a little side view of a bus (facing right) at (ox, oy), width ~ 84*s
+    x.save(); x.translate(ox, oy); x.scale(s, s);
+    const dbl = type === 'double', bendy = type === 'bendy', top = dbl ? -6 : 14;
+    const body = (bx, bw) => shaded(x, (p) => rrP(p, bx, top, bw, 60 - top, 9), col);
+    if (bendy) { body(0, 46); body(50, 38); x.fillStyle = '#5a5260'; x.fillRect(45, top + 6, 6, 60 - top - 12); } else body(0, 86);
+    x.fillStyle = '#bfe6f5';
+    for (const ry of dbl ? [top + 7, top + 31] : [top + 8]) for (let wx = 6; wx < 72; wx += 15) if (!(bendy && wx > 38 && wx < 52)) { x.beginPath(); rrP(x, wx, ry, 11, 13, 3); x.fill(); }
+    x.beginPath(); rrP(x, 74, top + 6, 9, 22, 3); x.fill();
+    for (const wx of bendy ? [16, 36, 74] : [18, 68]) { circ(x, wx, 62, 9, '#3a343f'); circ(x, wx, 62, 4, '#c9d2db'); }
+    x.restore();
+  }
+  function pic(name, size = 128) {
+    const key = name + ':' + size;
+    if (picCache[key]) return picCache[key];
+    const c = document.createElement('canvas'); c.width = c.height = size;
+    const x = c.getContext('2d'); x.scale(size / 100, size / 100); x.lineCap = x.lineJoin = 'round';
+    const house = (roof) => {
+      shaded(x, (p) => rrP(p, 20, 44, 60, 46, 6), '#fff6e0');
+      shaded(x, (p) => { p.moveTo(10, 48); p.lineTo(50, 12); p.lineTo(90, 48); p.closePath(); }, roof);
+      shaded(x, (p) => rrP(p, 41, 62, 18, 28, 4), '#9b6238');
+      x.fillStyle = '#bfe6f5'; x.fillRect(26, 54, 11, 11); x.fillRect(63, 54, 11, 11);
+    };
+    switch (name) {
+      case 'bus': sideBus(x, 7, 22, 1.0, '#f5b83d', 'single'); break;
+      case 'star': shaded(x, (p) => starP(p, 50, 54, 44, 19), '#ffb81f'); break;
+      case 'cat':
+        shaded(x, (p) => { p.moveTo(24, 46); p.lineTo(28, 12); p.lineTo(48, 32); p.closePath(); p.moveTo(76, 46); p.lineTo(72, 12); p.lineTo(52, 32); p.closePath(); }, '#f5a23d');
+        shaded(x, (p) => p.arc(50, 56, 32, 0, Math.PI * 2), '#f5a23d');
+        circ(x, 39, 52, 4.5, '#3a2a3c'); circ(x, 61, 52, 4.5, '#3a2a3c');
+        x.fillStyle = '#ff8fab'; x.beginPath(); x.moveTo(45, 62); x.lineTo(55, 62); x.lineTo(50, 68); x.fill();
+        x.strokeStyle = '#a8601a'; x.lineWidth = 2.5; x.beginPath(); x.moveTo(30, 64); x.lineTo(14, 61); x.moveTo(30, 69); x.lineTo(15, 72); x.moveTo(70, 64); x.lineTo(86, 61); x.moveTo(70, 69); x.lineTo(85, 72); x.stroke();
+        break;
+      case 'sun':
+        for (let i = 0; i < 10; i++) { const a = i * Math.PI / 5; shaded(x, (p) => { p.moveTo(50 + Math.cos(a - 0.17) * 30, 50 + Math.sin(a - 0.17) * 30); p.lineTo(50 + Math.cos(a) * 47, 50 + Math.sin(a) * 47); p.lineTo(50 + Math.cos(a + 0.17) * 30, 50 + Math.sin(a + 0.17) * 30); p.closePath(); }, '#ffb81f'); }
+        shaded(x, (p) => p.arc(50, 50, 28, 0, Math.PI * 2), '#ffd45c');
+        break;
+      case 'flower':
+        shaded(x, (p) => rrP(p, 46, 50, 8, 44, 4), '#5aa848');
+        shaded(x, (p) => p.ellipse(64, 76, 14, 7, -0.5, 0, Math.PI * 2), '#6fc45a');
+        for (let i = 0; i < 5; i++) { const a = -Math.PI / 2 + i * 2 * Math.PI / 5; shaded(x, (p) => p.arc(50 + Math.cos(a) * 18, 38 + Math.sin(a) * 18, 14, 0, Math.PI * 2), '#ff8fab'); }
+        shaded(x, (p) => p.arc(50, 38, 11, 0, Math.PI * 2), '#ffd45c');
+        break;
+      case 'fish':
+        shaded(x, (p) => { p.moveTo(70, 50); p.lineTo(94, 30); p.lineTo(94, 70); p.closePath(); }, '#3d8fe0');
+        shaded(x, (p) => p.ellipse(44, 50, 32, 22, 0, 0, Math.PI * 2), '#4fa3e0');
+        circ(x, 30, 45, 6, '#fff'); circ(x, 29, 45, 3, '#3a2a3c');
+        break;
+      case 'heart': shaded(x, (p) => heartP(p, 50, 52, 1.05), '#ef5a4b'); break;
+      case 'moon': {
+        x.save(); const cut = new Path2D(); cut.rect(0, 0, 100, 100); cut.arc(68, 36, 30, 0, Math.PI * 2); x.clip(cut, 'evenodd');
+        shaded(x, (p) => p.arc(48, 54, 38, 0, Math.PI * 2), '#ffe08a'); x.restore();
+        break;
+      }
+      case 'tree':
+        shaded(x, (p) => rrP(p, 43, 56, 14, 38, 4), '#9b6238');
+        shaded(x, (p) => p.arc(50, 40, 31, 0, Math.PI * 2), '#6fc45a');
+        circ(x, 40, 32, 8, '#93d97a');
+        break;
+      case 'kite':
+        x.strokeStyle = '#9b6238'; x.lineWidth = 3; x.beginPath(); x.moveTo(50, 78); x.bezierCurveTo(40, 88, 62, 92, 52, 99); x.stroke();
+        shaded(x, (p) => { p.moveTo(50, 4); p.lineTo(82, 40); p.lineTo(50, 80); p.lineTo(18, 40); p.closePath(); }, '#8e62c8');
+        x.fillStyle = '#b08ae0'; x.beginPath(); x.moveTo(50, 4); x.lineTo(82, 40); x.lineTo(50, 40); x.fill(); x.beginPath(); x.moveTo(18, 40); x.lineTo(50, 40); x.lineTo(50, 80); x.fill();
+        for (const [bx, by] of [[44, 86], [58, 94]]) { x.fillStyle = '#ff6b5c'; x.beginPath(); x.moveTo(bx - 7, by - 5); x.lineTo(bx + 7, by + 5); x.lineTo(bx + 7, by - 5); x.lineTo(bx - 7, by + 5); x.fill(); }
+        break;
+      case 'ball': {
+        shaded(x, (p) => p.arc(50, 50, 40, 0, Math.PI * 2), '#fff6e0');
+        x.save(); x.beginPath(); x.arc(50, 50, 40, 0, Math.PI * 2); x.clip();
+        x.fillStyle = '#ef5a4b'; x.beginPath(); x.moveTo(50, 50); x.arc(50, 50, 44, -Math.PI / 2 - 0.5, -Math.PI / 2 + 0.5); x.fill();
+        x.fillStyle = '#4fa3e0'; x.beginPath(); x.moveTo(50, 50); x.arc(50, 50, 44, Math.PI / 6 - 0.5, Math.PI / 6 + 0.5); x.fill();
+        x.fillStyle = '#ffb81f'; x.beginPath(); x.moveTo(50, 50); x.arc(50, 50, 44, Math.PI * 5 / 6 - 0.5, Math.PI * 5 / 6 + 0.5); x.fill();
+        x.fillStyle = 'rgba(80,40,60,.18)'; x.beginPath(); x.arc(42, 40, 44, 0, Math.PI * 2); x.arc(50, 50, 44, 0, Math.PI * 2, true); x.fill('evenodd');
+        x.restore(); circ(x, 50, 50, 6, '#fff6e0');
+        break;
+      }
+      case 'boat':
+        shaded(x, (p) => rrP(p, 4, 80, 92, 14, 7), '#4fa3e0');
+        shaded(x, (p) => rrP(p, 48, 14, 5, 54, 2), '#9b6238');
+        shaded(x, (p) => { p.moveTo(55, 16); p.lineTo(55, 62); p.lineTo(86, 62); p.closePath(); }, '#fff6e0');
+        shaded(x, (p) => { p.moveTo(46, 24); p.lineTo(46, 62); p.lineTo(22, 62); p.closePath(); }, '#ffd45c');
+        shaded(x, (p) => { p.moveTo(10, 64); p.lineTo(90, 64); p.lineTo(76, 84); p.lineTo(24, 84); p.closePath(); }, '#ef5a4b');
+        break;
+      // ---- UI pictures ----
+      case 'together': {
+        const mine = paintHex(BB.save.paint);
+        sideBus(x, 2, 44, 0.62, mine === '#4fa3e0' ? '#3fae49' : '#4fa3e0', 'single');
+        sideBus(x, 40, 52, 0.62, mine, BB.save.busType || 'bendy');
+        shaded(x, (p) => heartP(p, 50, 26, 0.55), '#ef5a4b');
+        break;
+      }
+      case 'make': house('#ef5a4b'); shaded(x, (p) => p.arc(78, 24, 17, 0, Math.PI * 2), '#5cb85c'); x.fillStyle = '#fff'; x.fillRect(70, 21, 16, 6); x.fillRect(75, 16, 6, 16); break;
+      case 'join':
+        house('#4fa3e0');
+        shaded(x, (p) => p.arc(76, 22, 18, 0, Math.PI * 2), '#ffb81f');
+        circ(x, 70, 22, 6, '#fff6e0'); x.fillStyle = '#fff6e0'; x.fillRect(74, 20, 14, 4); x.fillRect(83, 20, 3, 8);
+        break;
+      case 'cloud':
+        shaded(x, (p) => { p.arc(34, 56, 18, 0, Math.PI * 2); p.moveTo(70, 56); p.arc(52, 42, 22, 0, Math.PI * 2); p.moveTo(86, 58); p.arc(70, 58, 16, 0, Math.PI * 2); p.moveTo(20, 60); rrP(p, 18, 52, 66, 22, 11); }, '#c4d6e6');
+        x.strokeStyle = '#7a8da0'; x.lineWidth = 4;
+        for (const r of [8, 15]) { x.beginPath(); x.arc(52, 66, r, -Math.PI * 0.8, -Math.PI * 0.2); x.stroke(); }
+        circ(x, 52, 66, 3, '#7a8da0');
+        shaded(x, (p) => p.arc(78, 78, 15, 0, Math.PI * 2), '#ef5a4b');
+        x.strokeStyle = '#fff'; x.lineWidth = 4; x.beginPath(); x.moveTo(72, 72); x.lineTo(84, 84); x.moveTo(84, 72); x.lineTo(72, 84); x.stroke();
+        break;
+      case 'home':
+        house('#f5a23d');
+        shaded(x, (p) => p.arc(22, 24, 17, 0, Math.PI * 2), '#19a79b');
+        x.strokeStyle = '#fff'; x.lineWidth = 5; x.beginPath(); x.moveTo(30, 24); x.lineTo(14, 24); x.moveTo(20, 17); x.lineTo(13, 24); x.lineTo(20, 31); x.stroke();
+        break;
+      case 'speak':
+        shaded(x, (p) => { p.moveTo(18, 38); p.lineTo(34, 38); p.lineTo(54, 20); p.lineTo(54, 80); p.lineTo(34, 62); p.lineTo(18, 62); p.closePath(); }, '#4fa3e0');
+        x.strokeStyle = '#3d8fe0'; x.lineWidth = 6;
+        for (const r of [14, 26]) { x.beginPath(); x.arc(56, 50, r, -0.8, 0.8); x.stroke(); }
+        break;
+      case 'tick': shaded(x, (p) => p.arc(50, 50, 44, 0, Math.PI * 2), '#5cb85c'); x.strokeStyle = '#fff'; x.lineWidth = 11; x.beginPath(); x.moveTo(28, 52); x.lineTo(44, 67); x.lineTo(73, 35); x.stroke(); break;
+      case 'cross': shaded(x, (p) => p.arc(50, 50, 44, 0, Math.PI * 2), '#f26b5b'); x.strokeStyle = '#fff'; x.lineWidth = 10; x.beginPath(); x.moveTo(33, 33); x.lineTo(67, 67); x.moveTo(67, 33); x.lineTo(33, 67); x.stroke(); break;
+      case 'del':
+        shaded(x, (p) => { p.moveTo(36, 22); p.lineTo(90, 22); p.lineTo(90, 78); p.lineTo(36, 78); p.lineTo(10, 50); p.closePath(); }, '#f5a23d');
+        x.strokeStyle = '#fff'; x.lineWidth = 8; x.beginPath(); x.moveTo(48, 36); x.lineTo(74, 64); x.moveTo(74, 36); x.lineTo(48, 64); x.stroke();
+        break;
+      default: circ(x, 50, 50, 40, P.plum);
+    }
+    return (picCache[key] = c);
+  }
+  N.pic = pic;
+  function miniBus(look) {
+    const key = 'mini:' + look.ty + look.pa;
+    if (picCache[key]) return picCache[key];
+    const c = document.createElement('canvas'); c.width = 96; c.height = 64;
+    const x = c.getContext('2d'); x.scale(96 / 100, 64 / 66);
+    sideBus(x, 6, look.ty === 'double' ? 12 : 0, 1.02, paintHex(look.pa), look.ty);
+    return (picCache[key] = c);
+  }
+  const cv = (canvas) => { const c = document.createElement('canvas'); c.width = canvas.width; c.height = canvas.height; c.getContext('2d').drawImage(canvas, 0, 0); return c; };
+
+  // ================= the room panel, the garage tile, the friends strip =================
+  BB.css(`
+  .bbn-tile { position: absolute; z-index: 12; left: calc(var(--sl) + 4px); bottom: var(--sb); width: 112px; height: 112px; border-radius: 30px; padding: 0;
+    background: #fff6e0; border: 4px solid #d9b57f; box-sizing: border-box; pointer-events: auto; cursor: pointer; touch-action: manipulation;
+    box-shadow: inset -5px -6px 0 rgba(217,181,127,.45), 0 6px 0 rgba(120,80,40,.2); display: none; align-items: center; justify-content: center;
+    animation: bbn-pop .4s cubic-bezier(.2,1.5,.5,1), bbn-bob 2.6s ease-in-out .4s infinite; }
+  .bbn-tile canvas { width: 92px; height: 92px; }
+  .bbn-tile.on { display: flex; }
+  .bbn-tile.pressed { transform: translateY(4px); }
+  .bbn-tile .n { position: absolute; top: -10px; right: -10px; min-width: 34px; height: 34px; border-radius: 17px; background: #5cb85c; color: #fff;
+    font: 800 22px/34px 'Baloo 2', system-ui, sans-serif; text-align: center; box-shadow: 0 3px 0 #3f913f; display: none; }
+  .bbn-tile.room .n { display: block; }
+  @keyframes bbn-bob { 50% { translate: 0 -4px; } }
+  @keyframes bbn-pop { from { transform: scale(.3); opacity: 0; } }
+  .bbn-wrap { position: absolute; inset: 0; z-index: 58; background: rgba(40,30,50,.38); display: flex; align-items: center; justify-content: center;
+    pointer-events: auto; animation: bbn-fade .2s; font-family: 'Baloo 2', 'Fredoka', system-ui, sans-serif; padding: var(--st) var(--sr) var(--sb) var(--sl); box-sizing: border-box; }
+  @keyframes bbn-fade { from { opacity: 0; } }
+  .bbn-card { position: relative; background: linear-gradient(#fff6e0, #fdebc8); border: 5px solid #d9b57f; border-radius: 34px; padding: 22px 22px 18px;
+    display: flex; flex-direction: column; align-items: center; gap: 16px; box-shadow: 0 10px 0 rgba(120,80,40,.2); max-width: 100%; max-height: 100%; box-sizing: border-box;
+    animation: bbn-pop .3s cubic-bezier(.2,1.5,.5,1); }
+  .bbn-card canvas { display: block; }
+  .bbn-x { position: absolute; top: -18px; right: -18px; width: 60px; height: 60px; border-radius: 50%; border: none; padding: 0; background: none; cursor: pointer; touch-action: manipulation; }
+  .bbn-x canvas, .bbn-btn canvas { width: 100%; height: 100%; }
+  .bbn-row { display: flex; gap: 14px; align-items: center; justify-content: center; flex-wrap: nowrap; }
+  .bbn-big { width: 170px; height: 170px; border-radius: 34px; border: 4px solid #ecd3a8; background: #fff; padding: 8px; cursor: pointer; touch-action: manipulation;
+    box-shadow: 0 6px 0 rgba(120,80,40,.15); }
+  .bbn-big canvas { width: 100%; height: 100%; }
+  .bbn-btn { width: 76px; height: 76px; border-radius: 50%; border: none; background: none; padding: 0; cursor: pointer; touch-action: manipulation; flex: none; }
+  .bbn-big.pressed, .bbn-btn.pressed, .bbn-key.pressed, .bbn-x.pressed { transform: translateY(4px); }
+  .bbn-code { --s: clamp(64px, min(14vw, 24vh), 128px); display: flex; gap: 10px; }
+  .bbn-code > div { width: var(--s); height: var(--s); border-radius: 24px; background: #fff; border: 4px solid #ecd3a8; box-sizing: border-box; padding: 6px;
+    box-shadow: 0 5px 0 rgba(120,80,40,.15); animation: bbn-pop .35s cubic-bezier(.2,1.5,.5,1) both; }
+  .bbn-code > div canvas { width: 100%; height: 100%; }
+  .bbn-code > div.lit { border-color: #ffb81f; box-shadow: 0 0 0 5px rgba(255,212,92,.7); }
+  .bbn-slots { --s: clamp(46px, min(9vw, 13vh), 84px); display: flex; gap: 8px; align-items: center; }
+  .bbn-slots > div { width: var(--s); height: var(--s); border-radius: 18px; background: #f3e4c6; border: 3px dashed #d9b57f; box-sizing: border-box; padding: 4px; }
+  .bbn-slots > div.full { background: #fff; border: 3px solid #ecd3a8; animation: bbn-pop .25s cubic-bezier(.2,1.5,.5,1); }
+  .bbn-slots > div canvas { width: 100%; height: 100%; }
+  .bbn-slots .bbn-btn { width: calc(var(--s) + 6px); height: calc(var(--s) + 6px); margin-left: 6px; }
+  .bbn-keys { --k: clamp(60px, min(11.5vw, 19vh), 100px); display: grid; grid-template-columns: repeat(6, var(--k)); gap: 10px; }
+  .bbn-key { width: var(--k); height: var(--k); border-radius: 22px; border: 3px solid #ecd3a8; background: #fff; padding: 6px; cursor: pointer; touch-action: manipulation;
+    box-shadow: 0 5px 0 rgba(120,80,40,.15); }
+  .bbn-key canvas { width: 100%; height: 100%; }
+  .bbn-card .shake { animation: bbn-shake .45s; }
+  @keyframes bbn-shake { 25% { transform: translateX(-9px); } 75% { transform: translateX(9px); } }
+  .bbn-wait { width: 180px; height: 120px; animation: bbn-hop .7s ease-in-out infinite; }
+  @keyframes bbn-hop { 50% { transform: translateY(-14px) rotate(-3deg); } }
+  .bbn-dots { display: flex; gap: 10px; } .bbn-dots i { width: 16px; height: 16px; border-radius: 50%; background: #d9b57f; animation: bbn-dot 1.2s infinite; }
+  .bbn-dots i:nth-child(2) { animation-delay: .2s; } .bbn-dots i:nth-child(3) { animation-delay: .4s; }
+  @keyframes bbn-dot { 50% { background: #ffb81f; transform: scale(1.3); } }
+  .bbn-friends { position: absolute; z-index: 6; left: 50%; transform: translateX(-50%); top: calc(var(--st) + 66px); display: flex; gap: 6px; pointer-events: none; }
+  .bbn-friends.hide { display: none; }
+  .bbn-friend { pointer-events: auto; display: flex; flex-direction: column; align-items: center; background: #fff6e0; border: 3px solid #d9b57f; border-radius: 18px;
+    padding: 2px 6px 0; box-shadow: 0 3px 0 rgba(120,80,40,.15); cursor: pointer; touch-action: manipulation; animation: bbn-pop .3s cubic-bezier(.2,1.5,.5,1); }
+  .bbn-friend canvas { width: 48px; height: 32px; }
+  .bbn-friend b { font: 800 15px/16px 'Courier New', monospace; color: #3a2a3c; margin-bottom: 2px; }
+  .bbn-friend.me { border-color: #19a79b; }
+  .bbn-card .bbn-friends { position: static; transform: none; }
+  @media (max-height: 520px) {
+    .bbn-card { padding: 14px 14px 12px; gap: 10px; border-radius: 28px; }
+    .bbn-big { width: 130px; height: 130px; }
+    .bbn-btn { width: 62px; height: 62px; } .bbn-x { width: 54px; height: 54px; top: -14px; right: -14px; }
+    .bbn-tile { width: 88px; height: 88px; border-radius: 24px; } .bbn-tile canvas { width: 72px; height: 72px; }
+    .bbn-wait { width: 130px; height: 86px; }
+    .bbn-friends { top: calc(var(--st) + 62px); } .bbn-friend canvas { width: 40px; height: 27px; }
+  }
+  @media (max-width: 900px) { .bbn-friends { top: calc(var(--st) + 128px); } }
+  `);
+
+  let tile = null, wrap = null, card = null, panelKind = null, friendsEl = null;
+  N.init = function () {
+    const root = BB.ui.root;
+    tile = BB.el('button', 'bbn-tile', root);
+    tile.appendChild(cv(pic('together', 128)));
+    BB.el('span', 'n', tile);
+    BB.tap(tile, () => { BB.sfx.pop(); BB.say('Play together!'); N.open(); });
+    friendsEl = BB.el('div', 'bbn-friends hide', root);
+    BB.on('depot:open', () => { if (!BB.bedtime) tile.classList.add('on'); syncFriends(); });
+    BB.on('depot:closed', () => { tile.classList.remove('on'); hidePanel(); sendHi(); syncFriends(); });
+    BB.on('bus:type', () => { if (N.state === 'room') BB.later(100, () => sendHi()); });
+    BB.on('bus:horn', () => {
+      if (N.state !== 'room') return;
+      const now = performance.now(); if (now - honkAt < 600) return; honkAt = now;
+      send({ t: 'honk', tune: !!(BB.save.upgrades && BB.save.upgrades.horn) });
+    });
+    BB.on('hub:pause', () => N.leave('home'));
+    addEventListener('pagehide', () => N.leave('home'));
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) { lastKey = ''; tick(); } else tick(); });
+    // the together picture shows our own bus colour: repaint it when that changes
+    BB.on('depot:closed', () => { delete picCache['together:128']; if (tile.firstChild) tile.replaceChild(cv(pic('together', 128)), tile.firstChild); });
+  };
+  function syncFriends() {
+    if (!tile) return;
+    const n = [...N.remotes.values()].filter((r) => !r.leaving).length;
+    tile.classList.toggle('room', N.state === 'room');
+    tile.querySelector('.n').textContent = String(n + 1);
+    friendsEl.innerHTML = '';
+    const show = N.state === 'room' && n > 0 && !(BB.depot && BB.depot.isOpen) && !BB.bedtime;
+    friendsEl.classList.toggle('hide', !show);
+    if (show) fillFriends(friendsEl, false);
+    if (panelKind === 'code' && card) { const f = card.querySelector('.bbn-friends'); if (f) { f.innerHTML = ''; fillFriends(f, true); } }
+  }
+  function fillFriends(el, withMe) {
+    const list = [...N.remotes.values()].filter((r) => !r.leaving).map((r) => r.look);
+    if (withMe) list.unshift(Object.assign(myLook(), { me: true }));
+    for (const look of list) {
+      const f = BB.el('div', 'bbn-friend' + (look.me ? ' me' : ''), el);
+      f.appendChild(cv(miniBus(look))); BB.el('b', '', f, look.no);
+      BB.tap(f, () => BB.say(look.me ? `Your bus, number ${look.no}!` : `Bus ${look.no}!`));
+    }
+  }
+
+  function hidePanel() { if (wrap) wrap.remove(); wrap = card = null; panelKind = null; if (codeT) { BB.cancelLater(codeT); codeT = null; } }
+  function panel(kind, closable = true) {
+    hidePanel();
+    if (BB.ui.releaseAll) BB.ui.releaseAll();
+    panelKind = kind;
+    wrap = BB.el('div', 'bbn-wrap', BB.ui.root);
+    card = BB.el('div', 'bbn-card', wrap);
+    if (closable) {
+      const x = BB.el('button', 'bbn-x', card); x.appendChild(cv(pic('cross', 96)));
+      BB.tap(x, () => { BB.sfx.click(); if (N.state === 'opening') N.leave('home'); hidePanel(); });
+    }
+    BB.tap(wrap, (e) => { if (e.target === wrap && closable) { if (N.state === 'opening') N.leave('home'); hidePanel(); } });
+    return card;
+  }
+  function refreshPanel() { if (panelKind === 'code' && N.state !== 'room') hidePanel(); }
+  const btn = (parent, name, fn, cls) => { const b = BB.el('button', cls || 'bbn-btn', parent); b.appendChild(cv(pic(name, 128))); BB.tap(b, fn); return b; };
+
+  // "Play together": offline -> the cloud card; in a room -> its code and friends; otherwise Make or Join.
+  N.open = function () {
+    if (BB.bedtime) return;
+    if (N.state === 'room') { showCode(false); return; }
+    if (!N.canTry()) { showOffline(); return; }
+    const c = panel('menu');
+    const row = BB.el('div', 'bbn-row', c);
+    btn(row, 'make', () => { BB.sfx.pop(); makeRoom(); }, 'bbn-big');
+    btn(row, 'join', () => { BB.sfx.pop(); showEnter(); }, 'bbn-big');
+    BB.say('Make a new room, or join your friend\'s room?', { queue: true });
+  };
+  function showOffline() {
+    const c = panel('offline');
+    const p = cv(pic('cloud', 192)); p.style.cssText = 'width:150px;height:150px'; c.appendChild(p);
+    btn(BB.el('div', 'bbn-row', c), 'tick', () => { BB.sfx.click(); hidePanel(); });
+    BB.sfx.wrong();
+    BB.say('Playing together needs the internet.');
+  }
+  function showWaiting(line) {
+    const c = panel('wait');
+    const w = cv(miniBus(myLook())); w.className = 'bbn-wait'; c.appendChild(w);
+    const d = BB.el('div', 'bbn-dots', c); for (let i = 0; i < 3; i++) BB.el('i', '', d);
+    if (line) BB.say(line, { queue: true });
+  }
+  function newCode() {
+    const out = [], a = new Uint8Array(16);
+    while (out.length < CODE_LEN) { crypto.getRandomValues(a); for (const v of a) if (v < 252 && out.length < CODE_LEN) out.push(v % 12); }
+    return out;
+  }
+  const codeStr = (c) => c.map((i) => LETTERS[i]).join('');
+  const codeOf = (s) => String(s || '').split('').map((ch) => LETTERS.indexOf(ch));
+  function makeRoom(tries = 0) {
+    showWaiting(tries ? null : 'Opening your room!');
+    const code = newCode();
+    start(codeStr(code), true, (err) => {
+      if (!err) { showCode(true); return; }
+      if (err === 'taken' && tries < 3) { makeRoom(tries + 1); return; }
+      if (panelKind === 'wait') showOffline();
+    });
+  }
+  let codeT = null;
+  function showCode(first) {
+    const c = panel('code');
+    const code = codeOf(N.code);
+    const row = BB.el('div', 'bbn-code', c);
+    const cells = code.map((i, k) => { const d = BB.el('div', '', row); d.style.animationDelay = k * 90 + 'ms'; d.appendChild(cv(pic(PICS[i], 160))); return d; });
+    const bottom = BB.el('div', 'bbn-row', c);
+    btn(bottom, 'speak', () => sayCode(cells));
+    fillFriends(BB.el('div', 'bbn-friends', bottom), true);
+    btn(bottom, 'home', () => { BB.sfx.click(); BB.say('Bye bye, friends!'); N.leave('home'); hidePanel(); });
+    btn(bottom, 'tick', () => { BB.sfx.click(); hidePanel(); });
+    if (first) { BB.sfx.cheer(); sayCode(cells, 'Your room is open! The code is: ', ' Show it to your friend!'); }
+    else sayCode(cells, 'The room code is: ');
+  }
+  // say the code, lighting each picture in turn
+  function sayCode(cells, pre = '', post = '') {
+    const code = codeOf(N.code);
+    BB.say(pre + code.map((i) => PICS[i]).join(', ') + '.' + post);
+    if (codeT) BB.cancelLater(codeT);
+    let k = 0;
+    const step = () => { cells.forEach((el, j) => el.classList.toggle('lit', j === k)); k++; codeT = k <= cells.length ? BB.later(k === 1 ? 900 + pre.length * 45 : 750, step) : null; };
+    step(); cells.forEach((el) => el.classList.remove('lit'));
+    k = 0; codeT = BB.later(pre.length * 55 + 300, step);
+  }
+  function showEnter(again) {
+    const c = panel('enter');
+    const entered = [];
+    const top = BB.el('div', 'bbn-slots', c);
+    const slots = []; for (let i = 0; i < CODE_LEN; i++) slots.push(BB.el('div', '', top));
+    btn(top, 'del', () => { if (!entered.length) return; entered.pop(); BB.sfx.click(); show(); });
+    const keys = BB.el('div', 'bbn-keys', c);
+    const show = () => slots.forEach((s, i) => { s.innerHTML = ''; s.classList.toggle('full', i < entered.length); if (i < entered.length) s.appendChild(cv(pic(PICS[entered[i]], 96))); });
+    PICS.forEach((name, i) => {
+      const k = btn(keys, name, () => {
+        if (entered.length >= CODE_LEN || joining) return;
+        entered.push(i); BB.sfx.pop(); show(); BB.say(name[0].toUpperCase() + name.slice(1) + '!');
+        if (entered.length === CODE_LEN) { joining = true; BB.later(700, () => { joining = false; if (panelKind === 'enter') tryJoin(entered.slice()); }); }
+      }, 'bbn-key');
+      k.setAttribute('aria-label', name);
+    });
+    let joining = false;
+    if (again) { top.classList.add('shake'); BB.sfx.wrong(); BB.say('No room found. Let\'s try again!'); }
+    else BB.say('Tap the pictures of your friend\'s code!', { queue: true });
+  }
+  function tryJoin(code) {
+    showWaiting('Knock knock!');
+    start(codeStr(code), false, (err) => {
+      if (panelKind !== 'wait') return;
+      if (!err) {
+        hidePanel(); BB.sfx.cheer(); if (BB.ui.confetti) BB.ui.confetti();
+        BB.say('Hooray! You are playing together!', { queue: true });
+        return;
+      }
+      if (err === 'noroom' || err === 'failed') showEnter(true);
+      else if (err === 'full') { const c = panel('full'); const p = cv(pic('make', 160)); p.style.cssText = 'width:140px;height:140px'; c.appendChild(p); btn(BB.el('div', 'bbn-row', c), 'tick', () => hidePanel()); BB.say('That room is full! Let\'s play on our own for now.'); }
+      else showOffline();
+    });
+  }
+})();
