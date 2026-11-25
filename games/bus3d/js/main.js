@@ -170,7 +170,7 @@
     safe(() => { B.stopAt(null); B.go(false); B.locked = true; });
     BB.ui.hideAll();
     BB.music.stop();
-    BB.say('Time for bed, little bus!');
+    BB.say('Time for bed, little bus!', { queue: true });   // queued: never cuts off "Sparkly clean!" or a stop's last line
     for (let i = 0; i < 40 && B.speed > 0.2; i++) await BB.wait(100);
     if ((B.passengers | 0) > 0 && J.allOff) {
       // the last passengers really walk off and away (at most ~15 s, then carry on regardless)
