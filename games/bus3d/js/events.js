@@ -731,8 +731,9 @@
   function spotOK(x, z, rad = 2) {
     const w = W();
     for (const st of stopList()) {
-      if (st.pos && Math.hypot(st.pos.x - x, st.pos.z - z) < 18) return false;
-      const bay = w.bayOf ? safe(() => w.bayOf(st)) : null; if (bay && Math.hypot(bay.x - x, bay.z - z) < 18) return false;
+      const R = st.minor ? 12 : 18;               // (minor stops: just keep their bay and shelter clear)
+      if (st.pos && Math.hypot(st.pos.x - x, st.pos.z - z) < R) return false;
+      const bay = w.bayOf ? safe(() => w.bayOf(st)) : null; if (bay && Math.hypot(bay.x - x, bay.z - z) < R) return false;
     }
     if (w.inDepotYard && w.inDepotYard(x, z)) return false;
     for (const n of w.roads.nodes) {           // clear of junction boxes (the widest road there, plus room to turn)

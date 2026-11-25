@@ -16,6 +16,13 @@ export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     if (url.pathname === '/' || url.pathname === '/health') return new Response('ok', { headers: cors(req, env) });
+    if (url.pathname === '/check') {        // tests the rooms (Durable Object) part: should say "rooms ok"
+      try {
+        if (!env.ROOMS) return new Response('no ROOMS binding');
+        const r = await env.ROOMS.get(env.ROOMS.idFromName('lbc-check')).fetch('https://room/ping');
+        return new Response(r.ok ? 'rooms ok: ' + (await r.text()) : 'rooms error ' + r.status + ': ' + (await r.text()));
+      } catch (e) { return new Response('rooms error: ' + (e && e.message || e)); }
+    }
     const m = url.pathname.match(/^\/room\/([a-z0-9-]{4,40})$/);
     if (!m) return new Response('not found', { status: 404 });
     if (req.headers.get('Upgrade') !== 'websocket') return new Response('expected websocket', { status: 426 });
@@ -39,6 +46,7 @@ export class Room {
   members() { return this.state.getWebSockets().map(ws => ws.deserializeAttachment()).filter(Boolean); }
 
   async fetch(req) {
+    if (new URL(req.url).pathname === '/ping') return new Response('room ' + this.state.getWebSockets().length + ' connected');
     const socks = this.state.getWebSockets();
     const pair = new WebSocketPair(), [client, server] = Object.values(pair);
     if (socks.length >= MAX) {

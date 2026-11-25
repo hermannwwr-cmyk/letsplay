@@ -119,7 +119,7 @@
     airport: { word: ['traveller', 'travellers'], prop: 'case', start: 'Airport rush! The planes have landed!', drop: 'Welcome to the city! Have a lovely trip!' },
     party: { word: ['party friend', 'party friends'], prop: 'balloon', start: 'Party bus! A birthday group is waiting!', drop: 'Happy birthday! Bye bye!' },
   };
-  const stopLike = (re) => (BB.world.stops || []).find((s) => s && re.test((s.id || '') + ' ' + (s.name || '') + ' ' + (s.pic || '')));
+  const stopLike = (re) => (BB.world.stops || []).find((s) => s && !s.minor && re.test((s.id || '') + ' ' + (s.name || '') + ' ' + (s.pic || '')));
   function morning() {
     const W = BB.world, d = W && W.day;
     if (W && typeof W.night === 'function' && +W.night() > 0.3) return false;
@@ -1256,8 +1256,7 @@
   // ---------- the job loop ----------
   // Stops for a new job: never where we are, and the previous job's stops only when there aren't enough others,
   // so the same places don't come round job after job.
-  // For the first 3 jobs on the big map the stops are near: each one is picked at random from the 3 nearest to where
-  // the bus is (by road when BB.bus.routeLength / BB.world.stopDistance exist, else in a straight line).
+  // Road distance from a stop (BB.world.stopDistance) or from the bus (BB.bus.routeLength), else a straight line.
   function stopDist(from, s) {
     try {
       if (!from && typeof BB.bus.routeLength === 'function') { const d = +BB.bus.routeLength(s); if (isFinite(d)) return d; }
@@ -1266,30 +1265,43 @@
     const p = from ? from.pos : (BB.bus.pos || { x: 0, z: 0 });
     return Math.hypot(s.pos.x - p.x, s.pos.z - p.z);
   }
+  // Short legs (about 7 s of driving): each next stop is picked from BB.world.stopsByDistance(current) within about
+  // 60-200 road units, at random among those (variety, not always the nearest), never the stop just visited or one
+  // already in the job, leaning toward named stops (st.minor = small automatic ones with shared names like "the flats").
+  const LEG_MIN = 60, LEG_MAX = 200;
+  const okStop = (s) => s && s.pos && s.edge != null && s.say;
+  function nextNear(from, exclude) {
+    const W = BB.world, all = (W.stops || []).filter((s) => okStop(s) && !exclude.includes(s));
+    let ranked;
+    if (from && typeof W.stopsByDistance === 'function') ranked = W.stopsByDistance(from, all).map((s2) => ({ s: s2, d: stopDist(from, s2) }));
+    else ranked = all.map((s2) => ({ s: s2, d: stopDist(from, s2) })).sort((p, q) => p.d - q.d);
+    ranked = ranked.filter((o) => o.s !== from && isFinite(o.d));
+    if (!ranked.length) return null;
+    let pool = ranked.filter((o) => o.d >= LEG_MIN && o.d <= LEG_MAX);
+    if (!pool.length) pool = ranked.filter((o) => o.d >= LEG_MIN).slice(0, 4);
+    if (!pool.length) pool = ranked.slice(0, 3);
+    // named stops count twice, so they come up more often than the small ones
+    const bag = []; for (const o of pool) { bag.push(o.s); if (!o.s.minor) bag.push(o.s); }
+    return BB.pick(bag);
+  }
+  J.nextNear = nextNear;
   function pickStops() {
     const count = (BB.save.jobsDone | 0) < 1 ? 2 : BB.randInt(2, 3);
-    const here = BB.bus.atStop || J.lastStop, before = J.lastJobStops || [];
-    const all = (BB.world.stops || []).filter((s) => s && s !== here && s.pos && s.edge != null && s.say);
-    let list;
-    if ((BB.save.jobsDone | 0) < 3) {
-      list = [];
-      let from = here && here.id !== 'depot' ? here : null;
-      for (let i = 0; i < count; i++) {
-        let pool = all.filter((s) => !list.includes(s));
-        const freshPool = pool.filter((s) => !before.includes(s));
-        if (freshPool.length >= 3) pool = freshPool;
-        if (!pool.length) break;
-        const near = pool.map((s) => ({ s, d: stopDist(from, s) })).sort((a, b) => a.d - b.d).slice(0, 3);
-        const pick = BB.pick(near).s;
-        list.push(pick); from = pick;
-      }
-    } else {
-      const fresh = BB.shuffle(all.filter((s) => !before.includes(s))), old = BB.shuffle(all.filter((s) => before.includes(s)));
-      list = fresh.concat(old).slice(0, count);
+    const here = BB.bus.atStop || J.lastStop;
+    const exclude = here ? [here] : [];
+    const list = [];
+    let from = here && here.id !== 'depot' && okStop(here) ? here : null;
+    for (let i = 0; i < count; i++) {
+      const s2 = nextNear(from, exclude.concat(list));
+      if (!s2) break;
+      list.push(s2); from = s2;
     }
     J.lastJobStops = list;
     return list;
   }
+  const stopLine = (st, first) => first
+    ? (st.minor ? `New job! First stop, ${st.say}!` : `New job! Drive to ${st.say}!`)
+    : (st.minor ? `Next stop, ${st.say}!` : `Now drive to ${st.say}!`);
   function bedtime() {
     clearWaiting();
     if (J.current) { J.current = null; BB.bus.stopAt(null); BB.emit('job:target', { stop: null, job: null }); }
@@ -1306,7 +1318,7 @@
     if (theme) {
       // the themed stop first (the school, the airport, the beach/park), then one other stop for the drop
       const ts = themeStop(theme), here = BB.bus.atStop || J.lastStop;
-      if (ts && ts !== here) job.stops = [ts].concat(job.stops.filter((x) => x !== ts)).slice(0, 2);
+      if (ts && ts !== here) { const d2 = nextNear(ts, [ts, here].filter(Boolean)); job.stops = d2 ? [ts, d2] : job.stops.slice(0, 2); }
       else job.stops = job.stops.slice(0, 2);
       J.lastJobStops = job.stops.slice();
       J.sinceSpecial = 0;
@@ -1314,7 +1326,7 @@
     J.current = job;
     BB.emit('job:new', { job, theme });
     if (theme === 'school') jingle();
-    say(theme ? `${THEMES[theme].start} Drive to ${job.stops[0].say}!` : `New job! Drive to ${job.stops[0].say}!`, { queue: true });
+    say(theme ? `${THEMES[theme].start} Drive to ${job.stops[0].say}!` : stopLine(job.stops[0], true), { queue: true });
     nextStop(true);
   };
   // Head for the job's current stop: a new question (and the people for it waiting at the shelter).
@@ -1325,7 +1337,7 @@
     const raining = BB.world && typeof BB.world.isRaining === 'function' && BB.world.isRaining();
     if (raining && !job.theme && !job.bonusDone && job.index > 0 && level() >= 1 && Math.random() < 0.5) {
       const here = BB.bus.atStop || J.lastStop;
-      const extra = BB.shuffle((BB.world.stops || []).filter((x) => x && x.pos && x.say && x !== here && !job.stops.includes(x)))[0];
+      const extra = nextNear(here && okStop(here) ? here : null, job.stops.concat(here ? [here] : []));
       if (extra) {
         job.stops.splice(job.index, 0, extra); job.bonusIdx = job.index; job.bonusDone = true;
         bonusLine = `Look! Someone is waving in the rain! Let's stop at ${extra.say}!`;
@@ -1373,7 +1385,7 @@
     setPhase('drive');
     BB.bus.stopAt(stop, onArrive);
     BB.emit('job:target', { stop, job });
-    if (!quiet) say(`Now drive to ${stop.say}!`, { queue: true });          // quiet: true, or 'silent' (another line says it)
+    if (!quiet) say(stopLine(stop, false), { queue: true });          // quiet: true, or 'silent' (another line says it)
   }
   function onArrive(stop) {
     const job = J.current; if (!job) return;
