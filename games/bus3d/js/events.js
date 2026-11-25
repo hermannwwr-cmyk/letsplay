@@ -682,11 +682,15 @@
   function spotOK(x, z, rad = 2) {
     const w = W();
     for (const st of stopList()) {
-      if (st.pos && Math.hypot(st.pos.x - x, st.pos.z - z) < 30) return false;
-      const bay = w.bayOf ? safe(() => w.bayOf(st)) : null; if (bay && Math.hypot(bay.x - x, bay.z - z) < 30) return false;
+      if (st.pos && Math.hypot(st.pos.x - x, st.pos.z - z) < 22) return false;
+      const bay = w.bayOf ? safe(() => w.bayOf(st)) : null; if (bay && Math.hypot(bay.x - x, bay.z - z) < 22) return false;
     }
     if (w.inDepotYard && w.inDepotYard(x, z)) return false;
-    for (const n of w.roads.nodes) if (n.edges.length >= 3 && Math.hypot(n.x - x, n.z - z) < 24) return false;
+    for (const n of w.roads.nodes) {           // clear of junction boxes (the widest road there, plus room to turn)
+      if (n.edges.length < 3) continue;
+      const hh = Math.max(...n.edges.map((id) => { const e = w.edge(id); return (e && e.half) || 9.2; }));
+      if (Math.hypot(n.x - x, n.z - z) < hh + 7) return false;
+    }
     for (const zb of zebras()) if (Math.hypot(zb.x - x, zb.z - z) < 12) return false;
     if (w.pushOut) { const q = w.pushOut(x, z, rad); if (q.hit > 0.15) return false; }
     return true;
