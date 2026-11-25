@@ -1970,7 +1970,7 @@
     };
     // (the south fence has a gap at the wash, so its show can be watched from the waterfront)
     // (the south-east corner follows the outer road's curve, so the fence never stands on the road)
-    const CR0 = 26.5, ccx = OX - CR, ccz = SZ - CR, aS = Math.asin((Y.z1 - ccz) / CR0), aE = Math.acos((Y.x1 - ccx) / CR0);
+    const CR0 = 28.6, ccx = OX - CR, ccz = SZ - CR, aS = Math.asin((Y.z1 - ccz) / CR0), aE = Math.acos((Y.x1 - ccx) / CR0);
     fence(Y.x0, Y.z0, Y.x1, Y.z0); fence(Y.x0, Y.z1, 58, Y.z1); fence(100, Y.z1, ccx + CR0 * Math.cos(aS), Y.z1); fence(Y.x1, Y.z0, Y.x1, ccz + CR0 * Math.sin(aE));
     for (let k = 0; k < 12; k++) { const a0 = aS + (aE - aS) * k / 12, a1 = aS + (aE - aS) * (k + 1) / 12; fence(ccx + CR0 * Math.cos(a0), ccz + CR0 * Math.sin(a0), ccx + CR0 * Math.cos(a1), ccz + CR0 * Math.sin(a1)); }
     b.box(42, 0.35, 0.5, P.kerb, 79, 0, Y.z1);
