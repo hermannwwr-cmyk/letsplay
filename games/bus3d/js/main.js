@@ -79,7 +79,7 @@
         BB.music.start();
         // a short hello if the welcome was never heard, then how to drive, queued so nothing cuts in
         if (!BB.heard(welcome)) BB.say('Hello, driver!');
-        BB.say(BB.ui.driveTip ? BB.ui.driveTip() : 'Push up to go! Slide to steer!', { queue: true });
+        BB.say(BB.ui.driveTip ? BB.ui.driveTip() : 'Hold the green pedal to go! Turn the wheel to steer!', { queue: true });
         if (BB.ui.showTips) BB.ui.showTips();
       }
       // no job yet (the first drive, or Home before the first job began): one starts shortly, unless the child went

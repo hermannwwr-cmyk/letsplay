@@ -59,7 +59,7 @@
   const DEFAULT_SAVE = () => ({
     paint: 'green', upgrades: {}, stickers: [], fuel: 1, jobsDone: 0, questions: 0, seen: {},
     paints: ['green'], stickersOwned: [], parts: {}, partsOwned: [],
-    busType: null, routeNo: '88', assist: false, leftHand: false, control: 'joystick', xmas: 'auto', dirt: 0, spotted: {}, friendsMet: [],
+    busType: null, routeNo: '88', assist: false, leftHand: false, control: 'wheel', xmas: 'auto', dirt: 0, spotted: {}, friendsMet: [],
     washPaid: 0,                 // coins paid for a bus wash that hasn't finished yet (a reload mid-wash gives them back)
     vehiclesOwned: ['bendy', 'double', 'single'],   // the rides the child may drive (the buses are free; the others are bought in the garage)
     vehiclePaint: {},            // a colour per other ride ({fire: 'blue'}); none = its classic colours
@@ -78,7 +78,7 @@
       if (!s.parts || typeof s.parts !== 'object' || Array.isArray(s.parts)) s.parts = {};
       s.routeNo = /^[1-9][0-9]{0,2}$/.test(String(s.routeNo)) ? String(s.routeNo) : '88';
       if (s.busType != null && typeof s.busType !== 'string') s.busType = null;
-      s.assist = !!s.assist; s.leftHand = !!s.leftHand; s.control = s.control === 'wheel' ? 'wheel' : 'joystick';
+      s.assist = !!s.assist; s.leftHand = !!s.leftHand; s.control = 'wheel';                 // (the steering wheel is the only control now: old 'joystick' saves move to it)
       s.xmas = s.xmas === 'on' || s.xmas === 'off' ? s.xmas : 'auto';
       s.dirt = Math.max(0, Math.min(1, +s.dirt || 0));     // (how dusty the bus is: only looks, bus.js)
       if (Array.isArray(got.hatsOwned)) BB.saveMigrate.hatRefund = got.hatsOwned.reduce((n, id) => n + (HAT_PRICES[id] || 0), 0);
@@ -548,14 +548,18 @@
         paper(x, (p) => arcP(p, cx, cy, 18 * s), '#3fae49');
         shine(x, cx - 6 * s, cy - 7 * s, 6 * s, 3.5 * s, -0.6, 0.5);
       };
-      const tabletWithJoy = (left) => {
+      const tabletWithJoy = (left) => {        // (the which-side picture: a tablet with the wheel and the pedals)
         paper(x, (p) => rrP(p, 6, 22, 88, 58, 12), '#5a5260');
         paper(x, (p) => rrP(p, 13, 29, 74, 44, 6), '#bfe0f0', { depth: 0.2, rim: false });
         x.fillStyle = '#9cc7dc'; x.fillRect(13, 58, 74, 15);
-        const jx = left ? 28 : 72;
-        paper(x, (p) => arcP(p, jx, 56, 13), '#fff6e0', { depth: 0.3, rimColor: '#d9b57f', rimW: 2 });
-        paper(x, (p) => arcP(p, jx, 56, 6.5), '#3fae49', { depth: 0.3, rimW: 1.4 });
-        paper(x, (p) => rrP(p, left ? 62 : 26, 40, 13, 9, 3), P.busGreen, { depth: 0.2, rimW: 1.4 });
+        // the pedals on the chosen side (a green Go pedal), the little wheel on the other
+        const px = left ? 18 : 64;
+        paper(x, (p) => rrP(p, px, 40, 18, 26, 5), '#3fae49', { depth: 0.3, rimW: 1.4 });
+        x.fillStyle = '#fff'; x.beginPath(); x.moveTo(px + 9, 44); x.lineTo(px + 15, 52); x.lineTo(px + 3, 52); x.closePath(); x.fill();
+        const wx = left ? 68 : 32;
+        x.save(); x.lineWidth = 4.5; x.strokeStyle = '#5a5260'; x.beginPath(); x.arc(wx, 54, 11, 0, Math.PI * 2); x.stroke();
+        x.lineWidth = 3.5; x.beginPath(); x.moveTo(wx - 11, 53); x.lineTo(wx + 11, 53); x.moveTo(wx, 54); x.lineTo(wx, 65); x.stroke(); x.restore();
+        dot(x, wx, 54, 4.5, '#f26b5b');
       };
       switch (name) {
         case 'home': house(P.coral); break;

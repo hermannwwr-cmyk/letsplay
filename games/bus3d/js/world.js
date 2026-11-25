@@ -332,6 +332,39 @@
   // every bay the town keeps clear (trees, lamps, the stop cameras' spots)
   const allBays = () => W.stops.concat([W.depot, W.places.fireStation, W.places.clinic], W.sceneSpots);
   W.allBays = allBays;
+  // ---------- many small stops: one about every 7 s of driving ----------
+  // Along every straight road, on each kerb, a small stop (pole, little canopy, bench, sign) about every 70 (110 on the
+  // expressway), well clear of junctions, the named stops, the places and scene spots, and the roads under the MRT
+  // viaduct. Each gets a picture of what is near it (flats, trees, a market, swings; the seaside, the towers, old
+  // town, the airport road in those areas). They are ordinary stops (st.minor = true); W.build drops any whose
+  // shelter would stand in something.
+  const MINOR_PICS = { flats: ['Flats', 'the flats'], tree: ['Trees', 'the trees'], market: ['Market', 'the market'], slide: ['Swings', 'the swings'],
+    beach: ['Seaside', 'the seaside'], city: ['Towers', 'the towers'], lantern: ['Old Town', 'old town'], plane: ['Airport Road', 'the airport road'] };
+  const minorPic = (x, z, i) => z > 170 ? 'beach' : (x > 215 && z < -150) ? 'plane' : (x > 95 && x < 215 && z < -30 && z > -180) ? 'city' : x < -175 ? 'lantern' : ['flats', 'tree', 'market', 'slide'][i % 4];
+  (function addMinorStops() {
+    const nodeClear = (id, e) => { const n = nodeById[id]; return n.edges.length >= 3 ? Math.max(...n.edges.map((q) => edgeById[q].half || RH)) + 22 : 12; };
+    let k = 0;
+    for (const e of W.roads.edges) {
+      if (e.kind === 'yard' || e.points.length > 2) continue;                       // (not in the yard, not on curves)
+      const a = e.points[0], b = e.points[e.points.length - 1];
+      if (Math.abs(a.z - g(1)) < 12 && Math.abs(b.z - g(1)) < 12 && Math.abs(a.x) < 200) continue;   // under the viaduct
+      const step = e.kind === 'highway' ? 110 : 70, s0 = nodeClear(e.a, e) + 8, s1 = e.length - nodeClear(e.b, e) - 8;
+      if (s1 - s0 < 0) continue;
+      for (const dir of [1, -1]) {
+        const taken = allBays().filter((q) => q.edge === e.id && q.dir === dir).map((q) => q.s);
+        const n = Math.max(1, Math.round((s1 - s0) / step) + 1);
+        for (let i = 0; i < n; i++) {
+          const sv = n === 1 ? (s0 + s1) / 2 : s0 + (s1 - s0) * i / (n - 1);
+          if (taken.some((t) => Math.abs(t - sv) < 48)) continue;
+          const p = W.pointAt(e, sv), lx = p.dz * dir, lz = -p.dx * dir;           // kerb side of this direction
+          const toward = [p.x + lx * 30, p.z + lz * 30], kx = p.x + lx * (e.half + 2.5), kz = p.z + lz * (e.half + 2.5);
+          const pic = minorPic(kx, kz, k++), nm = MINOR_PICS[pic];
+          const st = placeOnKerb({ id: 'stop' + k, name: nm[0], say: nm[1], pic, from: e.a, to: e.b, t: sv / e.length, toward });
+          st.minor = true; W.stops.push(st); taken.push(sv);
+        }
+      }
+    }
+  })();
   W.stopById = (id) => id === 'depot' ? W.depot : id === 'wash' ? W.washBay : W.stops.find((s) => s.id === id) ||
     Object.values(W.places).find((p) => p.id === id) || W.sceneSpots.find((p) => p.id === id);
   // Road distance (world units, along the kerb-lane way, no U-turns) from stop a's bay, driving on in a's direction,
@@ -602,6 +635,8 @@
     buildLandmarks(town, green);
     buildViaduct(town, green);
     buildDistricts(green);
+    // small stops whose shelter would stand in a building, a tree or a post are left out
+    for (let i = W.stops.length - 1; i >= 0; i--) { const st = W.stops[i]; if (st.minor && W.pushOut(st.pos.x, st.pos.z, 1.8).hit > 0.05) W.stops.splice(i, 1); }
     buildStops(TREES);   // (with the props: the shelter hides when it stands between the stop camera and the bus)
     buildPlaces(town);
     const poolPts = buildLamps(town, lamps);
@@ -1744,6 +1779,19 @@
   // ---------- bus stops: a shelter with a curved roof, glass back, bench, bin, side panel, a pole with a picture sign ----------
   function buildStops(b) {
     for (const st of W.stops) {
+      if (st.minor) {                       // a small stop: paving, a pole with a little canopy, a bench, a bin
+        addBoxAt(st.pos.x, st.pos.z, st.heading, 0.6, 0, 0.5, 1.6, 0.2);
+        const p1 = propStart(b);
+        b.at(st.pos.x, 0.25, st.pos.z, st.heading, (q) => {
+          q.box(2.4, 0.06, 5.0, '#e3d6bc', 0.3, 0, 0);
+          q.box(0.16, 2.7, 0.16, '#7f8a96', 0.9, 0, -1.4); q.box(0.16, 2.7, 0.16, '#7f8a96', 0.9, 0, 1.4);
+          q.box(1.6, 0.14, 3.6, P.teal, 0.5, 2.7, 0);
+          q.box(0.6, 0.12, 2.6, P.wood, 0.7, 0.85, 0);
+          q.box(0.15, 3.7, 0.15, '#7f8a96', -0.9, 0, 2.6);
+        });
+        propEnd(b, p1, st.pos.x, st.pos.z, 3.0);
+        continue;
+      }
       addBoxAt(st.pos.x, st.pos.z, st.heading, 0.3, 0, 1.1, 4.1, 0.2);    // (top 0.2: the shelter hides from the cameras,
       addBoxAt(st.pos.x, st.pos.z, st.heading, -0.9, 4.6, 0.2, 0.2, 0.2); //  so it never blocks their sight lines)
       const p0 = propStart(b);
@@ -1813,14 +1861,17 @@
   // The rounded corners are cut with alphaTest (no black corners).
   function buildSigns() {
     const list = W.stops.map((st) => {
-      const cx = st.pos.x - st.side.x * 0.9 + st.fwd.x * 4.6, cz = st.pos.z - st.side.z * 0.9 + st.fwd.z * 4.6;
+      const al = st.minor ? 2.6 : 4.6, cx = st.pos.x - st.side.x * 0.9 + st.fwd.x * al, cz = st.pos.z - st.side.z * 0.9 + st.fwd.z * al;
       return { pic: st.pic, x: cx, y: 0.25 + 3.55, z: cz, nx: -st.fwd.x, nz: -st.fwd.z, size: 2.2, ring: P.honey, stop: true };
     });
     for (const s of SIGNS) list.push(s);
+    // one atlas cell per different picture (and ring colour): many stops share a few pictures
+    const cells = [], cellOf = new Map();
+    for (const st of list) { const key = st.pic + '|' + st.ring; if (!cellOf.has(key)) { cellOf.set(key, cells.length); cells.push(st); } st.cell = cellOf.get(key); }
     const cell = 128, cv = document.createElement('canvas');
-    cv.width = cell * list.length; cv.height = cell;
+    cv.width = cell * cells.length; cv.height = cell;
     const x = cv.getContext('2d');
-    list.forEach((st, i) => {
+    cells.forEach((st, i) => {
       const X = i * cell;
       x.beginPath(); x.roundRect ? x.roundRect(X + 3, 3, cell - 6, cell - 6, 24) : x.rect(X + 3, 3, cell - 6, cell - 6);
       x.fillStyle = st.ring; x.fill();
@@ -1835,7 +1886,7 @@
       const { x: cx, y: cy, z: cz, nx, nz, size } = st;
       for (let k = 0; k < 12; k++) cen.push(st.stop ? cx : 1e5, cz, 1.1);   // stop signs hide when they block the stop view
       const rx = nz, rz = -nx;          // right along the board as seen from its front
-      const u0 = (i + 0.004) / list.length, u1 = (i + 0.996) / list.length, h = size / 2;
+      const u0 = (st.cell + 0.004) / cells.length, u1 = (st.cell + 0.996) / cells.length, h = size / 2;
       const quad = (sgn) => {
         const ox = nx * 0.06 * sgn, oz = nz * 0.06 * sgn;
         const A0 = [cx - rx * h * sgn + ox, cy - h, cz - rz * h * sgn + oz], B0 = [cx + rx * h * sgn + ox, cy - h, cz + rz * h * sgn + oz];

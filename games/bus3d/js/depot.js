@@ -3,7 +3,7 @@
    bus3d.save by core.js) and the garage screen, which the game starts in and which opens when the bus pulls in:
    - the bus rises on a striped turntable lift that sways gently, a 3D fuel pump in front of it, a striped awning;
    - a paper panel with four big labelled sections: My bus (type, colour, number), Shop (Stickers, Lights, Bumpers,
-     Wheels, Extras), Settings (joystick or steering wheel, which hand, lane helper) and Together (the family room,
+     Wheels, Extras), Settings (which side the pedals go, lane helper) and Together (the family room,
      net.js); every tile has a picture and a word, and everything is spoken on tap;
    - the first tap on something new previews it live on the bus and says its price, a second tap buys it
      (coin jingle, coins fly from the counter); too few coins -> "Let's do more jobs!" and a coin goal to aim for;
@@ -513,7 +513,7 @@
 
   // ---------- the garage screen (DOM) ----------
   // A paper panel on the right with four big labelled sections: My bus (type, colour, number), Shop (Stickers, Lights,
-  // Bumpers, Wheels, Extras), Settings (joystick or wheel, which hand, lane helper) and Together (the family room).
+  // Bumpers, Wheels, Extras), Settings (which side the pedals go, lane helper) and Together (the family room).
   // Tiles have a picture and a word; unowned ones a price chip; the chosen one a teal rim and a tick; one being tried
   // on glows, with a green "tap again to buy" chip. Over the 3D view, top left: Coins and Fuel (filled free on every
   // visit) and, in hub mode, the all-games button and the clock. One big "Drive!" button at the bottom.
@@ -1047,18 +1047,11 @@
         } });
       });
     } else if (tab === 'settings') {
-      const ctl = S.control || 'joystick', wheelMode = ctl === 'wheel';
-      let box = sec('joystick', 'Drive with');
-      for (const [mode, word] of [['joystick', 'Joystick'], ['wheel', 'Wheel']]) {
-        tile(box, BB.icon(mode === 'wheel' ? 'wheel' : 'joystick', 128), { i: n++, on: ctl === mode, label: word, tap: () => {
-          if (ctl === mode) { BB.say(mode === 'wheel' ? 'Steering wheel!' : 'Joystick!'); return; }
-          BB.ui.setControl(mode); renderBody();
-        } });
-      }
-      box = sec(S.leftHand ? 'handL' : 'handR', wheelMode ? 'Pedals on' : 'Joystick on');
+      // (the steering wheel and pedals are the only controls: just which side the pedals go)
+      let box = sec(S.leftHand ? 'handL' : 'handR', 'Pedals on');
       for (const [left, word] of [[false, 'Right'], [true, 'Left']]) {
         tile(box, BB.icon(left ? 'handL' : 'handR', 128), { i: n++, on: !!S.leftHand === left, label: word, tap: () => {
-          if (!!S.leftHand === left) { BB.say(wheelMode ? (left ? 'Pedals on the left!' : 'Pedals on the right!') : (left ? 'Joystick on the left!' : 'Joystick on the right!')); return; }
+          if (!!S.leftHand === left) { BB.say(left ? 'Pedals on the left!' : 'Pedals on the right!'); return; }
           BB.ui.setLefty(left); renderBody();
         } });
       }
