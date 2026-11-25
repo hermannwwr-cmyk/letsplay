@@ -21,6 +21,72 @@
   const rr = (a, b) => a + rnd() * (b - a);
   const rpick = (arr) => arr[Math.floor(rnd() * arr.length)];
 
+  // ---------- pictures for the new stops (BB.pic falls back to these when core.js doesn't draw the name) ----------
+  // plane (airport), city (towers), lantern (old town), beach (umbrella), supertree (gardens), ferris (big wheel),
+  // wash (the depot's bus wash). Same paper-cut look on the same 100x100 board.
+  const MY_PICS = {
+    plane(x, pp) {
+      BB.paper(x, (p) => { p.moveTo(18, 52); p.lineTo(48, 46); p.lineTo(62, 14); p.lineTo(72, 14); p.lineTo(66, 46); p.lineTo(86, 44); p.quadraticCurveTo(96, 48, 86, 54); p.lineTo(66, 54); p.lineTo(72, 86); p.lineTo(62, 86); p.lineTo(48, 56); p.lineTo(18, 50); p.closePath(); }, '#f4f1ea');
+      BB.paper(x, (p) => { p.moveTo(14, 44); p.lineTo(22, 44); p.lineTo(30, 52); p.lineTo(22, 60); p.lineTo(14, 60); p.closePath(); }, '#4fa3e0', { depth: 0.4 });
+      for (const wx of [56, 64, 72]) { x.beginPath(); x.arc(wx, 50, 2.4, 0, 7); x.fillStyle = '#4d6f8a'; x.fill(); }
+    },
+    city(x, pp) {
+      const B = [[10, 40, 18, '#9cc7dc'], [30, 18, 20, '#8fe0c4'], [52, 30, 18, '#ffd45c'], [72, 10, 18, '#9cc7dc']];
+      for (const [X, Y, Wd, c] of B) {
+        BB.paper(x, (p) => pp.rr(p, X, Y, Wd, 90 - Y, 3), c, { depth: 0.5 });
+        x.fillStyle = 'rgba(255,255,255,.6)'; for (let yy = Y + 6; yy < 84; yy += 9) x.fillRect(X + 4, yy, Wd - 8, 3);
+      }
+      BB.paper(x, (p) => pp.rr(p, 4, 86, 92, 8, 3), '#8a8290', { depth: 0.3 });
+    },
+    lantern(x, pp) {
+      BB.paperStroke(x, (p) => { p.moveTo(50, 4); p.lineTo(50, 18); }, '#7a5a3a', 3);
+      BB.paper(x, (p) => pp.rr(p, 38, 16, 24, 7, 3), '#ffb81f', { depth: 0.3 });
+      BB.paper(x, (p) => p.ellipse(50, 50, 30, 28, 0, 0, Math.PI * 2), '#ef4b3c');
+      for (const dx of [-16, 0, 16]) BB.paperStroke(x, (p) => { p.moveTo(50 + dx, 24); p.quadraticCurveTo(50 + dx * 1.5, 50, 50 + dx, 76); }, '#c8352a', 2);
+      BB.paper(x, (p) => pp.rr(p, 38, 76, 24, 7, 3), '#ffb81f', { depth: 0.3 });
+      BB.paperStroke(x, (p) => { p.moveTo(46, 84); p.lineTo(44, 96); p.moveTo(54, 84); p.lineTo(56, 96); }, '#ffb81f', 3);
+    },
+    beach(x, pp) {
+      BB.paper(x, (p) => { p.moveTo(0, 80); p.quadraticCurveTo(50, 66, 100, 76); p.lineTo(100, 100); p.lineTo(0, 100); p.closePath(); }, '#f6d98e', { depth: 0.4, rim: false });
+      BB.paperStroke(x, (p) => { p.moveTo(52, 34); p.lineTo(46, 86); }, '#8a6a48', 4);
+      BB.paper(x, (p) => { p.moveTo(12, 40); p.quadraticCurveTo(50, -4, 90, 40); p.closePath(); }, '#ff6b5c');
+      BB.paper(x, (p) => { p.moveTo(36, 40); p.quadraticCurveTo(50, 4, 64, 40); p.closePath(); }, '#fff6e0', { depth: 0.3 });
+    },
+    supertree(x, pp) {
+      BB.paper(x, (p) => { p.moveTo(44, 92); p.lineTo(48, 40); p.lineTo(52, 40); p.lineTo(56, 92); p.closePath(); }, '#8e62c8');
+      BB.paper(x, (p) => { p.moveTo(14, 24); p.lineTo(86, 24); p.lineTo(58, 46); p.lineTo(42, 46); p.closePath(); }, '#b07ad8');
+      for (const [X, Y] of [[22, 24], [38, 20], [62, 20], [78, 24], [50, 18]]) { x.beginPath(); x.arc(X, Y, 4, 0, 7); x.fillStyle = '#6fc45a'; x.fill(); }
+      BB.paper(x, (p) => p.ellipse(50, 94, 22, 4, 0, 0, Math.PI * 2), '#6fc45a', { depth: 0.2, rim: false });
+    },
+    ferris(x, pp) {
+      BB.paperStroke(x, (p) => { p.moveTo(50, 50); p.lineTo(30, 94); p.moveTo(50, 50); p.lineTo(70, 94); }, '#8a8290', 5);
+      x.save(); x.lineWidth = 5; x.strokeStyle = '#e9e2d6'; x.beginPath(); x.arc(50, 46, 36, 0, 7); x.stroke(); x.restore();
+      for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2; BB.paperStroke(x, (p) => { p.moveTo(50, 46); p.lineTo(50 + Math.cos(a) * 36, 46 + Math.sin(a) * 36); }, '#cfc7ba', 1.6); }
+      const cols = ['#ff6b5c', '#ffb81f', '#19a79b', '#5d73e8', '#ff8fab', '#6fc45a', '#8e62c8', '#ffd45c'];
+      for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2; BB.paper(x, (p) => p.ellipse(50 + Math.cos(a) * 36, 46 + Math.sin(a) * 36, 7, 7, 0, 0, 7), cols[k], { depth: 0.3, rimW: 1.6 }); }
+      BB.paper(x, (p) => p.ellipse(50, 46, 6, 6, 0, 0, 7), '#ffb81f', { depth: 0.3 });
+    },
+    wash(x, pp) {
+      BB.paper(x, (p) => pp.rr(p, 10, 44, 80, 34, 8), '#3fae49');
+      x.fillStyle = '#cfe8f3'; for (const wx of [18, 38, 58]) x.fillRect(wx, 50, 15, 12);
+      for (const [X, Y, R] of [[22, 30, 9], [42, 22, 12], [64, 28, 10], [80, 40, 7], [30, 84, 6], [60, 86, 7]]) BB.paper(x, (p) => p.ellipse(X, Y, R, R, 0, 0, 7), '#e9f6ff', { depth: 0.3, rimW: 1.6, rimColor: '#7cc4e8' });
+    },
+  };
+  if (typeof BB.pic === 'function' && !BB.pic.extra) {
+    const basePic = BB.pic, cache = {};
+    BB.pic = function (name, size = 128) {
+      const fn = MY_PICS[name];
+      if (!fn) return basePic(name, size);
+      const key = name + size;
+      if (cache[key]) return cache[key];
+      const c = document.createElement('canvas'); c.width = c.height = size;
+      const x = c.getContext('2d'); x.scale(size / 100, size / 100); x.lineJoin = 'round'; x.lineCap = 'round';
+      try { fn(x, BB.paths || { rr: (p, X, Y, Wd, H) => p.rect(X, Y, Wd, H) }); } catch (e) { console.error(e); }
+      return (cache[key] = c);
+    };
+    BB.pic.extra = MY_PICS;
+  }
+
   const W = BB.world = { scene: null, roads: { nodes: [], edges: [] }, stops: [], depot: null };
 
   // ---------- road graph ----------
@@ -62,6 +128,35 @@
     for (const [i, j, k, l] of [[1, 0, 1, 1], [1, 1, 1, 2], [1, 2, 1, 3], [2, 0, 2, 1], [2, 1, 2, 2], [2, 2, 2, 3],
       [0, 1, 1, 1], [1, 1, 2, 1], [2, 1, 3, 1], [0, 2, 1, 2], [2, 2, 3, 2]]) straight(n(i, j), n(k, l));
   })();
+  // ---------- the wider map: an outer road round the town, the expressway, the airport and the depot yard ----------
+  // A rounded rectangle of roads (x = +-200, z = -190 .. 190) joined to the loop by four connectors. Its north side is
+  // the expressway (wider: three lanes each way; the bus's lane, 6.7 from the middle, is the middle one), which runs on
+  // east to the airport. The bus depot's yard is a loop of two aisles off the south connector (in at one gate, out at
+  // the other). Edges carry a kind ('town', 'outer', 'highway', 'yard') and a half width (W.halfOf).
+  const OX = 200, HZ = -190, SZ = 190, CR = 40;
+  W.HZ = HZ; W.SZ = SZ; W.OX = OX;
+  function addNodeXY(id, x, z) { const n = { id, x, z, edges: [] }; nodeById[id] = n; W.roads.nodes.push(n); return n; }
+  for (const e of W.roads.edges) { e.kind = 'town'; e.half = RH; }
+  (function buildOuter() {
+    const N = (id) => nodeById[id], mk = (id, x, z) => addNodeXY(id, x, z);
+    const H1 = mk('H1', 28, HZ), NWa = mk('NWa', -OX + CR, HZ), NWb = mk('NWb', -OX, HZ + CR), W1 = mk('W1', -OX, -28);
+    const SWb = mk('SWb', -OX, SZ - CR), SWa = mk('SWa', -OX + CR, SZ), S1 = mk('S1', 28, SZ), SEa = mk('SEa', OX - CR, SZ);
+    const SEb = mk('SEb', OX, SZ - CR), E1 = mk('E1', OX, 28), NEa = mk('NEa', OX, HZ + CR), NEb = mk('NEb', OX - CR, HZ);
+    const AJ = mk('AJ', 400, HZ), AP1 = mk('AP1', 400, HZ - 26), AP2 = mk('AP2', 400, HZ - 86);
+    const Yg1 = mk('Yg1', 28, 128), Yg2 = mk('Yg2', 28, 166), Ya = mk('Ya', 118, 128), Yb = mk('Yb', 118, 166);
+    const kind = (e, k, h) => { e.kind = k; e.half = h || RH; return e; };
+    for (const [a, b] of [[NWa, H1], [H1, NEb], [NEb, AJ]]) kind(straight(a, b), 'highway', 13.2);
+    kind(arc(NWa, NWb, -OX + CR, HZ + CR), 'outer'); kind(straight(NWb, W1), 'outer'); kind(straight(W1, SWb), 'outer');
+    kind(arc(SWb, SWa, -OX + CR, SZ - CR), 'outer'); kind(straight(SWa, S1), 'outer'); kind(straight(S1, SEa), 'outer');
+    kind(arc(SEa, SEb, OX - CR, SZ - CR), 'outer'); kind(straight(SEb, E1), 'outer'); kind(straight(E1, NEa), 'outer');
+    kind(arc(NEa, NEb, OX - CR, HZ + CR), 'outer');
+    for (const [a, b] of [[N('n20'), H1], [N('n01'), W1], [N('n23'), Yg1], [Yg1, Yg2], [Yg2, S1], [N('n32'), E1]]) kind(straight(a, b), 'outer');
+    kind(straight(AJ, AP1), 'outer'); kind(straight(AP1, AP2), 'outer'); kind(arc(AP2, AP1, 400, HZ - 56), 'outer');
+    kind(straight(Yg1, Ya), 'yard'); kind(arc(Ya, Yb, 118, 147), 'yard'); kind(straight(Yb, Yg2), 'yard');
+  })();
+  W.halfOf = (e) => (e && e.half) || RH;
+  // The bus stays inside this box (the sea wall to the south, the airport fence to the north, tunnels east and west).
+  W.BOUNDS = { x0: -244, x1: 548, z0: -300, z1: 211 };
   W.node = (id) => nodeById[id];
   W.edge = (id) => edgeById[id];
   W.edgeBetween = (a, b) => W.roads.edges.find((e) => (e.a === a && e.b === b) || (e.a === b && e.b === a));
@@ -107,6 +202,13 @@
     { id: 'park', name: 'Park', say: 'the park', pic: 'tree', from: 'n11', to: 'n12', t: 0.45, toward: [0, 0] },
     { id: 'playground', name: 'Playground', say: 'the playground', pic: 'slide', from: 'n13', to: 'n23', t: 0.5, toward: [0, S] },
     { id: 'mrt', name: 'MRT Station', say: 'the MRT station', pic: 'train', from: 'n21', to: 'n22', t: 0.55, toward: [S, 0] },
+    // the wider map
+    { id: 'airport', name: 'Airport', say: 'the airport', pic: 'plane', from: 'AP1', to: 'AP2', t: 0.5, toward: [340, HZ - 56] },
+    { id: 'city', name: 'City', say: 'the city', pic: 'city', from: 'E1', to: 'NEa', t: 0.42, toward: [140, -50] },
+    { id: 'chinatown', name: 'Old Town', say: 'old town', pic: 'lantern', from: 'W1', to: 'SWb', t: 0.45, toward: [-150, 50] },
+    { id: 'beach', name: 'Beach', say: 'the beach', pic: 'beach', from: 'SWa', to: 'S1', t: 0.32, toward: [-100, 260] },
+    { id: 'gardens', name: 'Gardens', say: 'the gardens', pic: 'supertree', from: 'S1', to: 'SEa', t: 0.24, toward: [60, 260] },
+    { id: 'wheel', name: 'Big Wheel', say: 'the big wheel', pic: 'ferris', from: 'S1', to: 'SEa', t: 0.74, toward: [125, 260] },
   ];
   function placeOnKerb(def) {
     const e = W.edgeBetween(def.from, def.to);
@@ -119,14 +221,20 @@
     return {
       id: def.id, name: def.name, say: def.say, pic: def.pic, edge: e.id, t: s / e.length, dir, kerbSide: 'left',
       s,                                                               // distance from the edge's a end
-      pos: { x: p.x + kx * (RH + 2.5), z: p.z + kz * (RH + 2.5) },     // the shelter, on the pavement (clear of the bus roof)
+      pos: { x: p.x + kx * (e.half + 2.5), z: p.z + kz * (e.half + 2.5) },   // the shelter, on the pavement (clear of the bus roof)
       heading: W.headingOf(fx, fz), fwd: { x: fx, z: fz }, side: { x: kx, z: kz },
     };
   }
   W.stops = STOP_DEFS.map(placeOnKerb);
-  W.depot = placeOnKerb({ id: 'depot', name: 'Bus Depot', say: 'the depot', pic: 'depot', from: 'n22', to: 'n23', t: 0.4, toward: [S, S] });
-  const DEPOT_X = S / 2 + RH + 13;  // the depot shed's centre (its door faces the road, 6 from the kerb)
-  W.stopById = (id) => id === 'depot' ? W.depot : W.stops.find((s) => s.id === id);
+  // The bus depot: an open-air yard off the south connector. W.depot is the child's bay on the north aisle (where the
+  // bus waits after Drive and where depot trips end); the workshop (customising, the home screen) is the big open
+  // shed at the yard's east end; the wash bay is a drive-through gantry on the south aisle.
+  W.depot = placeOnKerb({ id: 'depot', name: 'Bus Depot', say: 'the depot', pic: 'depot', from: 'Yg1', to: 'Ya', t: 0.42, toward: [70, 100] });
+  W.washBay = placeOnKerb({ id: 'wash', name: 'Bus Wash', say: 'the bus wash', pic: 'wash', from: 'Yb', to: 'Yg2', t: 0.3, toward: [90, 200] });
+  W.workshop = { x: 166, z: 147, heading: -Math.PI / 2 };       // the bus's middle and heading in the workshop
+  W.YARD = { x0: 37.2, x1: 188, z0: 104, z1: 178 };
+  W.inDepotYard = (x, z) => x > W.YARD.x0 && x < W.YARD.x1 && z > W.YARD.z0 && z < W.YARD.z1;
+  W.stopById = (id) => id === 'depot' ? W.depot : id === 'wash' ? W.washBay : W.stops.find((s) => s.id === id);
 
 
   // ---------- building the scene ----------
@@ -180,7 +288,6 @@
   }
   const DECK_Y = 12;                       // underside of the MRT viaduct deck
   const VIADUCT_Z = g(1);
-  const RING = 84 * K, RING_R = 30 * K, RING_HALF = 3.6;   // the decorative outer road (cars only; the bus never goes there)
 
   // Shared unit shapes (indexed, so the builder copies them and they can be reused).
   const UBOX = new THREE.BoxGeometry(1, 1, 1), QUAD = new THREE.PlaneGeometry(1, 1);
@@ -221,7 +328,7 @@
     run(0);
     FRAME.x -= dx; FRAME.z -= dz;
   }
-  W.MAP_R = 150 * K;                           // the bus stays inside this circle
+  W.MAP_R = 260;                               // (old: the bus stayed in a circle; now W.BOUNDS)
   // Push a circle (x,z,r) out of everything it overlaps. Returns {x, z, hit} (hit = how far it was pushed).
   const _push = { x: 0, z: 0, hit: 0 };
   W.pushOut = function (x, z, r) {
@@ -252,8 +359,9 @@
         }
       }
     }
-    const d = Math.hypot(x, z), lim = W.MAP_R - r;
-    if (d > lim) { hit += d - lim; x *= lim / d; z *= lim / d; }
+    const Bd = W.BOUNDS;
+    if (x < Bd.x0 + r) { hit += Bd.x0 + r - x; x = Bd.x0 + r; } else if (x > Bd.x1 - r) { hit += x - Bd.x1 + r; x = Bd.x1 - r; }
+    if (z < Bd.z0 + r) { hit += Bd.z0 + r - z; z = Bd.z0 + r; } else if (z > Bd.z1 - r) { hit += z - Bd.z1 + r; z = Bd.z1 - r; }
     _push.x = x; _push.z = z; _push.hit = hit;
     return _push;
   };
@@ -296,7 +404,7 @@
     }
     return false;
   };
-  W.viaduct = { z: VIADUCT_Z, deckY: DECK_Y, halfW: 4, x0: -210, x1: 210 };
+  W.viaduct = { z: VIADUCT_Z, deckY: DECK_Y, halfW: 4, x0: -185, x1: 185 };
   // Where the bus parks at a stop (or the depot): its nose 3 past the shelter, 1 toward the kerb from its lane.
   W.bayOf = function (st) {
     if (st._bay) return st._bay;
@@ -323,7 +431,6 @@
     TREES = BB.mk.builder();
     WIN = BB.mk.builder();
     buildRoads(roads);
-    buildRingRoad(roads);
     buildBlocks(roads, green);
     buildStreetTrees(green);
     buildHDBs(town);
@@ -634,92 +741,73 @@
       for (let k = -8; k <= 8; k++) q.box(0.62, 0.02, 3.2, '#fffaf0', k * 1.06, 0, 0);
     });
   }
+  // The widest road meeting at a node (its junction square); 0 for a bend in one road (two edges).
+  const nodeHalf = (n) => n.edges.length < 3 ? 0 : Math.max(...n.edges.map((id) => edgeById[id].half || RH));
   function buildRoads(b) {
-    for (const e of W.roads.edges) b.strip(e.points, -RH, RH, ROAD_Y, P.road);
-    for (const n of W.roads.nodes) b.box(RH * 2, 0.01, RH * 2, P.road, n.x, ROAD_Y - 0.005, n.z);
+    const YARD_COL = '#cfc7ba';
+    for (const e of W.roads.edges) b.strip(e.points, -e.half, e.half, ROAD_Y, e.kind === 'yard' ? YARD_COL : P.road);
+    for (const n of W.roads.nodes) {
+      const hh = nodeHalf(n); if (!hh) continue;
+      const yard = n.edges.every((id) => edgeById[id].kind === 'yard');
+      b.box(hh * 2, 0.01, hh * 2, yard ? YARD_COL : P.road, n.x, ROAD_Y - 0.005, n.z);
+    }
     for (const e of W.roads.edges) {
-      const inner = subPts(e, RH + 0.4, e.length - RH - 0.4);
-      b.strip(inner, RH - 0.75, RH - 0.5, ROAD_Y + 0.008, '#efe6d2');                 // solid edge lines
-      b.strip(inner, -RH + 0.5, -RH + 0.75, ROAD_Y + 0.008, '#efe6d2');
-      for (let s = RH + 2; s < e.length - RH - 2; s += 5.5) {                          // dashed lane dividers
+      const h0 = nodeHalf(nodeById[e.a]), h1 = nodeHalf(nodeById[e.b]), H = e.half;
+      if (e.kind === 'yard') {                                // the yard: a dashed yellow aisle line only
+        for (let s = h0 + 2; s < e.length - h1 - 2; s += 5) { const p = W.pointAt(e, s + 1.2); b.box(0.3, 0.02, 2.4, P.honey, p.x, ROAD_Y, p.z, W.headingOf(p.dx, p.dz)); }
+        continue;
+      }
+      const inner = subPts(e, h0 + 0.4, e.length - h1 - 0.4);
+      b.strip(inner, H - 0.75, H - 0.5, ROAD_Y + 0.008, '#efe6d2');                 // solid edge lines
+      b.strip(inner, -H + 0.5, -H + 0.75, ROAD_Y + 0.008, '#efe6d2');
+      const divs = e.kind === 'highway' ? [4.65, 8.75] : [C.laneDivider];
+      for (let s = h0 + 2; s < e.length - h1 - 2; s += 5.5) {                          // dashed lane dividers
         const p = W.pointAt(e, s + 1.3), hh = W.headingOf(p.dx, p.dz);
-        for (const sd of [1, -1]) b.box(0.24, 0.02, 2.4, P.roadLine, p.x + p.dz * sd * C.laneDivider, ROAD_Y, p.z - p.dx * sd * C.laneDivider, hh);
+        for (const dv of divs) for (const sd of [1, -1]) b.box(0.24, 0.02, 2.4, P.roadLine, p.x + p.dz * sd * dv, ROAD_Y, p.z - p.dx * sd * dv, hh);
       }
       const underViaduct = Math.abs(e.points[0].z - VIADUCT_Z) < 1 && Math.abs(e.points[e.points.length - 1].z - VIADUCT_Z) < 1;
       if (underViaduct) {                                    // planted median strip instead of dashes
-        const a = W.pointAt(e, RH + 4), z = W.pointAt(e, e.length - RH - 4);
+        const a = W.pointAt(e, h0 + 4), z = W.pointAt(e, e.length - h1 - 4);
         const len = Math.abs(z.x - a.x), cx = (a.x + z.x) / 2;
         b.box(len, 0.3, 1.4, P.kerb, cx, 0, a.z);
         b.box(len - 0.4, 0.12, 1.0, P.grassDark, cx, 0.3, a.z);
         for (let x = cx - len / 2 + 2; x < cx + len / 2 - 1; x += 3) b.ball(0.5, rnd() < 0.5 ? '#ff7fb0' : '#5aa848', x, 0.55, a.z, 0, 1, 0.7, 1);
         continue;
       }
-      const mid = subPts(e, RH + 0.4, e.length - RH - 0.4);                            // double centre line
-      b.strip(mid, 0.12, 0.3, ROAD_Y + 0.008, '#f3d27a'); b.strip(mid, -0.3, -0.12, ROAD_Y + 0.008, '#f3d27a');
+      const mid = subPts(e, h0 + 0.4, e.length - h1 - 0.4);
+      if (e.kind === 'highway') {                            // a low concrete barrier down the middle
+        b.strip(mid, -0.45, 0.45, ROAD_Y + 0.01, '#d9d2c6');
+        for (let k = 0; k < mid.length - 1; k++) {
+          const a = mid[k], c = mid[k + 1], l = Math.hypot(c.x - a.x, c.z - a.z);
+          b.box(0.5, 0.8, l, '#e6e0d5', (a.x + c.x) / 2, 0, (a.z + c.z) / 2, Math.atan2(c.x - a.x, c.z - a.z));
+        }
+      } else { b.strip(mid, 0.12, 0.3, ROAD_Y + 0.008, '#f3d27a'); b.strip(mid, -0.3, -0.12, ROAD_Y + 0.008, '#f3d27a'); }
+      // pavements: both sides of the outer roads, the outer side of the loop (the blocks are inside)
+      const sides = e.kind === 'town' ? [] : [1, -1];
+      if (e.kind === 'town' && e.points.length > 2 || ['n10-n20', 'n20-n10', 'n31-n32', 'n32-n31', 'n23-n13', 'n13-n23', 'n02-n01', 'n01-n02'].includes(e.a + '-' + e.b)) {
+        const pm = W.pointAt(e, e.length / 2), lx = pm.dz, lz = -pm.dx;
+        sides.push(Math.hypot(pm.x + lx * 12, pm.z + lz * 12) > Math.hypot(pm.x, pm.z) ? 1 : -1);
+      }
+      const ps = subPts(e, h0, e.length - h1);
+      for (const sd of sides) {
+        if (sd > 0) { b.strip(ps, H, H + 3, 0.2, P.pave); b.strip(ps, H, H + 0.5, 0.24, P.kerb); }
+        else { b.strip(ps, -H - 3, -H, 0.2, P.pave); b.strip(ps, -H - 0.5, -H, 0.24, P.kerb); }
+      }
     }
     // zebra crossings near the hawker centre, the playground, the shops, the park and the MRT station
     zebra(b, 'n10', 'n20'); zebra(b, 'n13', 'n23'); zebra(b, 'n01', 'n02'); zebra(b, 'n21', 'n22'); zebra(b, 'n11', 'n12');
-    for (const st of W.stops.concat([W.depot])) {
-      const bay = W.bayOf(st), col = st.id === 'depot' ? P.teal : P.honey, L = bay.len / 2;
+    for (const st of W.stops.concat([W.depot, W.washBay])) {
+      const bay = W.bayOf(st), col = st.id === 'depot' || st.id === 'wash' ? P.teal : P.honey, L = bay.len / 2;
       b.at(bay.x, ROAD_Y + 0.01, bay.z, bay.heading, (q) => {   // a yellow box outline on the road: the bus bay
         q.box(0.3, 0.02, bay.len, col, 1.6, 0, 0); q.box(0.3, 0.02, bay.len, col, -1.6, 0, 0);
         q.box(3.5, 0.02, 0.3, col, 0, 0, -L); q.box(3.5, 0.02, 0.3, col, 0, 0, L);
         for (let z = -L + 2; z <= L - 1.5; z += 2.4) q.box(2.8, 0.02, 0.25, light(col, 0.3), 0, 0, z, 0.6);   // hatching
       });
     }
-    // outer pavement along the loop road
-    const ring = ['n10', 'n20', 'n31', 'n32', 'n23', 'n13', 'n02', 'n01', 'n10'];
-    let pts = [];
-    for (let i = 0; i < ring.length - 1; i++) {
-      const e = W.edgeBetween(ring[i], ring[i + 1]);
-      const p = e.a === ring[i] ? e.points : e.points.slice().reverse();
-      pts = pts.concat(i ? p.slice(1) : p);
-    }
-    const probe = offsetLine(pts.slice(0, 3), 6)[1];
-    const outer = Math.hypot(probe.x, probe.z) > Math.hypot(pts[1].x, pts[1].z) ? 1 : -1;
-    b.strip(pts, outer * RH, outer * (RH + 3), 0.2, P.pave);
-    b.strip(pts, outer * RH, outer * (RH + 0.5), 0.24, P.kerb);
-    W.ringPts = pts;
   }
 
-  // The decorative outer road: a rounded square well outside the loop. Only the little cars use it.
-  const ringPath = (function () {
-    const pts = [], k = RING - RING_R;
-    for (const [cx, cz, a0] of [[k, k, 0], [-k, k, Math.PI / 2], [-k, -k, Math.PI], [k, -k, -Math.PI / 2]]) {
-      for (let i = 0; i <= 10; i++) { const a = a0 + (Math.PI / 2) * i / 10; pts.push({ x: cx + RING_R * Math.cos(a), z: cz + RING_R * Math.sin(a) }); }
-    }
-    pts.push({ x: pts[0].x, z: pts[0].z });
-    const cum = [0];
-    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z));
-    return { pts, cum, len: cum[cum.length - 1] };
-  })();
-  function ringAt(s, off, out) {
-    const L = ringPath.len; s = ((s % L) + L) % L;
-    let i = 1; while (ringPath.cum[i] < s) i++;
-    const a = ringPath.pts[i - 1], b = ringPath.pts[i], l = ringPath.cum[i] - ringPath.cum[i - 1], t = (s - ringPath.cum[i - 1]) / l;
-    const dx = (b.x - a.x) / l, dz = (b.z - a.z) / l;
-    out.x = a.x + (b.x - a.x) * t + dz * off; out.z = a.z + (b.z - a.z) * t - dx * off; out.dx = dx; out.dz = dz;
-    return out;
-  }
-  const nearRing = (x, z, m) => {
-    const k = RING - RING_R, ax = Math.abs(x), az = Math.abs(z);
-    let d;
-    if (ax > k && az > k) d = Math.abs(Math.hypot(ax - k, az - k) - RING_R);
-    else if (ax > k) d = Math.abs(ax - RING); else if (az > k) d = Math.abs(az - RING);
-    else d = Math.min(RING - ax, RING - az);
-    return d < RING_HALF + m;
-  };
+  const nearRing = () => false;   // (the old decorative ring road is gone: the cars drive on the expressway)
   W.nearRing = nearRing;
-  function buildRingRoad(b) {
-    const pts = ringPath.pts;
-    b.strip(pts, -RING_HALF, RING_HALF, 0.03, P.road);
-    b.strip(pts, RING_HALF, RING_HALF + 0.5, 0.16, P.kerb); b.strip(pts, -RING_HALF - 0.5, -RING_HALF, 0.16, P.kerb);
-    const q = {};
-    for (let s = 0; s < ringPath.len; s += 6) {
-      ringAt(s, 0, q);
-      b.box(0.24, 0.02, 2.4, P.roadLine, q.x, 0.035, q.z, W.headingOf(q.dx, q.dz));
-    }
-  }
 
   // Blocks: raised pavement (extruded, so it has a kerb), with a lawn on top.
   const BLOCKS = [];         // {shape points [{x,z}], kind}
@@ -810,20 +898,23 @@
         const a = e.points[i - 1], c = e.points[i];
         const dx = c.x - a.x, dz = c.z - a.z, l2 = dx * dx + dz * dz;
         const t = BB.clamp(((x - a.x) * dx + (z - a.z) * dz) / l2, 0, 1);
-        if (Math.hypot(a.x + dx * t - x, a.z + dz * t - z) < margin) return false;
+        if (Math.hypot(a.x + dx * t - x, a.z + dz * t - z) < margin - RH + (e.half || RH)) return false;
       }
     }
     for (const st of W.stops.concat([W.depot])) if (Math.hypot(st.pos.x - x, st.pos.z - z) < 7) return false;
+    if (W.inDepotYard(x, z) || inReserved(x, z)) return false;
     return true;
   }
   W.clearOfRoads = clearOfRoads;
   function buildStreetTrees(b) {
     for (const e of W.roads.edges) {
       if (e.points.length > 2) continue;           // not along the loop's curves (they'd crowd the kerb lane there)
-      for (let s = 18; s < e.length - 15; s += 11) {   // (not right at the junctions: a turning bendy's rear cuts in there)
+      if (e.kind === 'yard') continue;
+      const step = e.kind === 'town' ? 11 : 17, off = e.half + 1.3;
+      for (let s = 18 + (e.half - RH); s < e.length - 15 - (e.half - RH); s += step) {   // (not right at the junctions: a turning bendy's rear cuts in there)
         const p = W.pointAt(e, s);
         for (const side of [1, -1]) {
-          const x = p.x + p.dz * side * (RH + 1.3), z = p.z - p.dx * side * (RH + 1.3);
+          const x = p.x + p.dz * side * off, z = p.z - p.dx * side * off;
           if (Math.abs(z - VIADUCT_Z) < RH + 4 && Math.abs(x) < 210) continue;
           if (inDepotYard(x, z)) continue;
           if (!clearOfRoads(x, z, RH + 1)) continue;
@@ -834,7 +925,18 @@
       }
     }
   }
-  const inDepotYard = (x, z) => x > S / 2 + RH - 2 && x < DEPOT_X + 10 && z > S / 2 + RH - 2 && z < W.depot.pos.z + 16;
+  const inDepotYard = (x, z) => W.inDepotYard(x, z);
+  // Areas kept for the new districts (no scattered trees or estates there): [x0, z0, x1, z1]
+  const RESERVED = [
+    [W.YARD.x0 - 2, W.YARD.z0 - 4, W.YARD.x1 + 2, W.YARD.z1 + 2],          // the depot
+    [215, -330, 560, -205],                                                 // the airport
+    [104, -172, 190, -36], [104, 40, 190, 96],                              // the city towers
+    [-262, -160, -172, 160],                                                // old town (both sides of the west road)
+    [-180, 200, 180, 400],                                                  // the waterfront, the beach and the sea
+    [-60, -240, 120, -205],                                                 // the flyover
+  ];
+  const inReserved = (x, z) => RESERVED.some((r) => x > r[0] && x < r[2] && z > r[1] && z < r[3]);
+  W.inReserved = inReserved;
 
   // ---------- little people (static, merged): on void decks, at the hawker centre, in the park ----------
   const SKINS = ['#f1c7a0', '#d9a679', '#a8714a', '#f5d3b5', '#7a4b2e'], HAIRS = ['#3a2a2c', '#6b4a2e', '#1f1b22', '#b5793e', '#d8d0c8'];
@@ -989,13 +1091,13 @@
     hdb(b, g(1) - cIn, g(1) - cIn, -3 * Math.PI / 4, 20, 8, 9, 0, { people: 3, roof: 'flat' });
     tower(b, 43 * K, -43 * K, 0, 11, 12, 1);
     bayBlock(b, g(1) - cIn, g(2) + cIn, -Math.PI / 4, 20, 8, 10, 2);
-    // outside the loop: a ring of estates in a mix of block types and colour schemes
+    // outside the loop: estates in a mix of block types and colour schemes (clear of the connectors, the depot, the
+    // city towers and old town)
     const spots = [];
-    for (const side of [-1, 1]) {
-      for (const k of [-60, -10, 40]) spots.push([(k + 8) * K, side * 100 * K, 0]);   // north and south rows
-      for (const k of [-58, 52]) spots.push([side * 100 * K, k * K, Math.PI / 2]);   // west and east (clear of the viaduct)
-      spots.push([side * 128 * K, 8 * K, Math.PI / 2]);
-    }
+    for (const k of [-60, -10, 40]) spots.push([(k + 8) * K, -100 * K, 0]);          // north row
+    for (const k of [-60, -10]) spots.push([(k + 8) * K, 100 * K, 0]);                // south row (the depot is east)
+    for (const k of [-58, 52]) spots.push([-100 * K, k * K, Math.PI / 2]);            // west
+    spots.push([-128 * K, 8 * K, Math.PI / 2]);
     let si = 3;
     for (const [x, z, ry] of spots) {
       const r = rnd(), sc = si++;
@@ -1004,15 +1106,13 @@
       else hdb(b, x, z, ry, rr(24, 30), 8, Math.round(rr(9, 14)), sc);
       ESTATES.push([x, z]);
     }
-    for (const [x, z] of [[100 * K, 100 * K], [-100 * K, 100 * K], [100 * K, -100 * K], [-100 * K, -100 * K]]) { tower(b, x, z, Math.PI / 4, 11, Math.round(rr(12, 16)), si++); ESTATES.push([x, z]); }
-    // further out: a few taller blocks fading into the haze (simpler windows)
-    for (let k = 0; k < 14; k++) {
-      const a = k / 14 * Math.PI * 2 + 0.2, r = rr(165, 200) * K;
-      const x = Math.cos(a) * r, z = Math.sin(a) * r;
-      if (Math.abs(z - VIADUCT_Z) < 14) continue;
-      if (rnd() < 0.3) tower(b, x, z, -a, 12, Math.round(rr(15, 20)), si++, { far: true });
-      else hdb(b, x, z, -a + Math.PI / 2, rr(24, 32), 9, Math.round(rr(14, 20)), si++, { far: true, people: 0 });
+    for (const [x, z] of [[-100 * K, 100 * K], [-100 * K, -100 * K]]) { tower(b, x, z, Math.PI / 4, 11, Math.round(rr(12, 16)), si++); ESTATES.push([x, z]); }
+    // beyond the expressway and old town: taller blocks fading into the haze (simpler windows)
+    for (const [x, z, a] of [[-150, -232, 0], [-110, -250, 0.4], [150, -236, 0], [190, -255, 0.3], [-290, -90, 1.2], [-292, 40, 1.4], [-285, 150, 1.5]]) {
+      if (rnd() < 0.4) tower(b, x, z, a, 12, Math.round(rr(14, 19)), si++, { far: true });
+      else hdb(b, x, z, a, rr(24, 30), 9, Math.round(rr(13, 18)), si++, { far: true, people: 0 });
     }
+  }
   }
 
   // ---------- landmarks ----------
@@ -1025,7 +1125,8 @@
     park(b, green);
     shifted(all, 0, d, () => playground(b, green));
     shifted(all, d, 0, () => mrtEntrance(b, green));
-    depotShed(b, green);
+    tower(b, 43 * K, 43 * K, 0, 11, 13, 6);           // the south-east corner block (the old depot moved out to its yard)
+    tree(green, 30 + RH + 6, 62, 0.27, 'rain'); tree(green, 62, 30 + RH + 6, 0.27, 'flame');
     // Scattered trees and a few palms outside the loop and in the corner blocks.
     for (let k = 0; k < 110; k++) {
       const a = rnd() * Math.PI * 2, r = rr(80, 190) * K;
@@ -1100,12 +1201,12 @@
   // Shophouse row (block west-middle), facades facing the loop road to the west: bright two-storey shopfronts with a
   // shaded five-foot way, louvred shutters, white cornices, pediments, red lanterns, potted plants, a tiled roof.
   function shophouses(b, green) {
-    W.addBox(-54.1, 0, 5.6, 17.6);
+    W.addBox(-49.1, 0, 5.6, 17.6);              // (set back 5 from where it first stood: a wider pavement for the stop view)
     const walls = ['#ffc9a0', '#9fdcc4', '#ffb3c6', '#b9d2ff', '#ffe58a', '#ffbe98', '#cdbcff'];
     const shut = ['#2f9e7a', '#4f7fe0', '#19a79b', '#e0527a', '#8e62c8', '#2f9e7a', '#f28b4b'];
     for (let k = 0; k < 7; k++) {
       const z = -15 + k * 5.0, col = walls[k], sc = shut[k];
-      A(b, -54, 0.25, z, -Math.PI / 2, (q) => {               // local +z = facing west (toward the road)
+      A(b, -49, 0.25, z, -Math.PI / 2, (q) => {               // local +z = facing west (toward the road)
         bx(q, 5, 3.4, 9, light(col, 0.25), 0, 0, -0.8);          // ground floor (behind the five-foot way)
         bx(q, 5, 0.06, 2.2, k % 2 ? '#e8b48a' : '#f0c9a2', 0, 0, 4.7);   // five-foot way tiles
         q.add(QUAD, '#5a4652', 0, 1.35, 3.71, 0, 0, 0, 2.0, 2.6, 1);    // open shop door
@@ -1131,8 +1232,8 @@
         q.prism(5.2, 10.6, 2.3, k % 3 === 1 ? '#c85a3a' : '#d9673f', 0, 7.65, -0.2);
       });
     }
-    hdb(b, -38, 0, Math.PI / 2, 22, 7, 6, 6, { roof: 'pitch', people: 3 });
-    tree(green, -38, -15, 0.27, 'round'); tree(green, -38, 15, 0.27, 'flame');
+    hdb(b, -37.5, 0, Math.PI / 2, 22, 7, 6, 6, { roof: 'pitch', people: 3 });
+    tree(green, -36, -17.5, 0.27, 'round'); tree(green, -36, 16, 0.27, 'flame');
   }
 
   // The park (centre): a pond with lily pads, ducks and a little red bridge, a looping path, a gazebo,
@@ -1251,66 +1352,23 @@
 
   // Bus depot (block south-east): a big friendly garage with an arched teal roof, two round windows over a
   // wide door, a half-raised striped shutter, a fuel pump under a canopy and a washing brush.
-  function depotShed(b, green) {
-    const D = W.depot;
-    W.addBox(DEPOT_X, D.pos.z, 7.4, 10.4, 0, 11);
-    W.addCircle(DEPOT_X - 10.6, D.pos.z - 8.6, 2.3); W.addCircle(DEPOT_X, D.pos.z + 12.6, 2.1);
-    A(b, DEPOT_X, 0.25, D.pos.z, -Math.PI / 2, (q) => {      // local +z = toward the road (west), x along the road
-      bx(q, 22, 0.15, 16, '#d8d0c4', 0, 0, 0);
-      for (let x = -8; x <= 8; x += 4) bx(q, 0.4, 0.02, 4, P.honey, x, 0.15, 9);             // apron stripes
-      bx(q, 20, 7, 14, P.cream, 0, 0.15, 0);
-      bx(q, 20.4, 0.5, 14.4, P.teal, 0, 7.1, 0);
-      const arch = new THREE.CylinderGeometry(10.2, 10.2, 14.6, 12, 1, false, -Math.PI / 2, Math.PI);
-      q.add(arch, P.teal, 0, 7.6, 0, 0, -Math.PI / 2, 0, 1, 1, 0.42);
-      const front = new THREE.CircleGeometry(10, 12, 0, Math.PI);
-      for (const z of [7.31, -7.31]) q.add(front, P.cream, 0, 7.6, z, z > 0 ? 0 : Math.PI, 0, 0, 1, 0.4, 1);
-      bx(q, 20.6, 0.35, 0.3, P.teal, 0, 7.45, 7.2);
-      // two round windows above the door (plain windows, no eyes: the owner's choice)
-      for (const x of [-5, 5]) {
-        q.add(new THREE.CircleGeometry(1.55, 14), P.honey, x, 9.1, 7.34);
-        q.add(new THREE.CircleGeometry(1.3, 14), '#9fd3e8', x, 9.1, 7.4);
-        q.add(QUAD, P.honey, x, 9.1, 7.46, 0, 0, 0, 2.6, 0.16, 1);
-        q.add(QUAD, P.honey, x, 9.1, 7.46, 0, 0, 0, 0.16, 2.6, 1);
-      }
-      // the big door: dark inside, a half-raised striped shutter, a honey frame
-      q.add(QUAD, '#463a48', 0, 2.85, 7.02, 0, 0, 0, 11, 5.4, 1);
-      for (let k = 0; k < 5; k++) bx(q, 11, 0.3, 0.2, k % 2 ? P.honeyLight : '#fff6e0', 0, 4.15 + k * 0.3, 7.08);
-      bx(q, 0.7, 5.9, 0.5, P.honey, -5.85, 0.15, 7.15); bx(q, 0.7, 5.9, 0.5, P.honey, 5.85, 0.15, 7.15);
-      bx(q, 12.4, 0.7, 0.5, P.honey, 0, 5.85, 7.15);
-      // side windows
-      for (const x of [-7, -2.5, 2.5, 7]) for (const z of [-7.02]) pane(q, x, 4.2, z, Math.PI, 2.2, 1.4);
-      for (const z of [-4, 0, 4]) { pane(q, 10.02, 4.2, z, Math.PI / 2, 2.2, 1.4); pane(q, -10.02, 4.2, z, -Math.PI / 2, 2.2, 1.4); }
-      // fuel pump under a canopy (on the left of the door as seen from the road)
-      q.at(-8.6, 0.15, 10.6, 0, (f) => {
-        f.box(1.3, 2.3, 1.0, P.coral, 0, 0, 0); f.box(0.9, 0.7, 0.1, P.cream, 0, 1.3, 0.52);
-        f.box(0.2, 0.9, 0.2, '#555', 0.75, 0.7, 0.2);
-        f.box(4.2, 0.35, 3.6, P.honey, 0, 3.4, 0); f.box(4.4, 0.2, 3.8, P.honeyDark, 0, 3.75, 0);
-        for (const [x, z] of [[-1.8, -1.5], [1.8, -1.5], [-1.8, 1.5], [1.8, 1.5]]) f.box(0.2, 3.4, 0.2, '#e9e2d6', x, 0, z);
-      });
-      // a bus-wash brush round the side (out of the way of the garage cameras)
-      q.at(12.6, 0.15, 0, Math.PI / 2, (f) => {
-        f.box(0.3, 4.2, 0.3, '#7f8a96', -1.6, 0, 0); f.box(0.3, 4.2, 0.3, '#7f8a96', 1.6, 0, 0); f.box(3.6, 0.3, 0.4, '#7f8a96', 0, 4.2, 0);
-        f.cyl(0.8, 0.8, 3.6, 8, '#5fb7e3', -0.9, 0.3, 0); f.cyl(0.8, 0.8, 3.6, 8, '#ff8fab', 0.9, 0.3, 0);
-      });
-    });
-    figure(b, DEPOT_X - 7.6, 0.4, D.pos.z + 5.2, -Math.PI / 2, false);                          // the depot keeper waves hello
-  }
+
 
   // ---------- MRT viaduct over the middle road (generic: cream concrete, no operator branding) ----------
   function buildViaduct(b, green) {
-    const z = VIADUCT_Z, len = 420;
+    const z = VIADUCT_Z, len = 370;
     b.box(len, 1.4, 6, '#ece3d6', 0, DECK_Y, z);
     b.box(len, 0.3, 6.4, '#d8cfc2', 0, DECK_Y - 0.1, z);
     b.box(len, 0.9, 0.4, '#e3dacd', 0, DECK_Y + 1.4, z - 2.9); b.box(len, 0.9, 0.4, '#e3dacd', 0, DECK_Y + 1.4, z + 2.9);
     b.box(len, 0.25, 0.25, '#a59a90', 0, DECK_Y + 1.4, z - 0.8); b.box(len, 0.25, 0.25, '#a59a90', 0, DECK_Y + 1.4, z + 0.8);
     // flower boxes along the parapets (pink bougainvillea)
-    for (let x = -204; x <= 204; x += 8) for (const s of [-1, 1]) {
+    for (let x = -180; x <= 180; x += 8) for (const s of [-1, 1]) {
       if (Math.abs(x - S) < 18) continue;
       green.box(3.2, 0.6, 0.7, '#5aa848', x, DECK_Y + 0.6, z + s * 3.35);
       green.ball(0.55, (x / 6) % 2 ? '#ff7fb0' : '#ff9fc6', x - 0.7, DECK_Y + 1.15, z + s * 3.4, 0, 1.3, 0.6, 0.8);
       green.ball(0.5, '#ff6fa6', x + 0.8, DECK_Y + 1.1, z + s * 3.4, 0, 1.2, 0.6, 0.8);
     }
-    for (const x of [-196, -152, -2 * S, -S, 0, S, 2 * S, 152, 196]) {
+    for (const x of [-176, -136, -2 * S, -S, 0, S, 2 * S, 136, 176]) {
       W.addCircle(x, z, 0.95);
       b.cyl(0.95, 1.05, DECK_Y - 1.2, 8, '#e3dacd', x, 0, z);
       b.box(2.4, 0.8, 2.4, '#d8cfc2', x, 0, z);
@@ -1381,7 +1439,7 @@
   }
 
   // ---------- life: little cars on the outer road, birds ----------
-  const CAR_N = 9, carState = [];
+  const CAR_N = 18, carState = [], CAR_X0 = -150, CAR_X1 = 552;   // cars on the expressway's outer and inner lanes
   function buildCars() {
     const b = BB.mk.builder();
     b.box(1.9, 0.75, 4.0, '#ffffff', 0, 0.35, 0);                 // body (takes the instance colour)
@@ -1397,7 +1455,7 @@
     const cols = [P.coral, P.berry, P.honey, P.teal, '#f4f1ea', P.plum, P.mint, P.rose, '#4fa3e0'];
     for (let i = 0; i < CAR_N; i++) {
       mesh.setColorAt(i, new THREE.Color(cols[i % cols.length]));
-      carState.push({ s: i / CAR_N * ringPath.len + rr(0, 10), dir: i % 2 ? 1 : -1, v: rr(7, 10) });
+      carState.push({ s: CAR_X0 + (i / CAR_N) * (CAR_X1 - CAR_X0) + rr(0, 10), dir: i % 2 ? 1 : -1, lane: (i >> 1) % 2 ? 10.8 : 2.6, v: rr(8, 12) });
     }
     mesh.name = 'cars'; mesh.frustumCulled = false;
     return mesh;
@@ -1410,21 +1468,24 @@
     for (const o of [B.front.position, B.rear.position]) if (Math.hypot(o.x - x, o.z - z) < r + 3) return true;
     return false;
   }
+  // Cars glide along the expressway (east on the north side, west on the south side: drive on the left), keep a
+  // gap to the car ahead, wait for the bus if it is in their lane just ahead, and fade in and out at the ends.
   function updateCars(dt) {
+    const span = CAR_X1 - CAR_X0;
     for (let i = 0; i < CAR_N; i++) {
       const c = carState[i];
-      // keep a gentle gap to the car in front on the same lane
       let v = c.v;
-      for (const o of carState) if (o !== c && o.dir === c.dir) {
-        const gap = ((o.s - c.s) * c.dir + ringPath.len) % ringPath.len;
-        if (gap > 0 && gap < 9) v = Math.min(v, o.v * (gap / 9));
+      for (const o of carState) if (o !== c && o.dir === c.dir && o.lane === c.lane) {
+        const gap = (((o.s - c.s) * c.dir) % span + span) % span;
+        if (gap > 0 && gap < 12) v = Math.min(v, o.v * (gap / 12));
       }
-      ringAt(c.s + c.dir * 7, 1.75 * c.dir, _rp);         // the bus just ahead in our lane? wait (never block it)
-      if (busNear(_rp.x, _rp.z, 4.5)) { const here = ringAt(c.s, 1.75 * c.dir, {}); if (!busNear(here.x, here.z, 2.5)) v = 0; }
+      const z = HZ - c.dir * c.lane;
+      if (busNear(c.s + c.dir * 8, z, 4.5) && !busNear(c.s, z, 2.5)) v = 0;
       c.s += c.dir * v * dt;
-      ringAt(c.s, 1.75 * c.dir, _rp);          // drive on the left: the lane left of travel
-      _q4.setFromAxisAngle(_up, Math.atan2(_rp.dx * c.dir, _rp.dz * c.dir));
-      _m4.compose(_p4.set(_rp.x, 0.03, _rp.z), _q4, _s4);
+      if (c.s > CAR_X1) c.s -= span; else if (c.s < CAR_X0) c.s += span;
+      const sc = BB.clamp(Math.min(c.s - CAR_X0, CAR_X1 - c.s) / 8, 0.01, 1);
+      _q4.setFromAxisAngle(_up, c.dir > 0 ? Math.PI / 2 : -Math.PI / 2);
+      _m4.compose(_p4.set(c.s, 0.03, z), _q4, _s4.set(sc, sc, sc));
       cars.setMatrixAt(i, _m4);
     }
     cars.instanceMatrix.needsUpdate = true;
@@ -1468,9 +1529,10 @@
     };
     for (const e of W.roads.edges) {
       if (e.points.length > 2) continue;           // none on the loop's curves (they'd stand in the inside lane's way)
-      for (let s = 20, k = 0; s < e.length - 15; s += 24, k++) {
+      if (e.kind === 'yard') continue;
+      for (let s = 20 + (e.half - RH), k = 0; s < e.length - 15 - (e.half - RH); s += e.kind === 'town' ? 24 : 34, k++) {
         const p = W.pointAt(e, s), side = k % 2 ? 1 : -1;
-        const x = p.x + p.dz * side * (RH + 0.7), z = p.z - p.dx * side * (RH + 0.7);
+        const x = p.x + p.dz * side * (e.half + 0.7), z = p.z - p.dx * side * (e.half + 0.7);
         if (inDepotYard(x, z)) continue;
         if (W.stops.concat([W.depot]).some((st) => Math.hypot(st.pos.x - x, st.pos.z - z) < 8)) continue;
         if (!clearOfRoads(x, z, RH + 0.4)) continue;
@@ -1529,7 +1591,6 @@
       const cx = st.pos.x - st.side.x * 0.9 + st.fwd.x * 4.6, cz = st.pos.z - st.side.z * 0.9 + st.fwd.z * 4.6;
       return { pic: st.pic, x: cx, y: 0.25 + 3.55, z: cz, nx: -st.fwd.x, nz: -st.fwd.z, size: 2.2, ring: P.honey, stop: true };
     });
-    list.push({ pic: 'depot', x: DEPOT_X - 7.5, y: 0.25 + 6.95, z: W.depot.pos.z, nx: -1, nz: 0, size: 2.9, ring: P.teal });
     for (const s of SIGNS) list.push(s);
     const cell = 128, cv = document.createElement('canvas');
     cv.width = cell * list.length; cv.height = cell;
@@ -1607,7 +1668,7 @@
         const before = trainX;
         trainX += trainDir * 15 * dt;
         if ((before - S) * (trainX - S) <= 0 && before !== S) { trainX = S; trainWait = 3; }
-        if (trainX > 205) { trainDir = -1; } else if (trainX < -205) { trainDir = 1; }
+        if (trainX > 166) { trainDir = -1; } else if (trainX < -166) { trainDir = 1; }
       }
       train.position.x = trainX;
     }

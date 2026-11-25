@@ -106,6 +106,16 @@
     min-width: calc(var(--dt) + 14px); display: none; animation: bbu-pop .3s cubic-bezier(.2,1.5,.5,1), bbu-glow 1s .3s infinite alternate; }
   .bbu-uturn.on { display: flex; }
   @keyframes bbu-glow { to { box-shadow: inset -4px -5px 0 rgba(217,181,127,.45), 0 4px 0 rgba(120,80,40,.18), 0 0 0 9px rgba(255,212,92,.6); } }
+  /* the Wash tile (a dusty bus): beside the horn; above it in the wheel layout */
+  .bbu-wash { position: absolute; left: calc(var(--sl) + 6px + var(--dt) + 14px); bottom: var(--sb); display: none; animation: bbu-pop .3s cubic-bezier(.2,1.5,.5,1); }
+  .bbu-wash.on { display: flex; }
+  .lefty .bbu-wash { left: auto; right: calc(var(--sr) + 6px + var(--dt) + 14px); }
+  .ctl-wheel .bbu-wash { left: calc(var(--sl) + 6px + var(--wh) + 16px); bottom: calc(var(--sb) + var(--dh) + 14px); }
+  .ctl-wheel.lefty .bbu-wash { left: auto; right: calc(var(--sr) + 6px + var(--wh) + 16px); }
+  .bbu-ask .price { display: flex; align-items: center; gap: 6px; font: 700 34px/1 ${BB.FONT}; color: #7a4a00; background: #ffd45c; border: 3px solid #d98700;
+    border-radius: 24px; padding: 2px 16px 2px 6px; box-shadow: 0 3px 0 rgba(150,90,0,.3); }
+  .bbu-ask .price canvas { width: 40px; height: 40px; }
+  .bbu-wcoin { position: absolute; width: 40px; height: 40px; z-index: 60; pointer-events: none; }
   .lefty .bbu-joy { right: auto; left: calc(var(--sl) + 6px); }
   .lefty .bbu-horn, .lefty .bbu-assist { left: auto; right: calc(var(--sr) + 6px); }
   .lefty .bbu-uturn { right: auto; left: calc(var(--sl) + 6px + (var(--joy) - var(--dt) - 14px) / 2); }
@@ -274,7 +284,7 @@
   // swap a tile's picture (e.g. Music on/off)
   U.setIcon = function (b, icon) { const old = b.querySelector('canvas, svg'); const nu = BB.iconEl(icon, 128); if (old) b.replaceChild(nu, old); else b.prepend(nu); };
 
-  let uturnBtn, facing = false, driving = true, tips = [];
+  let uturnBtn, washBtn, facing = false, driving = true, tips = [];
   let hud, cashEl, fuelEl, fuelCv, jobEl, jobPic, jobDots, joyEl, knobEl, wheelEl, wheelRot, pedGo, pedBack, hornEl, assistEl, titleEl, soundBtn, musicBtn, exitBtn, homeBtn, garageBtn, playBtn, famEl;
 
   U.init = function () {
@@ -293,7 +303,7 @@
     }, 'bbu-fuel');
     const frow = BB.el('span', 'row', null); fuelEl.prepend(frow); fuelCv = BB.el('canvas', '', frow);
     const mid = BB.el('div', 'bbu-mid', top);
-    jobEl = U.btn(mid, null, 'Next stop', () => { const t = BB.bus.target; if (t) BB.say(`Drive to ${t.say}!`); }, 'bbu-job');
+    jobEl = U.btn(mid, null, 'Next stop', () => { const t = BB.bus.target; if (t) BB.say(BB.bus.washBay && t === BB.bus.washBay ? 'Drive to the bus wash!' : `Drive to ${t.say}!`); }, 'bbu-job');
     const jrow = BB.el('span', 'row', null); jobEl.prepend(jrow);
     jobPic = BB.el('canvas', '', jrow); jobPic.width = jobPic.height = 96;
     jobDots = BB.el('span', 'dots', jrow);
@@ -383,6 +393,11 @@
       if (BB.bus.turnAround() === false) { BB.sfx.wrong(); return; }   // not allowed right now: stays offered
       BB.sfx.whoosh(); BB.say('Turn around!'); facing = false; syncUturn();
     }, 'drv bbu-uturn');
+    // the bus wash (bus.js: save.dirt, washBay, wash(), 'bus:washBay', 'bus:washed'; feature-detected)
+    washBtn = U.btn(hud, 'wash', 'Wash', () => U.goWash(), 'drv bbu-wash');
+    BB.on('bus:washBay', (d) => { if (d && d.inBay) U.atWash(); else washDeclined = false; });   // (asked again only after leaving the bay)
+    BB.on('bus:washed', () => washDone());
+    BB.on('bus:dirt', syncWash);
     BB.on('bus:turnAround', () => { facing = false; syncUturn(); });
     BB.on('bus:facingAway', (d) => { facing = !!(d && d.on); syncUturn(); });
 
@@ -447,7 +462,7 @@
       if (d.delta > 0) { cashEl.classList.remove('bump'); void cashEl.offsetWidth; cashEl.classList.add('bump'); U.coins(d.delta); }
     });
     BB.on('job:new', () => renderJob());
-    BB.on('job:target', () => renderJob());
+    BB.on('job:target', () => { if (washRoute) washRoute = null; renderJob(); });   // (the job took over the way)
     BB.on('job:stopDone', () => renderJob());
     BB.on('job:done', () => { renderJob(); U.confetti(); });
     // driving controls only while driving: hidden from arrival at a stop (people boarding, the question) until the
@@ -467,6 +482,76 @@
     soundBtn.classList.toggle('off', A.mute); U.setIcon(soundBtn, A.mute ? 'soundOff' : 'sound');
   }
   function syncUturn() { const on = facing && driving && !!BB.bus.turnAround; if (uturnBtn) uturnBtn.classList.toggle('on', on); }
+  // ---------- the bus wash ----------
+  // A dusty bus (save.dirt > 0.4, only looks) gets a Wash tile: the ribbon leads to the wash bay next to the garage. In
+  // the bay a pay card: 3 coins (never taken without a yes; too few = "Let's do more jobs!"). Then bus.js's wash
+  // show, "Sparkly clean!", and the job's own way back.
+  const WASH_PRICE = 3;
+  const washOK = () => !!(BB.bus && BB.bus.washBay && typeof BB.bus.wash === 'function');
+  const dusty = () => (+BB.save.dirt || 0) > 0.4;
+  let washRoute = null, washing = false, washDeclined = false;
+  function syncWash() {
+    if (!washBtn) return;
+    const ph = BB.jobs.phase;
+    washBtn.classList.toggle('on', washOK() && dusty() && driving && !washing && !washRoute && (ph === 'drive' || ph === 'done' || ph === 'idle'));
+  }
+  U.syncWash = syncWash;
+  setInterval(() => { if (hud && !hud.classList.contains('off')) syncWash(); }, 1000);
+  // put the job's own target back (its arrival callback too) after the wash, or if the child says no
+  function washBack() {
+    const r = washRoute; washRoute = null;
+    try { if (r) BB.bus.stopAt(r.target || null, r.cb || null); } catch (e) { console.error(e); }
+    renderJob(); syncWash();
+  }
+  U.goWash = function () {
+    if (!washOK() || washing || washRoute || BB.bedtime) return;
+    washDeclined = false;
+    const B = BB.bus;
+    washRoute = { target: B.target, cb: B.onArrive };
+    if (B.stopAt(B.washBay, () => U.atWash()) === false) { washRoute = null; BB.say('Let\'s finish this stop first!'); return; }
+    BB.sfx.pop(); BB.say("Let's go to the bus wash!");
+    renderJob(); syncWash();
+  };
+  U.atWash = function () {
+    if (!washOK() || washing || washDeclined || BB.bedtime || askEl || BB.depot.isOpen) return;
+    U.releaseAll();
+    if (!dusty() && (+BB.save.dirt || 0) < 0.15) { BB.say('Your bus is already clean and shiny!'); if (washRoute) washBack(); return; }
+    const price = BB.el('div', 'price', null); price.appendChild(BB.iconEl('coin', 96)); BB.el('span', '', price, String(WASH_PRICE));
+    U.ask({ pic: 'wash', words: 'Wash the bus?', extra: price, say: `A wash costs ${WASH_PRICE} coins. Wash the bus?`,
+      yes: () => payWash(), no: () => { washDeclined = true; BB.say('OK! Maybe next time.'); washBack(); } });
+  };
+  function payWash() {
+    const cash = BB.depot.cash;
+    if (cash < WASH_PRICE) {
+      const need = WASH_PRICE - cash;
+      BB.sfx.wrong(); BB.say(`Let's do more jobs! You need ${need} more ${need === 1 ? 'coin' : 'coins'}.`);
+      washDeclined = true; washBack(); return;
+    }
+    flyCoinsOut(WASH_PRICE); BB.sfx.jingle();
+    BB.depot.spend(WASH_PRICE);
+    washing = true; syncWash();
+    BB.later(700, () => { try { const r = BB.bus.wash(); if (r && r.then) r.then(() => washDone(), () => washDone()); } catch (e) { console.error(e); washDone(); } });
+    BB.later(30000, () => { if (washing) washDone(); });     // (never stuck)
+  }
+  function washDone() {
+    if (!washing) return;
+    washing = false;
+    BB.sfx.sparkle(); BB.say('Sparkly clean!');
+    U.toast('✨', 1600); U.confetti(0.5);
+    washBack();
+  }
+  // coins fly from the counter toward the bus
+  function flyCoinsOut(n) {
+    const a = cashEl.getBoundingClientRect(), root = U.root.getBoundingClientRect();
+    for (let i = 0; i < n; i++) {
+      const c = BB.iconEl('coin', 80); c.className = 'bbu-wcoin'; U.root.appendChild(c);
+      const x0 = a.left - root.left + 8, y0 = a.top - root.top + 8, x1 = innerWidth / 2 - 20 + (i - 1) * 30, y1 = innerHeight * 0.55;
+      if (!c.animate) { c.remove(); continue; }
+      const an = c.animate([{ transform: `translate(${x0}px, ${y0}px) scale(.7)`, opacity: 1 }, { transform: `translate(${(x0 + x1) / 2}px, ${Math.min(y0, y1) - 40}px) scale(1.1)`, opacity: 1, offset: 0.5 },
+        { transform: `translate(${x1}px, ${y1}px) scale(.5)`, opacity: 0 }], { duration: 800, delay: i * 120, easing: 'ease-in-out', fill: 'both' });
+      an.onfinish = () => c.remove(); BB.later(1600, () => c.remove());
+    }
+  }
   // first-drive tip: a hand dragging the knob up (until the bus is driven forward, or 12 s)
   // (wheel layout: a hand turning the wheel and a hand pressing Go)
   U.showTips = function () {
@@ -481,19 +566,21 @@
   function setDriving(on) {
     driving = on; syncUturn();
     if (!on) U.hideTips();
-    for (const el of [joyEl, wheelEl, pedGo, pedBack, hornEl, assistEl]) el.style.visibility = on ? '' : 'hidden';
+    for (const el of [joyEl, wheelEl, pedGo, pedBack, hornEl, assistEl, washBtn]) if (el) el.style.visibility = on ? '' : 'hidden';
     if (!on) U.releaseAll();
+    syncWash();
   }
   function renderJob() {
     const job = BB.jobs.current, t = BB.bus.target;
     if (!t && !job) { jobEl.style.visibility = 'hidden'; return; }
     jobEl.style.visibility = 'visible';
     const stop = t || (job && job.stops[Math.min(job.index, job.stops.length - 1)]);
-    const x = jobPic.getContext('2d'); x.clearRect(0, 0, 96, 96); if (stop) x.drawImage(BB.pic(stop.pic, 96), 0, 0);
+    const wash = !!(t && BB.bus.washBay && t === BB.bus.washBay);
+    const x = jobPic.getContext('2d'); x.clearRect(0, 0, 96, 96); if (stop) x.drawImage(wash ? BB.icon('wash', 96) : BB.pic(stop.pic, 96), 0, 0);
     jobDots.innerHTML = '';
     // going to the garage: just its picture; on a job, a dot per stop
-    if (job && !(t && t.id === 'depot')) job.stops.forEach((s, i) => BB.el('i', i < job.index ? 'done' : i === job.index ? 'now' : '', jobDots));
-    jobEl.querySelector('.lb').textContent = t && t.id === 'depot' ? 'Garage' : 'Next stop';
+    if (job && !wash && !(t && t.id === 'depot')) job.stops.forEach((s, i) => BB.el('i', i < job.index ? 'done' : i === job.index ? 'now' : '', jobDots));
+    jobEl.querySelector('.lb').textContent = wash ? 'Wash' : t && t.id === 'depot' ? 'Garage' : 'Next stop';
   }
 
   // ---------- Home ----------
@@ -533,6 +620,7 @@
     else if (o.pic && o.pic[0] === '<') { const s = BB.el('div', '', null, o.pic).firstChild; s.classList.add('pic'); card.appendChild(s); }
     else if (o.pic) { const c = BB.iconEl(o.pic, 160); c.className = 'pic'; card.appendChild(c); }
     BB.el('div', 'q', card, o.words);
+    if (o.extra) card.appendChild(o.extra);
     const row = BB.el('div', 'row', card);
     let done = false;
     const close = (fn) => { if (done) return; done = true; U.closeAsk(); try { fn && fn(); } catch (e) { console.error(e); } };
@@ -744,9 +832,9 @@
   };
   U.toast = function (html, ms = 1400) { const t = BB.el('div', 'bbu-toast', U.root, html); BB.later(ms, () => t.remove()); return t; };
   U.coins = function (n) { const t = U.toast(`+${n}`); t.prepend(picCanvas('coin', 64)); BB.sfx.coin(); };
-  U.confetti = function () {
+  U.confetti = function (share = 1) {
     const cols = [P.coral, P.honey, P.teal, P.berry, P.leaf, P.rose];
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < Math.round(40 * share); i++) {
       const c = BB.el('div', 'bbu-confetti' + (BB.xmas && i % 3 ? (i % 3 === 1 ? ' flake' : ' star') : ''), U.root);
       c.style.left = Math.random() * 100 + 'vw'; c.style.background = cols[i % cols.length];
       c.style.animationDuration = (1.8 + Math.random() * 1.6) + 's'; c.style.animationDelay = Math.random() * 0.5 + 's';

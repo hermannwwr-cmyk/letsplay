@@ -59,7 +59,7 @@
   const DEFAULT_SAVE = () => ({
     paint: 'green', upgrades: {}, stickers: [], fuel: 1, jobsDone: 0, questions: 0, seen: {},
     paints: ['green'], stickersOwned: [], parts: {}, partsOwned: [],
-    busType: null, routeNo: '88', assist: false, leftHand: false, control: 'joystick', xmas: 'auto',
+    busType: null, routeNo: '88', assist: false, leftHand: false, control: 'joystick', xmas: 'auto', dirt: 0,
   });
   // Hats were sold in an earlier build; they're gone from the shop, and depot.js gives their coins back.
   const HAT_PRICES = { party: 5, flowers: 6, bunny: 8, crown: 10 };
@@ -76,6 +76,7 @@
       if (s.busType != null && typeof s.busType !== 'string') s.busType = null;
       s.assist = !!s.assist; s.leftHand = !!s.leftHand; s.control = s.control === 'wheel' ? 'wheel' : 'joystick';
       s.xmas = s.xmas === 'on' || s.xmas === 'off' ? s.xmas : 'auto';
+      s.dirt = Math.max(0, Math.min(1, +s.dirt || 0));     // (how dusty the bus is: only looks, bus.js)
       if (Array.isArray(got.hatsOwned)) BB.saveMigrate.hatRefund = got.hatsOwned.reduce((n, id) => n + (HAT_PRICES[id] || 0), 0);
       s.fuel = Math.max(0, Math.min(1, +s.fuel || 0));
     }
@@ -524,6 +525,16 @@
           }
           break;
         }
+        // the bus wash: a bucket with soap bubbles
+        case 'wash':
+          paper(x, (p) => { p.moveTo(20, 46); p.lineTo(80, 46); p.lineTo(72, 92); p.lineTo(28, 92); p.closePath(); }, '#4fa3e0');
+          BB.paperStroke(x, (p) => p.arc(50, 48, 26, Math.PI * 1.05, Math.PI * 1.95), '#5a5260', 4.5);
+          paper(x, (p) => rrP(p, 16, 42, 68, 9, 4.5), '#3d8fe0', { depth: 0.3 });
+          for (const [bx, by, r] of [[34, 34, 11], [54, 26, 14], [72, 36, 9], [44, 14, 7], [76, 16, 6]]) {
+            paper(x, (p) => arcP(p, bx, by, r), '#e8f6ff', { depth: 0.25, rimColor: '#9cc7dc', rimW: 2 });
+            shine(x, bx - r * 0.35, by - r * 0.35, r * 0.28, r * 0.18, -0.6, 0.9);
+          }
+          break;
         case 'play':
           paper(x, (p) => arcP(p, 50, 50, 44), '#fff6e0', { rimColor: '#d9b57f' });
           paper(x, (p) => { p.moveTo(38, 27); p.lineTo(75, 50); p.lineTo(38, 73); p.closePath(); }, '#3fae49', { depth: 0.6 });

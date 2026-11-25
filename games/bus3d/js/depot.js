@@ -910,6 +910,12 @@
     subs.querySelectorAll('.bbd-sub').forEach((b) => b.classList.toggle('on', b.dataset.sub === shopTab));
     let n = 0;
     if (tab === 'bus') {
+      // a dusty bus: a hint about the bus wash (bus.js: save.dirt, washBay)
+      if (BB.bus.washBay && typeof BB.bus.wash === 'function' && (+S.dirt || 0) > 0.4) {
+        const h = BB.el('button', 'bbd-famstat st-connecting', bodyEl); h.type = 'button';
+        h.appendChild(BB.iconEl('wash', 128)); BB.el('span', 'lb', h, 'Dusty! Try the bus wash');
+        BB.tap(h, () => BB.say('Your bus is dusty! The bus wash is next to the garage. A wash costs 3 coins.'));
+      }
       // (a) the bus type: free to switch
       let box = sec('mybus', 'Bus');
       fleetTypes().forEach((t) => {
