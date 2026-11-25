@@ -46,7 +46,8 @@
   .bbu-cash .row b { font-size: calc(var(--ic) * .74); line-height: 1; min-width: .6em; text-align: left; color: #3a2a3c; }
   .bbu-cash.bump { animation: bbu-bump .5s; }
   @keyframes bbu-bump { 40% { transform: scale(1.14); } }
-  .bbu-fuel canvas { width: calc(var(--ic) * 2.3); height: calc(var(--ic) * 1.15); display: block; }
+  /* the fuel dial: always exactly 2 : 1 (a true half circle; this beats the tiles' square .row canvas rule) */
+  .bbu-b.bbu-fuel .row canvas { width: calc(var(--ic) * 2); height: var(--ic); display: block; }
   .bbu-fuel .row { height: var(--ic); align-items: flex-end; }
   .bbu-job { visibility: hidden; padding-left: 10px; padding-right: 12px; }
   .bbu-job .row canvas { width: var(--ic); height: var(--ic); }
@@ -118,6 +119,13 @@
   .lefty .bbu-siren { left: auto; right: calc(var(--sr) + 6px + var(--dt) + 14px); }
   .ctl-wheel .bbu-siren { left: calc(var(--sl) + 6px + var(--wh) + 16px + var(--dt) + 12px); }
   .ctl-wheel.lefty .bbu-siren { left: auto; right: calc(var(--sr) + 6px + var(--wh) + 16px + var(--dt) + 12px); }
+  /* the Controls tile: a third tile beside Horn (joystick layout); above the steering wheel (wheel layout) */
+  .bbu-ctl { position: absolute; left: calc(var(--sl) + 6px + 2 * (var(--dt) + 14px)); bottom: var(--sb); }
+  .lefty .bbu-ctl { left: auto; right: calc(var(--sr) + 6px + 2 * (var(--dt) + 14px)); }
+  .ctl-wheel .bbu-ctl { left: calc(var(--sl) + 6px); bottom: calc(var(--sb) + var(--wh) + 14px); }
+  .ctl-wheel.lefty .bbu-ctl { left: auto; right: calc(var(--sr) + 6px); }
+  .bbu-joy.hi, .bbu-wheel.hi { animation: bbu-hi .65s ease-in-out 2; }
+  @keyframes bbu-hi { 50% { transform: scale(1.08); filter: drop-shadow(0 0 14px rgba(255,212,92,.95)); } }
   .bbu-ask .price { display: flex; align-items: center; gap: 6px; font: 700 34px/1 ${BB.FONT}; color: #7a4a00; background: #ffd45c; border: 3px solid #d98700;
     border-radius: 24px; padding: 2px 16px 2px 6px; box-shadow: 0 3px 0 rgba(150,90,0,.3); }
   .bbu-ask .price canvas { width: 40px; height: 40px; }
@@ -300,6 +308,7 @@
     .bbu-assist { bottom: calc(var(--cb) + var(--dh) + 12px); }
     .ctl-wheel .bbu-wash { bottom: calc(var(--cb) + var(--dh) + 12px); }
     .bbu-siren { bottom: calc(var(--cb) + var(--dh) + 12px); }
+    .bbu-ctl { bottom: var(--cb); } .ctl-wheel .bbu-ctl { bottom: calc(var(--cb) + var(--wh) + 12px); }
     .bbu-uturn { bottom: calc(var(--cb) + var(--joy) + 12px); }
     .ctl-wheel .bbu-uturn { bottom: calc(var(--cb) + var(--pgh) + 14px); }
     .bbu-tip { bottom: calc(var(--cb) + var(--joy) / 4); }
@@ -356,7 +365,7 @@
   // swap a tile's picture (e.g. Music on/off)
   U.setIcon = function (b, icon) { const old = b.querySelector('canvas, svg'); const nu = BB.iconEl(icon, 128); if (old) b.replaceChild(nu, old); else b.prepend(nu); };
 
-  let uturnBtn, washBtn, sirenEl, facing = false, driving = true, tips = [];
+  let uturnBtn, washBtn, sirenEl, ctlEl, facing = false, driving = true, tips = [];
   let hud, cashEl, fuelEl, fuelCv, jobEl, jobPic, jobDots, joyEl, knobEl, wheelEl, wheelRot, pedGo, pedBack, hornEl, assistEl, titleEl, soundBtn, musicBtn, exitBtn, homeBtn, garageBtn, playBtn, famEl;
 
   U.init = function () {
@@ -457,6 +466,12 @@
     pedBack = pedal('back', 'back', 'Back'); pedGo = pedal('go', 'go', 'Go');
     hornEl = U.btn(hud, 'horn', 'Horn', () => BB.bus.horn(), 'drv bbu-horn');
     assistEl = U.btn(hud, 'helper', 'Helper', () => U.setAssist(!BB.save.assist), 'drv bbu-assist');
+    // Controls: swap the joystick and the steering wheel at once (the new one glows for a moment where it appears)
+    ctlEl = U.btn(hud, 'controls', 'Controls', () => {
+      U.setControl(BB.save.control === 'wheel' ? 'joystick' : 'wheel');
+      const el = BB.save.control === 'wheel' ? wheelEl : joyEl;
+      if (el) { el.classList.remove('hi'); void el.offsetWidth; el.classList.add('hi'); BB.later(1300, () => el.classList.remove('hi')); }
+    }, 'drv bbu-ctl');
     // the siren (fire engine, ambulance; bus.js: BB.bus.siren / setSiren): on and off, with the lights in the picture
     sirenEl = U.btn(hud, 'siren', 'Siren', () => {
       const B = BB.bus, on = !sirenOn();
@@ -686,12 +701,13 @@
   function setDriving(on) {
     driving = on; syncUturn(); syncSiren();
     if (!on) U.hideTips();
-    for (const el of [joyEl, wheelEl, pedGo, pedBack, hornEl, assistEl, washBtn, sirenEl]) if (el) el.style.visibility = on ? '' : 'hidden';
+    for (const el of [joyEl, wheelEl, pedGo, pedBack, hornEl, assistEl, washBtn, sirenEl, ctlEl]) if (el) el.style.visibility = on ? '' : 'hidden';
     if (!on) U.releaseAll();
     syncWash();
   }
   // the Next stop tile's word on a job of the other rides
   const JOB_WORD = { fire: 'Fire!', ambulance: 'Check-up', icecream: 'Ice cream', tow: 'Tow' };
+  const JOB_PIC = { fire: 'fire', ambulance: 'medic', icecream: 'icecream', tow: 'tow', taxi: 'tree' };
   function renderJob() {
     const job = BB.jobs.current, t = BB.bus.target;
     if (!t && !job) { jobEl.style.visibility = 'hidden'; return; }
@@ -700,7 +716,8 @@
     const wash = !!(t && BB.bus.washBay && t === BB.bus.washBay);
     const depot = !!(t && t.id === 'depot');
     // the picture of where the job is going (a job of the other rides may name its own: job.pic, or the target's pic)
-    const pic = wash ? null : (!depot && job && job.pic) || (stop && stop.pic);
+    // (a roadside scene spot has no picture of its own: the fire, the check-up, the ice cream queue, the broken-down car)
+    const pic = wash ? null : (!depot && job && job.pic) || (stop && stop.pic) || JOB_PIC[U.rideKind()] || 'tree';
     const x = jobPic.getContext('2d'); x.clearRect(0, 0, 96, 96); if (stop) x.drawImage(wash ? BB.icon('wash', 96) : BB.pic(pic, 96), 0, 0);
     jobDots.innerHTML = '';
     // going to the garage: just its picture; on a job, a dot per stop
@@ -1074,16 +1091,19 @@
   function drawGauge(f, low, blink) {
     const cw = fuelCv.clientWidth || 96, ch = fuelCv.clientHeight || 48, dpr = Math.min(2, window.devicePixelRatio || 1);
     if (fuelCv.width !== Math.round(cw * dpr)) { fuelCv.width = Math.round(cw * dpr); fuelCv.height = Math.round(ch * dpr); }
-    const x = fuelCv.getContext('2d'); x.setTransform(fuelCv.width / 120, 0, 0, fuelCv.height / 60, 0, 0);
-    x.clearRect(0, 0, 120, 60);
-    const cx = 60, cy = 54, R = 46, a0 = Math.PI + 0.32, a1 = 2 * Math.PI - 0.32, at = (t) => a0 + (a1 - a0) * t;
+    // one scale both ways (never squashed), centred: a true half circle on a 120 x 60 board
+    const x = fuelCv.getContext('2d'), sc = Math.min(fuelCv.width / 120, fuelCv.height / 60);
+    x.setTransform(1, 0, 0, 1, 0, 0); x.clearRect(0, 0, fuelCv.width, fuelCv.height);
+    x.setTransform(sc, 0, 0, sc, (fuelCv.width - 120 * sc) / 2, (fuelCv.height - 60 * sc) / 2);
+    // E at the left end of the half circle, F at the right end; the needle turns in step with the fuel (0..1)
+    const cx = 60, cy = 53, R = 46, a0 = Math.PI, a1 = 2 * Math.PI, at = (t) => a0 + (a1 - a0) * t;
     x.lineCap = 'round';
     x.lineWidth = 10; x.strokeStyle = '#eadfca'; x.beginPath(); x.arc(cx, cy, R, a0, a1); x.stroke();
     x.save();
     if (low) { x.shadowColor = 'rgba(255,90,60,' + (blink ? 0.9 : 0.35) + ')'; x.shadowBlur = blink ? 10 : 4; }
-    x.strokeStyle = '#ff6b5c'; x.beginPath(); x.arc(cx, cy, R, a0, at(0.22)); x.stroke();
+    x.strokeStyle = '#ff6b5c'; x.beginPath(); x.arc(cx, cy, R, a0, at(0.2)); x.stroke();
     x.restore();
-    x.strokeStyle = '#5cb85c'; x.beginPath(); x.arc(cx, cy, R, at(0.7), a1); x.stroke();
+    x.strokeStyle = '#5cb85c'; x.beginPath(); x.arc(cx, cy, R, at(0.8), a1); x.stroke();
     x.strokeStyle = '#b9a98a'; x.lineWidth = 2.5;
     for (let i = 0; i <= 4; i++) { const a = at(i / 4); x.beginPath(); x.moveTo(cx + Math.cos(a) * (R - 10), cy + Math.sin(a) * (R - 10)); x.lineTo(cx + Math.cos(a) * (R - 15), cy + Math.sin(a) * (R - 15)); x.stroke(); }
     x.font = `700 17px ${BB.FONT}`; x.textAlign = 'center'; x.textBaseline = 'middle';

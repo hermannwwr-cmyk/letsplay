@@ -449,10 +449,10 @@
           paper(x, (p) => { p.moveTo(70, 92); p.quadraticCurveTo(64, 78, 72, 66); p.quadraticCurveTo(76, 74, 80, 70); p.quadraticCurveTo(90, 80, 82, 92); p.closePath(); }, P.honey, { depth: 0.3 });
           paper(x, (p) => { p.moveTo(30, 74); p.quadraticCurveTo(28, 64, 36, 58); p.quadraticCurveTo(38, 66, 44, 66); p.quadraticCurveTo(46, 72, 42, 76); p.closePath(); }, '#ff7a2e', { depth: 0.3, rimW: 1.6 });
           break;
-        case 'medic':                 // a check-up: a white case with a red cross and a heart
+        case 'medic':                 // a check-up: a white doctor's case with a heart (no red cross)
           paper(x, (p) => rrP(p, 36, 16, 28, 14, 6), '#c9d2db', { depth: 0.3 });
           paper(x, (p) => rrP(p, 10, 26, 80, 62, 12), '#fdfbf6', { rimColor: '#c9b9a0' });
-          paper(x, (p) => { rrP(p, 42, 36, 16, 42, 3); rrP(p, 29, 49, 42, 16, 3); }, '#ef4b3c', { depth: 0.3 });
+          paper(x, (p) => heartP(p, 50, 58, 0.62), '#ff6b8a', { depth: 0.3 });
           break;
         case 'icecream':              // a cone with two scoops
           paper(x, (p) => { p.moveTo(32, 52); p.lineTo(68, 52); p.lineTo(50, 96); p.closePath(); }, P.woodLight);
@@ -469,6 +469,18 @@
           paper(x, (p) => rrP(p, 30, 41, 15, 12, 3), '#d4eef8', { depth: 0.2, rimW: 1.4 }); paper(x, (p) => rrP(p, 49, 41, 15, 12, 3), '#d4eef8', { depth: 0.2, rimW: 1.4 });
           for (const wx of [26, 74]) { paper(x, (p) => arcP(p, wx, 80, 10), '#3a343f', { depth: 0.5, rim: false }); dot(x, wx, 80, 4, '#c9d2db'); }
           break;
+        // the fire station (a red firefighter's helmet) and the clinic (a heart: no red cross); first drawn in world.js
+        case 'firestation':
+          paper(x, (p) => { p.moveTo(10, 74); p.quadraticCurveTo(50, 62, 90, 74); p.quadraticCurveTo(92, 84, 80, 84); p.lineTo(20, 84); p.quadraticCurveTo(8, 84, 10, 74); p.closePath(); }, '#d9382c', { depth: 0.4 });
+          paper(x, (p) => { p.moveTo(20, 72); p.quadraticCurveTo(22, 22, 50, 20); p.quadraticCurveTo(78, 22, 80, 72); p.closePath(); }, '#ef4b3c');
+          BB.paperStroke(x, (p) => { p.moveTo(50, 22); p.lineTo(50, 66); }, '#c8352a', 4);
+          paper(x, (p) => p.ellipse(50, 50, 11, 13, 0, 0, Math.PI * 2), P.honeyLight, { depth: 0.3, rimW: 1.6 });
+          break;
+        case 'clinic':
+          paper(x, (p) => rrP(p, 10, 10, 80, 80, 14), '#fff6e0', { depth: 0.3, rimColor: '#7fd1c3' });
+          paper(x, (p) => heartP(p, 50, 52, 0.95), '#ff6b8a');
+          shine(x, 36, 38, 6, 4, -0.6, 0.6);
+          break;
         case 'wash':                  // the bus wash sign: the same soapy bucket as the Wash tile
           x.drawImage(BB.icon('wash', size * 2 > 256 ? 256 : size * 2), 0, 0, 100, 100);
           break;
@@ -480,7 +492,9 @@
     return c;
   };
   // (world.js keeps older copies of the newer stops' pictures; they are drawn here now, so it leaves BB.pic alone)
-  BB.pic.extra = { plane: 1, city: 1, lantern: 1, beach: 1, supertree: 1, ferris: 1, wash: 1, fire: 1, medic: 1, icecream: 1, tow: 1 };
+  // NOTE for other files: core.js draws every stop and place picture, and this flag tells world.js to leave BB.pic
+  // alone (its older copies are no longer used). Add new pictures here, as a case above.
+  BB.pic.extra = { plane: 1, city: 1, lantern: 1, beach: 1, supertree: 1, ferris: 1, wash: 1, fire: 1, medic: 1, icecream: 1, tow: 1, firestation: 1, clinic: 1 };
 
   // ---------- UI icons: BB.icon(name, size) -> canvas (the HUD, the garage, the cards) ----------
   // home, garage, music, musicOff, sound, soundOff, horn, helper, helperOn, uturn, joystick, wheel, handR, handL,
@@ -571,6 +585,15 @@
           paper(x, (p) => { p.moveTo(54, 48); p.lineTo(90, 48); p.lineTo(72, 74); p.closePath(); }, P.teal, { depth: 0.5 });
           break;
         case 'joystick': joyArt(); break;
+        // Controls (swap the joystick and the steering wheel): a little wheel and a little joystick with a swap arrow
+        case 'controls':
+          x.save(); x.translate(4, 2); x.scale(0.56, 0.56); wheelArt(); x.restore();
+          joyArt(71, 69, 0.58);
+          BB.paperStroke(x, (p) => { p.moveTo(62, 14); p.quadraticCurveTo(86, 14, 88, 34); }, P.honeyDark || '#d98700', 5);
+          paper(x, (p) => { p.moveTo(80, 32); p.lineTo(96, 32); p.lineTo(88, 44); p.closePath(); }, P.honey, { depth: 0.3, rimW: 1.4 });
+          BB.paperStroke(x, (p) => { p.moveTo(38, 88); p.quadraticCurveTo(14, 88, 12, 68); }, P.honeyDark || '#d98700', 5);
+          paper(x, (p) => { p.moveTo(4, 70); p.lineTo(20, 70); p.lineTo(12, 58); p.closePath(); }, P.honey, { depth: 0.3, rimW: 1.4 });
+          break;
         case 'wheel': wheelArt(); break;
         case 'handR': tabletWithJoy(false); break;
         case 'handL': tabletWithJoy(true); break;
