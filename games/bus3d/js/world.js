@@ -69,6 +69,18 @@
       for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2; BB.paper(x, (p) => p.ellipse(50 + Math.cos(a) * 36, 46 + Math.sin(a) * 36, 7, 7, 0, 0, 7), cols[k], { depth: 0.3, rimW: 1.6 }); }
       BB.paper(x, (p) => p.ellipse(50, 46, 6, 6, 0, 0, 7), '#ffb81f', { depth: 0.3 });
     },
+    // flats (a pastel HDB block with a stripe) and a market (a striped awning over fruit) for the neighbourhood stops
+    flats(x, pp) {
+      BB.paper(x, (p) => pp.rr(p, 22, 14, 56, 78, 4), '#ffe1cf');
+      BB.paper(x, (p) => pp.rr(p, 22, 14, 12, 78, 3), '#ff6b5c', { depth: 0.3 });
+      x.fillStyle = '#9cc7dc'; for (let yy = 22; yy < 80; yy += 11) for (const xx of [40, 52, 64]) x.fillRect(xx, yy, 8, 6);
+      BB.paper(x, (p) => pp.rr(p, 10, 88, 80, 6, 3), '#6fc45a', { depth: 0.2, rim: false });
+    },
+    market(x, pp) {
+      BB.paper(x, (p) => pp.rr(p, 14, 46, 72, 40, 4), '#c58a55');
+      for (let k = 0; k < 6; k++) BB.paper(x, (p) => { p.moveTo(10 + k * 13.3, 22); p.lineTo(23.3 + k * 13.3, 22); p.lineTo(23.3 + k * 13.3, 40); p.quadraticCurveTo(16.6 + k * 13.3, 48, 10 + k * 13.3, 40); p.closePath(); }, k % 2 ? '#fff6e0' : '#19a79b', { depth: 0.2, rimW: 1.2 });
+      for (const [X, c] of [[28, '#ff6b5c'], [42, '#ffb81f'], [56, '#6fc45a'], [70, '#ff8fab']]) BB.paper(x, (p) => p.ellipse(X, 56, 6, 6, 0, 0, 7), c, { depth: 0.3, rimW: 1.2 });
+    },
     // the fire station (a red firefighter's helmet) and the clinic (a heart: no red cross)
     firestation(x, pp) {
       BB.paper(x, (p) => { p.moveTo(10, 74); p.quadraticCurveTo(50, 62, 90, 74); p.quadraticCurveTo(92, 84, 80, 84); p.lineTo(20, 84); p.quadraticCurveTo(8, 84, 10, 74); p.closePath(); }, '#d9382c', { depth: 0.4 });
@@ -225,6 +237,18 @@
     { id: 'beach', name: 'Beach', say: 'the beach', pic: 'beach', from: 'S1', to: 'SEa', t: 0.68, toward: [118, 260] },
     { id: 'gardens', name: 'Gardens', say: 'the gardens', pic: 'supertree', from: 'SWa', to: 'S1', t: 0.61, toward: [-45, 120] },
     { id: 'wheel', name: 'Big Wheel', say: 'the big wheel', pic: 'ferris', from: 'SWa', to: 'S1', t: 0.21, toward: [-120, 120] },
+    // neighbourhood stops in between, so the next stop is never far (about 150-250 along the roads)
+    { id: 'flats', name: 'Flats', say: 'the flats', pic: 'flats', from: 'n22', to: 'n32', t: 0.5, toward: [56, 56] },
+    { id: 'market', name: 'Market', say: 'the market', pic: 'market', from: 'n10', to: 'n11', t: 0.5, toward: [-56, -56] },
+    { id: 'garden', name: 'Little Garden', say: 'the little garden', pic: 'tree', from: 'n02', to: 'n12', t: 0.5, toward: [-56, 56] },
+    { id: 'northRoad', name: 'North Flats', say: 'the north flats', pic: 'flats', from: 'n20', to: 'H1', t: 0.3, toward: [-20, -116] },
+    { id: 'eastLink', name: 'Towers', say: 'the towers', pic: 'city', from: 'n32', to: 'E1', t: 0.5, toward: [142, 0] },
+    { id: 'westGate', name: 'West Flats', say: 'the west flats', pic: 'flats', from: 'NWb', to: 'W1', t: 0.5, toward: [-150, -89] },
+    { id: 'expressWest', name: 'Expressway West', say: 'the expressway', pic: 'tree', from: 'NWa', to: 'H1', t: 0.5, toward: [-66, -150] },
+    { id: 'expressEast', name: 'Expressway East', say: 'the expressway', pic: 'city', from: 'H1', to: 'NE', t: 0.5, toward: [114, -150] },
+    { id: 'airportRoad', name: 'Airport Road', say: 'the airport road', pic: 'plane', from: 'NE', to: 'AJ', t: 0.5, toward: [300, -150] },
+    { id: 'seaView', name: 'Sea View', say: 'the sea view', pic: 'beach', from: 'SWa', to: 'S1', t: 0.45, toward: [-75, 260] },
+    { id: 'seaside', name: 'Seaside', say: 'the seaside', pic: 'beach', from: 'SEb', to: 'E1', t: 0.15, toward: [260, 132] },
   ];
   function placeOnKerb(def) {
     const e = W.edgeBetween(def.from, def.to);

@@ -21,8 +21,9 @@
   const HW = 1.25, WIDTH = 2.5, TYRE_R = 0.52, WHEEL_X = 1.08;
   const SKIRT0 = 0.36, FLOOR_Y = 0.66, WAIST = 1.32;
   const FRAME = '#33303a', RUBBER = '#26232b', GLASS = '#d6f1fb', GLASS_A = 0.34, GLASS_OPAQUE = '#86a3b6';
-  const FLOOR = '#8f8699', LINING = '#efe6d6', ARCH = '#3f3744', HOUSING = '#7a7284', CEIL = '#f4eee2';
-  const SEAT_A = '#4f8fe0', SEAT_B = '#f29a3a', SEAT_UP = '#6f86c9';
+  // ('&' = lit by the cabin lights at night, see setCabinLight)
+  const FLOOR = '&#8f8699', LINING = '&#efe6d6', ARCH = '#3f3744', HOUSING = '&#7a7284', CEIL = '&#f4eee2';
+  const SEAT_A = '&#4f8fe0', SEAT_B = '&#f29a3a', SEAT_UP = '&#6f86c9', CABIN_LAMP = '^#fff1c8';
   const LAMP_HEAD = '*#fff6c8', LAMP_IND = '*#ffae3a', LAMP_TAIL = '*#ff4a3a', LAMP_REV = '*#fbf3e0';
   const DOOR_SLIDE = 1.1;          // how far bus.js moves a door proxy along +z when the door is fully open
   // Row 2 (seats 5-9, the far side) sits on a step this high and half a seat along, so from the kerb, a little
@@ -37,7 +38,9 @@
   // ---------- part collector: merges parts into one flat-shaded geometry with paint/glow/door/uv attributes ----------
   // Colour strings: '#rrggbb' plain, '~#rrggbb' paint (the paint colour times this shade: '~#ffffff' = the paint,
   // '~#b0b0b0' a deeper tone of it), '*#rrggbb' a lamp (glows while the lights are on), '!#rrggbb' / '%#rrggbb'
-  // light-bar lamps of group A / B (they flash in turn while the siren is on, day or night).
+  // light-bar lamps of group A / B (they flash in turn while the siren is on, day or night), and for the cabin lights
+  // (setCabinLight): '^#rrggbb' a cabin lamp strip, '&#rrggbb' an inside surface they light, '@#rrggbb' window glass
+  // that glows warm from inside.
   // Options o: { a: alpha (glass), door: 1 | 2 (door number), dk: the leaf's slide along z when fully open (signed),
   //   outer: true for a leaf that slides over the other one (it pops out further), uv: [u0,v0,u1,v1] }.
   const NO = {};
@@ -45,7 +48,7 @@
   const colCache = {};
   function parseCol(c) {
     if (colCache[c]) return colCache[c];
-    const paint = c[0] === '~' ? 1 : 0, glow = c[0] === '*' ? 1 : c[0] === '!' ? 2 : c[0] === '%' ? 3 : 0;
+    const paint = c[0] === '~' ? 1 : 0, glow = { '*': 1, '!': 2, '%': 3, '^': 4, '&': 5, '@': 6 }[c[0]] || 0;
     return (colCache[c] = { c: new THREE.Color(paint || glow ? c.slice(1) : c), paint, glow });
   }
   class Kit {
@@ -62,8 +65,8 @@
     ball(r, col, x, y, z, sx, sy, sz) { return this.add(new THREE.IcosahedronGeometry(r, 0), col, x, y, z, 0, 0, 0, NO, sx || 1, sy || 1, sz || 1); }
     // a glass pane: see-through on the upper mesh, an opaque tinted pane on an opaque-only carriage
     glass(w, h, d, x, y, z, o) {
-      if (this.opaqueGlass) return this.box(w, h, d, GLASS_OPAQUE, x, y, z, o || NO);
-      return this.box(w, h, d, GLASS, x, y, z, Object.assign({ a: GLASS_A }, o || NO));
+      if (this.opaqueGlass) return this.box(w, h, d, '@' + GLASS_OPAQUE, x, y, z, o || NO);
+      return this.box(w, h, d, '@' + GLASS, x, y, z, Object.assign({ a: GLASS_A }, o || NO));
     }
     // an LED display face: a plane (faces +z before ry) showing part of the sign texture
     sign(w, h, rect, x, y, z, ry) { return this.add(new THREE.PlaneGeometry(w, h), '*#ffffff', x, y, z, 0, ry || 0, 0, { uv: rect }); }
@@ -122,17 +125,33 @@
     const m = new THREE.MeshLambertMaterial({ vertexColors: true, map: shared.tex, transparent: !!transparent, depthWrite: true });
     m.color = shared.paint;            // the same Color object on every material of this bus: one set repaints it all
     m.onBeforeCompile = (sh) => {
-      sh.uniforms.uLamp = shared.lamp; sh.uniforms.uDoor = doorU; sh.uniforms.uSiren = shared.siren;
+      sh.uniforms.uLamp = shared.lamp; sh.uniforms.uDoor = doorU; sh.uniforms.uSiren = shared.siren; sh.uniforms.uCabin = shared.cabin;
       sh.vertexShader = sh.vertexShader
-        .replace('#include <common>', '#include <common>\nattribute float aPaint;\nattribute float aGlow;\nattribute float aDoor;\nattribute float aDoorK;\nuniform vec4 uDoor;\nuniform float uLamp;\nuniform vec2 uSiren;\nvarying float vPaint;\nvarying float vGlow;')
-        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPaint = aPaint; vGlow = aGlow < 1.5 ? aGlow * uLamp : (aGlow < 2.5 ? uSiren.x : uSiren.y);\nif (aDoor > 0.5) { float id = floor(aDoor + 0.01); vec2 dd = id < 1.5 ? uDoor.xy : uDoor.zw; transformed.x += dd.x + dd.y * (0.06 + (aDoor - id) * 0.16); transformed.z += aDoorK * dd.y; }');
+        .replace('#include <common>', '#include <common>\nattribute float aPaint;\nattribute float aGlow;\nattribute float aDoor;\nattribute float aDoorK;\nuniform vec4 uDoor;\nuniform float uLamp;\nuniform vec2 uSiren;\nuniform float uCabin;\nvarying float vPaint;\nvarying float vGlow;\nvarying float vWarm;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPaint = aPaint; vWarm = 0.0; vGlow = aGlow < 1.5 ? aGlow * uLamp : aGlow < 2.5 ? uSiren.x : aGlow < 3.5 ? uSiren.y : aGlow < 4.5 ? uCabin * 1.2 : aGlow < 5.5 ? uCabin * 0.42 : 0.0;\nif (aGlow > 5.5) vWarm = uCabin;\nif (aDoor > 0.5) { float id = floor(aDoor + 0.01); vec2 dd = id < 1.5 ? uDoor.xy : uDoor.zw; transformed.x += dd.x + dd.y * (0.06 + (aDoor - id) * 0.16); transformed.z += aDoorK * dd.y; }');
       sh.fragmentShader = sh.fragmentShader
-        .replace('#include <common>', '#include <common>\nvarying float vPaint;\nvarying float vGlow;')
+        .replace('#include <common>', '#include <common>\nvarying float vPaint;\nvarying float vGlow;\nvarying float vWarm;')
         .replace('vec4 diffuseColor = vec4( diffuse, opacity );', 'vec4 diffuseColor = vec4( mix( vec3( 1.0 ), diffuse, vPaint ), opacity );')
-        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * vGlow;\ndiffuseColor.rgb *= 1.0 - 0.55 * min(vGlow, 1.0);');
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * vGlow + vec3(1.0, 0.8, 0.48) * vWarm * 0.75;\ndiffuseColor.a = mix(diffuseColor.a, max(diffuseColor.a, 0.55), vWarm);\ndiffuseColor.rgb *= 1.0 - 0.55 * min(vGlow, 1.0);');
     };
     m.userData.doorU = doorU;
     return m;
+  }
+
+  // Adds this vehicle's cabin light to another material (passengers inside): a warm glow scaled by the level.
+  function cabinPatch(mat, cabinU) {
+    if (!mat || mat.userData.cabinPatched) return mat;
+    const prev = mat.onBeforeCompile;
+    mat.onBeforeCompile = function (sh, r) {
+      if (prev) prev.call(this, sh, r);
+      sh.uniforms.uCabin = cabinU;
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uCabin;')
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * uCabin * 0.45;');
+    };
+    const prevKey = mat.customProgramCacheKey.bind(mat);
+    mat.customProgramCacheKey = () => prevKey() + '|cabin';
+    mat.userData.cabinPatched = true; mat.needsUpdate = true;
+    return mat;
   }
 
   // ---------- LED sign texture (one small canvas per bus) ----------
@@ -476,6 +495,12 @@
       up.add(slab(2.5, roof0, roof1, 0.46, 0.04, L), '~#ffffff');
       up.box(2.3, 0.03, L - 0.3, CEIL, 0, roof0 - 0.04, 0);
     }
+    // cabin light strips along the ceiling (and under the upper floor on the double-decker); they glow at night
+    for (const x of [-0.62, 0.62]) {
+      const k = split && x > SPLIT ? kerb : up;
+      k.box(0.14, 0.03, L - 1.2, CABIN_LAMP, x, roof0 - 0.075, 0);
+      if (dbl) k.box(0.14, 0.03, L - 1.6, CABIN_LAMP, x, upF - 0.035, 0.5);
+    }
     const podZ = spec.podZ != null ? spec.podZ : -L * 0.12, podL = spec.podL || L * 0.3, pk = split ? kerb : up;
     pk.box(1.5, 0.3, podL, '#f1ebe0', 0, roof1 - 0.06, podZ);
     pk.box(1.2, 0.08, podL - 0.3, '#ffffff', 0, roof1 + 0.24, podZ);
@@ -625,7 +650,7 @@
     if (VEHICLES[type]) return buildVehicle(type, paintColour, opts);
     if (!SPECS[type]) type = 'bendy';
     const sign = makeSign();
-    const shared = { paint: new THREE.Color(paintColour || (BB.P && BB.P.busGreen) || '#3fae49'), lamp: { value: 1 }, siren: { value: new THREE.Vector2(0.15, 0.15) }, tex: sign.tex };
+    const shared = { paint: new THREE.Color(paintColour || (BB.P && BB.P.busGreen) || '#3fae49'), lamp: { value: 1 }, siren: { value: new THREE.Vector2(0.15, 0.15) }, cabin: { value: 0 }, tex: sign.tex };
     let F, R = null, spec;
     if (type === 'bendy') {
       spec = SPECS.bendy;
@@ -714,6 +739,11 @@
       paintMaterial: F.mats[0],
       materials: mats,
       setPaint(c) { shared.paint.set(c); },
+      // cabin lights (0..1): ceiling strips glow, seats, floor and inside walls are lit, windows glow warm from inside
+      setCabinLight(level) { shared.cabin.value = Math.max(0, Math.min(1, +level || 0)); },
+      get cabinLight() { return shared.cabin.value; },
+      // patch any Lambert/Phong/Standard material (e.g. the passengers') so it is lit by this vehicle's cabin lights too
+      lightUp(mat) { return cabinPatch(mat, shared.cabin); },
       setLights(on) { shared.lamp.value = on ? 1 : 0.12; },
       // the upper mesh's material, for fading the roof (opacity) instead of hiding it
       roofMaterial: F.upMesh ? F.upMesh.material : null,
@@ -865,6 +895,7 @@
       up.add(roofPiece(-hw, SPL, rf0, rf1, 0.1, 0, wz1 - (zb + 0.7)), '~#ffffff', 0, 0, (wz1 + zb + 0.7) / 2);
       kerb.add(roofPiece(SPL, hw, rf0, rf1, 0, 0.1, wz1 - (zb + 0.7)), '~#ffffff', 0, 0, (wz1 + zb + 0.7) / 2);
       // the roof sign: lit, with TAXI front and back (it sits on the driver's half of the roof)
+      up.box(0.16, 0.03, 2.6, CABIN_LAMP, 0, rf0 - 0.035, -0.55);
       up.box(0.78, 0.26, 0.34, '#fff3c4', 0, rf1, -0.35);
       up.add(new THREE.PlaneGeometry(0.72, 0.2), '*#ffffff', 0, rf1 + 0.13, -0.35 + 0.175, 0, 0, 0, { uv: UV_DEST });
       up.add(new THREE.PlaneGeometry(0.72, 0.2), '*#ffffff', 0, rf1 + 0.13, -0.35 - 0.175, 0, Math.PI, 0, { uv: UV_DEST });
@@ -900,6 +931,7 @@
       up.glass(V.W - 0.16, cabTop - 1.6, 0.03, 0, 1.47, wz + 0.11);
       up.add(slab(V.W, cabTop - 0.12, cabTop + 0.12, 0.14, 0.02, zf - cab0, 0.06), '~#ffffff', 0, 0, (zf + cab0) / 2);
       vLightBar(up, 1.7, cabTop + 0.12, zf - 0.45, '#ff4a3a', '#fff3e0');
+      up.box(0.16, 0.03, zf - cab0 - 0.6, CABIN_LAMP, 0, cabTop - 0.155, (zf + cab0) / 2);
       // equipment body with roller lockers (silver), a white stripe, the ladder turntable and a hose reel at the back
       block(low, V.W, 0.85, 2.45, zb, cab0 - 0.05, '~#ffffff', 0.08, 0.02);
       for (const s of [1, -1]) {
@@ -979,6 +1011,7 @@
       bx(low, -0.92, -0.28, FY + 0.55, FY + 0.68, -2.65, -0.65, '#fbf7ee');
       bx(low, -0.9, -0.3, FY + 0.68, FY + 0.8, -0.95, -0.65, '#ffffff');
       stretcherLocal = { x: -0.6, y: FY + 0.75, z: -1.65 };
+      for (const x of [-0.5, 0.5]) low.box(0.14, 0.03, 3.6, CABIN_LAMP, x, boxTop - 0.175, (zb + cabEnd) / 2);
       doorsSpec.push({ z: 0.15, w: 1.15, y0: 0.45, y1: 2.35, slideK: -1.0, solid: true });
       doorLocal = { x: hw + 0.45, y: 0, z: 0.15 };
       bx(low, -0.55, 0.55, 0.6, 0.86, zf - 0.02, zf + 0.02, '#3a3440');
@@ -1014,6 +1047,7 @@
       tubs.forEach((c, i) => { const z = hz0 + 0.3 + i * 0.48; low.box(0.34, 0.1, 0.34, '#dfe3ea', 0.55, hy0 + 0.06, z); low.ball(0.14, c, 0.55, hy0 + 0.2, z, 1, 0.6, 1); });
       bx(low, -hw + 0.06, hw - 0.06, FY, FY + 0.03, zb + 0.06, cabEnd - 0.06, FLOOR);
       serverLocal = { x: -0.2, y: FY, z: (hz0 + hz1) / 2 };
+      low.box(0.16, 0.03, hz1 - hz0, CABIN_LAMP, 0.2, hy1 - 0.03, (hz0 + hz1) / 2);
       // pastel trim: cream scallops under the roof edge, a mint stripe
       for (const s of [1, -1]) {
         for (let z = zb + 0.2; z < cabEnd - 0.1; z += 0.36) low.add(new THREE.CircleGeometry(0.16, 8, Math.PI, Math.PI), '#fff3c4', s * (hw + 0.03), hy1 + 0.02, z, 0, s * Math.PI / 2, 0);
@@ -1050,8 +1084,8 @@
       block(low, V.W - 0.1, 1.2, 2.85, 0.9, zf - 0.6, '~#ffffff', 0.4, 0.04);
       bx(low, -hw + 0.1, hw - 0.1, 0.9, 1.3, zf - 0.6, zf, '~#ffffff');
       vDriver(low, -0.55, FY, 1.85); vSeat(low, 0.55, FY, 1.85, '#6c6470');
-      low.box(V.W - 0.4, 0.9, 0.04, '#46708f', 0, 1.75, zf - 0.58);
-      for (const s of [1, -1]) low.box(0.04, 0.8, 1.6, '#46708f', s * (hw - 0.04), 1.8, 1.8);
+      low.box(V.W - 0.4, 0.9, 0.04, '@#46708f', 0, 1.75, zf - 0.58);
+      for (const s of [1, -1]) low.box(0.04, 0.8, 1.6, '@#46708f', s * (hw - 0.04), 1.8, 1.8);
       for (const s of [1, -1]) low.box(0.05, 0.6, 0.18, '#6a93b0', s * (hw - 0.02), 1.9, 2.2, NO, 0, 0, 0.3);
       bx(low, -0.55, 0.55, 0.6, 1.1, zf - 0.02, zf + 0.02, '#3a3440');
       for (let j = 0; j < 3; j++) bx(low, -0.5, 0.5, 0.68 + j * 0.13, 0.72 + j * 0.13, zf + 0.02, zf + 0.04, '#8a8492');
@@ -1138,7 +1172,7 @@
   function buildVehicle(type, paintColour, opts) {
     const V = VEHICLES[type];
     const sign = makeSign('plate', V.label || '', '#fff3c4');
-    const shared = { paint: new THREE.Color(paintColour || V.paint), lamp: { value: 1 }, siren: { value: new THREE.Vector2(0.15, 0.15) }, tex: sign.tex };
+    const shared = { paint: new THREE.Color(paintColour || V.paint), lamp: { value: 1 }, siren: { value: new THREE.Vector2(0.15, 0.15) }, cabin: { value: 0 }, tex: sign.tex };
     const F = vehicle(type, shared, opts);
     F.g.name = type;
     const mount = (parent, name, x, y, z, ry) => { const m = new THREE.Group(); m.name = name; m.position.set(x, y, z); m.rotation.y = ry || 0; parent.add(m); return m; };
@@ -1184,6 +1218,11 @@
       userData, siren, ladder: userData.ladder, hatch: userData.hatch, boom: userData.boom, hook: userData.hook,
       paintMaterial: F.mats[0], materials: F.mats, roofMaterial: F.upMesh.material,
       setPaint(c) { shared.paint.set(c); },
+      // cabin lights (0..1): ceiling strips glow, seats, floor and inside walls are lit, windows glow warm from inside
+      setCabinLight(level) { shared.cabin.value = Math.max(0, Math.min(1, +level || 0)); },
+      get cabinLight() { return shared.cabin.value; },
+      // patch any Lambert/Phong/Standard material (e.g. the passengers') so it is lit by this vehicle's cabin lights too
+      lightUp(mat) { return cabinPatch(mat, shared.cabin); },
       setLights(on) { shared.lamp.value = on ? 1 : 0.12; },
       dispose() {
         F.lowMesh.geometry.dispose(); F.upMesh.geometry.dispose(); if (F.kerbMesh) F.kerbMesh.geometry.dispose();

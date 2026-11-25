@@ -149,14 +149,11 @@
     if (!l || typeof l !== 'object') return null;
     const types = (BB.fleet && BB.fleet.TYPES) || ['bendy', 'double', 'single'];
     const word = (v) => typeof v === 'string' && /^[a-z0-9]{1,12}$/.test(v);    // ids only, never shown as text
+    // type, paint and number must be real ones (a look that isn't is ignored: that bus isn't shown)
+    if (types.indexOf(l.ty) < 0 || !BB.PAINTS.some((p) => p.id === l.pa) || !/^[1-9][0-9]{0,2}$/.test(String(l.no))) return null;
     const pt = {};
-    if (l.pt && typeof l.pt === 'object') for (const k of ['lights', 'bumpers', 'wheels', 'rims']) if (word(l.pt[k])) pt[k] = l.pt[k];
-    return {
-      ty: types.indexOf(l.ty) >= 0 ? l.ty : 'bendy',
-      pa: BB.PAINTS.some((p) => p.id === l.pa) ? l.pa : 'green',
-      no: /^[1-9][0-9]{0,2}$/.test(String(l.no)) ? String(l.no) : '10',
-      st: Array.isArray(l.st) ? l.st.filter(word).slice(0, 3) : [], pt,
-    };
+    if (l.pt && typeof l.pt === 'object' && !Array.isArray(l.pt)) for (const k of ['lights', 'bumpers', 'wheels', 'rims']) if (word(l.pt[k])) pt[k] = l.pt[k];
+    return { ty: l.ty, pa: l.pa, no: String(l.no), st: Array.isArray(l.st) ? l.st.filter(word).slice(0, 3) : [], pt };
   }
   // my state: [x, z, heading, rear heading, speed, steer, flags]; flags 1 doors, 2 lights, 4 at a stop, 8 asleep,
   // 16 parked (hidden or held), 32 in the garage
