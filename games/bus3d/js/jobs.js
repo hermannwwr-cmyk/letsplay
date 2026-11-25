@@ -1281,8 +1281,8 @@
     if (!pool.length) pool = ranked.filter((o) => o.d >= 40 && o.d <= 200);
     if (!pool.length) pool = ranked.filter((o) => o.d >= LEG_MIN).slice(0, 3);
     if (!pool.length) pool = ranked.slice(0, 3);
-    // named stops count twice, so they come up more often than the small ones
-    const bag = []; for (const o of pool) { bag.push(o.s); if (!o.s.minor) bag.push(o.s); }
+    // named stops count three times, so they come up more often than the small ones
+    const bag = []; for (const o of pool) { bag.push(o.s); if (!o.s.minor) bag.push(o.s, o.s); }
     return BB.pick(bag);
   }
   J.nextNear = nextNear;
