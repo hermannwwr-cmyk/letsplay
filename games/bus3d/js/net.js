@@ -39,6 +39,7 @@
    4. Friends' buses: cheap low-detail models (one draw call per bus, bending in the vertex shader for bendies) plus
       ONE instanced mesh for all their wheels, one for all their blob shadows and one for all their floating
       route-number badges: ~12 draw calls for 9 friends. Interpolated ~200 ms behind.
+   The HUD shows the friends in the room as little bus pictures with their numbers, top right under the buttons.
    Exposes BB.net = { init, update(dt), open(), leave(why), goodnight(), state, remotes, code, transports }. */
 (function () {
   'use strict';
@@ -618,6 +619,7 @@
     if (r.leaving) return;
     r.leaving = true;
     recent.set(JSON.stringify(r.look), performance.now());
+    setTimeout(() => { if (N.remotes.get(id) === r) { disposeBody(r); N.remotes.delete(id); syncFriends(); } }, 3000);   // (no frames drawn meanwhile)
     if (!BB.bedtime && N.state === 'room' && r.byeWhy) BB.say(r.byeWhy === 'sleep' ? `Goodnight, bus ${r.look.no}!` : `Bye bye, bus ${r.look.no}!`, { queue: true });
     syncFriends();
   }
@@ -980,7 +982,8 @@
   .bbn-dots { display: flex; gap: 10px; } .bbn-dots i { width: 16px; height: 16px; border-radius: 50%; background: #d9b57f; animation: bbn-dot 1.2s infinite; }
   .bbn-dots i:nth-child(2) { animation-delay: .2s; } .bbn-dots i:nth-child(3) { animation-delay: .4s; }
   @keyframes bbn-dot { 50% { background: #ffb81f; transform: scale(1.3); } }
-  .bbn-friends { position: absolute; z-index: 6; left: 50%; transform: translateX(-50%); top: calc(var(--st) + 66px); display: flex; gap: 6px; pointer-events: none; }
+  .bbn-friends { position: absolute; z-index: 6; right: var(--sr); top: calc(var(--st) + 68px); display: flex; flex-wrap: wrap; justify-content: flex-end;
+    max-width: 46vw; gap: 6px; pointer-events: none; }
   .bbn-friends.hide { display: none; }
   .bbn-friend { pointer-events: auto; display: flex; flex-direction: column; align-items: center; background: #fff6e0; border: 3px solid #d9b57f; border-radius: 18px;
     padding: 2px 6px 0; box-shadow: 0 3px 0 rgba(120,80,40,.15); cursor: pointer; touch-action: manipulation; animation: bbn-pop .3s cubic-bezier(.2,1.5,.5,1); }
@@ -989,7 +992,7 @@
   .bbn-friends.many { gap: 4px; } .bbn-friends.many .bbn-friend { padding: 1px 3px 0; border-radius: 14px; border-width: 2px; }
   .bbn-friends.many .bbn-friend canvas { width: 34px; height: 23px; } .bbn-friends.many .bbn-friend b { font-size: 12px; line-height: 13px; }
   .bbn-friend.me { border-color: #19a79b; }
-  .bbn-card .bbn-friends { position: static; transform: none; }
+  .bbn-card .bbn-friends { position: static; max-width: none; flex-wrap: nowrap; }
   @media (max-height: 520px) {
     .bbn-card { padding: 14px 14px 12px; gap: 10px; border-radius: 28px; }
     .bbn-big { width: 130px; height: 130px; }
@@ -998,7 +1001,6 @@
     .bbn-wait { width: 130px; height: 86px; }
     .bbn-friends { top: calc(var(--st) + 62px); } .bbn-friend canvas { width: 40px; height: 27px; }
   }
-  @media (max-width: 900px) { .bbn-friends { top: calc(var(--st) + 128px); } }
   `);
 
   let tile = null, wrap = null, card = null, panelKind = null, friendsEl = null;
