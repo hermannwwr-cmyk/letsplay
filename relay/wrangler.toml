@@ -12,4 +12,4 @@ new_sqlite_classes = ["Room"]
 
 [vars]
 # Pages that may connect: the app, the private claude.ai copies and file:// (null). "*" allows any.
-ALLOWED_ORIGINS = "*"
+ALLOWED_ORIGINS = "https://hermannwwr-cmyk.github.io,null"
