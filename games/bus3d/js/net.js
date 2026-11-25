@@ -226,7 +226,7 @@
   const validCode = (a) => Array.isArray(a) && a.length === CODE_LEN && a.every((i) => Number.isInteger(i) && i >= 0 && i < PICS.length);
   function newCode() {
     const out = [], a = new Uint8Array(16);
-    while (out.length < CODE_LEN) { crypto.getRandomValues(a); for (const v of a) if (v < 252 && out.length < CODE_LEN) out.push(v % 12); }
+    while (out.length < CODE_LEN) { crypto.getRandomValues(a); for (const v of a) if (v < 252 && out.length < CODE_LEN && !out.includes(v % 12)) out.push(v % 12); }   // 5 different pictures (easier to copy); entering a code still accepts repeats
     return out;
   }
   const codeStr = (c) => c.map((i) => LETTERS[i]).join('');

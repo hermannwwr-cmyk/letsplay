@@ -343,7 +343,7 @@
     return c;
   }
   // put one of `name` at (x, y, z) facing heading h; tilt = lean forward (+) / back, roll = sideways wobble
-  const LOOK_SCALE = { otter: 2, otterPup: 2, lion: 1.3, float: 1.3 };
+  const LOOK_SCALE = { otter: 2.5, otterPup: 2.5, lion: 1.3, float: 1.3 };
   function put(name, x, y, z, h, s = 1, tilt = 0, roll = 0) {
     const c = look(name);
     s *= LOOK_SCALE[name] || 1.15;
@@ -980,11 +980,11 @@
   }
   function stageOK(x, z, y = 1.5) { return !underViaduct(x, z) && inFrame(x, y, z, 0.8, 0.5) && !sightBlocked(x, y, z); }   // (the lower 3/4 of the picture)
   // big enough on screen to count as seen: in the picture, in clear sight, about 4.5% of the screen tall or more
-  function bigOnScreen(x, y, z, h, min = 0.045, top = 0.7) {
+  function bigOnScreen(x, y, z, h, min = 0.045, top = 0.7, floorPx = 34) {
     const cam = BB.camera; if (!cam || !inFrame(x, y + h / 2, z, 0.9, top)) return false;
     const a = _v3.set(x, y, z).project(cam).y, b = _v3.set(x, y + h, z).project(cam).y;
     const Hpx = (BB.renderer && BB.renderer.domElement.clientHeight) || innerHeight;
-    return Math.abs(b - a) / 2 >= Math.max(min, 34 / Hpx) && !sightBlocked(x, y + h / 2, z);
+    return Math.abs(b - a) / 2 >= Math.max(min, floorPx / Hpx) && !sightBlocked(x, y + h / 2, z);
   }
   // a parking distance on an oncoming route, `aheadMin..aheadMax` in front of the bus, for a vehicle of len x w
   function findPark(r, aheadMin, aheadMax, len, w) {
@@ -1501,10 +1501,10 @@
       // across the road: from one pavement (left of the bus's travel * side) to the other
       const A0 = { x: p.x + p.lx * side * (half + 3), z: p.z + p.lz * side * (half + 3) }, A1 = { x: p.x - p.lx * side * (half + 3), z: p.z - p.lz * side * (half + 3) };
       const h = Math.atan2(A1.x - A0.x, A1.z - A0.z), L = Math.hypot(A1.x - A0.x, A1.z - A0.z), sp = 1.15;
-      const fam = [false, true, true, false, true].map((pup, i) => ({ pup, s: -i * (pup ? 1.6 : 2.2) - (i ? 0.6 : 0), across: false, seed: Math.random() * 6 }));
+      const fam = [false, true, true, false, true].map((pup, i) => ({ pup, s: -i * (pup ? 2.0 : 2.7) - (i ? 0.7 : 0), across: false, seed: Math.random() * 6 }));
       let t = 0, counted = 0, prompted = false, waited = false, wasSlow = false, endT = 0;
       return {
-        id: 'otters', spots: () => { const o = fam.find((q) => q.s > 0 && q.s < L); if (!o) return []; const x = A0.x + Math.sin(h) * o.s, z = A0.z + Math.cos(h) * o.s; return [['otters', x, 0, z, 1.6, 'Look! A family of otters!', 0.028]]; }, at: () => V3(p.x, 1, p.z),
+        id: 'otters', spots: () => { const o = fam.find((q) => q.s > 0 && q.s < L); if (!o) return []; const x = A0.x + Math.sin(h) * o.s, z = A0.z + Math.cos(h) * o.s; return [['otters', x, 0, z, 1.9, 'Look! A family of otters!', 0.028, 0.7, 22]]; }, at: () => V3(p.x, 1, p.z),
         update(dt) {
           t += dt;
           const B = Bs(), bp = project(r, B.pos.x, B.pos.z), toGo = bp && bp.dist < 12 ? dz - bp.d : null;
@@ -1605,16 +1605,17 @@
     },
     start() {
       let t = 0, next = 0.5, n = 0; me4.live = 0;
-      lookUp(V3(Bs().pos.x + Math.sin(Bs().heading) * 55, 12, Math.max(seaZ() + 10, Bs().pos.z + Math.cos(Bs().heading) * 55)), 20);
+      const B0 = Bs(), aim = { x: B0.pos.x + Math.sin(B0.heading) * 65, y: 22, z: Math.max(seaZ() + 20, B0.pos.z + Math.cos(B0.heading) * 65) };
+      const lk = lookUp(() => (me4.live > 0 ? { x: me4.x, y: me4.y, z: me4.z } : aim), 16);
       const total = 11, rockets = [];
       const cols = BB.xmas ? ['#ff4b4b', '#4fdc7a', '#ffd45c', '#ffffff'] : ['#ff6b5c', '#ffd45c', '#5fd0ff', '#b58cff', '#7dff8a', '#ff8fd0'];
       return {
-        id: 'fireworks', spots: () => (me4.live > 0 ? [['fireworks', me4.x, me4.y - 4, me4.z, 6, 'Ooh! Fireworks over the sea!', 0.03, 0.82]] : []),
+        id: 'fireworks', spots: () => (me4.live > 0 ? [['fireworks', me4.x, me4.y - 4, me4.z, 6, 'Ooh! Fireworks over the sea!', 0.03, lk ? 0.9 : 0.82]] : []),
         update(dt) {
           t += dt;
           if (n < total && (next -= dt) <= 0) {
             next = rand(1.4, 2.6); n++;
-            const cam = BB.camera ? BB.camera.position : Bs().pos, hb = Bs().heading + rand(-0.3, 0.3), lk = typeof Bs().lookAt === 'function', ahead = lk ? rand(55, 80) : rand(34, 48);
+            const cam = BB.camera ? BB.camera.position : Bs().pos, hb = Bs().heading + rand(-0.3, 0.3), ahead = lk ? rand(55, 80) : rand(34, 48);
             const x = clamp(cam.x + Math.sin(hb) * ahead, -180, 380), z = Math.max(seaZ() + (lk ? 20 : 4), cam.z + Math.cos(hb) * ahead);   // low and ahead: the chase camera looks down, so the sky barely shows
             rockets.push({ x, y: 1, z, vy: lk ? rand(26, 32) : rand(9, 12), top: lk ? rand(18, 28) : rand(5, 7.5), c1: pick(cols), c2: pick(cols) });
             SND.whistle(near(x, z, 260));
@@ -1637,7 +1638,7 @@
           }
           return n < total || rockets.length > 0 || t < 3;
         },
-        end() {},
+        end() { lookBack(); },
       };
     },
   };
@@ -1658,7 +1659,7 @@
       const S = { x: B.pos.x - f.x * 45, y: 26, z: B.pos.z - f.z * 45 };
       const Ap = east ? { x: 150, y: 16, z: RZ } : { x: 640, y: 16, z: RZ }, T = east ? { x: 270, y: 0, z: RZ } : { x: 520, y: 0, z: RZ }, R = east ? { x: 470, y: 0, z: RZ } : { x: 320, y: 0, z: RZ };
       // a low pass over the road ahead (the chase camera looks down: higher up it would be out of the picture), then round to land
-      const lk = typeof B.lookAt === 'function', M = { x: B.pos.x + f.x * 38, y: lk ? 14 : 2.5, z: B.pos.z + f.z * 38 }, M2 = { x: B.pos.x + f.x * (lk ? 95 : 70), y: lk ? 18 : 2.5, z: B.pos.z + f.z * (lk ? 95 : 70) };
+      const look = V3(B.pos.x + f.x * 40, 14, B.pos.z + f.z * 40), lk = lookUp(look, 10), M = { x: B.pos.x + f.x * 38, y: lk ? 14 : 2.5, z: B.pos.z + f.z * 38 }, M2 = { x: B.pos.x + f.x * (lk ? 95 : 70), y: lk ? 18 : 2.5, z: B.pos.z + f.z * (lk ? 95 : 70) };
       const legs = [[S, M, 24], [M, M2, lk ? 18 : 12], [M2, Ap, 30], [Ap, T, 30], [T, R, 0]], LAST = legs.length - 1;
       let g = null, mat = null;
       if (BB.landmarks && typeof BB.landmarks.plane === 'function') {
@@ -1676,9 +1677,9 @@
       let leg = 0, u = 0, sp = 24, h = Math.atan2(M.x - S.x, M.z - S.z), t = 0, whoosh = null, said = false, rollT = 0, bank = 0;
       const pos = { x: S.x, y: S.y, z: S.z };
       whoosh = noise(1, { type: 'lowpass', freq: 520, vol: 0.001, hold: true, attack: 0.5 });
-      const look = V3(M.x, M.y, M.z); lookUp(look, 9);
+      look.set(S.x, S.y, S.z);
       return {
-        id: 'plane', spots: () => [['plane', pos.x, pos.y - 1, pos.z, 3, 'Look! A plane is coming in to land!', 0.03, 0.82]],
+        id: 'plane', spots: () => [['plane', pos.x, pos.y - 1, pos.z, 3, 'Look! A plane is coming in to land!', 0.03, lk ? 0.9 : 0.82]],
         update(dt) {
           t += dt;
           const [a, b, v1] = legs[leg], L = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z) || 1;
@@ -1698,18 +1699,20 @@
           if (leg === LAST && u >= 1) rollT += dt;
           return rollT < 2 && t < 50;
         },
-        end() { if (whoosh) whoosh.stop(); if (g.parent) g.parent.remove(g); if (mat) mat.dispose(); },
+        end() { if (whoosh) whoosh.stop(); if (g.parent) g.parent.remove(g); if (mat) mat.dispose(); if (lk) lookBack(); },
       };
     },
   };
 
   // The bus builder's camera turn (BB.bus.lookAt(target, {duration} in seconds)), when it exists; target is a live
   // Vector3 we keep moving. Never while at a stop or a question.
+  // Returns true when the camera really turned (false: no API yet, or the bus can't look now).
   function lookUp(target, sec) {
     const B = Bs();
-    if (!B || typeof B.lookAt !== 'function' || B.atStop || jobBusy()) return;
-    safe(() => B.lookAt(target, { duration: sec }));
+    if (!B || typeof B.lookAt !== 'function' || B.atStop || jobBusy()) return false;
+    return safe(() => B.lookAt(target, { duration: sec })) !== false && !!(B.isLooking ? B.isLooking() !== false : true);
   }
+  function lookBack() { const B = Bs(); if (B && typeof B.lookAt === 'function' && (!B.isLooking || B.isLooking())) safe(() => B.lookAt(null)); }
 
   // ---- 16. rainbow puddles (ambient, not an event): splashes while driving on wet roads, rainbow sparkles after rain ----
   let splashT = 2, splashSaid = false, wasDry = true;
@@ -1797,8 +1800,8 @@
     const c = E.current; if (!c || !c.spots) return;
     if ((frT -= dt) > 0) return;
     frT = 0.35; updateFrustum();
-    for (const [id, x, y, z, hh, line, minSize, top] of c.spots() || []) {
-      if (c.spotted[id] || !bigOnScreen(x, y, z, hh || 2, minSize, top)) continue;
+    for (const [id, x, y, z, hh, line, minSize, top, floorPx] of c.spots() || []) {
+      if (c.spotted[id] || !bigOnScreen(x, y, z, hh || 2, minSize, top, floorPx)) continue;
       c.spotted[id] = true; c.seen = true;
       if (!c.saidIntro) { c.saidIntro = true; const intro = (c.spots() || []).find((q) => q[5]); if (intro) talk(intro[5], true); }
       if (NAMES[id]) E.spot(id);             // (the UI's "New sticker!" is queued after our line)
