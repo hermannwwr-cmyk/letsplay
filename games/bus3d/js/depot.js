@@ -595,7 +595,10 @@
   .bbd .shake { animation: bbd-shake .4s; }
   @keyframes bbd-shake { 25% { transform: translateX(-7px); } 75% { transform: translateX(7px); } }
   /* the bus number keypad */
-  .bbd-padwrap { position: absolute; inset: 0; z-index: 55; background: rgba(40,30,50,.35); display: flex; align-items: center; justify-content: center;
+  /* over the panel, so the bus's route sign (the camera's close-up on the left) shows each digit as it is typed */
+  .bbd-padwrap { position: absolute; inset: 0; z-index: 55; display: flex; align-items: center; justify-content: center;
+    padding: var(--st) 0 var(--sb) calc(100% - var(--pw)); box-sizing: border-box;
+    background: linear-gradient(90deg, rgba(40,30,50,0) calc(100% - var(--pw) - 40px), rgba(40,30,50,.32) calc(100% - var(--pw)));
     pointer-events: auto; animation: bbd-fade .2s; font-family: ${BB.FONT}; }
   @keyframes bbd-fade { from { opacity: 0; } }
   .bbd-padcard { background: linear-gradient(#fff6e0, #fdebc8); border: 5px solid #d9b57f; border-radius: 30px; padding: 18px; display: flex; flex-direction: column; gap: 14px;
@@ -627,6 +630,10 @@
     .bbd-led { min-width: 150px; height: 70px; font-size: 50px; line-height: 70px; }
     .bbd-awning { height: 24px; }
     .bbd-status .bbu-clock { font-size: 25px; padding: 0 14px 0 9px; margin-top: 0; } .bbd-status .bbu-clock svg { width: 30px; height: 30px; }
+  }
+  @media (max-height: 560px) and (max-width: 720px) {
+    .bbd-padcard { gap: 10px; padding: 10px; } .bbd-led { min-width: 110px; font-size: 42px; letter-spacing: 3px; padding: 0 10px; }
+    .bbd-keys { grid-template-columns: repeat(3, 56px); gap: 6px; } .bbd-key { height: 56px; font-size: 30px; }
   }`);
 
   const BUS_SVG = '<svg viewBox="0 0 120 56" aria-hidden="true"><rect x="4" y="6" width="92" height="38" rx="10" fill="#fff6e0"/>'
