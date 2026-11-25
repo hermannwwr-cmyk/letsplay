@@ -248,6 +248,7 @@
     { id: 'expressEast', name: 'Expressway East', say: 'the expressway', pic: 'city', from: 'H1', to: 'NE', t: 0.5, toward: [114, -150] },
     { id: 'airportRoad', name: 'Airport Road', say: 'the airport road', pic: 'plane', from: 'NE', to: 'AJ', t: 0.5, toward: [300, -150] },
     { id: 'seaView', name: 'Sea View', say: 'the sea view', pic: 'beach', from: 'SWa', to: 'S1', t: 0.45, toward: [-75, 260] },
+    { id: 'lanterns', name: 'Lantern Street', say: 'lantern street', pic: 'lantern', from: 'W1', to: 'SWb', t: 0.67, toward: [-260, 91] },
     { id: 'seaside', name: 'Seaside', say: 'the seaside', pic: 'beach', from: 'SEb', to: 'E1', t: 0.15, toward: [260, 132] },
   ];
   function placeOnKerb(def) {
