@@ -403,13 +403,32 @@
     pumpScreen.position.set(0, 1.85, 0.41); pump.add(pumpScreen);
     BB.scene.add(pump);
   }
+  // How far the front carriage's nose is ahead of its centre (its own +z), measured from its meshes, so the pump
+  // stands clear of every bus type and every garage view (a 12 m single-decker's nose is much further out than the
+  // bendy's front half).
+  const _inv = new THREE.Matrix4(), _rel = new THREE.Matrix4(), _bb = new THREE.Box3();
+  function noseAhead() {
+    const f = BB.bus.front; if (!f) return 3.7;
+    f.updateMatrixWorld(true); _inv.copy(f.matrixWorld).invert();
+    let z = -Infinity;
+    f.traverse((o) => {
+      if (!o.isMesh || !o.geometry || o.name === 'sticker') return;
+      const m = Array.isArray(o.material) ? o.material[0] : o.material;
+      if (m && (m.transparent || m.blending === THREE.AdditiveBlending)) return;   // (headlight beams reach far ahead)
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+      _bb.copy(o.geometry.boundingBox).applyMatrix4(_rel.multiplyMatrices(_inv, o.matrixWorld));
+      z = Math.max(z, _bb.max.z);
+    });
+    return isFinite(z) && z > 1 && z < 14 ? z : 3.7;
+  }
   function placeProps() {
     const B = BB.bus; if (!lift || !B.front) return;
     pivot.set((B.front.position.x + B.rear.position.x) / 2, 0, (B.front.position.z + B.rear.position.z) / 2);
     lift.position.set(pivot.x, -0.6, pivot.z); lift.rotation.y = B.heading; lift.visible = true;
     const h = B.heading, fx = Math.sin(h), fz = Math.cos(h), kx = Math.cos(h), kz = -Math.sin(h);
-    const nx = B.front.position.x + fx * 3.7, nz = B.front.position.z + fz * 3.7;
-    pump.position.set(nx + fx * 3.2 - kx * 0.6, 0.2, nz + fz * 3.2 - kz * 0.6);
+    const ahead = noseAhead() + 9.5;                // well past the nose (the garage views and the turntable's sway leave it out)
+    const nx = B.front.position.x + fx * ahead, nz = B.front.position.z + fz * ahead;
+    pump.position.set(nx - kx * 1.0, 0.2, nz - kz * 1.0);
     pump.rotation.y = h + Math.PI / 2 + 0.5;  // turned toward the camera on the road side
     pump.visible = true;
   }
