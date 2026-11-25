@@ -1698,7 +1698,9 @@
       for (let k = 0; k <= Math.floor(len / 4); k++) { const t = k / Math.max(1, Math.floor(len / 4)); b.box(0.18, 1.7, 0.18, '#3f8a3a', x0 + (x1 - x0) * t, 0, z0 + (z1 - z0) * t); }
       W.addBox(mx, mz, Math.abs(x1 - x0) / 2 + 0.2, Math.abs(z1 - z0) / 2 + 0.2, 0, 1.4);
     };
-    fence(Y.x0, Y.z0, Y.x1, Y.z0); fence(Y.x0, Y.z1, Y.x1, Y.z1); fence(Y.x1, Y.z0, Y.x1, Y.z1);
+    // (the south fence has a gap at the wash, so its show can be watched from the waterfront)
+    fence(Y.x0, Y.z0, Y.x1, Y.z0); fence(Y.x0, Y.z1, 58, Y.z1); fence(100, Y.z1, Y.x1, Y.z1); fence(Y.x1, Y.z0, Y.x1, Y.z1);
+    b.box(42, 0.35, 0.5, P.kerb, 79, 0, Y.z1);
     fence(Y.x0, Y.z0, Y.x0, 112); fence(Y.x0, 140, Y.x0, 154);
     // the middle island: painted bays and a row of parked buses (all three kinds), nose to the north aisle
     b.box(70, 0.06, 18.4, '#c9c1b3', 81, 0, 147);
@@ -2098,7 +2100,7 @@
     for (let i = 0; i < FOAM_N; i++) {
       const q = P0[i];
       q.life -= dt;
-      if (q.life <= 0 && emit && Math.random() < dt * 9) {
+      if (q.life <= 0 && emit && Math.random() < dt * 22) {
         const side = Math.random() < 0.5 ? -1 : 1, a = along + (Math.random() - 0.5) * (rinse ? 12 : 3);
         q.x = wb.x + wb.fwd.x * a + wb.side.x * side * (1.0 + Math.random() * 0.6); q.z = wb.z + wb.fwd.z * a + wb.side.z * side * (1.0 + Math.random() * 0.6);
         q.y = rinse ? 4.6 : 0.6 + Math.random() * 3.0; q.vy = rinse ? -6 - Math.random() * 3 : 0.3 + Math.random() * 0.5; q.life = rinse ? 0.7 : spark ? 0.5 : 1.4 + Math.random();
@@ -2108,7 +2110,7 @@
       if (q.life > 0) { q.y = Math.max(0.1, q.y + q.vy * dt); pos[i * 3] = q.x; pos[i * 3 + 1] = q.y; pos[i * 3 + 2] = q.z; }
       else { pos[i * 3 + 1] = -50; }
     }
-    washFx.material.size = rinse ? 0.3 : spark ? 0.4 : 0.6;
+    washFx.material.size = rinse ? 0.35 : spark ? 0.45 : 0.8;
     washFx.geometry.attributes.position.needsUpdate = true; washFx.geometry.attributes.color.needsUpdate = true;
   };
 

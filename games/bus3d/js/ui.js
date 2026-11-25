@@ -507,7 +507,7 @@
       if (!done && tries > 0 && !washRoute) BB.later(400, () => put(tries - 1));
       renderJob(); syncWash();
     };
-    put(25);
+    put(50);
   }
   U.goWash = function () {
     if (!washOK() || washing || washRoute || BB.bedtime) return;
