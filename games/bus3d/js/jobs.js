@@ -128,10 +128,13 @@
   function pickTheme() {
     if (level() < 1 || (BB.save.jobsDone | 0) < 3) return null;     // the first jobs stay close to home
     if ((J.sinceSpecial == null ? 2 : J.sinceSpecial) < 2 || Math.random() > 0.5) return null;
+    // only when the themed stop is near enough by road (about 400 units), so no long trip across the map
+    const here = BB.bus.atStop || J.lastStop;
+    const near = (id) => { const st = themeStop(id); if (!st) return id === 'school'; return st !== here && stopDist(here && okStop(here) ? here : null, st) <= 400; };
     const ok = [];
-    if (morning()) ok.push('school');
-    if (stopLike(/airport/i)) ok.push('airport');
-    if (stopLike(/beach|park/i)) ok.push('party');
+    if (morning() && near('school')) ok.push('school');
+    if (stopLike(/airport/i) && near('airport')) ok.push('airport');
+    if (stopLike(/beach|park/i) && near('party')) ok.push('party');
     return ok.length ? BB.pick(ok) : null;
   }
   function themeStop(id) {
@@ -1701,15 +1704,15 @@
   // the fire: a kiosk with a 2x5 grid of windows (the smoky ones puff smoke) and firefighters spraying water
   function fireScene(smoky) {
     const G = sceneGeos(), f = doorFrame(false);
-    const face = Math.atan2(f.ox, f.oz), base = kerbSpot(7.5, 9.5, false);
+    const face = Math.atan2(f.ox, f.oz), base = kerbSpot(3.2, 12.5, false);   // ahead of the engine, beside the camera's view (not in front of it)
     const kiosk = scnMesh(G.kiosk, base, face, false); SCN.extra.push(kiosk);
     const winPos = (i) => { const r = Math.floor(i / 5), c = i % 5, side = (c - 2) * 1.25; return new THREE.Vector3(base.x + f.ox * 1.55 + f.fx * side, GROUND + (r ? 1.25 : 2.55), base.z + f.oz * 1.55 + f.fz * side); };
     const smoke = [];
     for (let i = 0; i < 10; i++) {
       SCN.extra.push(scnMesh(G.win, winPos(i), face, false));
-      if (i < smoky) { const s2 = scnMesh(G.smoke, winPos(i).add(new THREE.Vector3(f.ox * 0.2, 0.2, f.oz * 0.2)), face, false); smoke[i] = s2; SCN.extra.push(s2); }
+      if (i < smoky) { const s2 = scnMesh(G.smoke, winPos(i).add(new THREE.Vector3(f.ox * 0.8, 0.5, f.oz * 0.8)), face, false); s2.scale.setScalar(1.3); smoke[i] = s2; SCN.extra.push(s2); }   // out in front of the window, seen from any camera
     }
-    const slot = tray(3.2, 6.5, 1.1, 1.1);
+    const slot = tray(2.8, 8.0, 1.05, 1.1);
     const fighter = (i, pop) => {
       const m = scnMesh(G.fighter, slot(i), Math.atan2(f.fx, f.fz), pop);          // facing the kiosk
       const jet = new THREE.Mesh(G.jet, BB.mk.mat); jet.position.set(0.2, 1.1, 0.3); jet.rotation.x = 1.05; m.add(jet);
@@ -1725,7 +1728,7 @@
       windows: {
         show() {},
         add() {},
-        remove(i) { const s2 = smoke[i]; if (!s2) return; smoke[i] = null; tween(0.8, (t) => s2.scale.setScalar(Math.max(0.01, 1 - t))).then(() => scnDrop(s2)); },
+        remove(i) { const s2 = smoke[i]; if (!s2) return; smoke[i] = null; tween(0.8, (t) => s2.scale.setScalar(Math.max(0.01, 1.3 * (1 - t)))).then(() => scnDrop(s2)); },
         points: () => [base, winPos(0), winPos(4), winPos(5), winPos(9)],
       },
     };
