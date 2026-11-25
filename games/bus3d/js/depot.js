@@ -82,6 +82,9 @@
   S.stickers = S.stickers.filter((id) => STICKERS.some((s) => s.id === id)).slice(0, slots());
   // Old saves: hats are gone from the shop (their coins come back quietly); "bright lights" became roof lamps.
   if (BB.saveMigrate && BB.saveMigrate.hatRefund) { D.cash += BB.saveMigrate.hatRefund; BB.store.set('cash', D.cash); }
+  // A bus wash paid for but not finished (the page was closed or reloaded mid-wash): the coins come back, quietly.
+  // (A wash that did finish has cleaned the bus; then the flag just goes.)
+  if (S.washPaid > 0) { if (S.dirt > 0.15) { D.cash += S.washPaid; BB.store.set('cash', D.cash); } S.washPaid = 0; }
   if (S.upgrades.lights) { delete S.upgrades.lights; if (!S.partsOwned.includes('lights:roof')) S.partsOwned.push('lights:roof'); }
   BB.saveNow();
 
@@ -653,7 +656,37 @@
   @media (max-height: 560px) and (max-width: 720px) {
     .bbd-padcard { gap: 10px; padding: 10px; } .bbd-led { min-width: 110px; font-size: 42px; letter-spacing: 3px; padding: 0 10px; }
     .bbd-keys { grid-template-columns: repeat(3, 56px); gap: 6px; } .bbd-key { height: 56px; font-size: 30px; }
-  }`);
+  }
+  /* "more below": a little bouncing arrow over the bottom of the tiles while there is more to scroll to (a tap scrolls
+     on). It sits in a zero-height strip between the tiles and Drive, so it never covers the Drive button. */
+  .bbd-morewrap { flex: none; height: 0; position: relative; z-index: 2; margin-top: -10px; pointer-events: none; }
+  .bbd-more { position: absolute; left: 50%; bottom: 4px; width: 64px; height: 36px; margin-left: -32px; padding: 0; box-sizing: border-box; display: none;
+    border-radius: 18px; border: 3px solid #d9b57f; background: #fff6e0; box-shadow: 0 3px 0 rgba(120,80,40,.18); cursor: pointer; touch-action: manipulation;
+    pointer-events: auto; animation: bbd-more 1.2s ease-in-out infinite; }
+  .bbd-more.on { display: block; }
+  .bbd-more svg { display: block; width: 28px; height: 20px; margin: 5px auto 0; pointer-events: none; }
+  @keyframes bbd-more { 50% { transform: translateY(4px); } }
+  @media (max-height: 560px) { .bbd-morewrap { margin-top: -6px; } }
+  /* small phones held sideways (iPhone SE and the like): smaller tabs and a compact Drive button, so more of the panel is
+     tiles; the tiles scroll above Drive and nothing goes under it */
+  @media (max-height: 430px) {
+    .bbd { gap: 5px; }
+    .bbd-morewrap { margin-top: -5px; }
+    .bbd-more { width: 56px; height: 30px; margin-left: -28px; bottom: -20px; border-radius: 15px; } .bbd-more svg { width: 24px; height: 17px; margin-top: 4px; }
+    .bbd-tab { height: 56px; font-size: 13px; border-radius: 17px; } .bbd-tab canvas { width: 30px; height: 30px; }
+    .bbd-tab .n { top: -6px; right: -4px; min-width: 24px; height: 24px; font-size: 15px; line-height: 24px; }
+    .bbd-sub { height: 56px; }
+    .bbd-body { padding-top: 11px; padding-bottom: 16px; }
+    .bbd-body.more { -webkit-mask-image: linear-gradient(#000 calc(100% - 26px), transparent); mask-image: linear-gradient(#000 calc(100% - 26px), transparent); }
+    .bbd-go, .bbd-go.start { height: 56px; margin-top: 3px; font-size: 26px; border-radius: 20px; gap: 10px; box-shadow: inset -4px -5px 0 rgba(0,0,0,.08), 0 5px 0 #2370ad; }
+    .bbd-go svg { height: 30px; }
+    .bbd-go.start { animation: bbd-gopulse-s 1.3s ease-in-out infinite; }
+    .bbd-go.start.call { animation: bbd-gopulse-s 1.3s ease-in-out infinite, bbd-wiggle .9s ease-in-out 2; }
+    .bbd-go.pressed { box-shadow: 0 1px 0 #2370ad; }
+  }
+  @keyframes bbd-gopulse-s { 50% { box-shadow: inset -4px -5px 0 rgba(0,0,0,.08), 0 5px 0 #2370ad, 0 0 0 5px rgba(79,163,224,.4); } }
+  @media (max-height: 430px) and (max-width: 640px) { .bbd { padding-left: 8px; } .bbd-subs { gap: 3px; } .bbd-sub { padding: 3px 0 5px; } .bbd-tabs { gap: 6px; } }
+  @media (max-height: 340px) { #ui { --tw: 60px; --th: 72px; --tic: 38px; } .bbd-body { gap: 6px 10px; } .bbd-tiles { gap: 8px; } }`);
 
   const BUS_SVG = '<svg viewBox="0 0 120 56" aria-hidden="true"><rect x="4" y="6" width="92" height="38" rx="10" fill="#fff6e0"/>'
     + '<rect x="12" y="13" width="18" height="14" rx="3" fill="#2f7fbc"/><rect x="34" y="13" width="18" height="14" rx="3" fill="#2f7fbc"/><rect x="56" y="13" width="18" height="14" rx="3" fill="#2f7fbc"/>'
@@ -860,7 +893,15 @@
   function closePad() { if (padEl) { padEl.remove(); padEl = null; camTo(camFor()); } }
 
   // the fade at the bottom of the tiles only while there is more to scroll to
-  function syncMore() { if (bodyEl) bodyEl.classList.toggle('more', bodyEl.scrollHeight - bodyEl.scrollTop - bodyEl.clientHeight > 8); }
+  let moreEl = null;
+  function syncMore() {
+    if (!bodyEl) return;
+    // (more than the empty space under the last row is still to come)
+    let pad = 12; try { pad = parseFloat(getComputedStyle(bodyEl).paddingBottom) || 12; } catch (e) { /* ignore */ }
+    const more = bodyEl.scrollHeight - bodyEl.scrollTop - bodyEl.clientHeight > pad + 12;
+    bodyEl.classList.toggle('more', more);
+    if (moreEl) moreEl.classList.toggle('on', more);
+  }
   // Start screen, nothing tapped for a while: "Tap the blue Drive button!" (after ~10 s, once more after ~25 s).
   let lastTap = 0, calls = 0, idleT = null;
   addEventListener('pointerup', () => { lastTap = performance.now(); }, { passive: true });
@@ -1088,7 +1129,7 @@
     } else BB.el('div', 'bbd-hint fam', bodyEl, 'Show these pictures on another iPad to play together!');
     const acts = BB.el('div', 'bbd-tiles', bodyEl);
     tile(acts, N.pic('join', 160), { i: n++, wide: true, label: 'Join a family', tap: () => { BB.sfx.pop(); N.enterFamily(); } });
-    const nf = tile(acts, N.pic('make', 160), { i: n++, label: 'New family', tap: () => askNewFamily() });
+    const nf = tile(acts, N.pic('make', 160), { i: n++, wide: true, label: 'New family', tap: () => askNewFamily() });
     nf.classList.add('small');
   }
   function askNewFamily() {
@@ -1128,12 +1169,18 @@
     }
   }
   function setShop(id, quiet) {
+    const same = id === shopTab;
     shopTab = id;
     if (preview) { preview = null; D.applyLooks(); }
     bodyEl.scrollTop = 0;
     renderBody(true);
     camTo(camFor());
-    if (!quiet) { BB.sfx.click(); BB.say((SHOP.find((t) => t.id === id) || {}).say || ''); }
+    if (!quiet) {
+      BB.sfx.click();
+      // (the shop's opening line already ends with its first kind: "The shop! ... Stickers!"; don't say it twice)
+      const line = (SHOP.find((t) => t.id === id) || {}).say || '';
+      if (!(same && BB.speaking() && String(BB.lastSay() || '').endsWith(line))) BB.say(line);
+    }
   }
   function syncNetBadge() {
     const t = panel && panel.querySelector('.bbd-tab[data-tab="together"]'); if (!t) return;
@@ -1161,6 +1208,10 @@
     }
     bodyEl = BB.el('div', 'bbd-body', panel);
     bodyEl.addEventListener('scroll', syncMore, { passive: true });
+    moreEl = BB.el('button', 'bbd-more', BB.el('div', 'bbd-morewrap', panel),
+      '<svg viewBox="0 0 28 20" aria-hidden="true"><path d="M4 5 L14 15 L24 5" stroke="#b07a3c" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+    moreEl.type = 'button'; moreEl.setAttribute('aria-label', 'More');
+    BB.tap(moreEl, () => { if (!bodyEl) return; BB.sfx.click(); try { bodyEl.scrollBy({ top: bodyEl.clientHeight * 0.7, behavior: 'smooth' }); } catch (e) { bodyEl.scrollTop += bodyEl.clientHeight * 0.7; } });
     const go = BB.el('button', 'bbd-go', panel, BUS_SVG + '<span>Drive!</span>');
     go.type = 'button'; go.setAttribute('aria-label', 'Drive');
     BB.tap(go, () => { BB.sfx.pop(); D.close(); });
@@ -1220,7 +1271,7 @@
     if (BB.bus.fuel < 0.98) BB.bus.refuel(1);   // never leave the garage hungry
     preview = null; D.applyLooks();
     for (const el of [panel, awning, statusEl]) if (el) el.remove();
-    panel = awning = statusEl = bodyEl = cashBox = cashSpan = goalEl = tankEl = fuelBtn = null;
+    panel = awning = statusEl = bodyEl = cashBox = cashSpan = goalEl = tankEl = fuelBtn = moreEl = null;
     if (home && BB.jobs.phase === 'depot') BB.jobs.phase = 'home';
     if (!home) BB.bus.setCamera('chase');
     BB.emit('depot:closed', { start, home });

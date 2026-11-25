@@ -283,6 +283,31 @@
   @media (orientation: portrait) { .bbu-turn.standalone { display: flex; } }
   /* narrower screens: the clock moves under Coins */
   @media (max-width: 900px) { .bbu-top .bbu-clock { position: absolute; left: 0; top: calc(var(--bh) + 8px); margin-top: 0; font-size: 25px; } .bbu-top .bbu-clock svg { width: 30px; height: 30px; } }
+  /* small phones held sideways: the wheel, the pedals and the joystick are sized from the height (the wheel at most
+     about 40% of it), lifted a little off the bottom edge so their shadows and glows show, and never under 64 px */
+  @media (max-height: 430px) {
+    #ui { --wh: clamp(118px, 39vh, 136px); --joy: clamp(118px, 39vh, 132px); --pgw: 86px; --pgh: clamp(92px, 29vh, 106px);
+      --pbw: 66px; --pbh: clamp(72px, 23vh, 82px); --cb: calc(var(--sb) + 4px); }
+    .bbu-wheel, .bbu-ped, .bbu-joy, .bbu-horn, .bbu-wash { bottom: var(--cb); }
+    .ctl-wheel .bbu-assist { bottom: var(--cb); }
+    .bbu-assist { bottom: calc(var(--cb) + var(--dh) + 12px); }
+    .ctl-wheel .bbu-wash { bottom: calc(var(--cb) + var(--dh) + 12px); }
+    .bbu-uturn { bottom: calc(var(--cb) + var(--joy) + 12px); }
+    .ctl-wheel .bbu-uturn { bottom: calc(var(--cb) + var(--pgh) + 14px); }
+    .bbu-tip { bottom: calc(var(--cb) + var(--joy) / 4); }
+    .bbu-tip.wheelhand { bottom: calc(var(--cb) + var(--wh) * .65); } .bbu-tip.pedalhand { bottom: calc(var(--cb) + var(--pgh) / 4); }
+    .bbu-ped .lb { font-size: calc(var(--lb) + 3px); }
+    .bbu-ped.go.nudge { animation-name: bbu-pednudge-s; } .bbu-joy.nudge { animation-name: bbu-nudge-s; }
+  }
+  /* ... and narrow too (568 wide): in the wheel layout Helper goes above Horn, and Wash beside it */
+  @media (max-height: 430px) and (max-width: 640px) {
+    .ctl-wheel .bbu-assist { left: calc(var(--sl) + 6px + var(--wh) + 16px); bottom: calc(var(--cb) + var(--dh) + 12px); }
+    .ctl-wheel.lefty .bbu-assist { left: auto; right: calc(var(--sr) + 6px + var(--wh) + 16px); }
+    .ctl-wheel .bbu-wash { left: calc(var(--sl) + 6px + var(--wh) + 16px + var(--dt) + 12px); bottom: var(--cb); }
+    .ctl-wheel.lefty .bbu-wash { left: auto; right: calc(var(--sr) + 6px + var(--wh) + 16px + var(--dt) + 12px); }
+  }
+  @keyframes bbu-pednudge-s { 50% { box-shadow: 0 8px 0 #24702d, 0 0 0 9px rgba(255,212,92,.55); } }
+  @keyframes bbu-nudge-s { 50% { box-shadow: inset -6px -8px 0 rgba(217,181,127,.4), 0 6px 0 rgba(120,80,40,.2), 0 0 0 9px rgba(255,212,92,.55); } }
   `);
 
   function darkHex(c, t = 0.22) { return BB.dark ? BB.dark(c, t) : c; }
@@ -530,7 +555,7 @@
   const washOK = () => !!(BB.bus && BB.bus.washBay && typeof BB.bus.wash === 'function');
   const dirt = () => (BB.bus && typeof BB.bus.dirt === 'number' ? BB.bus.dirt : +BB.save.dirt || 0);
   const dusty = () => dirt() > 0.4;
-  let washRoute = null, washing = false, washDeclined = false;
+  let washRoute = null, washing = false, washDeclined = false, washAsk = false;
   function syncWash() {
     if (!washBtn) return;
     const ph = BB.jobs.phase;
@@ -565,9 +590,12 @@
     U.releaseAll();
     if (!dusty() && dirt() < 0.15) { BB.say('Your bus is already clean and shiny!'); if (washRoute) washBack(); return; }
     const price = BB.el('div', 'price', null); price.appendChild(BB.iconEl('coin', 96)); BB.el('span', '', price, String(WASH_PRICE));
+    washAsk = true;
     U.ask({ pic: 'wash', words: 'Wash the bus?', extra: price, say: `A wash costs ${WASH_PRICE} coins. Wash the bus?`,
-      yes: () => payWash(), no: () => { washDeclined = true; BB.say('OK! Maybe next time.'); washBack(); } });
+      yes: () => { washAsk = false; payWash(); }, no: () => { washAsk = false; washDeclined = true; BB.say('OK! Maybe next time.'); washBack(); } });
   };
+  // The wash card, or the wash itself, is on: bedtime waits for it (main.js), like it waits for a question.
+  U.washBusy = () => washing || (washAsk && !!askEl);
   function payWash() {
     const cash = BB.depot.cash;
     if (cash < WASH_PRICE) {
@@ -577,11 +605,12 @@
     }
     flyCoinsOut(WASH_PRICE); BB.sfx.jingle();
     BB.depot.spend(WASH_PRICE);
+    BB.save.washPaid = WASH_PRICE; BB.saveNow();      // (until the wash finishes: a reload mid-wash gives the coins back)
     washing = true; syncWash();
     BB.later(700, () => {
       let r = false;
       try { r = BB.bus.wash(); } catch (e) { console.error(e); }
-      if (r === false) { washing = false; BB.depot.add(WASH_PRICE); BB.say("Let's drive right into the bus wash first!"); washBack(); return; }   // (coins back)
+      if (r === false) { washing = false; BB.save.washPaid = 0; BB.saveNow(); BB.depot.add(WASH_PRICE); BB.say("Let's drive right into the bus wash first!"); washBack(); return; }   // (coins back)
       if (r && r.then) r.then(() => washDone(), () => washDone());
     });
     // never stuck: if bus.js never says it's done (the show itself runs ~6.4 s on the game clock)
@@ -590,7 +619,8 @@
   }
   function washDone() {
     if (!washing) return;
-    washing = false;
+    washing = false; washAsk = false;
+    BB.save.washPaid = 0; BB.saveNow();
     BB.sfx.sparkle(); BB.say('Sparkly clean!');
     U.toast('✨', 1600); U.confetti(0.5);
     washBack();

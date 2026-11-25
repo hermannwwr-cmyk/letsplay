@@ -11,6 +11,9 @@
   // their size. These go into the shared config (bus.js reads lane/roadHalf too): kerb lane centre 6.7 from the
   // middle, inner lane 2.5, road half-width 9.2.
   C.block = 56; C.roadHalf = 9.2; C.lane = 6.7; C.laneInner = 2.5; C.laneDivider = 4.6;
+  // Fuel for the big map (legs of 200-900 units, a job of 2-3 stops about 1,300): a full tank lasts 3-4 jobs before
+  // the "getting low" trip to the depot (C.fuelLow).
+  C.fuelPerUnit = 1 / 6500;
   const S = C.block, RH = C.roadHalf;
   const K = S / 46;                              // the layout was first drawn for 46-unit blocks: older numbers x K
   const g = (i) => (i - 1.5) * S;                // grid line -> world coordinate (-69, -23, 23, 69)
@@ -202,7 +205,9 @@
     { id: 'playground', name: 'Playground', say: 'the playground', pic: 'slide', from: 'n13', to: 'n23', t: 0.5, toward: [0, S] },
     { id: 'mrt', name: 'MRT Station', say: 'the MRT station', pic: 'train', from: 'n21', to: 'n22', t: 0.55, toward: [S, 0] },
     // the wider map
-    { id: 'airport', name: 'Airport', say: 'the airport', pic: 'plane', from: 'AP1', to: 'AP2', t: 0.5, toward: [430, HZ - 56] },
+    // (on the terminal's side of the drop-off road: the bus comes straight down from the expressway into it, and goes
+    // round the loop after; the old bay on the loop side was only reachable by a tight 90-degree turn off the loop)
+    { id: 'airport', name: 'Airport', say: 'the airport', pic: 'plane', from: 'AP1', to: 'AP2', t: 0.55, toward: [360, HZ - 56] },
     { id: 'city', name: 'City', say: 'the city', pic: 'city', from: 'E1', to: 'NE', t: 0.37, toward: [260, -50] },
     { id: 'chinatown', name: 'Old Town', say: 'old town', pic: 'lantern', from: 'W1', to: 'SWb', t: 0.45, toward: [-150, 50] },
     { id: 'beach', name: 'Beach', say: 'the beach', pic: 'beach', from: 'S1', to: 'SEa', t: 0.68, toward: [118, 260] },
@@ -234,6 +239,40 @@
   W.YARD = { x0: 37.2, x1: 188, z0: 104, z1: 178 };
   W.inDepotYard = (x, z) => x > W.YARD.x0 && x < W.YARD.x1 && z > W.YARD.z0 && z < W.YARD.z1;
   W.stopById = (id) => id === 'depot' ? W.depot : id === 'wash' ? W.washBay : W.stops.find((s) => s.id === id);
+  // Road distance (world units, along the kerb-lane way, no U-turns) from stop a's bay, driving on in a's direction,
+  // to stop b's bay approached in b's direction. a and b: stops (W.stops, W.depot, W.washBay) or their ids.
+  // Cached. For jobs.js: pick nearer stops early on (W.stopsByDistance(from) lists them nearest first).
+  const distCache = {};
+  W.stopDistance = function (a, b) {
+    a = typeof a === 'string' ? W.stopById(a) : a; b = typeof b === 'string' ? W.stopById(b) : b;
+    if (!a || !b) return Infinity;
+    if (a === b) return 0;
+    const key = a.id + '>' + b.id;
+    if (distCache[key] != null) return distCache[key];
+    const ea = edgeById[a.edge], eb = edgeById[b.edge];
+    let best = Infinity;
+    if (ea === eb && a.dir === b.dir && (b.s - a.s) * a.dir > 0) best = Math.abs(b.s - a.s);
+    const entry = b.dir > 0 ? eb.a : eb.b, tail = b.dir > 0 ? b.s : eb.length - b.s;
+    const dist = {}, open = [];
+    const push = (e, d, c) => { const k = e.id + (d > 0 ? '+' : '-'); if (dist[k] == null || c < dist[k]) { dist[k] = c; open.push({ e, d, k }); } };
+    push(ea, a.dir, a.dir > 0 ? ea.length - a.s : a.s);
+    while (open.length) {
+      open.sort((p, q) => dist[p.k] - dist[q.k]);
+      const it = open.shift(), c0 = dist[it.k];
+      if (c0 >= best) break;
+      const n = it.d > 0 ? it.e.b : it.e.a;
+      if (n === entry && !(it.e === eb)) best = Math.min(best, c0 + tail);
+      for (const id of nodeById[n].edges) {
+        const e2 = edgeById[id]; if (e2 === it.e) continue;          // (no U-turns)
+        push(e2, e2.a === n ? 1 : -1, c0 + e2.length);
+      }
+    }
+    return (distCache[key] = best);
+  };
+  W.stopsByDistance = function (from, list) {
+    from = typeof from === 'string' ? W.stopById(from) : from;
+    return (list || W.stops).filter((s) => s && s !== from).map((s) => ({ s, d: from ? W.stopDistance(from, s) : 0 })).sort((p, q) => p.d - q.d).map((o) => o.s);
+  };
 
 
   // ---------- building the scene ----------
@@ -920,7 +959,7 @@
       if (e.points.length > 2) continue;           // not along the loop's curves (they'd crowd the kerb lane there)
       if (e.kind === 'yard') continue;
       const step = e.kind === 'town' ? 11 : 26, off = e.half + 1.3;
-      for (let s = 18 + (e.half - RH); s < e.length - 15 - (e.half - RH); s += step) {   // (not right at the junctions: a turning bendy's rear cuts in there)
+      for (let s = junctionClear(e, e.a, 18); s < e.length - junctionClear(e, e.b, 15); s += step) {   // (not right at the junctions: a turning bendy's rear cuts in there)
         const p = W.pointAt(e, s);
         for (const side of [1, -1]) {
           const x = p.x + p.dz * side * off, z = p.z - p.dx * side * off;
@@ -935,6 +974,12 @@
     }
   }
   const inDepotYard = (x, z) => W.inDepotYard(x, z);
+  // How far from an edge's end node street trees and lamp posts start: well clear of a junction (a turning bus swings
+  // its front out and cuts in with its rear carriage there, on both sides), closer at a plain bend.
+  function junctionClear(e, nid, base) {
+    const n = nodeById[nid], extra = e.half - RH;
+    return n && n.edges.length >= 3 ? Math.max(base, 32) + extra : base + extra;
+  }
   // Areas kept for the new districts (no scattered trees or estates there): [x0, z0, x1, z1]
   const RESERVED = [
     [W.YARD.x0 - 2, W.YARD.z0 - 4, W.YARD.x1 + 2, W.YARD.z1 + 2],          // the depot
@@ -1540,7 +1585,7 @@
     for (const e of W.roads.edges) {
       if (e.points.length > 2) continue;           // none on the loop's curves (they'd stand in the inside lane's way)
       if (e.kind === 'yard') continue;
-      for (let s = 20 + (e.half - RH), k = 0; s < e.length - 15 - (e.half - RH); s += e.kind === 'town' ? 24 : 34, k++) {
+      for (let s = junctionClear(e, e.a, 20), k = 0; s < e.length - junctionClear(e, e.b, 15); s += e.kind === 'town' ? 24 : 34, k++) {
         const p = W.pointAt(e, s), side = k % 2 ? 1 : -1;
         const x = p.x + p.dz * side * (e.half + 0.7), z = p.z - p.dx * side * (e.half + 0.7);
         if (inDepotYard(x, z)) continue;

@@ -60,6 +60,7 @@
     paint: 'green', upgrades: {}, stickers: [], fuel: 1, jobsDone: 0, questions: 0, seen: {},
     paints: ['green'], stickersOwned: [], parts: {}, partsOwned: [],
     busType: null, routeNo: '88', assist: false, leftHand: false, control: 'joystick', xmas: 'auto', dirt: 0, spotted: {}, friendsMet: [],
+    washPaid: 0,                 // coins paid for a bus wash that hasn't finished yet (a reload mid-wash gives them back)
   });
   // Hats were sold in an earlier build; they're gone from the shop, and depot.js gives their coins back.
   const HAT_PRICES = { party: 5, flowers: 6, bunny: 8, crown: 10 };
@@ -80,6 +81,7 @@
       s.dirt = Math.max(0, Math.min(1, +s.dirt || 0));     // (how dusty the bus is: only looks, bus.js)
       if (Array.isArray(got.hatsOwned)) BB.saveMigrate.hatRefund = got.hatsOwned.reduce((n, id) => n + (HAT_PRICES[id] || 0), 0);
       s.fuel = Math.max(0, Math.min(1, +s.fuel || 0));
+      s.washPaid = Math.max(0, Math.min(10, +s.washPaid | 0));
     }
     return s;
   })();
@@ -368,6 +370,74 @@
           paper(x, (p) => rrP(p, 75, 62, 13, 20, 4), '#5a5260', { depth: 0.4 });
           dot(x, 40, 60, 6, BB.dark(P.coral, 0.25));
           break;
+        // ----- the newer stops: chunky shapes that still read at 34-40 px on the Next stop tile -----
+        case 'plane':                 // an airliner seen from above, climbing up-right, on a round patch of sky
+          paper(x, (p) => arcP(p, 50, 50, 45), '#cdeaf8', { depth: 0.3, rimColor: '#9cc7dc' });
+          paper(x, (p) => { arcP(p, 24, 74, 8); arcP(p, 34, 70, 10); arcP(p, 44, 76, 7); }, '#ffffff', { depth: 0.2, rimColor: '#c9dceb', rimW: 1.6 });
+          x.save(); x.translate(52, 48); x.rotate(Math.PI / 4);
+          paper(x, (p) => { p.moveTo(-6, -4); p.lineTo(-40, 12); p.lineTo(-40, 20); p.lineTo(-6, 12); p.closePath(); p.moveTo(6, -4); p.lineTo(40, 12); p.lineTo(40, 20); p.lineTo(6, 12); p.closePath(); }, '#9aa4b0', { depth: 0.3 });
+          paper(x, (p) => { p.moveTo(-5, 28); p.lineTo(-17, 37); p.lineTo(-17, 42); p.lineTo(-5, 38); p.closePath(); p.moveTo(5, 28); p.lineTo(17, 37); p.lineTo(17, 42); p.lineTo(5, 38); p.closePath(); }, P.coral, { depth: 0.3, rimW: 1.6 });
+          paper(x, (p) => { p.moveTo(0, -42); p.quadraticCurveTo(9, -38, 9, -24); p.lineTo(8, 34); p.quadraticCurveTo(0, 44, -8, 34); p.lineTo(-9, -24); p.quadraticCurveTo(-9, -38, 0, -42); p.closePath(); }, '#fbf8f2', { rimColor: '#b9c2cc' });
+          paper(x, (p) => p.ellipse(0, -31, 5, 4, 0, 0, Math.PI * 2), P.glassDark, { depth: 0.2, rim: false });
+          x.restore();
+          break;
+        case 'city':                  // four towers
+          for (const [X, Y, Wd, c] of [[8, 40, 20, '#9cc7dc'], [29, 16, 21, '#8fe0c4'], [52, 30, 19, '#ffd45c'], [72, 8, 20, '#7fb6e6']]) {
+            paper(x, (p) => rrP(p, X, Y, Wd, 90 - Y, 3), c, { depth: 0.5 });
+            x.fillStyle = 'rgba(255,255,255,.65)'; for (let yy = Y + 7; yy < 84; yy += 9) x.fillRect(X + 4, yy, Wd - 9, 3.5);
+          }
+          paper(x, (p) => rrP(p, 4, 86, 92, 8, 3), '#8a8290', { depth: 0.3 });
+          break;
+        case 'lantern':               // a red paper lantern
+          BB.paperStroke(x, (p) => { p.moveTo(50, 3); p.lineTo(50, 18); }, '#7a5a3a', 3.5);
+          paper(x, (p) => rrP(p, 36, 14, 28, 9, 3), P.honey, { depth: 0.3 });
+          paper(x, (p) => p.ellipse(50, 50, 34, 30, 0, 0, Math.PI * 2), '#ef4b3c');
+          for (const dx of [-17, 0, 17]) BB.paperStroke(x, (p) => { p.moveTo(50 + dx, 23); p.quadraticCurveTo(50 + dx * 1.45, 50, 50 + dx, 77); }, '#c8352a', 2.4);
+          shine(x, 34, 38, 6, 10, 0.4, 0.35);
+          paper(x, (p) => rrP(p, 36, 76, 28, 9, 3), P.honey, { depth: 0.3 });
+          BB.paperStroke(x, (p) => { p.moveTo(44, 86); p.lineTo(42, 97); p.moveTo(50, 86); p.lineTo(50, 98); p.moveTo(56, 86); p.lineTo(58, 97); }, P.honey, 3);
+          break;
+        case 'beach':                 // sea, sand and a striped umbrella
+          paper(x, (p) => { p.moveTo(2, 58); p.lineTo(98, 58); p.lineTo(98, 82); p.lineTo(2, 82); p.closePath(); }, '#4fb6e8', { depth: 0.2, rim: false });
+          BB.paperStroke(x, (p) => { p.moveTo(10, 66); p.quadraticCurveTo(18, 62, 26, 66); p.moveTo(60, 64); p.quadraticCurveTo(68, 60, 76, 64); }, '#e8f6ff', 2.6);
+          paper(x, (p) => { p.moveTo(0, 78); p.quadraticCurveTo(50, 64, 100, 76); p.lineTo(100, 98); p.quadraticCurveTo(50, 100, 0, 98); p.closePath(); }, '#f6d98e', { depth: 0.4, rimColor: '#e2b968' });
+          BB.paperStroke(x, (p) => { p.moveTo(53, 30); p.lineTo(46, 88); }, '#8a6a48', 5);
+          paper(x, (p) => { p.moveTo(8, 38); p.quadraticCurveTo(52, -10, 96, 38); p.quadraticCurveTo(52, 30, 8, 38); p.closePath(); }, P.coral);
+          paper(x, (p) => { p.moveTo(36, 34.5); p.quadraticCurveTo(52, -2, 68, 34.5); p.quadraticCurveTo(52, 32, 36, 34.5); p.closePath(); }, '#fff6e0', { depth: 0.3, rimColor: '#e8d5b0' });
+          break;
+        case 'supertree': {           // the gardens: a grove of super-trees, each a tall trunk that branches into a leafy crown
+          paper(x, (p) => p.ellipse(50, 93, 46, 8, 0, 0, Math.PI * 2), P.grass, { depth: 0.3, rimColor: P.grassDark });
+          const tree = (cx, base, top, half, s) => {
+            // trunk: tapering, purple, with green vines climbing it
+            paper(x, (p) => { p.moveTo(cx - 6 * s, base); p.lineTo(cx - 3 * s, top + 6 * s); p.lineTo(cx + 3 * s, top + 6 * s); p.lineTo(cx + 6 * s, base); p.closePath(); }, '#8e62c8', { depth: 0.4 });
+            for (let k = 0; k < 3; k++) { const y0 = base - 6 - k * (base - top) * 0.28; BB.paperStroke(x, (p) => { p.moveTo(cx - 5 * s, y0); p.quadraticCurveTo(cx, y0 - 5 * s, cx + 4.5 * s, y0 - 9 * s); }, P.leaf, 2.2 * s); }
+            // branches fanning out of the trunk top
+            BB.paperStroke(x, (p) => {
+              for (const f of [-1, -0.5, 0, 0.5, 1]) { p.moveTo(cx, top + 8 * s); p.quadraticCurveTo(cx + f * half * 0.45, top - 2 * s, cx + f * half, top - (f === 0 ? 10 : 4 + (1 - Math.abs(f)) * 4) * s); }
+            }, '#7a4fb4', 3 * s);
+            // the leafy crown: green clumps, with pink-purple blossoms between them
+            const leaves = [[-1, 3], [-0.62, -3], [-0.22, -7], [0.22, -7], [0.62, -3], [1, 3]];
+            paper(x, (p) => { for (const [f, dy] of leaves) arcP(p, cx + f * half, top + dy * s - 2 * s, 7.5 * s); }, P.leaf, { depth: 0.4, rimColor: P.grassDark });
+            for (const [f, dy] of [[-0.82, -1], [-0.42, -5.5], [0, -9], [0.42, -5.5], [0.82, -1]]) dot(x, cx + f * half, top + dy * s - 7 * s, 3.2 * s, '#e58ad6');
+          };
+          tree(20, 90, 50, 14, 0.75);
+          tree(80, 90, 44, 15, 0.8);
+          tree(50, 94, 26, 26, 1);
+          break;
+        }
+        case 'ferris': {              // the big wheel: a thick rim, a few spokes, chunky coloured cabins, two legs
+          BB.paperStroke(x, (p) => { p.moveTo(50, 46); p.lineTo(26, 94); p.moveTo(50, 46); p.lineTo(74, 94); }, '#8a8290', 7);
+          for (let k = 0; k < 6; k++) { const a = k / 6 * Math.PI * 2 + 0.26; BB.paperStroke(x, (p) => { p.moveTo(50, 46); p.lineTo(50 + Math.cos(a) * 34, 46 + Math.sin(a) * 34); }, '#d8cfc2', 2.6); }
+          BB.paperStroke(x, (p) => p.arc(50, 46, 34, 0, Math.PI * 2), '#f4ede2', 6);
+          const cols = [P.coral, P.honey, P.teal, '#5d73e8', P.rose, P.leaf];
+          for (let k = 0; k < 6; k++) { const a = k / 6 * Math.PI * 2 + 0.26, cx = 50 + Math.cos(a) * 34, cy = 46 + Math.sin(a) * 34; paper(x, (p) => rrP(p, cx - 8, cy - 5, 16, 14, [3, 3, 6, 6]), cols[k], { depth: 0.3, rimW: 1.8 }); }
+          paper(x, (p) => arcP(p, 50, 46, 7), P.honey, { depth: 0.3 });
+          paper(x, (p) => rrP(p, 18, 90, 64, 7, 3), '#8a8290', { depth: 0.3 });
+          break;
+        }
+        case 'wash':                  // the bus wash sign: the same soapy bucket as the Wash tile
+          x.drawImage(BB.icon('wash', size * 2 > 256 ? 256 : size * 2), 0, 0, 100, 100);
+          break;
         default:
           paper(x, (p) => arcP(p, 50, 50, 40), P.plum);
       }
@@ -375,6 +445,8 @@
     picCache[key] = c;
     return c;
   };
+  // (world.js keeps older copies of the newer stops' pictures; they are drawn here now, so it leaves BB.pic alone)
+  BB.pic.extra = { plane: 1, city: 1, lantern: 1, beach: 1, supertree: 1, ferris: 1, wash: 1 };
 
   // ---------- UI icons: BB.icon(name, size) -> canvas (the HUD, the garage, the cards) ----------
   // home, garage, music, musicOff, sound, soundOff, horn, helper, helperOn, uturn, joystick, wheel, handR, handL,
@@ -1022,6 +1094,9 @@
     return new Promise((resolve) => {
       const item = { text: String(text), queue: !!opts.queue, resolve };
       if (BB.held) { waiting.push(item); return; }
+      // the same line asked for again while it is still being said (a second tap on the same tile or tab): let it
+      // finish instead of starting it over; the promise resolves when it ends
+      if (!item.queue) for (const it of active) if (it.text === item.text && !it.finished && !it.held) { const r0 = it.resolve; it.resolve = () => { r0(); resolve(); }; return; }
       speak(item);
     });
   };

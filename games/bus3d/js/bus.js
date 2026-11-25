@@ -35,6 +35,10 @@
   let R_AXLE = GAP / 2 + REAR_AXLE, R_CTR = GAP / 2 + LR / 2;   // hitch -> rear axle / rear carriage centre
   const totalLen = () => LF + GAP + LR, frontOff = () => totalLen() / 2 - LF / 2;   // front centre ahead of the middle
   const MAX_FWD = 9, MAX_BACK = 4, ACCEL = 4.2, BRAKE = 9, COAST = 5;
+  // Cruising: on the long straight outer roads and the expressway, lined up with the road and well away from the next
+  // junction or curve, the top speed eases up to MAX_CRUISE (the big map's long legs go quicker), and eases back down
+  // (gently, CRUISE_DOWN) before the end of the straight.
+  const MAX_CRUISE = 14, CRUISE_DOWN = 3.4;
   const MAX_STEER = 0.55, STEER_IN = 2.2, STEER_OUT = 3.0, MAX_BEND = 55 * Math.PI / 180;
   const W = () => BB.world;
   const wrapA = (a) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
@@ -61,7 +65,7 @@
     fx = p.fx; fz = p.fz; h = p.h; hr = p.hr;
     B.speed = 0; B.steer = 0; settle = null;
     B.atStop = stop; B.target = null; B.onArrive = null;
-    placeModel(); snapCamera();
+    placeModel(); snapCamera(); snapWall();
     refreshRibbon();
   };
   // The home screen and the garage: the bus stands in the depot's big open workshop (BB.world.workshop).
@@ -70,7 +74,7 @@
     if (!ws) { const p = poseAtBay(W().depot, false); fx = p.fx; fz = p.fz; h = hr = p.h; }
     else { const f = fwdOf(ws.heading); h = hr = ws.heading; fx = ws.x + f.x * frontOff(); fz = ws.z + f.z * frontOff(); }
     B.speed = 0; B.steer = 0; settle = null; B.inWorkshop = true; B.inWash = false;
-    placeModel();
+    placeModel(); snapWall();
   }
   B.placeAtDepot = function (camera) {
     placeWorkshop(); B.atStop = null; B.target = null; B.onArrive = null; B.doorsOpen = false;
@@ -194,6 +198,48 @@
     BB.sfx.whoosh(); BB.sfx.sparkle && BB.sfx.sparkle();
     BB.emit('bus:hopFree', {});
   }
+  // ---------- a look at something in the sky (BB.bus.lookAt) ----------
+  // B.lookAt(target, {duration, hold, slow}): the chase camera gently turns and tilts toward target (a point {x,y,z}
+  // read live every frame, so a moving Vector3 or Object3D position can be passed; or an Object3D; or a function
+  // returning a point) for duration seconds (default 4, eases included), then eases back. hold: true keeps looking
+  // until B.lookAt(null). While it lasts the bus is slowed (to about slow x its top speed, default 0.55; never below
+  // a crawl, never stopped). Refused (returns false) at a stop, pulling in, during a question, a tow, the garage, the
+  // home screen or a hop; ends early (easing back) if one of those starts. Runs on the game clock, so a hold freezes it.
+  // B.lookAt(null) eases back now. B.isLooking() -> bool. Emits 'bus:look' {on}.
+  let look = null, lookSlow = 1, lookK = 0;
+  const _lp = new THREE.Vector3();
+  function lookBlocked() {
+    return !!(B.atStop || settle || spin || B.locked || B.camMode !== 'chase' || B.inWorkshop || (BB.jobs && BB.jobs.busy && BB.jobs.busy()));
+  }
+  B.lookAt = function (target, opts) {
+    if (!target) { if (look) look.out = true; return true; }
+    if (lookBlocked()) return false;
+    opts = opts || {};
+    const was = !!look;
+    look = { target, t: 0, dur: Math.max(2, +opts.duration || 4), hold: !!opts.hold, slow: BB.clamp(opts.slow != null ? +opts.slow : 0.55, 0.3, 1), out: false };
+    if (!was) BB.emit('bus:look', { on: true });
+    return true;
+  };
+  B.isLooking = () => !!look;
+  function lookPoint() {
+    const t = look.target;
+    try {
+      if (typeof t === 'function') { const q = t(); if (q) _lp.set(+q.x || 0, +q.y || 0, +q.z || 0); }
+      else if (t.isObject3D) t.getWorldPosition(_lp);
+      else _lp.set(+t.x || 0, +t.y || 0, +t.z || 0);
+    } catch (e) { look.out = true; }
+    return _lp;
+  }
+  function updateLook(dt) {
+    if (!look) { lookK = Math.max(0, lookK - dt / 0.9); lookSlow = 1; return; }
+    look.t += dt;
+    if (lookBlocked() || look.t > 30) look.out = true;
+    const IN = 0.8, OUT = 1.0;
+    if (!look.hold && look.t > look.dur - OUT) look.out = true;
+    lookK = look.out ? Math.max(0, lookK - dt / OUT) : Math.min(1, lookK + dt / IN);
+    lookSlow = 1 - BB.smooth(lookK) * (1 - look.slow);
+    if (look.out && lookK <= 0) { look = null; lookSlow = 1; BB.emit('bus:look', { on: false }); }
+  }
   B.setLights = function (on) { B.lightsOn = !!on; if (M && M.setLights) M.setLights(!!on); };
 
   // ---------- model ----------
@@ -309,10 +355,14 @@
     });
     if (m.roofMaterial) roofMats.push({ mat: m.roofMaterial, base: m.roofMaterial.opacity, tr: m.roofMaterial.transparent });
     // the kerb-side wall above the sill (fleet buses): it fades away at stops so the bus becomes a dollhouse
+    // Outside the stop's side view the kerb wall is a solid wall: drawn opaque (with the rest of the body, so nothing
+    // behind it shows through or sorts over it) and its see-through glass tinted like the rear carriage's windows
+    // (uSolid = 1). Only while the stop view fades it does it turn see-through again.
     const wallMats = [];
-    if (m.kerbWallMaterial) wallMats.push({ mat: m.kerbWallMaterial, base: m.kerbWallMaterial.opacity, tr: m.kerbWallMaterial.transparent });
+    if (m.kerbWallMaterial) { solidGlass(m.kerbWallMaterial); wallMats.push({ mat: m.kerbWallMaterial, base: m.kerbWallMaterial.opacity, tr: false }); }
+    if (m.roofMaterial) wallMats.push({ mat: m.roofMaterial, glassOnly: true, u: solidGlass(m.roofMaterial) });   // (the road side and the doors)
     const pm = m.partMounts || {};
-    M = { type, roofParts, roofMats, wallMats, wallParts: m.kerbWallParts || [], height: m.height || 3.1, routeSign: m.routeSign || null, doorLocal: m.doorLocal || { x: 1.6, y: 0, z: LF / 2 - 1.0 },
+    M = { type, roofParts, roofMats, wallMats, roofMaterial: m.roofMaterial || null, wallParts: m.kerbWallParts || [], height: m.height || 3.1, routeSign: m.routeSign || null, doorLocal: m.doorLocal || { x: 1.6, y: 0, z: LF / 2 - 1.0 },
       roofY: m.roofY || m.height || 3.1, paintMats, setPaint: m.setPaint, setLights: m.setLights, dispose: m.dispose,
       mounts: { lights: pm.lights || pm.lightsFront, bumpersFront: pm.bumpersFront || pm.bumperFront, bumpersRear: pm.bumpersRear || pm.bumperRear, roof: pm.roofFront || null,
         glow: [pm.underglow, pm.underglowRear].filter(Boolean) } };
@@ -344,6 +394,28 @@
     partsApplied = false;
     if (B.front) placeModel();
     if (BB.scene) buildDirt();
+    snapWall();
+  }
+  // Patch a fleet body material so its side windows can look solid: uniform uSolid (1 = side-facing glass panes are
+  // opaque, tinted like the bendy's rear carriage windows; 0 = the model's own see-through glass). The windscreen and
+  // the rear window (facing along the bus) keep their glass, so the driver still shows.
+  function solidGlass(mat) {
+    if (mat.userData.solidU) return mat.userData.solidU;
+    const u = mat.userData.solidU = { value: 1 }, tint = new THREE.Color('#86a3b6'), prev = mat.onBeforeCompile;
+    mat.onBeforeCompile = function (sh, r) {
+      if (prev) prev.call(this, sh, r);
+      sh.uniforms.uSolid = u; sh.uniforms.uSolidTint = { value: tint };
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying float vSideN;')
+        .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\nvSideN = abs(objectNormal.x);');
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\nuniform float uSolid;\nuniform vec3 uSolidTint;\nvarying float vSideN;')
+        .replace('#include <color_fragment>', '#include <color_fragment>\n#ifdef USE_COLOR_ALPHA\nif (vColor.a < 0.99) { float sk = uSolid * smoothstep(0.55, 0.8, vSideN); diffuseColor.rgb = mix(diffuseColor.rgb, uSolidTint, sk); diffuseColor.a = mix(diffuseColor.a, 1.0, sk); }\n#endif');
+    };
+    const key = mat.customProgramCacheKey ? mat.customProgramCacheKey.bind(mat) : () => '';
+    mat.customProgramCacheKey = () => key() + '|bbSolidGlass';
+    mat.needsUpdate = true;
+    return u;
   }
   function defaultSeats() { const s = []; for (let i = 0; i < 10; i++) s.push({ x: i < 5 ? 0.62 : -0.62, y: 1.25, z: 1.9 - (i % 5) * 1.15 }); return s; }
 
@@ -886,7 +958,9 @@
       const cs = (ix * ox + iz * oz) / (li * lo);
       if (cs > 0.9) continue;                                                      // gentle (an arc's own bends)
       const half = Math.tan(Math.acos(BB.clamp(cs, -1, 1)) / 2);
-      const t = Math.min((C.lane + turnIn()) * half, cum[i] * 0.95, (cum[cum.length - 1] - cum[i]) / 2);
+      // (a left turn starts a little earlier: it swings out toward the middle of the road, see below)
+      const lft = (ox * iz - oz * ix) / (li * lo) > 0.2;
+      const t = Math.min((C.lane + turnIn() + (lft ? 2 : 0)) * half, cum[i] * 0.95, (cum[cum.length - 1] - cum[i]) / 2);
       if (corners.length && cum[i] - t < corners[corners.length - 1].s1) continue;
       corners.push({ i, s0: cum[i] - t, s1: cum[i] + t, t, ux: ix / li, uz: iz / li, vx: ox / lo, vz: oz / lo });
     }
@@ -909,12 +983,13 @@
         const P1 = { x: A.x + A.dx * hl, z: A.z + A.dz * hl }, P2 = { x: Bq.x - Bq.dx * hl, z: Bq.z - Bq.dz * hl };
         // (a corner point just short of the curve would fold the kerb lane once it is moved over: drop it)
         while (out.length > 1 && Math.hypot(out[out.length - 1].x - A.x, out[out.length - 1].z - A.z) < 2.5) out.pop();
-        // a left turn (toward the kerb) swings out a little toward the middle of the road, as a bus does, so its
-        // inside doesn't run over the junction's corner
-        const left = Bq.dx * A.dz - Bq.dz * A.dx > 0.2, sw = left ? Math.min(3, 3 * th / (Math.PI / 2)) : 0;
-        for (let k = 0; k <= 10; k++) {
-          const t = k / 10, m = 1 - t;
-          out.push({ x: m * m * m * A.x + 3 * m * m * t * P1.x + 3 * m * t * t * P2.x + t * t * t * Bq.x, z: m * m * m * A.z + 3 * m * m * t * P1.z + 3 * m * t * t * P2.z + t * t * t * Bq.z, o: C.lane - sw * Math.sin(Math.PI * t) });
+        // a left turn (toward the kerb) swings out toward the middle of the road, as a bus does, so its inside rear
+        // doesn't run over the junction's corner: the offset eases out and back (sin squared: no kink where it starts,
+        // so the bend has no tight ends)
+        const left = Bq.dx * A.dz - Bq.dz * A.dx > 0.2, sw = left ? Math.min(3.6, 3.6 * th / (Math.PI / 2)) : 0;
+        for (let k = 0; k <= 12; k++) {
+          const t = k / 12, m = 1 - t, sn = Math.sin(Math.PI * t);
+          out.push({ x: m * m * m * A.x + 3 * m * m * t * P1.x + 3 * m * t * t * P2.x + t * t * t * Bq.x, z: m * m * m * A.z + 3 * m * m * t * P1.z + 3 * m * t * t * P2.z + t * t * t * Bq.z, o: C.lane - sw * sn * sn });
         }
         while (i < pts.length - 1 && cum[i + 1] <= c.s1 + 2.5 && i + 1 < pts.length - 1) i++;
         ci++; continue;
@@ -1246,9 +1321,20 @@
     } else {
       // chase: behind and above the front carriage, trailing its heading smoothly
       camH += wrapA(h - camH) * Math.min(1, dt * 2.2);
-      const wide = BB.camera.aspect > 1.9, f = fwdOf(camH);
+      const wide = BB.camera.aspect > 1.9;
       let back = (wide ? 19 : 17) + Math.max(0, B.speed) * 0.25;
       let up = wide ? 12.5 : 11.5;
+      // a look at something (B.lookAt): swing round toward it (up to ~65 degrees) and tilt up for things in the sky
+      let ch = camH, lk = null;
+      const kL = look && look.target ? BB.smooth(lookK) : 0;
+      if (kL > 0) {
+        lk = lookPoint();
+        const az = Math.atan2(lk.x - fx, lk.z - fz), dA = BB.clamp(wrapA(az - camH), -1.15, 1.15);
+        ch = camH + dA * 0.75 * kL;
+        const high = BB.clamp((lk.y - 6) / 30, 0, 1);
+        up -= (4.5 * high + 1.0) * kL; back += 3 * kL;
+      }
+      const f = fwdOf(ch);
       // pull in a little if the camera would be inside a building
       for (let k = 0; k < 4; k++) {
         const px = fx - f.x * back, pz = fz - f.z * back, q = W().pushOut(px, pz, 1.5);
@@ -1257,6 +1343,11 @@
       }
       camPos.set(fx - f.x * back, up, fz - f.z * back);
       camLook.set(fx + f.x * (wide ? 2 : 5), 0, fz + f.z * (wide ? 2 : 5));
+      if (kL > 0) {
+        // look part of the way toward it (the bus stays in the picture), never higher than 26 up
+        const w = 0.55 * kL;
+        camLook.set(camLook.x + (lk.x - camLook.x) * w * 0.6, Math.min(26, camLook.y + (lk.y - camLook.y) * w), camLook.z + (lk.z - camLook.z) * w * 0.6);
+      }
     }
     if (underViaduct(camPos.x, camPos.z) || underViaduct(mx, mz)) maxUp = 10.2;
     camPos.y = Math.min(camPos.y, maxUp);
@@ -1296,7 +1387,7 @@
     curLook.lerp(camLook, Math.min(1, k * 1.4));
     BB.camera.lookAt(curLook);
   }
-  B.setCamera = function (mode, snap) { B.camMode = mode; if (snap) snapCamera(); };
+  B.setCamera = function (mode, snap) { B.camMode = mode; if (snap) snapCamera(); if (snap || mode !== 'chase') snapWall(); };
   B.hasCamera = (mode) => mode === 'title' || mode === 'chase' || !!GARAGE[mode];
   B.CAMERAS = ['title', 'chase', 'depot', 'depotClose', 'depotSide', 'garageWhole', 'garageFront', 'garageWheels', 'garageSide', 'garageSign', 'garageRear'];
 
@@ -1395,6 +1486,17 @@
     ribbon.geometry.setDrawRange(0, Math.max(0, n - 1) * 6);
   }
   B.refreshRibbon = refreshRibbon;
+  // How far the bus has to drive from where it is now to stop (along the route the ribbon would show, in world
+  // units; Infinity if there is no way). For jobs.js: about 9 units a second in town, up to 14 on the outer roads.
+  B.routeLength = function (stop) {
+    stop = typeof stop === 'string' ? W().stopById(stop) : stop;
+    if (!stop || !B.front) return Infinity;
+    if (B.atStop === stop) return 0;
+    const c = routeTo(stop);
+    if (!c || c.length < 2) return Infinity;
+    let L = 0; for (let i = 1; i < c.length; i++) L += Math.hypot(c[i].x - c[i - 1].x, c[i].z - c[i - 1].z);
+    return L;
+  };
 
   // ---------- driving ----------
   const circles = []; let nFront = 8;
@@ -1455,16 +1557,19 @@
       kidSteer = canDrive ? (inp.left && !inp.right ? 1 : inp.right && !inp.left ? -1 : 0) : 0;
     }
     // speed: ease toward the wanted speed; braking when the pedal points the other way
-    let want = thr > 0 ? thr * MAX_FWD : thr * MAX_BACK;
+    const top = thr > 0 ? cruiseTop() : MAX_FWD;
+    let want = thr > 0 ? thr * top : thr * MAX_BACK;
     // assist also eases off for bends and turns (like a careful driver), unless the child is steering
     // In the last stretch before the target bay (lined up with it) the parking logic takes over: steer along the
     // bay's own line and let approachCap() slow the bus to a stop in it, so a throttle-only drive always parks.
     const asst = B.assist && canDrive && thr > 0 ? (bayAssist(MAX_STEER + 0.22) || assistSteer(MAX_STEER + 0.22)) : null;
-    if (asst && !asst.bay && Math.abs(kidSteer) < 0.3) want = Math.min(want, Math.max(3.2, Math.min(MAX_FWD * (1 - 1.6 * Math.abs(asst.alpha)), asst.vBend)));
-    let cap = approachCap();
+    if (asst && !asst.bay && Math.abs(kidSteer) < 0.3) want = Math.min(want, Math.max(4.0, Math.min(top * (1 - 1.1 * Math.abs(asst.alpha)), asst.vBend)));
+    if (lookSlow < 1 && want > 0) want = Math.min(want, Math.max(3.5, MAX_FWD * lookSlow));   // (B.lookAt: slower, never stopped)
+    let cap = approachCap(); B.__dbg = { want: +want.toFixed(1), cap: +cap.toFixed(1), asst: asst ? { a: +asst.alpha.toFixed(2), vb: +(asst.vBend || 0).toFixed(1), bay: !!asst.bay } : null };   // DEBUG-REMOVE
     if (cap < Infinity) want = BB.clamp(want, -cap, cap); else cap = 0;   // ease off coming into the target bay so it can settle
     const slowing = Math.abs(want) < Math.abs(B.speed) || (Math.sign(want) !== Math.sign(B.speed) && Math.abs(B.speed) > 0.2);
-    const rate = !slowing ? ACCEL : (want === 0 && !cap) ? COAST : BRAKE;
+    const easeOff = slowing && thr > 0 && want > 0 && !cap && B.speed > MAX_FWD - 0.5;     // leaving a cruising stretch
+    const rate = !slowing ? ACCEL : (want === 0 && !cap) ? COAST : easeOff ? CRUISE_DOWN : BRAKE;
     if (B.speed < want) B.speed = Math.min(want, B.speed + rate * dt); else B.speed = Math.max(want, B.speed - rate * dt);
     if (!canDrive) B.speed = settle ? 0 : B.speed * Math.max(0, 1 - dt * 6);
     if (Math.abs(B.speed) < 0.01) B.speed = 0;
@@ -1528,6 +1633,23 @@
     if (Math.abs(B.speed) > real + 0.6) B.speed = Math.sign(B.speed) * (real + 0.6);
     realMove = moved;
     return Math.abs(moved);
+  }
+  // The top speed here (see MAX_CRUISE): MAX_FWD, or more on a long straight of the outer road or the expressway.
+  let cruiseK = 0;
+  function cruiseTop() {
+    let k = 0;
+    const near = nearestRoad(fx, fz, h), e = near && near.edge;
+    if (e && (e.kind === 'outer' || e.kind === 'highway') && e.points.length <= 2 && near.d < W().halfOf(e)) {
+      const f = fwdOf(h), dot = f.x * near.dx + f.z * near.dz;
+      if (Math.abs(dot) > 0.94 && Math.abs(B.steer) < 0.22) {
+        const ahead = dot > 0 ? e.length - near.s : near.s, behind = dot > 0 ? near.s : e.length - near.s;
+        k = BB.clamp((ahead - 30) / 24, 0, 1) * BB.clamp(behind / 12, 0, 1);
+        // the target bay on this road: back to normal speed in good time
+        if (B.target) { const bay = W().bayOf(B.target), db = (bay.x - fx) * f.x + (bay.z - fz) * f.z; if (db > -4 && Math.abs((bay.x - fx) * f.z - (bay.z - fz) * f.x) < 14) k = Math.min(k, BB.clamp((db - 40) / 30, 0, 1)); }
+      }
+    }
+    cruiseK = k;
+    return MAX_FWD + (MAX_CRUISE - MAX_FWD) * k;
   }
   // The soft kerb: each of the bus's circles that hangs over the kerb (by up to 3.5: further out, on purpose, it is
   // left alone; and not at junctions) is pushed gently back toward the road, sideways only; on a bendy the rear
@@ -1605,14 +1727,22 @@
     // before a junction's turn (measured from the bus's own point on the path: a long straight counts as straight)
     // The tightest bend ahead (its radius, from each corner's turn and its segments) sets a speed limit: gentle on
     // the loop's wide curves, a slow roll round a junction's turn.
-    let j = bi + 1, acc = Math.hypot(r[bi + 1].x - qx, r[bi + 1].z - qz), rMin = Infinity, thP = th;
-    const look = 14 + Math.max(0, B.speed) * 1.6;
-    while (j < r.length - 1 && acc < look) {
-      const sl = Math.hypot(r[j + 1].x - r[j].x, r[j + 1].z - r[j].z), thN = Math.atan2(r[j + 1].x - r[j].x, r[j + 1].z - r[j].z), dth = Math.abs(wrapA(thN - thP));
-      if (dth > 0.02 && sl > 0.05) rMin = Math.min(rMin, Math.max(sl, 1) / dth);
-      acc += sl; thP = thN; j++;
+    // (measured over 4-unit chords of the path resampled every 2 units, so a small kink where two pieces of the line
+    // meet doesn't read as a hairpin and hold the bus to a crawl)
+    const look = 14 + Math.max(0, B.speed) * 1.6, samp = [qx, qz];
+    let rMin = Infinity, need = 2, px = qx, pz = qz;
+    for (let j = bi + 1; j < r.length && samp.length < 2 * (look / 2 + 3);) {
+      const dx = r[j].x - px, dz = r[j].z - pz, d = Math.hypot(dx, dz);
+      if (d >= need) { px += dx / d * need; pz += dz / d * need; samp.push(px, pz); need = 2; }
+      else { need -= d; px = r[j].x; pz = r[j].z; j++; }
     }
-    return { steer: BB.clamp(steer, -ms, ms), alpha: Math.max(Math.abs(wrapA(th - h)), Math.min(1, Math.abs(e) / 4)), vBend: Math.sqrt(2.2 * rMin) };
+    for (let i = 0; i + 8 < samp.length; i += 2) {
+      const t1 = Math.atan2(samp[i + 4] - samp[i], samp[i + 5] - samp[i + 1]), t2 = Math.atan2(samp[i + 8] - samp[i + 4], samp[i + 9] - samp[i + 5]);
+      const dth = Math.abs(wrapA(t2 - t1));
+      // each bend's speed (about 3.2 sideways), and how fast the bus may still go this far before it (easing off at 3)
+      if (dth > 0.02) { const vb = Math.sqrt(3.2 * 4 / dth), d = Math.max(0, i - 2); rMin = Math.min(rMin, Math.sqrt(vb * vb + 6 * d)); }
+    }
+    return { steer: BB.clamp(steer, -ms, ms), alpha: Math.max(Math.abs(wrapA(th - h)), Math.min(1, Math.abs(e) / 4)), vBend: rMin };
   }
   // Assist's parking: within ~34 behind the target bay (mid point), close to its line and heading roughly its way,
   // Stanley steering onto the bay's centre line. Null when not in that stretch.
@@ -1694,7 +1824,7 @@
       if (stop === W().depot && BB.ui && typeof BB.ui.fade === 'function' && W().workshop) {
         // a depot trip ends in the workshop: a quick fade, then the garage opens round the bus there
         B.locked = true;
-        BB.ui.fade(() => { B.locked = false; placeWorkshop(); B.atStop = stop; snapCamera(); if (cb) cb(stop); });
+        BB.ui.fade(() => { if (!BB.bedtime) B.locked = false; placeWorkshop(); B.atStop = stop; snapCamera(); if (cb) cb(stop); });
         return;
       }
       if (cb) cb(stop);
@@ -1726,6 +1856,7 @@
     if (!B.front) return;
     clock += dt; bumpCool -= dt; wobble = Math.max(0, wobble - dt * 2.5);
     let ds = 0;
+    updateLook(dt);
     if (spin) updateSpin(dt); else { ds = settle ? 0 : drive(dt); updateSettle(dt); }
     gy += (W().groundY(fx, fz) - gy) * Math.min(1, dt * 8);
     placeModel();
@@ -1761,19 +1892,18 @@
     for (const d of doors) { if (!d.userData.zOnly) d.position.x = d.userData.x + Math.sign(d.userData.x || 1) * doorT * 0.1; d.position.z = d.userData.z + doorT * d.userData.slide; }
     // the stop's dollhouse view: the kerb-side wall fades away so the seats and the people can be counted from the
     // pavement (the old roof cut-away is kept for models without a kerb wall, but off: the owner preferred the side)
-    const wantRoof = 0, wantWall = (B.atStop || settle) && B.camMode === 'chase' && B.atStop !== B.washBay && (!settle || settle.stop !== B.washBay) ? 1 : 0;
+    const wantRoof = 0, wantWall = stopView() ? 1 : 0;
     updateDirt();
     wallT += BB.clamp(wantWall - wallT, -dt * 2, dt * 2);
     if (M && wallT !== lastWallT) {
       lastWallT = wallT;
-      for (const r of M.wallMats) { const tr = r.tr || wallT > 0.01; if (r.mat.transparent !== tr) { r.mat.transparent = tr; r.mat.needsUpdate = true; } r.mat.opacity = r.base * (1 - 0.9 * wallT); r.mat.depthWrite = !tr || wallT < 0.5; }
-      for (const o of M.wallParts) o.visible = wallT < 0.98 || M.wallMats.length > 0;
+      applyWall();
     }
     roofT += BB.clamp(wantRoof - roofT, -dt * 2.5, dt * 2.5);
     if (M && roofT !== lastRoofT) {
       lastRoofT = roofT;
       for (const o of M.roofParts) { o.position.y = o.userData.roofY + roofT * 2.4; o.visible = roofT < 0.97; }
-      for (const r of M.roofMats) { const tr = r.tr || roofT > 0.01; if (r.mat.transparent !== tr) { r.mat.transparent = tr; r.mat.needsUpdate = true; } r.mat.opacity = r.base * (1 - roofT); r.mat.depthWrite = roofT < 0.5 && !r.tr; }
+      for (const r of M.roofMats) { const tr = r.tr || roofT > 0.01; if (r.mat.transparent !== tr) { r.mat.transparent = tr; r.mat.needsUpdate = true; } r.mat.opacity = r.base * (1 - roofT); r.mat.depthWrite = roofT < 0.5 && (!r.tr || r.mat === M.roofMaterial); }
     }
     // wipers sweep while it rains
     const raining = W().isRaining && W().isRaining();
@@ -1813,9 +1943,33 @@
     } else { beacon.visible = false; bayGlow.visible = false; }
     updateWayArrow(dt);
 
-    BB.sfx.engine(B.camMode === 'chase' ? Math.abs(B.speed) / MAX_FWD : 0);
+    BB.sfx.engine(B.camMode === 'chase' ? Math.min(1, Math.abs(B.speed) / MAX_FWD) : 0);
     updateCamera(dt);
   };
+  // The stop's side view (the dollhouse): at a stop or pulling into one, with the chase camera (not the wash bay, not
+  // the workshop, the garage or the home screen).
+  function stopView() {
+    if (B.camMode !== 'chase' || B.inWorkshop || spin) return false;
+    const st = B.atStop || (settle && settle.stop);
+    return !!st && st !== B.washBay;
+  }
+  // The kerb wall at wallT (0 = solid, 1 = faded away for the stop view).
+  function applyWall() {
+    if (!M) return;
+    const solid = 1 - BB.clamp(wallT * 3, 0, 1);
+    for (const r of M.wallMats) {
+      if (r.glassOnly) { r.u.value = solid; continue; }
+      const tr = r.tr || wallT > 0.01;
+      if (r.mat.transparent !== tr) { r.mat.transparent = tr; r.mat.needsUpdate = true; }
+      r.mat.opacity = r.base * (1 - 0.9 * wallT); r.mat.depthWrite = !tr || wallT < 0.5;
+      if (r.mat.userData.solidU) r.mat.userData.solidU.value = solid;
+    }
+    for (const o of M.wallParts) o.visible = wallT < 0.98 || M.wallMats.some((r) => !r.glassOnly);
+  }
+  // Snap the kerb wall to what the camera mode wants (after a type change, a jump to the workshop, home or a stop).
+  function snapWall() { wallT = stopView() ? 1 : 0; lastWallT = wallT; applyWall(); }
+  B.snapWall = snapWall;
+
   // ---------- the bus wash ----------
   // B.wash(): in the wash bay (B.inWash, after 'bus:washBay' {inBay:true}) a ~6.4 s show: the bus is held in place
   // (B.atStop = the wash bay, so the side-view camera frames it), the brushes roll along it spinning, foam flies, a
@@ -1839,7 +1993,7 @@
     if (washT >= 6.4) {
       washT = 0; washSpark = 0; B.dirt = 0; BB.save.dirt = 0; BB.saveNow();
       if (W().washShow) W().washShow(null);
-      B.atStop = null; B.locked = false;
+      if (!BB.bedtime) { B.atStop = null; B.locked = false; }    // (a goodnight that started meanwhile keeps the bus parked)
       BB.emit('bus:washed', {});
     }
   }
@@ -1933,7 +2087,7 @@
       if (d && d.home) return;
       if (!B.inWorkshop) return;
       B.locked = true;
-      const go = () => { B.locked = false; B.placeInYard(); B.setCamera('chase', true); BB.emit('bus:inYard', {}); };
+      const go = () => { if (!BB.bedtime) B.locked = false; B.placeInYard(); B.setCamera('chase', true); BB.emit('bus:inYard', {}); };
       if (BB.ui && typeof BB.ui.fade === 'function') BB.ui.fade(go); else go();
     });
     B.placeAt(BB.world.depot);

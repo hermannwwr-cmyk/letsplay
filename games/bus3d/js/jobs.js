@@ -124,7 +124,7 @@
     return !!(d && typeof d.t === 'number' && d.t >= 0.03 && d.t <= 0.3);
   }
   function pickTheme() {
-    if (level() < 1 || (BB.save.jobsDone | 0) < 1) return null;
+    if (level() < 1 || (BB.save.jobsDone | 0) < 3) return null;     // the first jobs stay close to home
     if ((J.sinceSpecial == null ? 2 : J.sinceSpecial) < 2 || Math.random() > 0.5) return null;
     const ok = [];
     if (morning()) ok.push('school');
@@ -1026,6 +1026,7 @@
     seq++;                                       // stop any counting voice
     if (v === q.answer) {
       q.done = true;
+      J.stopStart = null;
       card.classList.add('wait');
       card.classList.remove('hint', 'counting');
       btn.classList.add('yes'); BB.sfx.right();
@@ -1231,12 +1232,37 @@
   // ---------- the job loop ----------
   // Stops for a new job: never where we are, and the previous job's stops only when there aren't enough others,
   // so the same places don't come round job after job.
+  // For the first 3 jobs on the big map the stops are near: each one is picked at random from the 3 nearest to where
+  // the bus is (by road when BB.bus.routeLength / BB.world.stopDistance exist, else in a straight line).
+  function stopDist(from, s) {
+    try {
+      if (!from && typeof BB.bus.routeLength === 'function') { const d = +BB.bus.routeLength(s); if (isFinite(d)) return d; }
+      if (from && typeof BB.world.stopDistance === 'function') { const d = +BB.world.stopDistance(from, s); if (isFinite(d)) return d; }
+    } catch (e) { /* fall back */ }
+    const p = from ? from.pos : (BB.bus.pos || { x: 0, z: 0 });
+    return Math.hypot(s.pos.x - p.x, s.pos.z - p.z);
+  }
   function pickStops() {
     const count = (BB.save.jobsDone | 0) < 1 ? 2 : BB.randInt(2, 3);
     const here = BB.bus.atStop || J.lastStop, before = J.lastJobStops || [];
     const all = (BB.world.stops || []).filter((s) => s && s !== here && s.pos && s.edge != null && s.say);
-    const fresh = BB.shuffle(all.filter((s) => !before.includes(s))), old = BB.shuffle(all.filter((s) => before.includes(s)));
-    const list = fresh.concat(old).slice(0, count);
+    let list;
+    if ((BB.save.jobsDone | 0) < 3) {
+      list = [];
+      let from = here && here.id !== 'depot' ? here : null;
+      for (let i = 0; i < count; i++) {
+        let pool = all.filter((s) => !list.includes(s));
+        const freshPool = pool.filter((s) => !before.includes(s));
+        if (freshPool.length >= 3) pool = freshPool;
+        if (!pool.length) break;
+        const near = pool.map((s) => ({ s, d: stopDist(from, s) })).sort((a, b) => a.d - b.d).slice(0, 3);
+        const pick = BB.pick(near).s;
+        list.push(pick); from = pick;
+      }
+    } else {
+      const fresh = BB.shuffle(all.filter((s) => !before.includes(s))), old = BB.shuffle(all.filter((s) => before.includes(s)));
+      list = fresh.concat(old).slice(0, count);
+    }
     J.lastJobStops = list;
     return list;
   }
@@ -1312,6 +1338,7 @@
   }
   function driveTo(stop, quiet) {
     const job = J.current;
+    J.stopStart = null;
     setPhase('drive');
     BB.bus.stopAt(stop, onArrive);
     BB.emit('job:target', { stop, job });
@@ -1322,6 +1349,7 @@
     setPhase('stop'); J.lastStop = stop;
     BB.bus.openDoors(); BB.sfx.ding();
     const q = job.q;
+    J.stopStart = { job, stop, q, pax0: BB.bus.passengers | 0 };     // to replay this stop exactly after Home
     BB.later(600, () => { if (J.phase === 'stop') runStop(stop, q, (qq, cash) => afterRight(stop, qq, cash)); });
   }
   async function afterRight(stop, q, cash) {
@@ -1332,6 +1360,11 @@
     if (q.bonus) await say('Thank you for stopping in the rain!');
     await wait(500);
     if (J.current !== job || BB.bedtime) return;
+    if (J.phase === 'home') {
+      job.index++; job.q = null;
+      if (job.index >= job.stops.length) { BB.bus.passengers = 0; J.current = null; BB.save.jobsDone = (BB.save.jobsDone | 0) + 1; BB.saveNow(); }
+      return;
+    }
     job.index++;
     if (job.index >= job.stops.length) {
       // end of the line: everybody gets off with a wave (so the next job starts fresh, no getting-off warm-ups).
@@ -1518,8 +1551,32 @@
     BB.bus.horn.__jobs = true;
   }
 
+  // ---------- Home in the middle of a stop ----------
+  // ui.js sets phase 'home' (and hides the card). The stop is put back exactly as it was on arrival: nobody keeps
+  // walking on or off, the passengers are back, the same people wait at the stop, and the same question (same story)
+  // plays when the job resumes after Play and Drive.
+  function rewindStop() {
+    const st = J.stopStart; J.stopStart = null;
+    if (!st || J.current !== st.job) return;
+    stopGen++; seq++;
+    for (const w of J.walkers) removePerson(w.m);
+    J.walkers = [];
+    for (const m of J.extras) removePerson(m);
+    J.extras = [];
+    tweens.length = 0;
+    scene.reset(); hideCount(); clearMarks();
+    BB.bus.passengers = st.pax0;
+    const q = st.q;
+    q.tries = 0; q.done = false; q.onRight = null;
+    setWaiting(st.stop, q);
+  }
+
   // ---------- per frame ----------
   J.update = function (dt) {
+    if (J.phase === 'home') {
+      if (J.stopStart) rewindStop();
+      return;                                  // nothing walks or boards while the home screen is up
+    }
     for (let i = J.walkers.length - 1; i >= 0; i--) {
       const w = J.walkers[i];
       w.t += dt / w.dur;

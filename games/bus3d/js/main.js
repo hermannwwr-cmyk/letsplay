@@ -117,7 +117,8 @@
     BB.camera.fov = aspect < 1 ? 66 : aspect > 1.9 ? 44 : 50;
     BB.camera.updateProjectionMatrix();
     // In the hub's frame env(safe-area-inset-*) is 0, so on a phone held sideways keep clear of the notch ourselves.
-    const phoneSide = aspect > 1.75 && h <= 500;
+    // (Only notched phones are that wide, about 2.1 : 1; an iPhone SE, 16 : 9, has no notch and needs every pixel.)
+    const phoneSide = aspect > 1.9 && h <= 500;
     document.documentElement.style.setProperty('--padx', BB.HUB && phoneSide ? '44px' : '0px');
     BB.emit('resize', { w, h });
   }
@@ -142,7 +143,8 @@
   function hubUpdate(dt) {
     if (BB.bedtime || H.paused) return;
     const J = BB.jobs, ph = J.phase;
-    const busy = (J.busy && J.busy()) || ph === 'question' || ph === 'stop' || ph === 'tow';
+    // (the bus wash too: its pay card and the wash show finish first, then goodnight)
+    const busy = (J.busy && J.busy()) || ph === 'question' || ph === 'stop' || ph === 'tow' || !!(BB.ui.washBusy && BB.ui.washBusy());
     // the last-minute warning waits for a calm moment between stops, never over a question or the counting
     if (warnPending && !H.timeUp() && !busy && !BB.depot.isOpen && !BB.ui.homeShown()) {
       warnPending = false;
