@@ -2214,7 +2214,7 @@
         const want = near(zg) ? 1.35 : 0; m.userData.a = (m.userData.a || 0) + BB.clamp(want - (m.userData.a || 0), -dt * 1.6, dt * 1.6); m.rotation.x = sg * m.userData.a;
       }
     }
-    if (xmasOn && xmasLights) xmasLights.material.size = 0.45 + 0.35 * W.sky.lights + 0.08 * Math.sin(clock * 3);
+    if (xmasOn && xmasLights) xmasLights.material.size = 0.6 + 0.7 * W.sky.lights + 0.1 * Math.sin(clock * 3);
     if (train) {                           // glides back and forth, pausing at the station
       if (trainWait > 0) trainWait -= dt;
       else {
