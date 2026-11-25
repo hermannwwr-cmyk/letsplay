@@ -1,10 +1,13 @@
-/* Little Bus Captain: HUD and screens (DOM over the canvas, inside #ui).
-   Every button is a paper tile with a picture and a word under it, spoken on tap (BB.icon pictures, Fredoka letters).
+/* Little Bus Captain: the home screen, the HUD and the other screens (DOM over the canvas, inside #ui).
+   Home screen (the game starts here): "Little Bus Captain" lettering, the child's bus parked at its garage with the
+   camera swinging gently round it, ONE big Play button (to the garage), the family strip (status picture and the
+   buses here now) and, in hub mode, the all-games button with its "Home" tag (to the app's launcher).
+   HUD: every button is a paper tile with a picture and a word under it, spoken on tap (BB.icon pictures, Fredoka).
    Top bar: left Home, Coins, Fuel (a little dial); middle Next stop (the stop's picture and progress dots) and, in hub
    mode, the shared clock chip; right Garage, Music, Sound. Bottom: the one-thumb joystick (or the steering wheel and
    the Go / Back pedals), Horn and Helper on the other side, Turn around above the joystick when the bus faces away.
-   Home: in hub mode back to the app's launcher ({hub:'exit'}), standalone back to the start garage; with a trip in
-   progress a kind "Go home?" card asks first. Also the title screen, toasts, coins, confetti, a fade for the tow, the
+   Home goes back to the home screen (hub and standalone alike); with a trip in progress a kind "Go home?" card asks
+   first, and the job waits (phase 'home') until Play and Drive. Also toasts, coins, confetti, a fade for the tow, the
    goodnight overlay, the first-drive tips and the turn-sideways card (standalone portrait). Exposes BB.ui. */
 (function () {
   'use strict';
@@ -150,15 +153,37 @@
   .bbu-wobble { animation: bbu-wobble .35s ease-out; }
   @keyframes bbu-wobble { 25% { transform: translate(-5px, 2px); } 50% { transform: translate(4px, -2px); } 75% { transform: translate(-2px, 1px); } }
   @keyframes bbu-pop { from { transform: scale(.3); opacity: 0; } }
-  .bbu-title { position: absolute; inset: 0; pointer-events: auto; display: flex; flex-direction: column; align-items: center; justify-content: space-between;
-    padding: calc(var(--st) + 14px) var(--sr) calc(var(--sb) + 10px) var(--sl); box-sizing: border-box; cursor: pointer;
-    background: linear-gradient(rgba(255,246,224,.0), rgba(255,246,224,0) 60%, rgba(255,230,180,.35)); }
-  .bbu-logo { font-size: clamp(44px, 9vw, 92px); font-weight: 700; color: #fff; letter-spacing: 1px; line-height: 1;
-    text-shadow: 0 5px 0 #2f8f3a, 0 8px 14px rgba(0,0,0,.2); -webkit-text-stroke: 3px #3fae49; paint-order: stroke fill; }
+  /* the home screen: the lettering, your bus parked at its garage (the 3D view behind), ONE big Play button,
+     the family strip top right (and the all-games button top left in hub mode) */
+  .bbu-title { position: absolute; inset: 0; z-index: 25; pointer-events: none; display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+    padding: calc(var(--st) + 8px) var(--sr) calc(var(--sb) + 6px) var(--sl); box-sizing: border-box;
+    background: linear-gradient(rgba(255,246,224,.55), rgba(255,246,224,0) 30%, rgba(255,246,224,0) 70%, rgba(255,230,180,.45)); }
+  .bbu-title > * { pointer-events: auto; }
+  .bbu-logo { font-size: clamp(42px, min(8.5vw, 13vh), 96px); font-weight: 700; color: #fff; letter-spacing: 1px; line-height: 1; text-align: center; cursor: pointer;
+    text-shadow: 0 5px 0 #2f8f3a, 0 8px 14px rgba(0,0,0,.2); -webkit-text-stroke: 3px #3fae49; paint-order: stroke fill; margin-top: calc(var(--bh) - 2px); }
   .bbu-logo span { color: #ffd45c; -webkit-text-stroke-color: #d98700; text-shadow: 0 5px 0 #b06e00, 0 8px 14px rgba(0,0,0,.2); }
-  .bbu-tap { font-size: clamp(28px, 5vw, 44px); font-weight: 700; background: #ffb81f; color: #fff; border-radius: 40px; padding: 10px 34px;
-    box-shadow: 0 7px 0 #d98700; text-shadow: 0 2px 0 #d98700; animation: bbu-pulse 1.3s ease-in-out infinite; }
-  @keyframes bbu-pulse { 50% { transform: scale(1.07); } }
+  .bbu-play { display: flex; align-items: center; gap: 16px; height: 108px; padding: 0 44px 0 18px; border: none; border-radius: 56px; cursor: pointer; touch-action: manipulation;
+    background: linear-gradient(#7ad86f, #3fae49 55%, #2f8f3a); box-shadow: inset -6px -8px 0 rgba(0,0,0,.1), 0 8px 0 #24702d, 0 12px 22px rgba(0,0,0,.18);
+    font: 700 52px/1 ${BB.FONT}; color: #fff; text-shadow: 0 3px 0 #24702d; animation: bbu-pulse 1.4s ease-in-out infinite; position: relative; overflow: hidden; }
+  .bbu-play canvas { width: 76px; height: 76px; flex: none; }
+  .bbu-play::after { content: ''; position: absolute; top: 0; bottom: 0; width: 70px; left: -90px; background: linear-gradient(100deg, transparent, rgba(255,255,255,.45), transparent);
+    animation: bbd-shine 2.8s ease-in-out infinite; }
+  .bbu-play.pressed { transform: translateY(5px); box-shadow: 0 3px 0 #24702d; animation: none; }
+  .bbu-play.call { animation: bbu-pulse 1.4s ease-in-out infinite, bbu-wiggle .9s ease-in-out 2; }
+  @keyframes bbu-pulse { 50% { transform: scale(1.06); } }
+  @keyframes bbu-wiggle { 20% { rotate: -3deg; } 40% { rotate: 3deg; } 60% { rotate: -2deg; } 80% { rotate: 1deg; } }
+  .bbu-fam { position: absolute; top: var(--st); right: var(--sr); }
+  .bbu-fam .bbu-b { flex-direction: row; gap: 6px; padding: 4px 10px 4px 6px; height: auto; min-height: var(--bh); }
+  .bbu-fam .col { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .bbu-fam .col canvas { width: var(--ic); height: var(--ic); }
+  .bbu-fam .bus { display: flex; flex-direction: column; align-items: center; background: #fff; border: 2px solid #ecd3a8; border-radius: 12px; padding: 2px 4px 1px; }
+  .bbu-fam .bus canvas { width: 46px; height: 31px; display: block; }
+  .bbu-fam .bus b { font: 800 13px/14px 'Courier New', monospace; color: #3a2a3c; }
+  .bbu-fam .more { font: 700 18px/1 ${BB.FONT}; color: #6b5440; padding: 0 2px; }
+  @media (max-height: 520px) {
+    .bbu-play { height: 84px; font-size: 40px; padding: 0 34px 0 14px; border-radius: 44px; gap: 12px; } .bbu-play canvas { width: 58px; height: 58px; }
+    .bbu-fam .bus canvas { width: 38px; height: 26px; } .bbu-fam .bus b { font-size: 12px; line-height: 13px; }
+  }
   .bbu-toast { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); font-size: 40px; font-weight: 700; color: #fff;
     text-shadow: 0 3px 0 #d98700, 0 0 12px rgba(0,0,0,.2); pointer-events: none; animation: bbu-float 1.4s ease-out forwards; white-space: nowrap;
     display: flex; align-items: center; gap: 8px; z-index: 20; }
@@ -238,15 +263,15 @@
   U.setIcon = function (b, icon) { const old = b.querySelector('canvas, svg'); const nu = BB.iconEl(icon, 128); if (old) b.replaceChild(nu, old); else b.prepend(nu); };
 
   let uturnBtn, facing = false, driving = true, tips = [];
-  let hud, cashEl, fuelEl, fuelCv, jobEl, jobPic, jobDots, joyEl, knobEl, wheelEl, wheelRot, pedGo, pedBack, hornEl, assistEl, titleEl, soundBtn, musicBtn, exitBtn, homeBtn, garageBtn;
+  let hud, cashEl, fuelEl, fuelCv, jobEl, jobPic, jobDots, joyEl, knobEl, wheelEl, wheelRot, pedGo, pedBack, hornEl, assistEl, titleEl, soundBtn, musicBtn, exitBtn, homeBtn, garageBtn, playBtn, famEl;
 
   U.init = function () {
     U.root = document.getElementById('ui');
     hud = BB.el('div', 'bbu-hud off', U.root);
     const top = BB.el('div', 'bbu-top', hud);
     const left = BB.el('div', 'bbu-grp', top);
-    // Home: in hub mode the all-games picture (back to the app), standalone a house (back to the start garage)
-    homeBtn = U.btn(left, BB.HUB ? GAMES_SVG('12 12 40 40') : 'home', 'Home', () => U.homeTap(), 'bbu-home');
+    // Home: back to the game's home screen (from there the all-games button leaves to the app in hub mode)
+    homeBtn = U.btn(left, 'home', 'Home', () => U.homeTap(), 'bbu-home');
     cashEl = U.btn(left, null, 'Coins', () => { const n = BB.depot.cash; BB.say(n === 1 ? 'You have 1 coin!' : `You have ${n} coins!`); }, 'bbu-cash');
     const crow = BB.el('span', 'row', null); cashEl.prepend(crow);
     crow.appendChild(BB.iconEl('coin', 96)); BB.el('b', '', crow, String(BB.depot.cash));
@@ -349,10 +374,16 @@
     BB.on('bus:turnAround', () => { facing = false; syncUturn(); });
     BB.on('bus:facingAway', (d) => { facing = !!(d && d.on); syncUturn(); });
 
-    // title
-    titleEl = BB.el('div', 'bbu-title', U.root, '<div class="bbu-logo">Little Bus <span>Captain</span></div><div class="bbu-tap">Tap to drive!</div>');
+    // the home screen: the lettering, ONE big Play button (to the garage), the family strip
+    titleEl = BB.el('div', 'bbu-title', U.root);
     titleEl.style.display = 'none';
-    BB.tap(titleEl, () => { if (BB.bedtime || !U.titleShown()) return; U.hideTitle(); BB.emit('title:start'); });
+    const logo = BB.el('div', 'bbu-logo', titleEl, 'Little Bus <span>Captain</span>');
+    BB.tap(logo, () => BB.say('Little Bus Captain!'));
+    playBtn = BB.el('button', 'bbu-play', titleEl); playBtn.type = 'button'; playBtn.setAttribute('aria-label', 'Play');
+    playBtn.appendChild(BB.iconEl('play', 128)); BB.el('span', 'lb', playBtn, 'Play');
+    BB.tap(playBtn, () => U.play());
+    famEl = BB.el('div', 'bbu-fam', titleEl);
+    for (const ev of ['net:status', 'net:friends', 'net:changed']) BB.on(ev, () => { if (U.titleShown()) syncFam(); });
     // standalone portrait card (the hub shows its own card in hub mode)
     const turn = BB.el('div', 'bbu-turn' + (BB.HUB ? '' : ' standalone'), U.root, '<div class="card"><svg class="phone" viewBox="0 0 120 120" aria-hidden="true">'
       + '<path class="arc" d="M100 48 A44 44 0 0 0 60 16" stroke="#19a79b" stroke-width="8" fill="none" stroke-linecap="round"/><path class="arc" d="M50 6 L64 16 L50 27Z" fill="#19a79b"/>'
@@ -384,6 +415,7 @@
       if (k) { e.preventDefault(); if (!e.repeat) press(k, true); return; }
       if (e.repeat) return;
       if (e.code === 'KeyH') BB.bus.horn();
+      else if (e.code === 'Enter' && U.titleShown()) U.play();
       else if (e.code === 'Enter' && BB.depot.isOpen && !BB.bedtime) BB.depot.close();
     });
     addEventListener('keyup', (e) => { const k = KEYS[e.code]; if (k) press(k, false); });
@@ -409,8 +441,8 @@
     BB.on('question:hide', () => { qShown = false; syncDriving(); });
     BB.on('jobs:busy', syncDriving);
     BB.on('bus:arrived', (d) => { if (!d || !d.stop || d.stop.id !== 'depot') setDriving(false); BB.later(50, syncDriving); });
-    BB.on('depot:open', () => { U.releaseAll(); U.closeAsk(); hud.classList.add('off'); U.showExit(true); });
-    BB.on('depot:closed', () => { U.showExit(false); if (!BB.bedtime) hud.classList.remove('off'); });
+    BB.on('depot:open', () => { U.releaseAll(); U.closeAsk(); hud.classList.add('off'); U.showExit(false); });
+    BB.on('depot:closed', (d) => { U.showExit(false); if (d && d.home) U.showHome(); else if (!BB.bedtime) hud.classList.remove('off'); });
   };
   function syncSound() {
     const A = BB.audio;
@@ -451,18 +483,15 @@
   // A trip is in progress: a job, a stop or the drive to the garage. Then a kind card asks first.
   const tripOn = () => { const J = BB.jobs; return !!(J.current || (J.busy && J.busy()) || J.phase === 'toDepot'); };
   U.homeTap = function () {
-    if (BB.bedtime || BB.depot.isOpen) return;
+    if (BB.bedtime || BB.depot.isOpen || U.titleShown()) return;
     U.releaseAll();
     if (!tripOn()) { goHome(); return; }
-    U.ask({
-      pic: BB.HUB ? GAMES_SVG() : 'home', words: 'Go home?', say: 'Go home?',
-      yes: () => goHome(true), no: () => { BB.say('OK! Keep driving!'); },
-    });
+    U.ask({ pic: 'home', words: 'Go home?', say: 'Go home?', yes: () => goHome(true), no: () => { BB.say('OK! Keep driving!'); } });
   };
+  // Back to the home screen (hub and standalone alike): the bus parks at its garage; a job in progress waits there
+  // and carries on after Play and Drive (jobs.js resumes it when the garage closes).
   function goHome(asked) {
     if (BB.bedtime) return;
-    if (BB.HUB) { BB.sfx.pop(); BB.hush(); BB.hub.post({ hub: 'exit' }); return; }
-    // standalone: back to the start garage (the job waits there and carries on after Drive)
     const J = BB.jobs;
     if (J.phase === 'tow') { BB.say("Let's wait for the tow truck!"); return; }
     BB.sfx.whoosh();
@@ -471,10 +500,9 @@
       if (BB.bedtime) return;
       try { if (J.hideQuestion) J.hideQuestion(); } catch (e) { console.error(e); }
       J.wantDepot = false;
-      J.phase = 'depot';                     // jobs.js picks the job up again when the garage closes (depot:closed)
+      if (J.phase !== 'idle') J.phase = 'home';   // (idle: never driven yet; the first Drive starts the first job)
       try { BB.bus.stopAt(null); } catch (e) { console.error(e); }
-      try { if (BB.bus.placeAtDepot) BB.bus.placeAtDepot(); } catch (e) { console.error(e); }
-      BB.depot.open({ start: true });
+      U.showHome({ say: false });
     });
   }
   U.goHome = goHome;
@@ -484,7 +512,8 @@
     U.closeAsk();
     const w = askEl = BB.el('div', 'bbu-ask', U.root);
     const card = BB.el('div', 'card', w);
-    if (o.pic && o.pic[0] === '<') { const s = BB.el('div', '', null, o.pic).firstChild; s.classList.add('pic'); card.appendChild(s); }
+    if (o.pic && o.pic.nodeType === 1) { o.pic.classList.add('pic'); card.appendChild(o.pic); }
+    else if (o.pic && o.pic[0] === '<') { const s = BB.el('div', '', null, o.pic).firstChild; s.classList.add('pic'); card.appendChild(s); }
     else if (o.pic) { const c = BB.iconEl(o.pic, 160); c.className = 'pic'; card.appendChild(c); }
     BB.el('div', 'q', card, o.words);
     const row = BB.el('div', 'row', card);
@@ -556,12 +585,94 @@
   };
   U.afterBus = function () { U.setAssist(!!BB.save.assist, true); };
 
-  U.showTitle = function () { titleEl.style.display = ''; hud.classList.add('off'); U.showExit(true); };
-  U.hideTitle = function () { titleEl.style.display = 'none'; hud.classList.remove('off'); U.showExit(false); };
-  U.titleShown = () => titleEl.style.display !== 'none';
+  // ---------- the home screen ----------
+  // opts.say: false = no welcome (the line is said by whoever opened it). The bus parks in front of its garage and the
+  // camera swings gently round it ('title').
+  U.homeWelcome = () => (BB.HUB ? 'Hello, Little Bus Captain! Tap Play!' : 'Welcome, Little Bus Captain! Tap Play!');
+  let homeIdle = null, homeCalls = 0;
+  U.showHome = function (opts = {}) {
+    if (BB.bedtime) return;
+    U.closeAsk(); U.releaseAll(); U.hideTips();
+    titleEl.style.display = ''; hud.classList.add('off'); U.showExit(true);
+    try { if (BB.bus.placeAtDepot) BB.bus.placeAtDepot('title'); else BB.bus.setCamera('title'); } catch (e) { console.error(e); }
+    syncFam();
+    if (opts.say !== false) BB.say(U.homeWelcome());
+    homeCalls = 0; if (homeIdle) BB.cancelLater(homeIdle); homeIdle = BB.later(12000, homeNudge);
+    BB.emit('home:open');
+  };
+  function homeNudge() {
+    homeIdle = null;
+    if (!U.titleShown() || BB.bedtime || homeCalls >= 2) return;
+    if (!BB.speaking()) { homeCalls++; playBtn.classList.remove('call'); void playBtn.offsetWidth; playBtn.classList.add('call'); BB.say('Tap Play to go to your garage!'); }
+    homeIdle = BB.later(homeCalls ? 18000 : 4000, homeNudge);
+  }
+  U.hideHome = function () { titleEl.style.display = 'none'; U.showExit(false); if (homeIdle) { BB.cancelLater(homeIdle); homeIdle = null; } };
+  // Play: to the garage. A job that was waiting (Home in the middle of one) carries on after Drive.
+  U.play = function () {
+    if (BB.bedtime || !U.titleShown()) return;
+    BB.sfx.pop();
+    U.hideHome();
+    const J = BB.jobs;
+    if (J.phase === 'home') J.phase = 'depot';
+    BB.depot.open({ start: true });
+  };
+  U.homeShown = () => titleEl.style.display !== 'none';
+  U.titleShown = U.homeShown;
+  U.showTitle = () => U.showHome(); U.hideTitle = () => U.hideHome();
+  // the family strip: the family's status picture and the buses here now (BB.net: status(), friends(); older net.js:
+  // its room state and remotes)
+  const miniCache = {};
+  function miniBus(type, paint) {
+    const k = type + paint; if (miniCache[k]) return miniCache[k];
+    const c = document.createElement('canvas'); c.width = 96; c.height = 64;
+    const x = c.getContext('2d'); x.scale(96 / 100, 64 / 66);
+    const col = (BB.PAINTS.find((p) => p.id === paint) || BB.PAINTS[0]).color;
+    BB.sideBus(x, 6, type === 'double' ? 12 : 0, 1.02, col, type);
+    return (miniCache[k] = c);
+  }
+  U.miniBus = (type, paint) => { const src = miniBus(type, paint), c = document.createElement('canvas'); c.width = src.width; c.height = src.height; c.getContext('2d').drawImage(src, 0, 0); return c; };
+  U.family = function () {
+    const N = BB.net; if (!N) return null;
+    let status, friends;
+    try {
+      status = typeof N.status === 'function' ? N.status() : N.state === 'room' ? 'together' : 'alone';
+      friends = typeof N.friends === 'function' ? (N.friends() || []) : [...(N.remotes || new Map()).values()].filter((r) => !r.leaving && r.look).map((r) => ({ id: r.id, type: r.look.ty, paint: r.look.pa, routeNo: r.look.no }));
+    } catch (e) { console.error(e); return null; }
+    if (status === 'together' && !friends.length) status = 'alone';
+    return { status, friends };
+  };
+  U.FAMILY = {
+    together: { icon: 'together', words: 'Playing together!' },
+    alone: { icon: 'famAlone', words: 'Waiting for family' },
+    connecting: { icon: 'famWait', words: 'Looking for family' },
+    offline: { icon: 'famOffline', words: 'Playing on my own' },
+  };
+  U.familySay = function (f) {
+    if (!f) return '';
+    const n = f.friends.length;
+    if (f.status === 'together') return n === 1 ? 'Your family is here! One friend is playing too.' : `Your family is here! ${n} friends are playing too.`;
+    if (f.status === 'connecting') return 'Looking for your family!';
+    if (f.status === 'offline') return 'No internet right now. We can play on our own!';
+    return 'Your family is not here yet.';
+  };
+  let famKey = '';
+  function syncFam() {
+    const f = U.family();
+    const key = f ? f.status + ':' + f.friends.map((x) => x.id + x.type + x.paint + x.routeNo).join(',') : 'none';
+    if (key === famKey && famEl.firstChild) return;
+    famKey = key; famEl.innerHTML = '';
+    if (!f) return;
+    const S = U.FAMILY[f.status] || U.FAMILY.alone;
+    const b = U.btn(famEl, null, 'Family', () => BB.say(U.familySay(U.family())), 'bbu-famb');
+    b.querySelector('.lb').remove();
+    const col = BB.el('span', 'col', null); b.prepend(col);
+    col.appendChild(BB.iconEl(S.icon, 128)); BB.el('span', 'lb', col, 'Family');
+    for (const fr of f.friends.slice(0, 4)) { const d = BB.el('span', 'bus', b); d.appendChild(U.miniBus(fr.type, fr.paint)); BB.el('b', '', d, String(fr.routeNo || '')); }
+    if (f.friends.length > 4) BB.el('span', 'more', b, '+' + (f.friends.length - 4));
+  }
   U.showExit = function (on) { if (exitBtn) exitBtn.style.display = on && !BB.hub.slept && !BB.bedtime ? '' : 'none'; };
   // hide everything for the goodnight moment
-  U.hideAll = function () { titleEl.style.display = 'none'; hud.classList.add('off'); U.showExit(false); U.closeAsk(); U.releaseAll(); };
+  U.hideAll = function () { U.hideHome(); hud.classList.add('off'); U.showExit(false); U.closeAsk(); U.releaseAll(); };
 
   // ---------- play clock chip (hub mode) ----------
   const clocks = [];

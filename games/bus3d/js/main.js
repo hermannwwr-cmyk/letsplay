@@ -1,5 +1,5 @@
 /* Bendy Bus 3D: boot, renderer, resize, main loop, and the hub-mode flow.
-   Boot order: core.js (BB, audio, storage) -> world -> jobs -> depot -> ui -> bus -> net (family room) -> garage -> hub hello.
+   Boot order: core.js (BB, audio, storage) -> world -> jobs -> depot -> ui -> bus -> net (family) -> home screen -> hub hello.
    The loop pauses while the page is hidden or the hub holds the game (BB.held); one error in a frame is logged and
    the next frame carries on. Hub mode (only with ?hub=1 in a frame, see /CLAUDE.md): the last-minute warning between
    stops, the goodnight moment once time is up (after the stop in progress), stars, the evening sky. */
@@ -53,22 +53,23 @@
     };
     BB.render = () => renderer.render(BB.scene, BB.camera);
 
-    // The game starts in the bus garage: the child makes their bus (type, colour, number, parts), then taps Drive.
-    safe(() => { if (BB.bus.placeAtDepot) BB.bus.placeAtDepot(); });
+    // The game starts on its home screen: the bus parked at its garage, ONE big Play button (to the garage, where the
+    // child makes their bus and taps Drive), and in hub mode the all-games button.
+    safe(() => { if (BB.bus.placeAtDepot) BB.bus.placeAtDepot('title'); });
     if (BB.ui.afterBus) BB.ui.afterBus();
-    BB.depot.open({ start: true });
-    safe(() => BB.bus.updateCamera && BB.bus.setCamera('depot', true));
-    // The welcome is said as the garage opens; iOS blocks speech before a first tap, so if it wasn't heard it is
-    // said (queued) after the first tap while the start garage is still open.
-    const welcome = BB.depot.welcome();
+    BB.ui.showHome({ say: false });
+    // The welcome is said as the home screen opens; iOS blocks speech before a first tap, so if it wasn't heard it is
+    // said (queued) after the first tap while the home screen is still showing.
+    const welcome = BB.ui.homeWelcome();
+    BB.say(welcome);
     let welcomeAgain = false;            // at most once, and only if it never started and isn't still queued
     BB.on('audio:unlocked', () => BB.later(0, () => {
-      if (welcomeAgain || !BB.depot.isOpen || !BB.depot.isStart || BB.heard(welcome) || BB.pending(welcome)) return;
+      if (welcomeAgain || !BB.ui.homeShown() || BB.heard(welcome) || BB.pending(welcome)) return;
       welcomeAgain = true; BB.say(welcome, { queue: true });
     }));
     let started = false;                 // once, however many taps arrive
     BB.on('depot:closed', (d) => {
-      if (!d || !d.start || started || BB.bedtime) return;
+      if (!d || !d.start || d.home || started || BB.bedtime) return;
       started = true;
       BB.music.start();
       // a short hello if the welcome was never heard, then how to drive, queued so nothing cuts in
@@ -113,7 +114,7 @@
   // ---------- hub mode flow ----------
   const H = BB.hub;
   let warned = false, warnPending = false, zeroT = 0, stopsSinceZero = 0;
-  const CALM = { idle: 1, done: 1, depot: 1, toDepot: 1, bedtime: 1 };
+  const CALM = { idle: 1, done: 1, depot: 1, toDepot: 1, bedtime: 1, home: 1 };
   function hubSetup() {
     BB.on('hub:time', () => {
       if (BB.world.setSky && !BB.bedtime) safe(() => BB.world.setSky(H.share));
@@ -132,7 +133,7 @@
     const J = BB.jobs, ph = J.phase;
     const busy = (J.busy && J.busy()) || ph === 'question' || ph === 'stop' || ph === 'tow';
     // the last-minute warning waits for a calm moment between stops, never over a question or the counting
-    if (warnPending && !H.timeUp() && !busy && !BB.depot.isOpen && !BB.ui.titleShown()) {
+    if (warnPending && !H.timeUp() && !busy && !BB.depot.isOpen && !BB.ui.homeShown()) {
       warnPending = false;
       BB.ui.toast('🌙', 2600);
       BB.say('The bus is getting sleepy. Nearly time for bed!', { queue: true });

@@ -1,262 +1,72 @@
-/* Little Bus Captain: playing together (the family room).
+/* Little Bus Captain: playing together (the family, always on).
    Each child drives their own bus (own type, colour and number) in the same town and sees the others' buses; they can
    honk (a friend's bus nearby flashes its lights back: a wave). Gentle: no racing, no scores, buses pass through each
-   other (a friend's bus is ghosted when it is close to ours or near our stop), and each device keeps its own jobs,
-   questions and coins. No names, no chat, no free text: only bus state, the bus's looks and the room code are sent.
+   other (a friend's bus is ghosted when it is close to ours, near our stop or in front of the camera), and each device
+   keeps its own jobs, questions and coins. No names, no chat, no free text: only bus state, the bus's looks and the
+   family code are sent.
 
-   Kid flow: the garage's "Together" section (depot.js) -> Make a room (a PICTURE CODE of 5 pictures is shown and spoken)
-   or Join a room (tap the same 5 pictures). Anyone with the code joins (the owner left out an accept step); up to 10
-   buses in a room. Offline, from a blocked network or when the connection service can't be reached: "Playing
-   together needs the internet." (spoken, with a cloud picture). Single-player never needs any of this.
+   THE FAMILY (the owner's choice: "always multiplayer whenever possible", auto-join): every device has a saved family
+   code, 5 pictures from 12 (bus3d.family; a random one is made on the first run). Whenever the device is online the game
+   joins its family's room by itself, at start and again after a dropped link, coming back online or the page showing
+   again; an empty room just means "alone for now". A second device links up once by entering the first one's code
+   (setFamily), and from then on they meet whenever both are playing. newFamily() makes a fresh random code ("leave
+   family"). Up to 10 buses; a full room = play alone quietly and try again later. Offline or unreachable is SILENT:
+   play alone, retry with backoff (2 s doubling to 60 s, at once on 'online' / the page showing). Friends arriving and
+   leaving are announced ("Bus 20 is here!", "Bye bye, bus 7!"), but only at a calm moment (driving or the garage,
+   never over a question, the teaching or the counting).
 
-   Layers (the room logic never knows which transport carries it):
-   1. Transport (a room as a message bus). Interface:
-        const t = transport();
-        t.connect(code, { create })   create: make the room (error 'taken' if it exists); otherwise join ('noroom')
-        t.onOpen = ({ self, peers })  self: my member id (a small integer, lower = joined earlier among those present;
-                                       an id can be given again after its member left), peers: the ids already there
-        t.onPeerJoin = (id)  t.onPeerLeave = (id, why: 'left' | 'lost')
-        t.onMessage = (from, msg)     msg: a small JSON object from member `from`
-        t.onError = (kind)            before open: 'offline' | 'noroom' | 'taken' | 'full' | 'failed'
-        t.onClose = (why)             after open: 'ended' (the room is gone) | 'lost' (our link dropped)
-        t.send(msg)                   to everyone else in the room;  t.close()  leave (quietly, no callbacks)
-        connect(code, { rejoin: true }) after a dropped link: join or (re)make the room, whichever applies.
-      wsTransport(url) (the DEFAULT): the Cloudflare relay in /relay (a Worker and one
-      Durable Object per room, no device hosts, the room lives while anyone is in it): a WebSocket to
-      <RELAY>/room/lbc-<code>; it answers welcome {id, members}, join/leave, full; passes our JSON objects on with
-      {from}; we ping every 20 s (mobile networks). It has no "create" step, so: making a room that already has members
-      counts as 'taken' (a new code is drawn), and joining an empty room counts as 'noroom'.
-      chainTransport([...]) tries the relay first and PeerJS when the relay can't be reached (and, when joining, when the
-      relay has no such room: the friend's device may have fallen back to PeerJS too).
-      starTransport(endpoint) (the PeerJS fallback) implements it over peer-to-peer endpoints: the room's creator owns the PeerJS id
-      'lbcap-q7k2-<code>', the others connect to it and it forwards everyone's messages, batched every 50 ms. It also
-      enforces the 10-bus limit. When the creator leaves, the room ends (a relay could keep it going).
-   2. Endpoints for the star: PeerJS (the free public PeerJS cloud server, default STUN/TURN), or, ONLY with the test
-      flag ?net=local, a fake in-browser one over BroadcastChannel (pages in one browser profile), or ?net=off (a
-      connection service that never answers, to test the "needs internet" card).
-   3. Room logic (transport-agnostic, below): every member sends its own state about 10 times a second (less when
-      standing still, nothing while the page is hidden), looks ('hi') when it arrives or someone new comes, honks and
-      waves. Day/night and weather follow the earliest member still in the room (the sky authority, which sends them
-      every 3 s); our own bedtime night (hub mode) always wins.
-   4. Friends' buses: cheap low-detail models (one draw call per bus, bending in the vertex shader for bendies) plus
+   API (for the garage's Together section and the HUD):
+     BB.net.family()          -> the 5 picture ids, e.g. ['bus', 'star', 'cat', 'sun', 'flower']
+     BB.net.setFamily(ids)    join another family: 5 picture ids or indices (0-11); saved; reconnects. -> true/false
+     BB.net.newFamily()       a fresh random family code (leave the family); saved; reconnects. -> the new ids
+     BB.net.status()          'offline' | 'connecting' | 'alone' | 'together'
+     BB.net.friends()         -> [{ id, type, paint, color, routeNo }] the other buses here now
+     BB.net.PICS / pic(name, size)   the 12 code pictures (and UI pictures: together, home, speak, tick, cross, del,
+                              cloud, join, make) as paper-cut canvases
+     BB.net.showFamily()      a card: our code (spoken, each picture lit in turn) and the buses here now
+     BB.net.enterFamily()     a card: tap another device's 5 pictures to join that family
+     BB.net.fillFriends(el, withMe)  little bus chips (picture + number, spoken on tap) into an element
+     events: 'net:status' {status}, 'net:friends' {friends}; 'net:changed' {state, friends} (older, still sent)
+     Older names kept for depot.js until it moves over: state ('room' | 'opening' | 'solo'), open() / make() =
+     showFamily(), join() = enterFamily(), remotes (Map), code.
+     Internal: init(), update(dt), goodnight(), leave(why) (bedtime and the hub removing the frame: a polite goodbye,
+     then no reconnecting).
+
+   Layers:
+   1. Transport (a room as a message bus):  const t = wsTransport(url); t.connect(code);
+        t.onOpen({ self, peers })   self: my member id (lower = in the room longer; ids can be reused after a leave)
+        t.onPeerJoin(id)  t.onPeerLeave(id)  t.onMessage(from, msg)
+        t.onError(kind)             before open: 'offline' | 'full'
+        t.onClose('lost')           after open: our link dropped
+        t.send(msg)  t.close()      (close is quiet: no callbacks)
+      The only transport is the owner's Cloudflare relay (relay/worker.js: a Worker and one Durable Object per room, no
+      device hosts, the room lives while anyone is in it; it adds {from}, caps 10 members, 4 KB and 40 msgs/s): a
+      WebSocket to <RELAY>/room/lbc-<5 letters>; welcome {id, members}, join/leave, full; we ping every 20 s. (The
+      PeerJS fallback was dropped with the always-on family: it needs a host device, which doesn't fit.)
+      Test only: ?relay=ws://127.0.0.1:8787 (a local `wrangler dev`; only localhost addresses are accepted).
+   2. Room logic (below): every member sends its own state about 10 times a second (less when standing still; one
+      "parked" state when the page hides; parked while the hub holds the game), its looks ('hi') when it arrives or
+      someone new comes, honks and waves. Day/night and weather follow the earliest member still in the room (the sky
+      authority, every 3 s); our own bedtime night (hub mode) always wins.
+   3. Friends' buses: cheap low-detail models (one draw call per bus, bending in the vertex shader for bendies) plus
       ONE instanced mesh for all their wheels, one for all their blob shadows and one for all their floating
       route-number badges: ~12 draw calls for 9 friends. Interpolated ~200 ms behind.
-   The HUD shows the friends in the room as little bus pictures with their numbers, top right under the buttons.
-   Exposes BB.net = { init, update(dt), open(), make(), join(), leave(why), goodnight(), fillFriends(el, withMe), pic(name),
-   state, remotes, code, transports }; emits net:changed when the room or its members change. */
+   The HUD shows the friends here as little bus pictures with their numbers, top right under the buttons. */
 (function () {
   'use strict';
   const BB = window.BB, P = BB.P;
   const N = BB.net = { state: 'solo', remotes: new Map(), code: null, self: -1, MAX: 10 };
 
-  const APP = 'lbcap-q7k2-';                      // app prefix on the shared server, so codes can't meet other apps' ids
-  const LETTERS = 'bcdfghjkmnpq';                 // picture index -> a letter in the peer id
+  const LETTERS = 'bcdfghjkmnpq';                 // picture index -> a letter in the room name
   const PICS = ['bus', 'star', 'cat', 'sun', 'flower', 'fish', 'heart', 'moon', 'tree', 'kite', 'ball', 'boat'];
   const CODE_LEN = 5;
-  const MODE = (location.search.match(/[?&]net=(local|off)\b/) || [])[1] || 'peer';
-  // The family-room relay (relay/worker.js, deployed on Cloudflare). PeerJS is only the fallback when it can't be reached.
+  // The family-room relay (relay/worker.js, deployed on Cloudflare).
   const RELAY = 'wss://bus-captain-rooms.hermannwwr.workers.dev';
   // test only: ?relay=ws://127.0.0.1:8787 (a local `wrangler dev`); only localhost addresses are accepted
   const RELAY_TEST = (location.search.match(/[?&]relay=(wss?:\/\/(?:127\.0\.0\.1|localhost)(?::\d{2,5})?)(?=[&#/]|$)/) || [])[1] || null;
-  const RELAY_URL = MODE !== 'peer' ? null : RELAY_TEST || RELAY;
+  const RELAY_URL = RELAY_TEST || RELAY;
   const wrapA = (a) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
-  const randId = (n = 10) => { const a = new Uint8Array(n); crypto.getRandomValues(a); return Array.from(a, (v) => (v % 36).toString(36)).join(''); };
 
-  // ================= endpoints (peer-to-peer links under the star transport) =================
-  // ep = { onopen(id), onerror(type), onconnection(conn), connect(id) -> conn, destroy() }
-  // conn = { onopen(), ondata(obj), onclose(), send(obj), close() }
-  function pjEndpoint(id) {
-    const ep = { dead: false, opened: false };
-    let p;
-    try { p = new window.Peer(id, { debug: 0 }); } catch (e) {
-      setTimeout(() => ep.onerror && ep.onerror('browser-incompatible'), 0);
-      ep.connect = () => null; ep.destroy = () => {}; return ep;
-    }
-    p.on('open', (pid) => { ep.opened = true; if (ep.onopen) ep.onopen(pid); });
-    p.on('error', (err) => { if (!ep.dead && ep.onerror) ep.onerror((err && err.type) || 'error'); });
-    p.on('connection', (c) => { if (ep.onconnection) ep.onconnection(pjConn(c)); });
-    // losing the signalling server doesn't break the data links; reconnect so new friends can still join
-    p.on('disconnected', () => {
-      if (ep.dead || !ep.opened) return;
-      setTimeout(() => { if (!ep.dead && p.disconnected && !p.destroyed) { try { p.reconnect(); } catch (e) { /* later */ } } }, 3000);
-    });
-    ep.connect = (to) => { try { return pjConn(p.connect(to, { serialization: 'json', reliable: true })); } catch (e) { return null; } };
-    ep.destroy = () => { ep.dead = true; try { p.destroy(); } catch (e) { /* gone */ } };
-    return ep;
-  }
-  function pjConn(c) {
-    const w = {};
-    let closed = false;
-    const shut = () => { if (closed) return; closed = true; if (w.onclose) w.onclose(); };
-    c.on('open', () => { if (w.onopen) w.onopen(); });
-    c.on('data', (d) => { if (w.ondata) w.ondata(d); });
-    c.on('close', shut);
-    c.on('error', shut);
-    w.send = (o) => { try { if (c.open) c.send(o); } catch (e) { /* dropped */ } };
-    w.close = () => { try { c.close(); } catch (e) { /* gone */ } };
-    return w;
-  }
-  // Test only (?net=local): the same endpoint over a BroadcastChannel between pages of one browser profile.
-  // Ids are claimed (an id already open answers 'taken'); a connect nobody answers fails as 'peer-unavailable'.
-  const bc = MODE === 'local' && typeof BroadcastChannel === 'function' ? new BroadcastChannel('lbcap-net-test') : null;
-  const bcEps = new Set();
-  if (bc) bc.onmessage = (e) => { for (const ep of bcEps) ep._in(e.data); };
-  function bcEndpoint(id) {
-    const ep = { open: false }, uid = randId(12), conns = new Map(), pend = new Map();
-    const post = (m) => { try { bc.postMessage(Object.assign({ from: id, uid }, m)); } catch (e) { /* closed */ } };
-    bcEps.add(ep);
-    let claimT = setTimeout(() => { claimT = 0; ep.open = true; if (ep.onopen) ep.onopen(id); }, 250);
-    post({ k: 'claim' });
-    function mkConn(cid, remote) {
-      const c = { cid, remote, closed: false };
-      c.send = (o) => { if (!c.closed) post({ k: 'data', to: remote, cid, d: JSON.parse(JSON.stringify(o)) }); };
-      c.close = () => { if (c.closed) return; c.closed = true; conns.delete(cid); post({ k: 'close', to: remote, cid }); setTimeout(() => c.onclose && c.onclose(), 0); };
-      conns.set(cid, c);
-      return c;
-    }
-    ep._in = (m) => {
-      if (!m || m.uid === uid) return;
-      if (m.k === 'claim' && ep.open && m.from === id) post({ k: 'taken', to: id, re: m.uid });
-      else if (m.k === 'taken' && m.re === uid && claimT) { clearTimeout(claimT); claimT = 0; if (ep.onerror) ep.onerror('unavailable-id'); }
-      else if (m.to !== id) return;
-      else if (m.k === 'conn' && ep.open) {
-        const c = mkConn(m.cid, m.from);
-        post({ k: 'acc', to: m.from, cid: m.cid });
-        if (ep.onconnection) ep.onconnection(c);
-        setTimeout(() => c.onopen && c.onopen(), 0);
-      } else if (m.k === 'acc' && pend.has(m.cid)) { const c = pend.get(m.cid); pend.delete(m.cid); clearTimeout(c.timer); conns.set(c.cid, c); if (c.onopen) c.onopen(); }
-      else if (m.k === 'data' && conns.has(m.cid)) { const c = conns.get(m.cid); if (c.ondata) c.ondata(m.d); }
-      else if (m.k === 'close' && conns.has(m.cid)) { const c = conns.get(m.cid); c.closed = true; conns.delete(m.cid); if (c.onclose) c.onclose(); }
-    };
-    ep.connect = (to) => {
-      const c = mkConn(randId(8), to); conns.delete(c.cid); pend.set(c.cid, c);
-      c.timer = setTimeout(() => { if (pend.delete(c.cid) && ep.onerror) ep.onerror('peer-unavailable'); }, 1500);
-      post({ k: 'conn', to, cid: c.cid });
-      return c;
-    };
-    ep.destroy = () => { clearTimeout(claimT); for (const c of [...conns.values()]) c.close(); bcEps.delete(ep); ep.open = false; };
-    return ep;
-  }
-  // Test only (?net=off): a connection service that can't be reached.
-  function offEndpoint() {
-    const ep = { connect: () => null, destroy() {} };
-    setTimeout(() => ep.onerror && ep.onerror('network'), 400);
-    return ep;
-  }
-
-  // ================= the star transport (implements the room interface over endpoints) =================
-  // Wire format: control objects {c:'hello'|'welcome'|'full'|'join'|'leave'|'end'|'bye'}; data as arrays:
-  // guest -> creator [msg, ...]; creator -> guest [[from, msg], ...].
-  function starTransport(makeEp) {
-    const T = {};
-    let ep = null, state = 'idle', role = null, flushT = 0, liveT = 0, openT = 0;
-    const members = new Map();             // creator: conn -> { id, out, heard, conn }
-    let nextId = 1, hostConn = null, hostHeard = 0, out = [];
-    const call = (fn, ...a) => { if (T[fn]) { try { T[fn](...a); } catch (e) { console.error(e); } } };
-    function cleanup() {
-      clearInterval(flushT); clearInterval(liveT); clearTimeout(openT); flushT = liveT = openT = 0;
-      if (ep) { const e = ep; ep = null; setTimeout(() => e.destroy(), 250); }
-    }
-    const fail = (k) => { if (state === 'done') return; state = 'done'; cleanup(); call('onError', k); };
-    const end = (why) => { if (state !== 'open') return; state = 'done'; cleanup(); call('onClose', why); };
-    T.connect = function (code, opts) {
-      const pid = APP + code;
-      role = opts && opts.create ? 'host' : 'join';
-      state = 'opening';
-      openT = setTimeout(() => fail('offline'), 12000);
-      ep = makeEp(role === 'host' ? pid : APP + 'j-' + randId());
-      ep.onerror = (type) => {
-        if (state !== 'opening' && state !== 'joining') return;      // once open, the signalling server may come and go
-        if (type === 'unavailable-id') fail('taken');
-        else if (type === 'peer-unavailable') fail('noroom');
-        else if (state === 'joining') fail(type === 'network' || type === 'server-error' || type === 'socket-error' ? 'offline' : 'failed');
-        else fail('offline');
-      };
-      ep.onopen = () => {
-        if (state !== 'opening') return;
-        if (role === 'host') {
-          clearTimeout(openT); state = 'open';
-          flushT = setInterval(flush, 50);
-          liveT = setInterval(() => { const now = performance.now(); for (const [c, m] of members) if (now - m.heard > 60000) drop(c, 'lost'); }, 2000);
-          call('onOpen', { self: 0, peers: [] });
-        } else { state = 'joining'; join(pid); }
-      };
-      if (role === 'host') ep.onconnection = guest;
-    };
-    // ----- joining: connect to the creator, say hello, wait for welcome -----
-    function join(pid) {
-      clearTimeout(openT); openT = setTimeout(() => fail('failed'), 15000);
-      const c = hostConn = ep.connect(pid);
-      if (!c) { fail('offline'); return; }
-      c.onopen = () => c.send({ c: 'hello', v: 1 });
-      c.ondata = (d) => {
-        hostHeard = performance.now();
-        if (!d || typeof d !== 'object') return;
-        if (Array.isArray(d)) {
-          if (state === 'open') for (const it of d) if (Array.isArray(it) && it.length === 2 && Number.isInteger(it[0])) call('onMessage', it[0], it[1]);
-          return;
-        }
-        if (d.c === 'welcome' && state === 'joining') {
-          clearTimeout(openT); state = 'open';
-          flushT = setInterval(() => { if (out.length && hostConn) { hostConn.send(out); out = []; } }, 50);
-          liveT = setInterval(() => { if (performance.now() - hostHeard > 60000) end('lost'); }, 2000);
-          call('onOpen', { self: d.self | 0, peers: (Array.isArray(d.peers) ? d.peers : []).filter(Number.isInteger) });
-        } else if (d.c === 'full') fail('full');
-        else if (state !== 'open') return;
-        else if (d.c === 'join' && Number.isInteger(d.id)) call('onPeerJoin', d.id);
-        else if (d.c === 'leave' && Number.isInteger(d.id)) call('onPeerLeave', d.id, d.why === 'lost' ? 'lost' : 'left');
-        else if (d.c === 'end') end('ended');
-      };
-      c.onclose = () => { if (state === 'open') end('lost'); else if (state === 'joining') fail('failed'); };
-    }
-    // ----- the creator: welcome guests (up to the limit) and forward everyone's messages -----
-    const count = () => { let n = 1; for (const m of members.values()) if (m.id >= 0) n++; return n; };
-    function guest(c) {
-      const m = { id: -1, out: [], heard: performance.now(), conn: c };
-      c.ondata = (d) => {
-        m.heard = performance.now();
-        if (Array.isArray(d)) { if (m.id >= 0) for (const msg of d.slice(0, 40)) relay(m, msg); return; }
-        if (!d || typeof d !== 'object') return;
-        if (d.c === 'hello' && m.id < 0 && state === 'open') {
-          if (count() >= N.MAX) { c.send({ c: 'full' }); setTimeout(() => c.close(), 600); return; }
-          m.id = nextId++;
-          const peers = [0]; for (const o of members.values()) if (o.id >= 0) peers.push(o.id);
-          members.set(c, m);
-          c.send({ c: 'welcome', self: m.id, peers });
-          for (const o of members.values()) if (o !== m) o.conn.send({ c: 'join', id: m.id });
-          call('onPeerJoin', m.id);
-        } else if (d.c === 'bye') drop(c, 'left');
-      };
-      c.onclose = () => drop(c, 'lost');
-      setTimeout(() => { if (m.id < 0) c.close(); }, 15000);          // never said hello
-    }
-    function relay(m, msg) {
-      if (!msg || typeof msg !== 'object' || Array.isArray(msg)) return;
-      call('onMessage', m.id, msg);
-      for (const o of members.values()) if (o !== m) queue(o, [m.id, msg]);
-    }
-    function queue(o, item) { o.out.push(item); if (o.out.length > 300) o.out.splice(0, o.out.length - 300); }
-    function flush() { for (const o of members.values()) if (o.out.length) { o.conn.send(o.out); o.out = []; } }
-    function drop(c, why) {
-      const m = members.get(c); if (!m) return;
-      members.delete(c);
-      try { c.close(); } catch (e) { /* gone */ }
-      for (const o of members.values()) o.conn.send({ c: 'leave', id: m.id, why });
-      call('onPeerLeave', m.id, why);
-    }
-    T.send = function (msg) {
-      if (state !== 'open') return;
-      if (role === 'host') { for (const o of members.values()) queue(o, [0, msg]); } else { out.push(msg); if (out.length > 300) out.splice(0, out.length - 300); }
-    };
-    T.close = function () {
-      if (state === 'open') {
-        if (role === 'host') { flush(); for (const o of members.values()) o.conn.send({ c: 'end' }); }
-        else if (hostConn) { if (out.length) hostConn.send(out); out = []; hostConn.send({ c: 'bye' }); }
-      }
-      state = 'done'; cleanup();
-    };
-    return T;
-  }
   // ================= the relay transport (WebSocket to the Cloudflare room) =================
   function wsTransport(base) {
     const T = {};
@@ -270,8 +80,7 @@
     }
     const fail = (k) => { if (state === 'done') return; state = 'done'; cleanup(); call('onError', k); };
     const end = (why) => { if (state !== 'open') return; state = 'done'; cleanup(); call('onClose', why); };
-    T.connect = function (code, opts) {
-      opts = opts || {};
+    T.connect = function (code) {
       state = 'opening';
       try { ws = new WebSocket(base.replace(/\/+$/, '') + '/room/lbc-' + code); } catch (e) { setTimeout(() => fail('offline'), 0); return; }
       openT = setTimeout(() => fail('offline'), 10000);
@@ -286,21 +95,18 @@
           call('onMessage', from, m);
           return;
         }
-        if (m.t === 'welcome' && state === 'opening') {
-          const peers = (Array.isArray(m.members) ? m.members : []).filter(Number.isInteger);
-          if (!opts.rejoin && opts.create && peers.length) { fail('taken'); return; }
-          if (!opts.rejoin && !opts.create && !peers.length) { fail('noroom'); return; }
+        if (m.t === 'welcome' && state === 'opening') {      // (members [] = we're the first one here: fine)
           clearTimeout(openT); state = 'open';
           pingT = setInterval(() => {
             if (performance.now() - heard > 50000) { end('lost'); return; }   // no pong: the link is dead
             T.send({ t: 'ping' });
           }, 20000);
           addEventListener('offline', offline);
-          call('onOpen', { self: m.id | 0, peers });
+          call('onOpen', { self: m.id | 0, peers: (Array.isArray(m.members) ? m.members : []).filter(Number.isInteger) });
         } else if (m.t === 'full') fail('full');
         else if (state !== 'open') return;
         else if (m.t === 'join' && Number.isInteger(m.id)) call('onPeerJoin', m.id);
-        else if (m.t === 'leave' && Number.isInteger(m.id)) call('onPeerLeave', m.id, 'left');
+        else if (m.t === 'leave' && Number.isInteger(m.id)) call('onPeerLeave', m.id);
       };
       ws.onclose = (e) => { if (state === 'open') end('lost'); else fail(e && e.code === 4001 ? 'full' : 'offline'); };
       ws.onerror = () => { /* onclose follows */ };
@@ -312,51 +118,16 @@
     T.close = function () { state = 'done'; cleanup(); };
     return T;
   }
-
-  // Try transports in turn: the next one is tried when one can't be reached ('offline' / 'failed'), and, when joining,
-  // also when one has no such room (the friend's device may have fallen back too). 'taken' and 'full' answer at once;
-  // a "no room" from any of them wins over "can't reach" (so a wrong code still says "No room found").
-  function chainTransport(makers) {
-    const T = {};
-    let cur = null, done = false;
-    const pass = (fn) => (...a) => { if (!done && T[fn]) T[fn](...a); };
-    T.connect = function (code, opts) {
-      let i = 0, best = null;
-      const next = () => {
-        if (done) return;
-        if (i >= makers.length) { if (T.onError) T.onError(best || 'offline'); return; }
-        const t = cur = makers[i++]();
-        t.onOpen = pass('onOpen'); t.onPeerJoin = pass('onPeerJoin'); t.onPeerLeave = pass('onPeerLeave');
-        t.onMessage = pass('onMessage'); t.onClose = pass('onClose');
-        t.onError = (k) => {
-          if (done || t !== cur) return;
-          const on = k === 'offline' || k === 'failed' || (k === 'noroom' && !(opts && opts.create));
-          if (k === 'noroom') best = 'noroom'; else if (!best) best = k;
-          if (on) next(); else if (T.onError) T.onError(k);
-        };
-        t.connect(code, opts);
-      };
-      next();
-    };
-    T.send = (m) => { if (cur) cur.send(m); };
-    T.close = () => { done = true; if (cur) cur.close(); };
-    return T;
-  }
-  const makeTransport = () => (MODE === 'local' ? starTransport(bcEndpoint) : MODE === 'off' ? starTransport(offEndpoint)
-    : RELAY_URL && typeof WebSocket === 'function' && typeof window.Peer === 'function'
-      ? chainTransport([() => wsTransport(RELAY_URL), () => starTransport(pjEndpoint)])
-      : RELAY_URL ? wsTransport(RELAY_URL) : starTransport(pjEndpoint));
-  N.transports = { relay: wsTransport, chain: chainTransport, star: starTransport, peerjs: pjEndpoint, local: bcEndpoint, make: makeTransport };
-  N.via = RELAY_URL ? 'relay' : MODE === 'peer' ? 'peerjs' : MODE;
-  // Can we even try? (the device thinks it is online, and WebSocket / PeerJS and WebRTC are there.) Test modes skip it.
-  N.canTry = () => MODE !== 'peer' || (navigator.onLine !== false && ((RELAY_URL && typeof WebSocket === 'function')
-    || (typeof window.Peer === 'function' && typeof window.RTCPeerConnection === 'function')));
+  const makeTransport = () => wsTransport(RELAY_URL);
+  N.transports = { relay: wsTransport, make: makeTransport };
+  // Worth trying? (the device thinks it is online and has WebSockets)
+  N.canTry = () => navigator.onLine !== false && typeof WebSocket === 'function';
 
   // ================= room logic (transport-agnostic) =================
-  let T = null, members = new Set(), tickT = 0, retries = 0, lastHi = '';
+  let T = null, link = 'offline', members = new Set(), tickT = 0, lastHi = '';     // link: offline | connecting | open
   const authority = () => { let a = N.self; for (const m of members) if (m < a) a = m; return a; };
-  N.isAuthority = () => N.state === 'room' && authority() === N.self;
-  const send = (msg) => { if (T && N.state === 'room') T.send(msg); };
+  N.isAuthority = () => link === 'open' && authority() === N.self;
+  const send = (msg) => { if (T && link === 'open') T.send(msg); };
 
   function myLook() {
     const S = BB.save;
@@ -403,14 +174,25 @@
     return { x: d[0], z: d[1], h: wrapA(d[2]), hr: wrapA(d[3]), sp: BB.clamp(d[4], -20, 20), st: BB.clamp(d[5], -1, 1), fl: d[6] | 0 };
   }
 
-  let lastKey = '', lastAt = 0, skyAt = 0, parkedSent = false;
+  let lastKey = '', lastAt = 0, skyAt = 0, hiAt = 0, staleAt = 0, parkedSent = false;
   function tick() {
-    if (!T || N.state !== 'room') return;
+    flushNews();
+    if (!T || link !== 'open') return;
     const now = performance.now();
+    // a friend we haven't heard from for a while (a device that died without a goodbye) fades away quietly: after
+    // 30 s, or 90 s if it said it was parked (its page hidden); it comes back with its next looks ('hi' every 15 s)
+    if (now - staleAt > 1000) {
+      staleAt = now;
+      for (const r of [...N.remotes.values()]) {
+        const last = r.snaps.length ? r.snaps[r.snaps.length - 1] : null, quiet = now / 1000 - (r.heard || r.born || 0);
+        if (!r.leaving && quiet > (last && (last.fl & 16) ? 90 : 30)) removeRemote(r.id, null, true);
+      }
+    }
     if (document.hidden) { if (!parkedSent) { parkedSent = true; send({ t: 's', d: myState(true) }); } return; }
     parkedSent = false;
     const d = myState(false), key = d.join(',');
     if (key !== lastKey || now - lastAt > 500) { send({ t: 's', d }); lastKey = key; lastAt = now; }
+    if (now - hiAt > 15000) { hiAt = now; sendHi(true); }
     const W = BB.world;
     if (N.isAuthority()) {
       if (W && !W.weatherAuto) W.weatherAuto = true;                  // (we just became the sky authority)
@@ -441,77 +223,134 @@
   }
   const pending = new Map();             // a state that came before the looks
 
-  // Start a room (create) or join one. cb(errorKind | null).
-  function start(code, create, cb, rejoin) {
-    stopRoom();
+  // ================= the family code =================
+  const validCode = (a) => Array.isArray(a) && a.length === CODE_LEN && a.every((i) => Number.isInteger(i) && i >= 0 && i < PICS.length);
+  function newCode() {
+    const out = [], a = new Uint8Array(16);
+    while (out.length < CODE_LEN) { crypto.getRandomValues(a); for (const v of a) if (v < 252 && out.length < CODE_LEN) out.push(v % 12); }
+    return out;
+  }
+  const codeStr = (c) => c.map((i) => LETTERS[i]).join('');
+  const toCode = (ids) => {
+    if (!Array.isArray(ids) || ids.length !== CODE_LEN) return null;
+    const a = ids.map((v) => (typeof v === 'number' ? v : PICS.indexOf(String(v).toLowerCase())));
+    return validCode(a) ? a : null;
+  };
+  let fam = BB.store.get('family', null);
+  if (!validCode(fam)) { fam = newCode(); BB.store.set('family', fam); }
+  N.code = codeStr(fam);
+  N.PICS = PICS.slice();
+  N.family = () => fam.map((i) => PICS[i]);
+  N.setFamily = function (ids) {
+    const a = toCode(ids); if (!a) return false;
+    if (codeStr(a) === N.code) return true;
+    fam = a; BB.store.set('family', fam); N.code = codeStr(fam);
+    relink(); return true;
+  };
+  N.newFamily = function () {
+    let a; do { a = newCode(); } while (codeStr(a) === N.code);
+    fam = a; BB.store.set('family', fam); N.code = codeStr(fam);
+    relink(); return N.family();
+  };
+
+  // ================= status =================
+  const liveFriends = () => [...N.remotes.values()].filter((r) => !r.leaving);
+  N.status = () => (link === 'open' ? (liveFriends().length ? 'together' : 'alone') : link === 'connecting' ? 'connecting' : 'offline');
+  N.friends = () => liveFriends().map((r) => ({ id: r.id, type: r.look.ty, paint: r.look.pa, color: paintHex(r.look.pa), routeNo: r.look.no }));
+  let lastStatus = '', lastFriends = '';
+  function syncStatus() {
+    N.state = link === 'open' ? 'room' : link === 'connecting' ? 'opening' : 'solo';      // (the older name)
+    const st = N.status();
+    if (st !== lastStatus) { lastStatus = st; BB.emit('net:status', { status: st }); }
+    const fr = N.friends(), key = JSON.stringify(fr);
+    if (key !== lastFriends) { lastFriends = key; BB.emit('net:friends', { friends: fr }); }
+  }
+
+  // ================= always on: connect, reconnect, leave =================
+  let backoff = 0, retryT = 0, lostT = 0, stopped = false;
+  function connect() {
+    clearTimeout(retryT); retryT = 0;
+    if (T || stopped || BB.bedtime || (BB.hub && BB.hub.paused)) return;
+    if (!N.canTry()) { link = 'offline'; syncStatus(); return; }      // ('online' brings us back)
     const t = T = makeTransport();
-    N.code = code; N.state = 'opening';
-    t.onError = (k) => { if (T !== t) return; T = null; N.state = 'solo'; N.code = null; cb(k); };
+    link = 'connecting'; syncStatus();
     t.onOpen = ({ self, peers }) => {
       if (T !== t) return;
-      N.self = self; members = new Set(peers); N.state = 'room'; retries = 0;
+      clearTimeout(lostT); lostT = 0;
+      N.self = self; members = new Set(peers); link = 'open'; backoff = 0;
       for (const id of [...N.remotes.keys()]) if (!members.has(id)) removeRemote(id, null, true);
       for (const r of N.remotes.values()) r.lost = false;
       lastKey = ''; skyAt = 0;
       sendHi(true); tick();
       clearInterval(tickT); tickT = setInterval(tick, 100);
       syncFriends();
-      cb(null);
     };
     t.onPeerJoin = (id) => { if (T !== t) return; members.add(id); if (N.remotes.has(id)) removeRemote(id, null, true); sendHi(true); lastKey = ''; if (N.isAuthority()) { skyAt = performance.now(); sendSky(); } };
     t.onPeerLeave = (id) => { if (T !== t) return; members.delete(id); pending.delete(id); removeRemote(id); };
     t.onMessage = (from, msg) => { if (T === t) onMsg(from, msg); };
-    t.onClose = (why) => { if (T !== t) return; T = null; roomLost(why); };
-    t.connect(code, { create, rejoin: !!rejoin });
+    t.onError = (k) => { if (T !== t) return; T = null; link = 'offline'; syncStatus(); retry(k === 'full' ? 60000 : 0); };
+    t.onClose = () => { if (T !== t) return; T = null; dropped(); };
+    t.connect(N.code);
   }
-  function stopRoom() {
-    clearInterval(tickT); tickT = 0;
-    if (T) { const t = T; T = null; t.close(); }
-    members = new Set(); pending.clear();
+  // Our link dropped: friends' buses go see-through for a moment while we try again; gone quietly if we can't.
+  function dropped() {
+    clearInterval(tickT); tickT = 0; members = new Set(); pending.clear();
+    link = 'offline';
+    for (const r of N.remotes.values()) r.lost = true;
+    clearTimeout(lostT); lostT = setTimeout(() => { lostT = 0; if (link !== 'open') clearFriends(); }, 12000);
     if (BB.world) BB.world.weatherAuto = true;
+    syncStatus(); retry(1500);
   }
-  // Our link dropped: try to get back in quietly a few times (friends' buses go see-through meanwhile); if the room
-  // is gone, carry on alone with a gentle word.
-  function roomLost(why) {
+  function retry(ms) {
+    clearTimeout(retryT); retryT = 0;
+    if (stopped || BB.bedtime) return;
+    const wait = ms || Math.min(60000, 2000 * Math.pow(2, backoff));
+    backoff = Math.min(backoff + 1, 6);
+    retryT = setTimeout(connect, wait * (0.8 + Math.random() * 0.4));
+  }
+  function clearFriends() { for (const id of [...N.remotes.keys()]) removeRemote(id, null, true); news.length = 0; syncFriends(); }
+  // leave the room politely (a goodbye first) and forget the friends
+  function unlink(why) {
+    clearTimeout(retryT); clearTimeout(lostT); retryT = lostT = 0;
     clearInterval(tickT); tickT = 0;
-    const code = N.code;
-    let lastBye = null;
-    for (const r of N.remotes.values()) { if (r.id === authority() || lastBye == null) lastBye = r.byeWhy; r.lost = true; }
-    if (why === 'lost' && code) { retry(code, lastBye); return; }
-    wentHome(lastBye);
+    if (T) { const t = T; T = null; if (link === 'open') t.send({ t: 'bye', why: why === 'sleep' ? 'sleep' : 'home' }); t.close(); }
+    link = 'offline'; members = new Set(); pending.clear();
+    if (BB.world) BB.world.weatherAuto = true;
+    clearFriends(); syncStatus();
   }
-  function retry(code, lastBye) {
-    if (retries >= 4) { wentHome(lastBye); return; }
-    const wait = 1500 * Math.pow(2, retries);                // 1.5, 3, 6, 12 s
-    retries++; N.state = 'opening'; N.code = code;
-    const go = () => {
-      if (N.state !== 'opening' || N.code !== code) return;
-      if (navigator.onLine === false && waited < 90) { waited += 3; setTimeout(go, 3000); return; }   // wait for the network
-      start(code, false, (err) => { if (!err) return; if (err === 'offline' || err === 'failed') retry(code, lastBye); else wentHome(lastBye); }, true);
-    };
-    let waited = 0;
-    setTimeout(go, wait);
-  }
-  function wentHome(why) {
-    stopRoom();
-    const had = N.remotes.size > 0 || N.state !== 'solo';
-    for (const id of [...N.remotes.keys()]) removeRemote(id, null, true);
-    N.state = 'solo'; N.code = null; N.self = -1; retries = 0;
-    syncFriends(); refreshPanel();
-    if (!had || BB.bedtime) return;
-    if (why === 'sleep') { BB.ui.toast('🌙', 2200); BB.say('Your friend went to bed. Goodnight!', { queue: true }); }
-    else { BB.ui.toast('👋', 2200); BB.say('Your friend went home! Let\'s keep driving.', { queue: true }); }
-  }
-  // Leave the room (the child tapped "go home", bedtime, or the hub removes the frame).
-  N.leave = function (why) {
-    if (N.state === 'solo') return;
-    if (N.state === 'room') send({ t: 'bye', why: why === 'sleep' ? 'sleep' : 'home' });
-    stopRoom();
-    for (const id of [...N.remotes.keys()]) removeRemote(id, null, true);
-    N.state = 'solo'; N.code = null; N.self = -1;
-    syncFriends(); refreshPanel();
-  };
+  function relink() { unlink('home'); backoff = 0; connect(); }
+  // bedtime or the hub removing the frame: goodbye, and no reconnecting
+  N.leave = function (why) { stopped = true; unlink(why); };
   N.goodnight = function () { lastKey = ''; tick(); hidePanel(); };
+
+  // ================= friends coming and going: said at a calm moment =================
+  const news = [];
+  function calm() {
+    if (BB.bedtime || BB.held) return false;
+    const J = BB.jobs;
+    if (J && ((J.busy && J.busy()) || J.teaching || J.phase === 'question' || J.phase === 'stop' || J.phase === 'tow')) return false;
+    return !(BB.ui && BB.ui.titleShown && BB.ui.titleShown());
+  }
+  function addNews(item) {
+    if (item.kind === 'bye') {                             // came and went before we said hello: say nothing
+      const i = news.findIndex((n) => n.kind === 'hi' && n.id === item.id && n.no === item.no);
+      if (i >= 0) { news.splice(i, 1); return; }
+    }
+    news.push(item); if (news.length > 12) news.shift();
+  }
+  function flushNews() {
+    if (!news.length || !calm()) return;
+    const hi = news.filter((n) => n.kind === 'hi'), bye = news.filter((n) => n.kind === 'bye');
+    news.length = 0;
+    if (hi.length) {
+      BB.sfx.sparkle();
+      const nos = hi.map((n, i) => (i ? 'bus ' : 'Bus ') + n.no);
+      if (hi.length > 3) BB.say(`${hi.length} friends are here!`, { queue: true });
+      else if (hi.length === 1) BB.say(`${nos[0]} is here!`, { queue: true });
+      else BB.say(`${nos.slice(0, -1).join(', ')} and ${nos[nos.length - 1]} are here!`, { queue: true });
+    }
+    for (const n of bye.slice(0, 3)) BB.say(n.sleep ? `Goodnight, bus ${n.no}!` : `Bye bye, bus ${n.no}!`, { queue: true });
+  }
 
   // ================= friends' buses (low detail) =================
   const MAXB = 12;                                        // atlas slots (9 friends need 9)
@@ -638,23 +477,23 @@
     const fresh = !r;
     if (fresh) {
       if (N.remotes.size >= N.MAX - 1) return;
-      r = { id, look, snaps: [], alpha: 0, spin: 0, gy: 0, flash: 0, byeWhy: null, leaving: false, lost: false, slot: freeSlot(), pose: null };
+      r = { id, look, snaps: [], alpha: 0, spin: 0, gy: 0, flash: 0, byeWhy: null, leaving: false, lost: false, slot: freeSlot(), pose: null, born: performance.now() / 1000 };
       N.remotes.set(id, r);
     } else disposeBody(r);
     r.look = look; buildShared(); buildBody(r); drawBadge(r);
     if (pending.has(id)) { pushSnap(r, pending.get(id)); pending.delete(id); }
     syncFriends();
     const lk = JSON.stringify(look), back = recent.get(lk) > performance.now() - 120000;
-    if (fresh && !BB.bedtime && !back) { BB.sfx.sparkle(); BB.say(`Bus ${look.no} is here!`, { queue: true }); }
+    if (fresh && !BB.bedtime && !back) addNews({ kind: 'hi', id, no: look.no });
   }
   function removeRemote(id, why, now) {
     const r = N.remotes.get(id); if (!r) return;
-    if (now) { disposeBody(r); N.remotes.delete(id); syncFriends(); return; }
+    if (now) { recent.set(JSON.stringify(r.look), performance.now()); disposeBody(r); N.remotes.delete(id); syncFriends(); return; }
     if (r.leaving) return;
     r.leaving = true;
     recent.set(JSON.stringify(r.look), performance.now());
     setTimeout(() => { if (N.remotes.get(id) === r) { disposeBody(r); N.remotes.delete(id); syncFriends(); } }, 3000);   // (no frames drawn meanwhile)
-    if (!BB.bedtime && N.state === 'room' && r.byeWhy) BB.say(r.byeWhy === 'sleep' ? `Goodnight, bus ${r.look.no}!` : `Bye bye, bus ${r.look.no}!`, { queue: true });
+    if (!BB.bedtime && link === 'open' && r.byeWhy) addNews({ kind: 'bye', id, no: r.look.no, sleep: r.byeWhy === 'sleep' });
     syncFriends();
   }
   const recent = new Map();              // looks of buses that left lately (a dropped link that comes back isn't news)
@@ -777,7 +616,7 @@
     const now = performance.now();
     if (d < 45 && !BB.bedtime && now - waveAt > 2500) {
       waveAt = now;
-      BB.later(450, () => { if (N.state !== 'room' || BB.bedtime) return; flashMine(); send({ t: 'wave' }); });
+      BB.later(450, () => { if (link !== 'open' || BB.bedtime) return; flashMine(); send({ t: 'wave' }); });
     }
   }
   function friendWave(r) { if (!r.pose || r.leaving) return; r.flash = 1.3; puff('heart', r.pose.x, r.pose.y + 0.6, r.pose.z); }
@@ -1011,11 +850,6 @@
   .bbn-key canvas { width: 76%; height: 76%; flex: none; }
   .bbn-card .shake { animation: bbn-shake .45s; }
   @keyframes bbn-shake { 25% { transform: translateX(-9px); } 75% { transform: translateX(9px); } }
-  .bbn-wait { width: 180px; height: 120px; animation: bbn-hop .7s ease-in-out infinite; }
-  @keyframes bbn-hop { 50% { transform: translateY(-14px) rotate(-3deg); } }
-  .bbn-dots { display: flex; gap: 10px; } .bbn-dots i { width: 16px; height: 16px; border-radius: 50%; background: #d9b57f; animation: bbn-dot 1.2s infinite; }
-  .bbn-dots i:nth-child(2) { animation-delay: .2s; } .bbn-dots i:nth-child(3) { animation-delay: .4s; }
-  @keyframes bbn-dot { 50% { background: #ffb81f; transform: scale(1.3); } }
   .bbn-friends { position: absolute; z-index: 6; right: var(--sr); top: calc(var(--st) + var(--hudh, 80px) + 10px); display: flex; flex-wrap: wrap; justify-content: flex-end;
     max-width: 46vw; gap: 6px; pointer-events: none; }
   .bbn-friends.hide { display: none; }
@@ -1034,7 +868,6 @@
     .bbn-big { width: 140px; height: 150px; font-size: 19px; } .bbn-big canvas { width: 100px; height: 100px; }
     .bbn-btn { width: 70px; height: 76px; border-radius: 20px; font-size: 13px; } .bbn-btn canvas { width: 46px; height: 46px; }
     .bbn-x { width: 56px; height: 56px; top: -14px; right: -14px; } .bbn-x canvas { width: 52px; height: 52px; }
-    .bbn-wait { width: 130px; height: 86px; }
     .bbn-friend canvas { width: 40px; height: 27px; }
   }
   `);
@@ -1045,25 +878,34 @@
     friendsEl = BB.el('div', 'bbn-friends hide', root);
     BB.on('depot:open', () => syncFriends());
     BB.on('depot:closed', () => { hidePanel(); sendHi(); syncFriends(); });
-    BB.on('bus:type', () => { if (N.state === 'room') BB.later(100, () => sendHi()); });
+    BB.on('bus:type', () => { if (link === 'open') BB.later(100, () => sendHi()); });
     BB.on('bus:horn', () => {
-      if (N.state !== 'room') return;
+      if (link !== 'open') return;
       const now = performance.now(); if (now - honkAt < 600) return; honkAt = now;
       send({ t: 'honk', tune: !!(BB.save.upgrades && BB.save.upgrades.horn) });
     });
     BB.on('hub:pause', () => N.leave('home'));
-    addEventListener('pagehide', () => N.leave('home'));
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) { lastKey = ''; tick(); } else tick(); });
+    addEventListener('pagehide', () => { stopped = true; unlink('home'); });
+    addEventListener('pageshow', (e) => { if (e.persisted && !BB.bedtime) { stopped = false; backoff = 0; connect(); } });
+    addEventListener('online', () => { backoff = 0; if (!T) connect(); });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) { tick(); return; }
+      lastKey = '';
+      if (T) tick(); else { backoff = 0; connect(); }
+    });
+    syncStatus();
+    setTimeout(connect, 300);                              // always on: join the family room by ourselves
   };
   function syncFriends() {
     if (!friendsEl) return;
     const n = [...N.remotes.values()].filter((r) => !r.leaving).length;
     friendsEl.innerHTML = '';
-    const show = N.state === 'room' && n > 0 && !(BB.depot && BB.depot.isOpen) && !BB.bedtime;
+    const show = link === 'open' && n > 0 && !(BB.depot && BB.depot.isOpen) && !BB.bedtime;
     friendsEl.classList.toggle('hide', !show);
     friendsEl.classList.toggle('many', n > 4);
     if (show) fillFriends(friendsEl, false);
     if (panelKind === 'code' && card) { const f = card.querySelector('.bbn-friends'); if (f) { f.innerHTML = ''; fillFriends(f, true); } }
+    syncStatus();
     BB.emit('net:changed', { state: N.state, friends: n });
   }
   N.fillFriends = (el, withMe) => fillFriends(el, withMe);
@@ -1086,12 +928,11 @@
     card = BB.el('div', 'bbn-card', wrap);
     if (closable) {
       const x = BB.el('button', 'bbn-x', card); x.appendChild(cv(pic('cross', 96))); BB.el('span', 'lb', x, 'Close'); x.setAttribute('aria-label', 'Close');
-      BB.tap(x, () => { BB.sfx.click(); if (N.state === 'opening') N.leave('home'); hidePanel(); });
+      BB.tap(x, () => { BB.sfx.click(); hidePanel(); });
     }
-    BB.tap(wrap, (e) => { if (e.target === wrap && closable) { if (N.state === 'opening') N.leave('home'); hidePanel(); } });
+    BB.tap(wrap, (e) => { if (e.target === wrap && closable) hidePanel(); });
     return card;
   }
-  function refreshPanel() { if (panelKind === 'code' && N.state !== 'room') hidePanel(); }
   // a button: a picture and its word (spoken by its own action)
   const btn = (parent, name, fn, cls, word) => {
     const b = BB.el('button', cls || 'bbn-btn', parent); b.type = 'button'; b.appendChild(cv(pic(name, 160)));
@@ -1099,106 +940,56 @@
     BB.tap(b, fn); return b;
   };
 
-  // "Play together": offline -> the cloud card; in a room -> its code and friends; otherwise Make or Join.
-  N.open = function () {
-    if (BB.bedtime) return;
-    if (N.state === 'room') { showCode(false); return; }
-    if (!N.canTry()) { showOffline(); return; }
-    const c = panel('menu');
-    BB.el('div', 'bbn-title', c, 'Play together');
-    const row = BB.el('div', 'bbn-row', c);
-    btn(row, 'make', () => { BB.sfx.pop(); BB.say('A new room!'); makeRoom(); }, 'bbn-big', 'New room');
-    btn(row, 'join', () => { BB.sfx.pop(); showEnter(); }, 'bbn-big', 'Join room');
-    BB.say('Make a new room, or join your friend\'s room?', { queue: true });
-  };
-  // straight to making a room / typing a friend's code (the garage's Together tiles)
-  N.make = function () { if (BB.bedtime) return; if (N.state === 'room') { showCode(false); return; } if (!N.canTry()) { showOffline(); return; } makeRoom(); };
-  N.join = function () { if (BB.bedtime) return; if (N.state === 'room') { showCode(false); return; } if (!N.canTry()) { showOffline(); return; } showEnter(); };
-  function showOffline() {
-    const c = panel('offline');
-    const p = cv(pic('cloud', 192)); p.style.cssText = 'width:150px;height:150px'; c.appendChild(p);
-    BB.el('div', 'bbn-title', c, 'Needs the internet');
-    btn(BB.el('div', 'bbn-row', c), 'tick', () => { BB.sfx.click(); hidePanel(); }, null, 'OK');
-    BB.sfx.wrong();
-    BB.say('Playing together needs the internet.');
-  }
-  function showWaiting(line) {
-    const c = panel('wait');
-    const w = cv(miniBus(myLook())); w.className = 'bbn-wait'; c.appendChild(w);
-    const d = BB.el('div', 'bbn-dots', c); for (let i = 0; i < 3; i++) BB.el('i', '', d);
-    if (line) BB.say(line, { queue: true });
-  }
-  function newCode() {
-    const out = [], a = new Uint8Array(16);
-    while (out.length < CODE_LEN) { crypto.getRandomValues(a); for (const v of a) if (v < 252 && out.length < CODE_LEN) out.push(v % 12); }
-    return out;
-  }
-  const codeStr = (c) => c.map((i) => LETTERS[i]).join('');
-  const codeOf = (s) => String(s || '').split('').map((ch) => LETTERS.indexOf(ch));
-  function makeRoom(tries = 0) {
-    showWaiting(tries ? null : 'Opening your room!');
-    const code = newCode();
-    start(codeStr(code), true, (err) => {
-      if (!err) { showCode(true); return; }
-      if (err === 'taken' && tries < 3) { makeRoom(tries + 1); return; }
-      if (panelKind === 'wait') showOffline();
-    });
-  }
+  // ================= the family cards (the garage's Together section opens these) =================
   let codeT = null;
-  function showCode(first) {
+  N.showFamily = function () {
+    if (BB.bedtime) return;
     const c = panel('code');
-    const code = codeOf(N.code);
+    BB.el('div', 'bbn-title', c, 'Our family');
     const row = BB.el('div', 'bbn-code', c);
-    const cells = code.map((i, k) => { const d = BB.el('div', '', row); d.style.animationDelay = k * 90 + 'ms'; d.appendChild(cv(pic(PICS[i], 160))); return d; });
+    const cells = fam.map((i, k) => { const d = BB.el('div', '', row); d.style.animationDelay = k * 90 + 'ms'; d.appendChild(cv(pic(PICS[i], 160))); return d; });
     const bottom = BB.el('div', 'bbn-row', c);
     btn(bottom, 'speak', () => sayCode(cells), null, 'Say it');
     fillFriends(BB.el('div', 'bbn-friends', bottom), true);
-    btn(bottom, 'home', () => { BB.sfx.click(); BB.say('Bye bye, friends!'); N.leave('home'); hidePanel(); }, null, 'Leave');
     btn(bottom, 'tick', () => { BB.sfx.click(); hidePanel(); }, null, 'OK');
-    if (first) { BB.sfx.cheer(); sayCode(cells, 'Your room is open! The code is: ', ' Show it to your friend!'); }
-    else sayCode(cells, 'The room code is: ');
-  }
+    sayCode(cells, 'Our family code is: ', ' Tap these pictures on another tablet, and we can play together!');
+  };
   // say the code, lighting each picture in turn
   function sayCode(cells, pre = '', post = '') {
-    const code = codeOf(N.code);
-    BB.say(pre + code.map((i) => PICS[i]).join(', ') + '.' + post);
+    BB.say(pre + fam.map((i) => PICS[i]).join(', ') + '.' + post);
     if (codeT) BB.cancelLater(codeT);
     cells.forEach((el) => el.classList.remove('lit'));
     let k = 0;
     const step = () => { cells.forEach((el, j) => el.classList.toggle('lit', j === k)); k++; codeT = k <= cells.length ? BB.later(750, step) : null; };
     codeT = BB.later(300 + pre.length * 55, step);
   }
-  function showEnter(again) {
+  N.enterFamily = function () {
+    if (BB.bedtime) return;
     const c = panel('enter');
     const entered = [];
+    let busy = false;
     const top = BB.el('div', 'bbn-slots', c);
     const slots = []; for (let i = 0; i < CODE_LEN; i++) slots.push(BB.el('div', '', top));
-    btn(top, 'del', () => { if (!entered.length) return; entered.pop(); BB.sfx.click(); BB.say('Delete!'); show(); }, null, 'Delete');
+    btn(top, 'del', () => { if (!entered.length || busy) return; entered.pop(); BB.sfx.click(); BB.say('Delete!'); show(); }, null, 'Delete');
     const keys = BB.el('div', 'bbn-keys', c);
-    const show = () => slots.forEach((s, i) => { s.innerHTML = ''; s.classList.toggle('full', i < entered.length); if (i < entered.length) s.appendChild(cv(pic(PICS[entered[i]], 96))); });
+    const show = () => slots.forEach((el, i) => { el.innerHTML = ''; el.classList.toggle('full', i < entered.length); if (i < entered.length) el.appendChild(cv(pic(PICS[entered[i]], 96))); });
     PICS.forEach((name, i) => {
       btn(keys, name, () => {
-        if (entered.length >= CODE_LEN || joining) return;
+        if (entered.length >= CODE_LEN || busy) return;
         entered.push(i); BB.sfx.pop(); show(); BB.say(name[0].toUpperCase() + name.slice(1) + '!');
-        if (entered.length === CODE_LEN) { joining = true; BB.later(700, () => { joining = false; if (panelKind === 'enter') tryJoin(entered.slice()); }); }
+        if (entered.length === CODE_LEN) { busy = true; BB.later(700, () => { if (panelKind === 'enter') done(entered.slice()); }); }
       }, 'bbn-key', name[0].toUpperCase() + name.slice(1));
     });
-    let joining = false;
-    if (again) { top.classList.add('shake'); BB.sfx.wrong(); BB.say('No room found. Let\'s try again!'); }
-    else BB.say('Tap the pictures of your friend\'s code!', { queue: true });
-  }
-  function tryJoin(code) {
-    showWaiting('Knock knock!');
-    start(codeStr(code), false, (err) => {
-      if (panelKind !== 'wait') return;
-      if (!err) {
-        hidePanel(); BB.sfx.cheer(); if (BB.ui.confetti) BB.ui.confetti();
-        BB.say('Hooray! You are playing together!', { queue: true });
-        return;
-      }
-      if (err === 'noroom' || err === 'failed') showEnter(true);
-      else if (err === 'full') { const c = panel('full'); const p = cv(pic('make', 160)); p.style.cssText = 'width:140px;height:140px'; c.appendChild(p); BB.el('div', 'bbn-title', c, 'The room is full'); btn(BB.el('div', 'bbn-row', c), 'tick', () => hidePanel(), null, 'OK'); BB.say('That room is full! Let\'s play on our own for now.'); }
-      else showOffline();
-    });
-  }
+    function done(code) {
+      hidePanel();
+      if (codeStr(code) === N.code) { BB.say('That is our family already!', { queue: true }); return; }
+      N.setFamily(code);
+      BB.sfx.cheer(); if (BB.ui.confetti) BB.ui.confetti();
+      BB.say('Hooray! Now we are one family. We play together whenever we are both playing!', { queue: true });
+    }
+    BB.say('Tap the pictures from the other tablet!', { queue: true });
+  };
+  // older names (depot.js used them before the family): kept until it moves over
+  N.open = N.make = () => N.showFamily();
+  N.join = () => N.enterFamily();
 })();

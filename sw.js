@@ -25,7 +25,6 @@ const CORE = [
   './games/bus3d/js/depot.js',
   './games/bus3d/js/ui.js',
   './games/bus3d/js/net.js',
-  './games/bus3d/vendor/peerjs.min.js',
   './games/bus3d/js/main.js',
   './games/grizzly/index.html',
   './games/mrt/index.html',

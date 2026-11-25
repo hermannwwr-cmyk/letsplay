@@ -380,7 +380,7 @@
   const iconCache = {};
   BB.icon = function (name, size = 96) {
     const paint = (BB.PAINTS.find((p) => p.id === BB.save.paint) || BB.PAINTS[0]).color;
-    const key = name + ':' + size + (name === 'mybus' || name === 'together' ? paint : '');
+    const key = name + ':' + size + (/^(mybus|together|fam)/.test(name) ? paint : '');
     if (iconCache[key]) return iconCache[key];
     const P = BB.P, paper = BB.paper;
     const c = board(size, (x) => {
@@ -490,6 +490,24 @@
           sideBus(x, 42, 54, 0.6, paint, 'single');
           paper(x, (p) => heartP(p, 50, 26, 0.55), '#ef5a4b');
           break;
+        // the family's status: waiting for friends (one bus, an empty heart), looking (one bus, dots), no internet
+        // (one bus under a soft cloud: playing on our own; never a red cross)
+        case 'famAlone':
+          sideBus(x, 8, 46, 1.0, paint, 'single');
+          x.save(); x.globalAlpha = 0.9; BB.paperStroke(x, (p) => heartP(p, 52, 26, 0.5), '#ef5a4b', 4.5); x.restore();
+          break;
+        case 'famWait':
+          sideBus(x, 8, 46, 1.0, paint, 'single');
+          for (let i = 0; i < 3; i++) paper(x, (p) => arcP(p, 34 + i * 16, 22, 6), P.honey, { depth: 0.3 });
+          break;
+        case 'famOffline':
+          sideBus(x, 8, 50, 1.0, paint, 'single');
+          paper(x, (p) => { arcP(p, 36, 30, 13); arcP(p, 54, 22, 16); arcP(p, 70, 32, 11); rrP(p, 26, 28, 54, 16, 8); }, '#d5e3ef', { rimColor: '#9fb4c8' });
+          break;
+        case 'play':
+          paper(x, (p) => arcP(p, 50, 50, 44), '#fff6e0', { rimColor: '#d9b57f' });
+          paper(x, (p) => { p.moveTo(38, 27); p.lineTo(75, 50); p.lineTo(38, 73); p.closePath(); }, '#3fae49', { depth: 0.6 });
+          break;
         case 'lights':
           x.fillStyle = 'rgba(255,200,60,.7)';
           for (let i = 0; i < 7; i++) { x.save(); x.translate(50, 42); x.rotate(-Math.PI / 2 + (i - 3) * 0.48); x.beginPath(); rrP(x, -3, -46, 6, 12, 3); x.fill(); x.restore(); }
@@ -569,7 +587,7 @@
     return c;
   };
   // forget cached icons that show the bus's colour or number (after the child changes them)
-  BB.iconRefresh = () => { for (const k in iconCache) if (/^(mybus|together|number):/.test(k)) delete iconCache[k]; };
+  BB.iconRefresh = () => { for (const k in iconCache) if (/^(mybus|together|number|fam\w*):/.test(k)) delete iconCache[k]; };
   // A fresh canvas copy of an icon, sized by CSS (several elements can't share one canvas).
   BB.iconEl = function (name, size = 96, pic) {
     const src = pic ? BB.pic(name, size) : BB.icon(name, size);

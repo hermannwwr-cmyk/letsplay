@@ -420,7 +420,10 @@
     g.position.set(pivot.x - (c * pivot.x + s * pivot.z), y, pivot.z - (-s * pivot.x + c * pivot.z));
   }
   let tt = 0;
+  let famCheck = 0;
   D.update = function (dt) {
+    // the Family section follows the family (a new code from the Join card, friends coming and going)
+    if (panel && tab === 'together' && (famCheck += dt) > 0.5) { famCheck = 0; if (famKey() !== famShown) { syncNetBadge(); renderBody(); } }
     if (!lift) return;
     const target = D.isOpen ? 0.7 : 0;
     liftY += (target - liftY) * Math.min(1, dt * 2.2);
@@ -514,6 +517,25 @@
   .bbd-goal .bar { width: 110px; height: 14px; border-radius: 8px; background: #eadfca; overflow: hidden; }
   .bbd-goal .bar i { display: block; height: 100%; background: #ffb81f; }
   .bbd-friends { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+  /* the family: status line, the code pictures, who is here, the Join card */
+  .bbd-famstat { flex-basis: 100%; display: flex; align-items: center; gap: 10px; min-height: 58px; padding: 4px 16px 4px 8px; box-sizing: border-box; cursor: pointer;
+    border-radius: 20px; border: 3px solid #ecd3a8; background: #fff; font: 700 20px/1.1 ${BB.FONT}; color: #6b5440; touch-action: manipulation; text-align: left; }
+  .bbd-famstat canvas { width: 50px; height: 50px; flex: none; }
+  .bbd-famstat.st-together { background: #e6f8f0; border-color: #8fe0c4; color: #127a71; }
+  .bbd-famstat.st-connecting { background: #fff6dc; border-color: #ffd45c; color: #9a5d00; }
+  .bbd-famstat.st-offline { background: #eef3f8; border-color: #c9d6e2; color: #5c6f82; }
+  .bbd-tile.code { background: #fffaf0; }
+  .bbd-tile.code.lit { border-color: #ffb81f; box-shadow: 0 0 0 5px rgba(255,212,92,.7); }
+  .bbd-tile.small { opacity: .92; }
+  .bbd-friend { display: flex; flex-direction: column; align-items: center; background: #fff6e0; border: 3px solid #d9b57f; border-radius: 16px; padding: 3px 7px 1px;
+    cursor: pointer; touch-action: manipulation; min-width: 64px; min-height: 56px; box-sizing: border-box; justify-content: center; }
+  .bbd-friend canvas { width: 50px; height: 33px; }
+  .bbd-friend b { font: 800 14px/15px 'Courier New', monospace; color: #3a2a3c; }
+  .bbd-friend.pressed, .bbd-famstat.pressed { transform: translateY(3px); }
+  @media (max-height: 520px) {
+    .bbd-famstat { min-height: 56px; font-size: 17px; } .bbd-famstat canvas { width: 42px; height: 42px; }
+    .bbd-hint.fam { display: none; }              /* (said aloud when the section opens) */
+  }
   /* the big Drive button */
   .bbd-go { flex: none; height: 80px; margin-top: 2px; border-radius: 28px; border: none; background: linear-gradient(#5db4f0, #3d93d6); box-shadow: inset -5px -6px 0 rgba(0,0,0,.08), 0 7px 0 #2370ad;
     cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 14px; touch-action: manipulation; position: relative; overflow: hidden;
@@ -531,8 +553,8 @@
   /* over the 3D view, top left: coins, fuel (and the clock in hub mode) */
   .bbd-status { position: absolute; z-index: 12; top: var(--st); left: var(--sl); display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px;
     max-width: calc(100% - var(--pw) - var(--sl) - 12px); pointer-events: none; }
-  html.hub .bbd-status { left: calc(var(--sl) + 76px); max-width: calc(100% - var(--pw) - var(--sl) - 88px); }
   .bbd-status > * { pointer-events: auto; }
+  .bbd-status .bbd-home > canvas { width: var(--ic); height: var(--ic); }
   .bbd-status .bbd-cash .row b { font-size: calc(var(--ic) * .74); line-height: 1; color: #3a2a3c; }
   .bbd-status .row canvas { width: var(--ic); height: var(--ic); }
   .bbd-cash.bump { animation: bbd-bump .5s; } @keyframes bbd-bump { 40% { transform: scale(1.15); } }
@@ -596,7 +618,7 @@
     { id: 'bus', icon: 'mybus', label: 'My bus', say: 'My bus! Choose your bus, its colour and its number.' },
     { id: 'shop', icon: 'shop', label: 'Shop', say: 'The shop! Buy cool things with your coins.' },
     { id: 'settings', icon: 'settings', label: 'Settings', say: 'Settings! How do you like to drive?' },
-    { id: 'together', icon: 'together', label: 'Together', say: 'Play together!' },
+    { id: 'together', icon: 'together', label: 'Family', say: 'My family!' },
   ];
   const SHOP = [
     { id: 'sticker', icon: 'stickers', label: 'Stickers', say: 'Stickers!' },
@@ -626,16 +648,26 @@
   function setPreview(p) { preview = p; previewAt = performance.now(); showLook(); }
   // a second tap within 400 ms is an accidental double tap, not "buy"
   const tooSoon = () => performance.now() - previewAt < 400;
-  // after buying: the bus shows off its new thing and says how much it loves it
+  // ---------- the camera follows the part ----------
+  // Each section, shop kind and the number keypad has its own view of the bus (bus.js modes, feature-detected with
+  // BB.bus.hasCamera; older bus.js: the depot views).
+  const CAM_FALLBACK = { garageWhole: ['depot'], garageFront: ['depotClose', 'depot'], garageWheels: ['depotSide', 'depot'],
+    garageSide: ['depot'], garageSign: ['depotClose', 'depot'], garageRear: ['depot'] };
+  const SHOP_CAM = { sticker: 'garageSide', lights: 'garageFront', bumpers: 'garageFront', wheels: 'garageWheels', upgrade: 'garageWhole' };
+  function camTo(mode) {
+    const B = BB.bus; if (!B || !B.setCamera || !D.isOpen) return;
+    const has = (m) => (typeof B.hasCamera === 'function' ? B.hasCamera(m) : m === 'depot');
+    const pick = [mode].concat(CAM_FALLBACK[mode] || []).find(has) || 'depot';
+    if (B.camMode !== pick) { try { B.setCamera(pick); } catch (e) { console.error(e); } }
+  }
+  const camFor = () => (padEl ? 'garageSign' : tab === 'shop' ? SHOP_CAM[shopTab] || 'garageWhole' : 'garageWhole');
+  D.camFor = camFor;
+  // after buying: the bus shows off its new thing (it is already in view) and says how much it loves it
   function showOff(kind, id, line) {
     BB.later(900, () => {
       try {
         if (BB.bus.showOff) BB.bus.showOff(kind, id);
-        else if (D.isOpen && kind !== 'upgrade') {      // a close look at the new thing, then back to the garage view
-          // (wheels and rims: the garage view already shows the bus side on; lights, bumpers, paint, stickers: close up)
-          BB.bus.setCamera((kind === 'wheels' || kind === 'rims') && BB.bus.hasCamera && BB.bus.hasCamera('depotSide') ? 'depotSide' : (kind === 'wheels' || kind === 'rims') ? 'depot' : 'depotClose'); D.hop();
-          BB.later(3200, () => { if (D.isOpen && BB.bus.camMode !== 'depot') BB.bus.setCamera('depot'); });
-        }
+        else if (D.isOpen) { camTo(camFor()); D.hop(); }
       } catch (e) { console.error(e); }
       BB.emit('depot:showOff', { kind, id });
       BB.say(line, { queue: true });
@@ -720,7 +752,7 @@
     if (opts.label) { BB.el('span', 'lb', t, opts.label); t.setAttribute('aria-label', opts.label); }
     if (opts.price) { const pr = BB.el('span', 'bbd-price', t); pr.appendChild(coinCv(20)); BB.el('span', '', pr, String(opts.price)); }
     t.style.animationDelay = (opts.i || 0) * 35 + 'ms';
-    BB.tap(t, () => opts.tap(t));
+    BB.tap(t, () => { opts.tap(t); camTo(camFor()); });
     return t;
   }
   // a heading for a group of tiles: a little picture and a word
@@ -777,9 +809,10 @@
       renderBody();
     }
     BB.tap(padEl, (e) => { if (e.target === padEl) done(); });
+    camTo('garageSign');
     BB.say('Choose your bus number!');
   }
-  function closePad() { if (padEl) padEl.remove(); padEl = null; }
+  function closePad() { if (padEl) { padEl.remove(); padEl = null; camTo(camFor()); } }
 
   // the fade at the bottom of the tiles only while there is more to scroll to
   function syncMore() { if (bodyEl) bodyEl.classList.toggle('more', bodyEl.scrollHeight - bodyEl.scrollTop - bodyEl.clientHeight > 8); }
@@ -883,17 +916,7 @@
         } });
       }
     } else if (tab === 'together') {
-      const N = BB.net, inRoom = N.state === 'room';
-      if (inRoom) {
-        const fr = BB.el('div', 'bbd-friends', bodyEl);
-        if (N.fillFriends) N.fillFriends(fr, true);
-        tile(bodyEl, N.pic('together', 160), { i: n++, big: true, label: 'Our room', tap: () => { BB.sfx.pop(); N.open(); } });
-        tile(bodyEl, N.pic('home', 160), { i: n++, big: true, label: 'Leave', tap: () => { BB.sfx.click(); BB.say('Bye bye, friends!'); N.leave('home'); } });
-      } else {
-        tile(bodyEl, N.pic('make', 160), { i: n++, big: true, label: 'New room', tap: () => { BB.sfx.pop(); BB.say('A new room!'); N.make(); } });
-        tile(bodyEl, N.pic('join', 160), { i: n++, big: true, label: 'Join room', tap: () => { BB.sfx.pop(); N.join(); } });
-        BB.el('div', 'bbd-hint', bodyEl, 'Drive in the same town as your friends!');
-      }
+      renderFamily(n);
     } else if (tab === 'shop' && shopTab === 'sticker') {
       STICKERS.forEach((st) => {
         const own = S.stickersOwned.includes(st.id), on = S.stickers.includes(st.id);
@@ -953,6 +976,74 @@
       });
     }
   }
+  // ---------- the family (net.js keeps a saved family code of 5 pictures and plays together whenever online) ----------
+  // My family: the status (together / waiting / looking / playing on my own: a friendly picture, never an error), the
+  // 5 code pictures big with Say it, who is here now, then Join a family (the picture keypad) and a small New family.
+  const FAM_NAMES = ['bus', 'star', 'cat', 'sun', 'flower', 'fish', 'heart', 'moon', 'tree', 'kite', 'ball', 'boat'];
+  const famNames = () => (BB.net && Array.isArray(BB.net.PICS) && BB.net.PICS.length === 12 ? BB.net.PICS : FAM_NAMES);
+  // the code as picture indices (family() gives picture ids such as 'star'; indices are accepted too)
+  const famCode = () => {
+    try {
+      const c = BB.net && typeof BB.net.family === 'function' ? BB.net.family() : null, names = famNames();
+      const a = Array.isArray(c) && c.length === 5 ? c.map((v) => (typeof v === 'number' ? v : names.indexOf(String(v).toLowerCase()))) : null;
+      return a && a.every((i) => i >= 0 && i < 12) ? a : null;
+    } catch (e) { console.error(e); return null; }
+  };
+  const cap = (w) => String(w)[0].toUpperCase() + String(w).slice(1);
+  const famPic = (i, size = 160) => BB.net.pic(famNames()[i] || 'star', size);
+  const famKey = () => { const f = BB.ui.family(), c = famCode(); return (f ? f.status + f.friends.map((x) => x.id + '' + x.type + x.paint + x.routeNo).join() : '') + '|' + (c ? c.join() : ''); };
+  let famShown = '', famT = null;
+  function famSayCode(cells, pre = 'Your family code is: ') {
+    const code = famCode(); if (!code) return;
+    BB.say(pre + code.map((i) => famNames()[i]).join(', ') + '.');
+    if (famT) BB.cancelLater(famT);
+    cells.forEach((el) => el.classList.remove('lit'));
+    let k = 0;
+    const step = () => { cells.forEach((el, j) => el.classList.toggle('lit', j === k)); k++; famT = k <= cells.length ? BB.later(750, step) : null; };
+    famT = BB.later(300 + pre.length * 55, step);
+  }
+  function renderFamily(n) {
+    const N = BB.net, code = famCode();
+    famShown = famKey();
+    if (!code) {                       // (an older net.js without the family: its room buttons)
+      if (N.make) tile(bodyEl, N.pic('make', 160), { i: n++, big: true, label: 'New room', tap: () => { BB.sfx.pop(); N.make(); } });
+      if (N.join) tile(bodyEl, N.pic('join', 160), { i: n++, big: true, label: 'Join room', tap: () => { BB.sfx.pop(); N.join(); } });
+      return;
+    }
+    const f = BB.ui.family() || { status: 'alone', friends: [] }, ST = BB.ui.FAMILY[f.status] || BB.ui.FAMILY.alone;
+    const st = BB.el('button', 'bbd-famstat st-' + f.status, bodyEl); st.type = 'button';
+    st.appendChild(BB.iconEl(ST.icon, 128)); BB.el('span', 'lb', st, ST.words);
+    BB.tap(st, () => BB.say(BB.ui.familySay(BB.ui.family())));
+    const box = sec('together', 'My family', true);
+    const cells = code.map((ci) => {
+      const t = tile(box, famPic(ci), { i: n++, label: cap(famNames()[ci]), tap: () => BB.say(cap(famNames()[ci]) + '!') });
+      t.classList.add('code'); return t;
+    });
+    tile(box, BB.icon('speak', 128), { i: n++, label: 'Say it', tap: () => famSayCode(cells) });
+    if (f.friends.length) {
+      const fr = sec('mybus', 'Here now', true);
+      for (const x of f.friends) {
+        const d = BB.el('button', 'bbd-friend', fr); d.type = 'button';
+        d.appendChild(BB.ui.miniBus(x.type, x.paint)); BB.el('b', '', d, String(x.routeNo || ''));
+        BB.tap(d, () => BB.say(`Bus ${x.routeNo}!`));
+      }
+    } else BB.el('div', 'bbd-hint fam', bodyEl, 'Show these pictures on another iPad to play together!');
+    const acts = BB.el('div', 'bbd-tiles', bodyEl);
+    tile(acts, N.pic('join', 160), { i: n++, wide: true, label: 'Join a family', tap: () => { BB.sfx.pop(); N.enterFamily(); } });
+    const nf = tile(acts, N.pic('make', 160), { i: n++, label: 'New family', tap: () => askNewFamily() });
+    nf.classList.add('small');
+  }
+  function askNewFamily() {
+    const pic = cv(BB.net.pic('make', 160));
+    BB.ui.ask({ pic, words: 'New family?', say: 'Make a new family code? Your friends will need the new pictures.',
+      yes: () => {
+        try { BB.net.newFamily(); } catch (e) { console.error(e); }
+        BB.sfx.sparkle(); renderBody();
+        const cells = bodyEl ? [...bodyEl.querySelectorAll('.bbd-tile.code')] : [];
+        famSayCode(cells, 'Your new family code is: ');
+      },
+      no: () => BB.say('OK!') });
+  }
   // the My bus tab's picture shows the bus's colour: repaint it after a new paint
   function paintChanged() {
     if (BB.iconRefresh) BB.iconRefresh();
@@ -969,11 +1060,12 @@
     panel.querySelectorAll('.bbd-tab').forEach((b) => b.classList.toggle('on', b.dataset.tab === id));
     bodyEl.scrollTop = 0;
     renderBody(true);
+    camTo(camFor());
     if (!quiet) {
       BB.sfx.click();
       const sct = SECTIONS.find((t) => t.id === id) || {};
       if (id === 'shop') BB.say(sct.say + ' ' + ((SHOP.find((t) => t.id === shopTab) || {}).say || ''));
-      else if (id === 'together') BB.say(BB.net.state === 'room' ? 'Play together! You are in a room with your friends.' : 'Play together! Make a new room, or join your friend\'s room?');
+      else if (id === 'together') { const f = BB.ui.family(); BB.say(f && f.status === 'together' ? 'My family! Your family is here, playing too!' : 'My family! Show these pictures on another iPad to play together!'); }
       else BB.say(sct.say || '');
     }
   }
@@ -982,15 +1074,16 @@
     if (preview) { preview = null; D.applyLooks(); }
     bodyEl.scrollTop = 0;
     renderBody(true);
+    camTo(camFor());
     if (!quiet) { BB.sfx.click(); BB.say((SHOP.find((t) => t.id === id) || {}).say || ''); }
   }
   function syncNetBadge() {
     const t = panel && panel.querySelector('.bbd-tab[data-tab="together"]'); if (!t) return;
     let n = t.querySelector('.n');
-    const N = BB.net, on = N && N.state === 'room';
+    const f = BB.ui.family(), on = f && f.status === 'together';
     if (!on) { if (n) n.remove(); return; }
     if (!n) n = BB.el('span', 'n', t);
-    n.textContent = String(1 + [...N.remotes.values()].filter((r) => !r.leaving).length);
+    n.textContent = String(1 + f.friends.length);
   }
 
   function render() {
@@ -1017,6 +1110,7 @@
     syncNetBadge();
     // over the 3D view: coins, fuel, (the clock)
     statusEl.innerHTML = '';
+    BB.ui.btn(statusEl, 'home', 'Home', () => { if (BB.bedtime) return; BB.sfx.whoosh(); BB.say('Home!'); D.close({ home: true }); }, 'bbd-home');
     cashBox = BB.ui.btn(statusEl, null, 'Coins', () => BB.say(D.cash === 1 ? 'You have 1 coin.' : `You have ${D.cash} coins.`), 'bbd-cash');
     const crow = BB.el('span', 'row', null); cashBox.prepend(crow); crow.appendChild(coinCv(42)); cashSpan = BB.el('b', '', crow, String(D.cash));
     fuelBtn = BB.ui.btn(statusEl, null, 'Fuel', () => fillUp(false), 'bbd-fuel' + (BB.bus.fuel >= 0.98 ? ' gone' : ''));
@@ -1039,7 +1133,8 @@
     panel = BB.el('div', 'bbd', BB.ui.root);
     render();
     placeProps(); tt = 0;
-    BB.bus.setCamera('depot');
+    BB.bus.setCamera('depot');                    // (then the section's own view, if bus.js has it)
+    camTo(camFor());
     BB.emit('depot:open');
     BB.sfx.whoosh();
     if (D.isStart) {
@@ -1055,8 +1150,11 @@
     BB.say(low ? 'Welcome to the garage! Let\'s fill up the tank.' : 'Welcome to the garage! Make your bus beautiful!');
     if (low) BB.later(900, () => { if (D.isOpen) fillUp(true); });
   };
-  D.close = function () {
+  // opts.home: back to the home screen instead of driving off (a job in progress waits: jobs.js only picks it up when
+  // the garage closes in its 'depot' phase, so it is set to 'home' until Play)
+  D.close = function (opts) {
     if (!D.isOpen) return;
+    const home = !!(opts && opts.home);
     D.isOpen = false;
     const start = D.isStart; D.isStart = false;
     closePad();
@@ -1064,15 +1162,16 @@
     preview = null; D.applyLooks();
     for (const el of [panel, awning, statusEl]) if (el) el.remove();
     panel = awning = statusEl = bodyEl = cashBox = cashSpan = goalEl = tankEl = fuelBtn = null;
-    BB.bus.setCamera('chase');
-    BB.emit('depot:closed', { start });
+    if (home && BB.jobs.phase === 'depot') BB.jobs.phase = 'home';
+    if (!home) BB.bus.setCamera('chase');
+    BB.emit('depot:closed', { start, home });
   };
-  D.welcome = () => (BB.HUB ? 'Make your bus, then tap the blue Drive button!' : 'Welcome, Little Bus Captain! Make your bus, then tap the blue Drive button!');
+  D.welcome = () => 'Make your bus, then tap the blue Drive button!';
   D.render = () => { if (panel) renderBody(); };
   D.tab = () => tab;
   D.setTab = (id, sub) => { if (!panel) return; if (sub) shopTab = sub; setTab(id, true); };
   BB.on('resize', () => BB.later(50, syncMore));
   BB.on('cash:changed', () => { if (cashSpan) cashSpan.textContent = String(D.cash); });
-  BB.on('net:changed', () => { if (!panel) return; syncNetBadge(); if (tab === 'together') renderBody(); });
+  for (const ev of ['net:changed', 'net:status', 'net:friends']) BB.on(ev, () => { if (!panel) return; syncNetBadge(); if (tab === 'together' && famKey() !== famShown) renderBody(); });
   D.init = function () { /* the 3D props are built once the bus exists (D.afterBus) */ };
 })();

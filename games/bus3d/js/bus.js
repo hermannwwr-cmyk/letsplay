@@ -1055,6 +1055,129 @@
     pick = pick || best || plan(0, 62 * D2R, near, true);
     return { key, pos: pick.pos, look: pick.look };
   }
+  // ---------- the garage cameras ----------
+  // Each view is planned once per bus type and screen size in the front carriage's own frame (+z forward, +x the
+  // kerb side; the garage shed stands on the kerb side, so the views look from the road side, the front and the back;
+  // the front ones from the kerb side of the nose, so depot.js's fuel pump, ahead on the road side, isn't in the way),
+  // fitted into the space left of the garage panel (min(500px, 56vw) wide, with the Drive button at its foot) and
+  // below the coins and fuel. Every frame the planned spot goes through B.front's world matrix, so the view rides
+  // along with depot.js's swaying turntable lift. A change of view is an eased move round the bus on the road side.
+  //   garageWhole  the whole bus, front three-quarter (type, colour); a slow little orbit
+  //   garageFront  front three-quarter close from the kerb side: headlights, bumper, windscreen (lights, bumpers)
+  //   garageWheels low side view on the front wheel (wheels, rims)
+  //   garageSide   the body side and the roof edge, a little from above (stickers: the slots are on both sides)
+  //   garageSign   the route number: the front display and the one by the front door, from the kerb side of the
+  //                nose, a little below (the bus number keypad)
+  //   garageRear   rear three-quarter: tail lights and rear bumper
+  // 'depot', 'depotClose' and 'depotSide' are the old names for garageWhole, garageFront and garageWheels.
+  const GARAGE = { garageWhole: 1, garageFront: 1, garageWheels: 1, garageSide: 1, garageSign: 1, garageRear: 1, depot: 'garageWhole', depotClose: 'garageFront', depotSide: 'garageWheels' };
+  const D2R_ = Math.PI / 180;
+  let gplans = {}, gcam = null, gclock = 0;
+  function garageRect() {
+    const w = innerWidth, hh = innerHeight, pw = Math.min(500, w * 0.56), phone = hh <= 560;
+    return { x0: 12, y0: phone ? 66 : 92, x1: w - pw - 14, y1: hh - (phone ? 10 : 16) };
+  }
+  // The points a view must show, in the front carriage's frame, and how it looks at them: phi = round from the road
+  // side (0) toward the front (90; -90 the back), pitch = degrees down, fill = share of the free space to use.
+  function garageSpec(mode) {
+    const Hb = M ? M.height : 3.2, nose = LF / 2 + 0.15, tail = ART ? -(HITCH + R_CTR + LR / 2) - 0.15 : -LF / 2 - 0.15;
+    const box = (x0, x1, y0, y1, z0, z1) => { const o = []; for (const x of [x0, x1]) for (const y of [y0, y1]) for (const z of [z0, z1]) o.push([x, y, z]); return o; };
+    const axle = LF / 2 - FRONT_AXLE, signY = Math.min(2.86, Hb - 0.6);
+    switch (mode) {
+      case 'garageWhole': return { phi: 27, pitch: 15, fill: 0.84, pts: box(-1.3, 1.3, 0, Hb + 0.1, tail, nose + 0.3), orbit: 7 };
+      case 'garageFront': return { phi: 145, pitch: 9, fill: 0.86, pts: box(-1.35, 1.35, 0.15, Math.min(Hb, 3.35), nose - 1.8, nose + 0.4) };
+      case 'garageWheels': return { phi: 14, pitch: 4, fill: 0.78, pts: box(-1.3, -1.25, 0, 1.45, axle - 1.25, axle + 1.25), minY: 0.75 };
+      case 'garageSide': return { phi: 4, pitch: 27, fill: 0.9, pts: box(-1.3, -1.3, 0, Hb, tail, nose).concat(box(0, 1.2, Hb, Hb, tail, nose)) };
+      case 'garageSign': {        // the route number: the display above the windscreen and the one by the front door
+        const dz = M && M.doorLocal ? M.doorLocal.z : LF / 2 - 1;
+        return { phi: 132, pitch: -3, fill: 0.8, pts: box(0.2, 1.3, signY - 0.35, signY + 0.55, nose - 0.1, nose).concat(box(1.3, 1.3, signY - 0.25, signY + 0.5, dz - 1.0, dz + 1.0)) };
+      }
+      case 'garageRear': return { phi: -48, pitch: 12, fill: 0.86, pts: box(-1.35, 1.35, 0.15, Hb, tail, tail + 2.0) };
+    }
+    return null;
+  }
+  // Fit a view: camera spot and look-at point in the front carriage's frame.
+  const gCam = new THREE.PerspectiveCamera(50, 1, 0.3, 900), _g1 = new THREE.Vector3();
+  function planGarage(mode) {
+    const sp = garageSpec(mode), cam = BB.camera, R = garageRect(), Wd = innerWidth, Hd = innerHeight;
+    gCam.fov = cam.fov; gCam.aspect = cam.aspect; gCam.near = 0.3; gCam.updateProjectionMatrix();
+    const pts = sp.pts.map((q) => new THREE.Vector3(q[0], q[1], q[2]));
+    const T = new THREE.Vector3(); for (const v of pts) T.add(v); T.multiplyScalar(1 / pts.length);
+    const aw = Math.max(60, R.x1 - R.x0), ah = Math.max(60, R.y1 - R.y0), rx = (R.x0 + R.x1) / 2, ry = (R.y0 + R.y1) / 2;
+    const tanV = Math.tan(THREE.MathUtils.degToRad(gCam.fov) / 2), right = new THREE.Vector3(), up = new THREE.Vector3();
+    const phi = sp.phi * D2R_, pitch = sp.pitch * D2R_;
+    const u = new THREE.Vector3(-Math.cos(phi) * Math.cos(pitch), Math.sin(pitch), Math.sin(phi) * Math.cos(pitch));   // target -> camera
+    const box = () => { let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; for (const v of pts) { _g1.copy(v).project(gCam); const px = (_g1.x + 1) / 2 * Wd, py = (1 - _g1.y) / 2 * Hd; x0 = Math.min(x0, px); x1 = Math.max(x1, px); y0 = Math.min(y0, py); y1 = Math.max(y1, py); } return { x0, x1, y0, y1 }; };
+    let d = 12, look = T.clone();
+    const place = () => {
+      gCam.position.copy(T).addScaledVector(u, d); look.copy(T); gCam.lookAt(look); gCam.updateMatrixWorld(true);
+      for (let it = 0; it < 3; it++) {
+        const bx = box(), k = d * tanV / (Hd / 2);
+        right.setFromMatrixColumn(gCam.matrixWorld, 0); up.setFromMatrixColumn(gCam.matrixWorld, 1);
+        const mx = -(rx - (bx.x0 + bx.x1) / 2) * k, my = (ry - (bx.y0 + bx.y1) / 2) * k;
+        gCam.position.addScaledVector(right, mx).addScaledVector(up, my); look.addScaledVector(right, mx).addScaledVector(up, my);
+        const minY = sp.minY != null ? sp.minY : 0.6;
+        if (gCam.position.y < minY) { const dy = minY - gCam.position.y; gCam.position.y += dy; look.y += dy; }
+        gCam.updateMatrixWorld(true);
+      }
+    };
+    for (let it = 0; it < 5; it++) { place(); const bx = box(); d = BB.clamp(d * Math.max((bx.x1 - bx.x0) / (aw * sp.fill), (bx.y1 - bx.y0) / (ah * sp.fill)), 2.5, 60); }
+    place();
+    return { pos: gCam.position.clone(), look: look.clone(), centre: T.clone(), orbit: sp.orbit || 0 };
+  }
+  function garagePlan(mode) {
+    const m = GARAGE[mode] === 1 ? mode : GARAGE[mode], key = m + '|' + B.type + '|' + innerWidth + 'x' + innerHeight + '|' + BB.camera.fov;
+    if (!gplans[key]) gplans[key] = planGarage(m);
+    return gplans[key];
+  }
+  // The view's spot this frame (with the slow orbit), in the front carriage's frame.
+  function garageLocal(mode, outPos, outLook) {
+    const pl = garagePlan(mode);
+    outPos.copy(pl.pos); outLook.copy(pl.look);
+    if (pl.orbit) {
+      const a = Math.sin(gclock * 0.22) * pl.orbit * D2R_, c = Math.cos(a), s2 = Math.sin(a), C0 = pl.centre;
+      for (const v of [outPos, outLook]) { const x = v.x - C0.x, z = v.z - C0.z; v.x = C0.x + x * c + z * s2; v.z = C0.z - x * s2 + z * c; }
+    }
+  }
+  const _gp = new THREE.Vector3(), _gl = new THREE.Vector3();
+  function garageTarget(mode, outPos, outLook) {
+    garageLocal(mode, _gp, _gl);
+    if (B.group) B.group.updateMatrixWorld(true);
+    outPos.copy(_gp).applyMatrix4(B.front.matrixWorld); outLook.copy(_gl).applyMatrix4(B.front.matrixWorld);
+  }
+  // An eased move (about 1.2 s) from wherever the camera is to the new view: round the bus's middle on the road
+  // side (never through the bus, never across the kerb side where the shed stands), then it rides with the bus.
+  function garageUpdate(dt) {
+    gclock += dt;
+    if (B.group) B.group.updateMatrixWorld(true);
+    const mw = B.front.matrixWorld, inv = new THREE.Matrix4().copy(mw).invert();
+    const mode = B.camMode, key = mode + '|' + innerWidth + 'x' + innerHeight + '|' + B.type;
+    if (!gcam || gcam.key !== key) {
+      const fromPos = BB.camera.position.clone().applyMatrix4(inv), fromLook = curLook.clone().applyMatrix4(inv);
+      const same = gcam && GARAGE[gcam.mode] && (GARAGE[gcam.mode] === 1 ? gcam.mode : GARAGE[gcam.mode]) === (GARAGE[mode] === 1 ? mode : GARAGE[mode]) && gcam.type === B.type;
+      gcam = { key, mode, type: B.type, fromPos, fromLook, t: same ? 1 : 0, dur: 1.25 };
+    }
+    garageLocal(mode, _gp, _gl);
+    gcam.t = Math.min(1, gcam.t + dt / gcam.dur);
+    const e = gcam.t < 1 ? gcam.t * gcam.t * (3 - 2 * gcam.t) : 1;
+    const cz = ((LF / 2) + (ART ? -(HITCH + R_CTR + LR / 2) : -LF / 2)) / 2;   // the bus's middle along it
+    let px, py, pz;
+    if (e >= 1) { px = _gp.x; py = _gp.y; pz = _gp.z; }
+    else {
+      // angle round the middle measured from the road side (-x), so the kerb side (+-180) is never crossed
+      const ang = (v) => Math.atan2(v.z - cz, -v.x), a0 = ang(gcam.fromPos), a1 = ang(_gp);
+      const r0 = Math.hypot(gcam.fromPos.x, gcam.fromPos.z - cz), r1 = Math.hypot(_gp.x, _gp.z - cz);
+      const a = a0 + (a1 - a0) * e, r = r0 + (r1 - r0) * e;
+      px = -Math.cos(a) * r; pz = cz + Math.sin(a) * r; py = gcam.fromPos.y + (_gp.y - gcam.fromPos.y) * e;
+      // never inside (or skimming) the bus: over it instead
+      const Hb = M ? M.height : 3.2, halfL = (LF / 2) - cz + 1.4;
+      if (Math.abs(px) < 2.4 && Math.abs(pz - cz) < halfL && py < Hb + 1.2) py = Hb + 1.2;
+    }
+    const lx = gcam.fromLook.x + (_gl.x - gcam.fromLook.x) * e, ly = gcam.fromLook.y + (_gl.y - gcam.fromLook.y) * e, lz = gcam.fromLook.z + (_gl.z - gcam.fromLook.z) * e;
+    BB.camera.position.set(px, py, pz).applyMatrix4(mw);
+    curLook.set(lx, ly, lz).applyMatrix4(mw);
+    BB.camera.lookAt(curLook);
+  }
   function desiredCamera(dt) {
     const mode = B.camMode;
     const m = midPoint(), mx = m.x, mz = m.z;
@@ -1066,39 +1189,9 @@
       const a = 0.75 + Math.sin(orbit) * 0.35;
       camPos.set(mx + (f.x * Math.cos(a) - kx * Math.sin(a)) * 21, 8 + Math.sin(orbit * 0.7), mz + (f.z * Math.cos(a) - kz * Math.sin(a)) * 21);
       camLook.set(mx, 1.6, mz);
-    } else if (mode === 'depot' || mode === 'depotClose' || mode === 'depotSide') {
-      // the garage: depot.js may turn the bus on a turntable, so frame it from its real (world) position
-      B.front.getWorldPosition(_w1); B.rear.getWorldPosition(_w2);
-      const wx = ART ? (_w1.x + _w2.x) / 2 : _w1.x, wz = ART ? (_w1.z + _w2.z) / 2 : _w1.z;
-      if (mode === 'depot') {
-        // from the road side, looking at the bus's door side, with the whole bus left of the depot panel
-        const fr = B.front.localToWorld(new THREE.Vector3(0, 0, 1)), hh = Math.atan2(fr.x - _w1.x, fr.z - _w1.z), kx = Math.cos(hh), kz = -Math.sin(hh);
-        const d = innerHeight > 500 ? 28 : 24, cam = BB.camera, vis = 2 * d * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2) * cam.aspect;
-        const panel = Math.min(480, innerWidth * 0.56) / Math.max(1, innerWidth);
-        const sh = vis * panel / 2;
-        camPos.set(wx - kx * d - kz * sh, 8, wz - kz * d + kx * sh);
-        camLook.set(wx - kz * sh, 1.6, wz + kx * sh);
-      } else if (mode === 'depotSide') {
-        // low and side-on at the front wheels (to show off wheels and rims), bus left of the panel
-        const fw = B.front.localToWorld(_w2.set(0, 0, 0)).clone(), fr = B.front.localToWorld(new THREE.Vector3(0, 0, 1));
-        let dx = fr.x - fw.x, dz = fr.z - fw.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
-        const kx = dz, kz = -dx, cam = BB.camera;
-        const panel = Math.min(480, innerWidth * 0.56) / Math.max(1, innerWidth), sh = (innerHeight > 500 ? 10 : 12.5) * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2) * cam.aspect * panel;
-        const sd = innerHeight > 500 ? 10 : 12.5;
-        camPos.set(fw.x - kx * sd, 2.4, fw.z - kz * sd);
-        camLook.set(fw.x, 0.8, fw.z);
-        camPos.x += dx * sh; camPos.z += dz * sh; camLook.x += dx * sh; camLook.z += dz * sh;
-      } else {
-        // close on the front and the roof, from ahead on the road side
-        const fw = B.front.localToWorld(_w2.set(0, 0, LF / 2)).clone(), c = _w1;
-        let dx = fw.x - c.x, dz = fw.z - c.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
-        const kx = dz, kz = -dx;                          // the bus's left (door side)
-        const cam = BB.camera, panel = Math.min(480, innerWidth * 0.56) / Math.max(1, innerWidth), sh = 9 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2) * cam.aspect * panel;
-        camPos.set(fw.x + dx * 7.5 - kx * 4.5, 6.2, fw.z + dz * 7.5 - kz * 4.5);
-        camLook.set(fw.x - dx * 1.8, 2.4, fw.z - dz * 1.8);
-        let vx = camLook.x - camPos.x, vz = camLook.z - camPos.z; const vl = Math.hypot(vx, vz) || 1; vx /= vl; vz /= vl;
-        camPos.x -= vz * sh; camPos.z += vx * sh; camLook.x -= vz * sh; camLook.z += vx * sh;   // bus left of the panel
-      }
+    } else if (GARAGE[mode]) {
+      // the garage views (planned in the bus's own frame, so they follow depot.js's turntable)
+      garageTarget(mode, camPos, camLook); return;
     } else if (B.atStop || settle) {
       // at a stop: side-on from the pavement, looking at the kerb side (the doors): the kerb wall fades (dollhouse),
       // so both rows of seats, both doors and the pavement are in view. Worked out once per stop (and screen size)
@@ -1130,6 +1223,8 @@
   // Smooth the camera in polar coordinates round the bus (angle, distance, height), so a change of view swings
   // round the bus instead of cutting through it.
   function updateCamera(dt) {
+    if (GARAGE[B.camMode]) { garageUpdate(dt); return; }
+    gcam = null;
     desiredCamera(dt);
     const chase = B.camMode === 'chase' && !B.atStop && !settle;
     const stopView = (B.atStop || settle) && B.camMode === 'chase';
@@ -1158,7 +1253,8 @@
     BB.camera.lookAt(curLook);
   }
   B.setCamera = function (mode, snap) { B.camMode = mode; if (snap) snapCamera(); };
-  B.hasCamera = (mode) => ['title', 'chase', 'depot', 'depotClose', 'depotSide'].indexOf(mode) >= 0;
+  B.hasCamera = (mode) => mode === 'title' || mode === 'chase' || !!GARAGE[mode];
+  B.CAMERAS = ['title', 'chase', 'depot', 'depotClose', 'depotSide', 'garageWhole', 'garageFront', 'garageWheels', 'garageSide', 'garageSign', 'garageRear'];
 
   // ---------- guidance: ribbon (left lane), target marker, glowing bay, way arrow ----------
   const RIB_MAX = 320;
