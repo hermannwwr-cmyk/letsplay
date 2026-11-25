@@ -973,17 +973,18 @@
     return false;
   }
   function underViaduct(x, z) { const v = W().viaduct; return !!(v && Math.abs(z - v.z) < v.halfW + 12 && x > v.x0 - 10 && x < v.x1 + 10); }
-  function inFrame(x, y, z, m = 0.85) {
+  function inFrame(x, y, z, m = 0.85, top = 0.7) {
     const cam = BB.camera; if (!cam) return false;
     const a = _v3.set(x, y, z).project(cam);
-    return a.z < 1 && Math.abs(a.x) < m && a.y > -0.85 && a.y < 0.7;
+    return a.z < 1 && Math.abs(a.x) < m && a.y > -0.85 && a.y < top;
   }
-  function stageOK(x, z, y = 1.5) { return !underViaduct(x, z) && inFrame(x, y, z) && !sightBlocked(x, y, z); }
+  function stageOK(x, z, y = 1.5) { return !underViaduct(x, z) && inFrame(x, y, z, 0.8, 0.5) && !sightBlocked(x, y, z); }   // (the lower 3/4 of the picture)
   // big enough on screen to count as seen: in the picture, in clear sight, about 4.5% of the screen tall or more
-  function bigOnScreen(x, y, z, h, min = 0.045) {
-    const cam = BB.camera; if (!cam || !inFrame(x, y + h / 2, z, 0.9)) return false;
+  function bigOnScreen(x, y, z, h, min = 0.045, top = 0.7) {
+    const cam = BB.camera; if (!cam || !inFrame(x, y + h / 2, z, 0.9, top)) return false;
     const a = _v3.set(x, y, z).project(cam).y, b = _v3.set(x, y + h, z).project(cam).y;
-    return Math.abs(b - a) / 2 >= min && !sightBlocked(x, y + h / 2, z);
+    const Hpx = (BB.renderer && BB.renderer.domElement.clientHeight) || innerHeight;
+    return Math.abs(b - a) / 2 >= Math.max(min, 34 / Hpx) && !sightBlocked(x, y + h / 2, z);
   }
   // a parking distance on an oncoming route, `aheadMin..aheadMax` in front of the bus, for a vehicle of len x w
   function findPark(r, aheadMin, aheadMax, len, w) {
@@ -1008,8 +1009,8 @@
         const dPark = cand.d;
         if (dPark < 30 || !parkOK(r, dPark, parkOff(r, dPark, VW('fire')), VL('fire') / 2)) continue;
         const p = r.at(dPark), o = parkOff(r, dPark, VW('fire'));
-        const fx = p.x + p.lx * o, fz = p.z + p.lz * o, sm = boxFace(cand.c, fx, fz, 0.6, clamp(cand.c.top - 2.5, 4.5, 9.5));
-        if (!stageOK(fx, fz) || underViaduct(sm.x, sm.z) || !inFrame(sm.x, sm.y + 4, sm.z)) continue;
+        const fx = p.x + p.lx * o, fz = p.z + p.lz * o, sm = boxFace(cand.c, fx, fz, 0.6, clamp(cand.c.top - 2.5, 3, 4.5));
+        if (!stageOK(fx, fz) || underViaduct(sm.x, sm.z) || !inFrame(sm.x, sm.y, sm.z, 0.85, 0.75)) continue;
         return { r, cand, dPark };
       }
       return null;
@@ -1018,7 +1019,7 @@
       const v = vehicle('fire'), off = parkOff(r, dPark, v.w);
       const dr = new Driver(v, r, { d: 0, vmax: 11, target: dPark });
       const pp = dr.pose(dPark, off);
-      const src = boxFace(cand.c, pp.x, pp.z, 0.6, clamp(cand.c.top - 2.5, 4.5, 9.5));
+      const src = boxFace(cand.c, pp.x, pp.z, 0.6, clamp(cand.c.top - 2.5, 3, 4.5));
       const roof = boxFace(cand.c, pp.x, pp.z, -1.5, Math.min(cand.c.top, 14));
       let st = 'come', t = 0, fire = 1, sirenT = 0, smokeT = 0, sprayT = 0, hiss = null, said = false, steamT = 0, outT = 0;
       const crew = [];                       // {x, z, tx, tz, h}
@@ -1608,14 +1609,14 @@
       const total = 11, rockets = [];
       const cols = BB.xmas ? ['#ff4b4b', '#4fdc7a', '#ffd45c', '#ffffff'] : ['#ff6b5c', '#ffd45c', '#5fd0ff', '#b58cff', '#7dff8a', '#ff8fd0'];
       return {
-        id: 'fireworks', spots: () => (me4.live > 0 ? [['fireworks', me4.x, me4.y - 5, me4.z, 10, 'Ooh! Fireworks over the sea!']] : []),
+        id: 'fireworks', spots: () => (me4.live > 0 ? [['fireworks', me4.x, me4.y - 4, me4.z, 6, 'Ooh! Fireworks over the sea!', 0.03, 0.82]] : []),
         update(dt) {
           t += dt;
           if (n < total && (next -= dt) <= 0) {
             next = rand(1.4, 2.6); n++;
-            const cam = BB.camera ? BB.camera.position : Bs().pos, hb = Bs().heading + rand(-0.3, 0.3), ahead = rand(45, 65);
-            const x = clamp(cam.x + Math.sin(hb) * ahead, -180, 380), z = Math.max(seaZ() + 10, cam.z + Math.cos(hb) * ahead);   // low and ahead: the chase camera looks down, so the sky barely shows
-            rockets.push({ x, y: 1, z, vy: rand(14, 18), top: rand(9, 13), c1: pick(cols), c2: pick(cols) });
+            const cam = BB.camera ? BB.camera.position : Bs().pos, hb = Bs().heading + rand(-0.3, 0.3), lk = typeof Bs().lookAt === 'function', ahead = lk ? rand(55, 80) : rand(34, 48);
+            const x = clamp(cam.x + Math.sin(hb) * ahead, -180, 380), z = Math.max(seaZ() + (lk ? 20 : 4), cam.z + Math.cos(hb) * ahead);   // low and ahead: the chase camera looks down, so the sky barely shows
+            rockets.push({ x, y: 1, z, vy: lk ? rand(26, 32) : rand(9, 12), top: lk ? rand(18, 28) : rand(5, 7.5), c1: pick(cols), c2: pick(cols) });
             SND.whistle(near(x, z, 260));
           }
           me4.live = (me4.live || 0) - dt;
@@ -1657,8 +1658,8 @@
       const S = { x: B.pos.x - f.x * 45, y: 26, z: B.pos.z - f.z * 45 };
       const Ap = east ? { x: 150, y: 16, z: RZ } : { x: 640, y: 16, z: RZ }, T = east ? { x: 270, y: 0, z: RZ } : { x: 520, y: 0, z: RZ }, R = east ? { x: 470, y: 0, z: RZ } : { x: 320, y: 0, z: RZ };
       // a low pass over the road ahead (the chase camera looks down: higher up it would be out of the picture), then round to land
-      const M = { x: B.pos.x + f.x * 38, y: 4.5, z: B.pos.z + f.z * 38 }, M2 = { x: B.pos.x + f.x * 95, y: 5.5, z: B.pos.z + f.z * 95 };
-      const legs = [[S, M, 24], [M, M2, 18], [M2, Ap, 30], [Ap, T, 30], [T, R, 0]], LAST = legs.length - 1;
+      const lk = typeof B.lookAt === 'function', M = { x: B.pos.x + f.x * 38, y: lk ? 14 : 2.5, z: B.pos.z + f.z * 38 }, M2 = { x: B.pos.x + f.x * (lk ? 95 : 70), y: lk ? 18 : 2.5, z: B.pos.z + f.z * (lk ? 95 : 70) };
+      const legs = [[S, M, 24], [M, M2, lk ? 18 : 12], [M2, Ap, 30], [Ap, T, 30], [T, R, 0]], LAST = legs.length - 1;
       let g = null, mat = null;
       if (BB.landmarks && typeof BB.landmarks.plane === 'function') {
         g = safe(() => BB.landmarks.plane(0));
@@ -1677,7 +1678,7 @@
       whoosh = noise(1, { type: 'lowpass', freq: 520, vol: 0.001, hold: true, attack: 0.5 });
       const look = V3(M.x, M.y, M.z); lookUp(look, 9);
       return {
-        id: 'plane', spots: () => [['plane', pos.x, pos.y, pos.z, 5, 'Look! A plane is coming in to land!']],
+        id: 'plane', spots: () => [['plane', pos.x, pos.y - 1, pos.z, 3, 'Look! A plane is coming in to land!', 0.03, 0.82]],
         update(dt) {
           t += dt;
           const [a, b, v1] = legs[leg], L = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z) || 1;
@@ -1796,10 +1797,10 @@
     const c = E.current; if (!c || !c.spots) return;
     if ((frT -= dt) > 0) return;
     frT = 0.35; updateFrustum();
-    for (const [id, x, y, z, hh, line, minSize] of c.spots() || []) {
-      if (c.spotted[id] || !bigOnScreen(x, y, z, hh || 2, minSize)) continue;
+    for (const [id, x, y, z, hh, line, minSize, top] of c.spots() || []) {
+      if (c.spotted[id] || !bigOnScreen(x, y, z, hh || 2, minSize, top)) continue;
       c.spotted[id] = true; c.seen = true;
-      if (line && !c.saidIntro) { c.saidIntro = true; talk(line, true); }
+      if (!c.saidIntro) { c.saidIntro = true; const intro = (c.spots() || []).find((q) => q[5]); if (intro) talk(intro[5], true); }
       if (NAMES[id]) E.spot(id);             // (the UI's "New sticker!" is queued after our line)
     }
   }

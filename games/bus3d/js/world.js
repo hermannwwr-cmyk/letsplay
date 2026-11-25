@@ -205,8 +205,9 @@
     { id: 'playground', name: 'Playground', say: 'the playground', pic: 'slide', from: 'n13', to: 'n23', t: 0.5, toward: [0, S] },
     { id: 'mrt', name: 'MRT Station', say: 'the MRT station', pic: 'train', from: 'n21', to: 'n22', t: 0.55, toward: [S, 0] },
     // the wider map
-    // (nearer the expressway end: the bus comes off the loop with a 90-degree turn and needs room to line up)
-    { id: 'airport', name: 'Airport', say: 'the airport', pic: 'plane', from: 'AP1', to: 'AP2', t: 0.3, toward: [430, HZ - 56] },
+    // (on the terminal's side of the drop-off road: the bus comes straight down from the expressway into the bay and
+    // goes round the loop after; a bay on the loop side was only reachable by a tight 90-degree turn off the loop)
+    { id: 'airport', name: 'Airport', say: 'the airport', pic: 'plane', from: 'AP1', to: 'AP2', t: 0.5, toward: [360, HZ - 56] },
     { id: 'city', name: 'City', say: 'the city', pic: 'city', from: 'E1', to: 'NE', t: 0.37, toward: [260, -50] },
     { id: 'chinatown', name: 'Old Town', say: 'old town', pic: 'lantern', from: 'W1', to: 'SWb', t: 0.45, toward: [-150, 50] },
     { id: 'beach', name: 'Beach', say: 'the beach', pic: 'beach', from: 'S1', to: 'SEa', t: 0.68, toward: [118, 260] },
@@ -300,6 +301,35 @@
     const attr = propAttr(b), m = b.mesh(mat);
     m.geometry.setAttribute('aCenter', attr);
     return tag(m, name);
+  }
+  // Split a builder into square areas (CHUNK units a side, by each part's centre; a prop's parts by the prop's centre), so
+  // the camera's frustum and the far cull skip whole areas instead of drawing the entire town every frame.
+  // Returns the area builders (props remapped).
+  function chunkBuilder(b, CHUNK) {
+    const cells = new Map(), props = PROPS.get(b) || [], owner = new Int32Array(b.parts.length).fill(-1), _c = new THREE.Vector3();
+    props.forEach((pr, i) => { for (let k = pr.s; k < pr.e; k++) owner[k] = i; });
+    const open = new Map();                                     // prop index -> its start in its area builder
+    b.parts.forEach((p, k) => {
+      let x, z; const pi = owner[k];
+      if (pi >= 0) { x = props[pi].x; z = props[pi].z; }
+      else { const g = p.geo; if (!g.boundingBox) g.computeBoundingBox(); g.boundingBox.getCenter(_c).applyMatrix4(p.m); x = _c.x; z = _c.z; }
+      const key = Math.floor(x / CHUNK) + ',' + Math.floor(z / CHUNK);
+      let c = cells.get(key); if (!c) { c = BB.mk.builder(); cells.set(key, c); }
+      if (pi >= 0 && !open.has(pi)) open.set(pi, c.parts.length);
+      c.parts.push(p);
+      if (pi >= 0 && k === props[pi].e - 1) { if (!PROPS.has(c)) PROPS.set(c, []); const pr = props[pi]; PROPS.get(c).push({ s: open.get(pi), e: c.parts.length, x: pr.x, z: pr.z, r: pr.r }); }
+    });
+    PROPS.delete(b); b.parts = [];
+    return [...cells.values()];
+  }
+  // Add a builder to the scene as area meshes: frustum-culled, and hidden beyond farR of the camera (in the fog).
+  function addChunked(scene, b, mat, name, prop, farR, size) {
+    for (const c of chunkBuilder(b, size || 160)) {
+      if (!c.parts.length) continue;
+      const m = prop ? propMesh(c, mat, name) : tag(c.mesh(mat), name);
+      m.geometry.computeBoundingBox(); m.userData.box = m.geometry.boundingBox.clone(); m.userData.farR = farR || 240;
+      FAR_CULL.push(m); scene.add(m);
+    }
   }
   function fadeMat(m) {
     m.onBeforeCompile = (sh) => {
@@ -479,17 +509,19 @@
     buildStops(TREES);   // (with the props: the shelter hides when it stands between the stop camera and the bus)
     const poolPts = buildLamps(town, lamps);
     roadMat = new THREE.MeshLambertMaterial({ vertexColors: true });   // its own material: it darkens in the rain
-    scene.add(tag(roads.mesh(roadMat), 'roads'), tag(town.mesh(), 'town'), tag(green.mesh(), 'green'));
+    for (const p of green.parts) town.parts.push(p);      // (same material: one draw per area)
+    green.parts = [];
+    addChunked(scene, roads, roadMat, 'roads', false, 240, 240); addChunked(scene, town, BB.mk.mat, 'town', false, 240, 160);
     const farMesh = (m, name) => { m.geometry.computeBoundingBox(); m.userData.box = m.geometry.boundingBox.clone(); FAR_CULL.push(m); scene.add(tag(m, name)); };
     for (const k in DIST_B) if (DIST_B[k].parts.length) farMesh(DIST_B[k].mesh(), 'd:' + k);
     washFx = buildWashFx();
     for (const k in LMB) { const lm = LMB[k].mesh(); lm.geometry.computeBoundingSphere(); farMesh(lm, 'lm:' + k); }
     for (const m of [wheelRim, planes, washRig, washFx].concat(LM_MOVERS)) if (m) scene.add(m);
     for (const m of [boomN, boomS]) if (m && !m.parent) scene.add(m);
-    scene.add(propMesh(TREES, fadeMat(new THREE.MeshLambertMaterial({ vertexColors: true })), 'trees'));
+    addChunked(scene, TREES, fadeMat(new THREE.MeshLambertMaterial({ vertexColors: true })), 'trees', true, 230, 240);
     TREES = null;
     winMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x000000 });
-    scene.add(tag(WIN.mesh(winMat), 'windows'));
+    addChunked(scene, WIN, winMat, 'windows', false, 230, 240);
     lampMat = fadeMat(new THREE.MeshBasicMaterial({ vertexColors: true, color: 0xe9e4da }));
     scene.add(propMesh(lamps, lampMat, 'lamps'));
     pools = buildPools(poolPts); scene.add(pools);
@@ -1690,7 +1722,7 @@
   // loaded: each builder is called as BB.landmarks.<name>(q, opts) with q a BB.mk builder already placed and turned
   // (local +z faces the road), drawing static parts into q (opts.win: the lit-windows builder in the same frame).
   // Without it (or if one throws) the simple models below are used. Everything is generic: no names or logos.
-  const LMB = {};                          // landmark batches, one per district (each one draw call, culled when out of view)
+  const LMB = {};                          // landmark batches, one per district area (each one draw call, culled when out of view)
   let curDist = 'misc';
   const LM_MOVERS = [];
   // Place landmark `name` at (x, z) turned ry (its front, +z, toward ry): merged into the batch, its colliders added,
@@ -1699,7 +1731,9 @@
     const L = BB.landmarks;
     if (!L || typeof L[name] !== 'function' || typeof L.batch !== 'function') return null;
     try {
-      const bt = LMB[curDist] || (LMB[curDist] = L.batch());
+      // (one batch per district and area, so a big district's landmarks are culled area by area)
+      const key = curDist + '@' + Math.floor((x + FRAME.x) / 200) + ',' + Math.floor((z + FRAME.z) / 200);
+      const bt = LMB[key] || (LMB[key] = L.batch());
       const info = bt.add(name, x, z, ry, ...args);
       for (const c of info.circles || []) addCol({ x: c.x, z: c.z, r: c.r });
       for (const o of info.boxes || []) addCol({ x: o.x, z: o.z, hw: o.hw, hd: o.hd, ry: o.ry || 0, top: o.top != null ? o.top : 10 });
@@ -1887,9 +1921,10 @@
   }
   function buildAirport(b, green) {
     // the terminal (west of the drop-off road), its forecourt and glass front
-    b.box(14, 0.18, 70, P.pave, 385, 0, HZ - 56);
-    const TX = 350, TZ = HZ - 56;
-    const lmT = LMP('airportTerminal', 367, TZ, -Math.PI / 2, { length: 60 });
+    // (set back from the road, so the stop's side-view camera on the forecourt has room in front of the roof)
+    b.box(26, 0.18, 70, P.pave, 379, 0, HZ - 56);
+    const TX = 340, TZ = HZ - 56;
+    const lmT = LMP('airportTerminal', 356, TZ, -Math.PI / 2, { length: 60 });
     if (!lmT) W.addBox(TX, TZ, 28, 22, 0, 13);
     if (!lmT) A(b, TX, 0, TZ, Math.PI / 2, (q) => {
       bx(q, 44, 9, 54, '#f1ebe0', 0, 0, 0);
@@ -1900,7 +1935,7 @@
       for (let x = -20; x <= 20; x += 8) bx(q, 0.4, 8.4, 0.4, '#e9e2d6', x, 0, 29.8);
       bx(q, 46, 0.3, 4, P.teal, 0, 8.8, 29.5);
     });
-    SIGNS.push({ pic: 'plane', x: 378.8, y: 11.5, z: TZ, nx: 1, nz: 0, size: 3.6, ring: P.teal });
+    SIGNS.push({ pic: 'plane', x: 367.8, y: 11.5, z: TZ, nx: 1, nz: 0, size: 3.6, ring: P.teal });
     // the airside: apron, taxiway and runway behind a fence
     b.box(330, 0.04, 34, '#a6a0a8', 385, 0, -340);
     for (let x = 230; x <= 540; x += 14) b.box(6, 0.02, 0.8, '#fff6e0', x, 0.05, -340);
@@ -2103,7 +2138,7 @@
     for (const m of FAR_CULL) {
       const bb = m.userData.box; if (!bb) continue;
       const dx = Math.max(bb.min.x - c.x, 0, c.x - bb.max.x), dz = Math.max(bb.min.z - c.z, 0, c.z - bb.max.z);
-      m.visible = dx * dx + dz * dz < 215 * 215;
+      const R = m.userData.farR || 215; m.visible = dx * dx + dz * dz < R * R;
     }
   }
 

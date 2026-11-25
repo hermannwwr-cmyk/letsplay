@@ -1344,9 +1344,9 @@
       camPos.set(fx - f.x * back, up, fz - f.z * back);
       camLook.set(fx + f.x * (wide ? 2 : 5), 0, fz + f.z * (wide ? 2 : 5));
       if (kL > 0) {
-        // look part of the way toward it (the bus stays in the picture), never higher than 26 up
+        // look part of the way toward it (the bus stays in the picture), never higher than 20 up
         const w = 0.55 * kL;
-        camLook.set(camLook.x + (lk.x - camLook.x) * w * 0.6, Math.min(26, camLook.y + (lk.y - camLook.y) * w), camLook.z + (lk.z - camLook.z) * w * 0.6);
+        camLook.set(camLook.x + (lk.x - camLook.x) * w * 0.6, Math.min(20, camLook.y + (lk.y - camLook.y) * w * 0.75), camLook.z + (lk.z - camLook.z) * w * 0.6);
       }
     }
     if (underViaduct(camPos.x, camPos.z) || underViaduct(mx, mz)) maxUp = 10.2;
@@ -1565,7 +1565,7 @@
     const asst = B.assist && canDrive && thr > 0 ? (bayAssist(MAX_STEER + 0.22) || assistSteer(MAX_STEER + 0.22)) : null;
     if (asst && !asst.bay && Math.abs(kidSteer) < 0.3) want = Math.min(want, Math.max(4.0, Math.min(top * (1 - 1.1 * Math.abs(asst.alpha)), asst.vBend)));
     if (lookSlow < 1 && want > 0) want = Math.min(want, Math.max(3.5, MAX_FWD * lookSlow));   // (B.lookAt: slower, never stopped)
-    let cap = approachCap(); B.__dbg = { want: +want.toFixed(1), cap: +cap.toFixed(1), asst: asst ? { a: +asst.alpha.toFixed(2), vb: +(asst.vBend || 0).toFixed(1), bay: !!asst.bay } : null };   // DEBUG-REMOVE
+    let cap = approachCap();
     if (cap < Infinity) want = BB.clamp(want, -cap, cap); else cap = 0;   // ease off coming into the target bay so it can settle
     const slowing = Math.abs(want) < Math.abs(B.speed) || (Math.sign(want) !== Math.sign(B.speed) && Math.abs(B.speed) > 0.2);
     const easeOff = slowing && thr > 0 && want > 0 && !cap && B.speed > MAX_FWD - 0.5;     // leaving a cruising stretch

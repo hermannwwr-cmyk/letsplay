@@ -282,7 +282,8 @@
   @keyframes bbu-arc { 0%, 15% { opacity: 1; } 55%, 100% { opacity: .25; } }
   @media (orientation: portrait) { .bbu-turn.standalone { display: flex; } }
   /* narrower screens: the clock moves under Coins */
-  @media (max-width: 900px) { .bbu-top .bbu-clock { position: absolute; left: 0; top: calc(var(--bh) + 8px); margin-top: 0; font-size: 25px; } .bbu-top .bbu-clock svg { width: 30px; height: 30px; } }
+  @media (max-width: 900px) { .bbu-top .bbu-clock { position: absolute; left: 0; top: calc(var(--bh) + 8px); margin-top: 0; font-size: 25px; } .bbu-top .bbu-clock svg { width: 30px; height: 30px; }
+    .lefty .bbu-top .bbu-clock { left: auto; right: 0; } }   /* (left-handed: Turn around is on the left, so the clock goes right) */
   /* small phones held sideways: the wheel, the pedals and the joystick are sized from the height (the wheel at most
      about 40% of it), lifted a little off the bottom edge so their shadows and glows show, and never under 64 px */
   @media (max-height: 430px) {
