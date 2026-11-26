@@ -1369,17 +1369,31 @@
     const checks = [heads[0], heads[4], heads[heads.length - 1], req[iDoor], req[iDoor + 1], req[iDoor + 2], req[iDoor + 3], mid].filter(Boolean);
     // a scene: nothing solid in front of its props or either end of the vehicle either
     if (st && Array.isArray(st.frame) && st.frame.length) for (let i = 2 * NS; i < iDoor; i += 2) checks.push(req[i]);
+    // the scene's own big props (jobs.js target.blockers: the burning kiosk, its smoke) mustn't hide the rest either:
+    // turned boxes {x, z, hw, hd, ry, y0, top} in world heights, sampled along the line; a point on or by a prop isn't hidden by it
+    const blockers = st && Array.isArray(st.blockers) ? st.blockers : [];
+    const inBox = (b, x, z, m) => { const dx = x - b.x, dz = z - b.z, c = Math.cos(b.ry || 0), sn = Math.sin(b.ry || 0); return Math.abs(dx * c - dz * sn) < b.hw + m && Math.abs(dx * sn + dz * c) < b.hd + m; };
+    const propHides = (a, v) => {
+      for (const b of blockers) {
+        if (inBox(b, v.x, v.z, 0.7)) continue;
+        const n = Math.max(6, Math.ceil(Math.hypot(v.x - a.x, v.z - a.z) * 2));
+        for (let k = 1; k < n; k++) { const t = k / n, y = a.y + (v.y - a.y) * t; if (y < (b.y0 || 0) || y > b.top) continue; if (inBox(b, a.x + (v.x - a.x) * t, a.z + (v.z - a.z) * t, 0)) return true; }
+      }
+      return false;
+    };
+    const sees = (p, v) => !W().blocksSight(p.pos.x, p.pos.y, p.pos.z, v.x, v.y, v.z) && !propHides(p.pos, v);
     const clear = (p) => {
       if (p.fits === false) return false;
       if (W().insideTall(p.pos.x, p.pos.y, p.pos.z)) return false;
-      for (const v of checks) if (W().blocksSight(p.pos.x, p.pos.y, p.pos.z, v.x, v.y, v.z)) return false;
+      for (const b of blockers) if (inBox(b, p.pos.x, p.pos.z, 0.5) && p.pos.y < b.top + 0.5) return false;
+      for (const v of checks) if (!sees(p, v)) return false;
       if (underViaduct(p.pos.x, p.pos.z) && p.pos.y > 10.2) return false;
       return true;
     };
     // how many of the must-see points a view can't see (a scene's fallback: the view that hides the least)
     const hidden = (p) => {
       if (p.fits === false || W().insideTall(p.pos.x, p.pos.y, p.pos.z) || (underViaduct(p.pos.x, p.pos.z) && p.pos.y > 10.2)) return 1e9;
-      let n = 0; for (const v of checks) if (W().blocksSight(p.pos.x, p.pos.y, p.pos.z, v.x, v.y, v.z)) n++;
+      let n = 0; for (const v of checks) if (!sees(p, v)) n++;
       return n;
     };
     let leastHidden = null;
@@ -1409,7 +1423,7 @@
     const sceneFrame = !!(st && Array.isArray(st.frame) && st.frame.length);
     for (const [yaw, pitch, md, wv] of cands) {
       const p = plan(yaw * D2R, pitch * D2R, md, wv);
-      if (!clear(p)) { if (sceneFrame) { const n = hidden(p); if (!leastHidden || n < leastHidden.n) leastHidden = { p, n }; } continue; }
+      if (!clear(p)) { const n = hidden(p); if (!leastHidden || n < leastHidden.n) leastHidden = { p, n }; continue; }   // (no clear view at all: the one that hides the least)
       if (p.gap >= 34 || sceneFrame) { pick = p; break; }       // (a scene counts its props, not heads: the first clear view)
       if (!best || (p.gap > best.gap * 1.2 && pitch <= 38)) best = p;   // (not steeper than that for a little more room)
     }

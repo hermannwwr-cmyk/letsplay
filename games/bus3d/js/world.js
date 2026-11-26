@@ -368,7 +368,7 @@
   })();
   // ---------- many more scene spots: about every 20 along the quiet roads ----------
   // The special vehicles' jobs go about as far as a bus job (40-80 road units, ~7 s), so they need scene spots
-  // everywhere, not just the six above. Along quiet straight roads (not the expressway, the yard, the airport drop-off
+  // everywhere, not just the six above. Along straight roads (not the yard, the airport drop-off
   // or under the viaduct), on each kerb, a plain spot about every 20, wherever its bay (about 13 behind the spot to 4
   // ahead) and its people (6 behind to 8 ahead) keep clear of the stops' shelters. Only one scene is ever staged at a
   // time, so the spots may overlap each other. They are kept aside (GEN_SPOTS) until the town stands, so the street
@@ -380,7 +380,7 @@
     const nodeClear = (id, e) => { const n = nodeById[id]; return n.edges.length >= 3 ? Math.max(...n.edges.map((q) => edgeById[q].half || RH)) + 9 : 12; };
     let k = 0;
     for (const e of W.roads.edges) {
-      if (e.kind === 'yard' || e.kind === 'highway' || e.points.length > 2) continue;
+      if (e.kind === 'yard' || e.points.length > 2) continue;
       if (/^AP/.test(e.a) || /^AP/.test(e.b)) continue;
       const a = e.points[0], b = e.points[e.points.length - 1];
       if (Math.abs(a.z - g(1)) < 12 && Math.abs(b.z - g(1)) < 12 && Math.abs(a.x) < 200) continue;   // under the viaduct
@@ -404,11 +404,11 @@
   // A scene spot's zones, in its own frame: a = along the kerb from the spot (forward +), o = out past the kerb line.
   // 'small' = people, bags, teddies, the ice cream queue; 'fire' = the kiosk and firefighters ahead; 'yard' = the
   // tray of cars behind (the tow truck's yard scene).
-  const SCENE_ZONES = { small: [-6, 8, 0.6, 3.8], fire: [3, 19, 0.6, 4.6], yard: [-14, 3, 1.8, 9.4] };
-  function sceneLocal(sp, x, z) {
-    const e = edgeById[sp.edge], p = W.pointAt(e, sp.s), dx = x - p.x, dz = z - p.z;
-    return { a: dx * sp.fwd.x + dz * sp.fwd.z, o: dx * sp.side.x + dz * sp.side.z - e.half };
-  }
+  // (fire also needs the camera's room in front of the kiosk and the firefighters: nothing solid 5-20 out, so the
+  // side-view camera can stand there and see them all past the kiosk; the same behind the tray of cars for 'yard';
+  // with only some of that room (out to 13) they are 'fire2' / 'yard2': jobs.js uses those only when nothing better
+  // is near)
+  const SCENE_ZONES = { small: [-6, 8, 0.6, 3.8], fire: [3, 19, 0.6, 4.6], fireCam: [-2, 17, 5, 20], yard: [-14, 3, 1.8, 9.4], yardCam: [-12, 2, 9.4, 18], fireCam2: [-2, 17, 5, 13], yardCam2: [-12, 2, 9.4, 13] };
   function sceneWorld(sp, a, o) {
     const e = edgeById[sp.edge], p = W.pointAt(e, sp.s);
     return { x: p.x + sp.fwd.x * a + sp.side.x * (e.half + o), z: p.z + sp.fwd.z * a + sp.side.z * (e.half + o) };
@@ -441,8 +441,15 @@
       const sp = W.sceneSpots[i];
       if (blockedBay(sp) || nearYard(sp) || !zoneClear(sp, SCENE_ZONES.small)) { W.sceneSpots.splice(i, 1); continue; }
       sp.tags = ['picnic', 'icecream', 'car'];
-      if (zoneClear(sp, SCENE_ZONES.fire)) sp.tags.push('fire');
-      if (zoneClear(sp, SCENE_ZONES.yard)) sp.tags.push('yard');
+      if (zoneClear(sp, SCENE_ZONES.fire) && zoneClear(sp, SCENE_ZONES.fireCam2)) sp.tags.push(zoneClear(sp, SCENE_ZONES.fireCam) ? 'fire' : 'fire2');
+      if (zoneClear(sp, SCENE_ZONES.yard) && zoneClear(sp, SCENE_ZONES.yardCam2)) sp.tags.push(zoneClear(sp, SCENE_ZONES.yardCam) ? 'yard' : 'yard2');
+    }
+    // the stops can stage scenes too (their shelter hides from the scene camera like at any stop): the same tags
+    for (const st of W.stops) {
+      if (!zoneClear(st, SCENE_ZONES.small)) { st.tags = []; continue; }
+      st.tags = ['picnic', 'icecream', 'car'];
+      if (zoneClear(st, SCENE_ZONES.fire) && zoneClear(st, SCENE_ZONES.fireCam2)) st.tags.push(zoneClear(st, SCENE_ZONES.fireCam) ? 'fire' : 'fire2');
+      if (zoneClear(st, SCENE_ZONES.yard) && zoneClear(st, SCENE_ZONES.yardCam2)) st.tags.push(zoneClear(st, SCENE_ZONES.yardCam) ? 'yard' : 'yard2');
     }
   }
 
@@ -601,7 +608,7 @@
   W.addCircle = (x, z, r, top) => addCol(top != null ? { x: x + FRAME.x, z: z + FRAME.z, r, top } : { x: x + FRAME.x, z: z + FRAME.z, r });
   // Something the cameras can't see through but the bus drives under (a viaduct's or flyover's deck): a turned box
   // from y0 up to top, left out of driving (pushOut, solidAt).
-  W.addSightBox = (x, z, hw, hd, ry, y0, top) => addCol({ x: x + FRAME.x, z: z + FRAME.z, hw, hd, ry, y0, top, sightOnly: true });
+  W.addSightBox = (x, z, hw, hd, ry, y0, top) => addCol({ x: x + FRAME.x, z: z + FRAME.z, hw, hd, ry, y0, top, sightOnly: true, deck: y0 > 2.5 });
   W.addBox = (x, z, hw, hd, ry = 0, top = 10) => addCol({ x: x + FRAME.x, z: z + FRAME.z, hw, hd, ry, top });
   function shifted(builders, dx, dz, fn) {
     FRAME.x += dx; FRAME.z += dz;
@@ -699,11 +706,22 @@
       for (const c of list) {
         const dx = x - c.x, dz = z - c.z;
         if (dx * dx + dz * dz > (c.R + r) * (c.R + r)) continue;
-        if (c.sightOnly) continue;
+        if (c.sightOnly || (c.r == null && c.top < 0.5)) continue;    // (nor the stops' shelters: they hide too)
         if (c.r != null) { if (c.top != null) return true; continue; }
         const lx = dx * c.cos - dz * c.sin, lz = dx * c.sin + dz * c.cos;
         if (Math.abs(lx) < c.hw + r && Math.abs(lz) < c.hd + r) return true;
       }
+    }
+    return false;
+  };
+  // Is (x,z) under a flyover's or the viaduct's deck?
+  W.underDeck = function (x, z) {
+    const list = grid.get(ckey(Math.floor(x / CELL), Math.floor(z / CELL)));
+    if (!list) return false;
+    for (const c of list) {
+      if (!c.deck) continue;
+      const dx = x - c.x, dz = z - c.z;
+      if (Math.abs(dx * c.cos - dz * c.sin) < c.hw + 1 && Math.abs(dx * c.sin + dz * c.cos) < c.hd + 1) return true;
     }
     return false;
   };
@@ -757,11 +775,13 @@
     // (and so are those whose bay has anything in it, or that sit by the depot yard's fence)
     const blockedBay = (st) => { const bay = W.bayOf(st); for (const a of [-7, -3.5, 0, 3.5, 7]) if (W.pushOut(bay.x + bay.fwd.x * a, bay.z + bay.fwd.z * a, 1.7).hit > 0.02) return true; return false; };
     const nearYard = (st) => st.pos.x > W.YARD.x0 - 8 && st.pos.x < W.YARD.x1 + 8 && st.pos.z > W.YARD.z0 - 8 && st.pos.z < W.YARD.z1 + 8;
-    for (let i = W.stops.length - 1; i >= 0; i--) { const st = W.stops[i]; if (st.minor && (W.pushOut(st.pos.x, st.pos.z, 1.8).hit > 0.05 || blockedBay(st) || nearYard(st))) W.stops.splice(i, 1); }
+    // (nor those under a flyover's deck, where its piers and the deck would stand between the stop camera and the bus)
+    const underDeck = (st) => { const bay = W.bayOf(st); for (const a of [-10, -5, 0, 5, 10]) for (const o of [0, 6, 12]) if (W.underDeck(bay.x + bay.fwd.x * a + bay.side.x * o, bay.z + bay.fwd.z * a + bay.side.z * o)) return true; return false; };
+    for (let i = W.stops.length - 1; i >= 0; i--) { const st = W.stops[i]; if (st.minor && (W.pushOut(st.pos.x, st.pos.z, 1.8).hit > 0.05 || blockedBay(st) || nearYard(st) || underDeck(st))) W.stops.splice(i, 1); }
     buildStops(TREES);   // (with the props: the shelter hides when it stands between the stop camera and the bus)
     buildPlaces(town);
     const poolPts = buildLamps(town, lamps);
-    fitSceneSpots(blockedBay, nearYard);   // (after the trees and lamp posts, which don't make way for the scene spots)
+    fitSceneSpots((st) => blockedBay(st) || underDeck(st), nearYard);   // (after the trees and lamp posts, which don't make way for the scene spots)
     roadMat = new THREE.MeshLambertMaterial({ vertexColors: true });   // its own material: it darkens in the rain
     for (const p of green.parts) town.parts.push(p);      // (same material: one draw per area)
     green.parts = [];
@@ -2053,12 +2073,16 @@
       const bt = LMB[key] || (LMB[key] = L.batch());
       const info = bt.add(name, x, z, ry, ...args);
       for (const c of info.circles || []) addCol({ x: c.x, z: c.z, r: c.r, top: Math.min(14, info.height || 8) });   // (solid: no fading)
+      if (name === 'chinatownRow') {          // the upper floor over the arcade: the cameras can't see through it either
+        const n = args[0] || 4, c = Math.cos(ry), sn = Math.sin(ry), lz = 6 - 1.1;
+        addCol({ x: x + lz * sn + FRAME.x, z: z + lz * c + FRAME.z, hw: n * 2.6, hd: 1.3, ry, y0: 3.9, top: 11.3, sightOnly: true });
+      }
       if (name === 'elevatedRoad' && Array.isArray(info.path) && !x && !z && !ry) {        // its deck, for the cameras
         const P2 = info.path, hw = (info.width || 9) / 2;
         for (let i = 1; i < P2.length; i += 2) {
           const a = P2[i - 1], c = P2[Math.min(P2.length - 1, i + 1)], len = Math.hypot(c.x - a.x, c.z - a.z);
           if (len < 0.1 || Math.max(a.y, c.y) < 1) continue;
-          addCol({ x: (a.x + c.x) / 2, z: (a.z + c.z) / 2, hw, hd: len / 2 + 0.3, ry: Math.atan2(c.x - a.x, c.z - a.z), y0: Math.min(a.y, c.y) - 1.4, top: Math.max(a.y, c.y) + 1.2, sightOnly: true });
+          addCol({ x: (a.x + c.x) / 2, z: (a.z + c.z) / 2, hw, hd: len / 2 + 0.3, ry: Math.atan2(c.x - a.x, c.z - a.z), y0: Math.min(a.y, c.y) - 1.4, top: Math.max(a.y, c.y) + 1.2, sightOnly: true, deck: Math.min(a.y, c.y) > 2.5 });
         }
       }
       for (const o of info.boxes || []) addCol({ x: o.x, z: o.z, hw: o.hw, hd: o.hd, ry: o.ry || 0, top: o.top != null ? o.top : 10 });
@@ -2226,7 +2250,8 @@
     b.ball(30, P.grassDark, 580, -6, HZ, 1, 1, 0.8, 1.6);
     W.addBox(556, HZ, 3, 22, 0, 14);
     // a big direction board over the expressway (a plane picture)
-    for (const z of [HZ - 15, HZ + 15]) b.box(0.6, 8, 0.6, '#5f8f5a', 300, 0, z);
+    for (const z of [HZ - 15, HZ + 15]) { b.box(0.6, 8, 0.6, '#5f8f5a', 300, 0, z); W.addCircle(300, z, 0.45, 11.2); }
+    W.addSightBox(300, HZ, 0.6, 15.8, 0, 7.9, 11.6);      // (the board: the stop cameras nearby look past it)
     b.box(0.8, 3.2, 31, '#2f8a55', 300, 8, HZ); b.box(0.9, 0.3, 31.4, '#fff6e0', 300, 11.2, HZ);
     SIGNS.push({ pic: 'plane', x: 299.5, y: 9.6, z: HZ + 6.7, nx: -1, nz: 0, size: 2.6, ring: '#2f8a55' });
     SIGNS.push({ pic: 'city', x: 299.5, y: 9.6, z: HZ - 6.7, nx: -1, nz: 0, size: 2.6, ring: '#2f8a55' });

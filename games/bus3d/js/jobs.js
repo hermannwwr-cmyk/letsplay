@@ -1497,12 +1497,14 @@
   // Where vehicle jobs go: every leg about as long as a bus job's (LEG_MIN-LEG_MAX road units, ~7 s of driving).
   // Targets are world.js scene spots (W.sceneSpots, with tags for what fits there), stops, and the fixed places
   // (W.places.fireStation / clinic, the depot), each used only when it is that close.
-  // the spots whose tags include tag ('picnic' | 'icecream' | 'fire' | 'car' | 'yard'), or every spot
+  // the scene spots and stops whose tags (world.js: what fits there) include tag ('picnic' | 'icecream' | 'fire' |
+  // 'car' | 'yard'), or all of them
   function spots(tag) {
-    const W = BB.world, list = (W.sceneSpots || []).filter((s) => s && s.pos && s.edge != null);
+    const W = BB.world, list = (W.sceneSpots || []).concat((W.stops || []).filter(okStop)).filter((s) => s && s.pos && s.edge != null);
     const t = tag ? list.filter((s) => !s.tags || s.tags.indexOf(tag) >= 0) : list;
     return t.length ? t : list;
   }
+  const tagged = (tag) => spots().filter((s) => s.tags && s.tags.indexOf(tag) >= 0);   // (only those, maybe none)
   // road distance from `from` (a bay, or null = from where the vehicle is now) to every candidate that could be near
   // enough (a straight line is never longer than the road), nearest first
   function rankNear(from, list, exclude) {
@@ -1517,14 +1519,16 @@
   }
   // one leg on from `from`: at random among the candidates LEG_MIN-LEG_MAX away (weighted by weight(s)), else the
   // nearest that are a little nearer or further; anything at all as a last resort
-  function legTo(from, list, exclude = [], weight = null) {
+  // (spare: second-best candidates, used when none of list is near enough)
+  function legTo(from, list, exclude = [], weight = null, spare = null) {
+    if (spare) { const r = rankNear(from, list, exclude); if (!r.some((o) => o.d >= 25 && o.d <= 110)) list = list.concat(spare); }
     let ranked = rankNear(from, list, exclude);
     if (!ranked.length) ranked = list.filter((s) => s && s.pos && s !== from && exclude.indexOf(s) < 0).map((s) => ({ s, d: stopDist(from, s) })).filter((o) => isFinite(o.d)).sort((x, y) => x.d - y.d);
     if (!ranked.length) return BB.pick(list);
     let pool = ranked.filter((o) => o.d >= LEG_MIN && o.d <= LEG_MAX);
     if (!pool.length) pool = ranked.filter((o) => o.d >= 25 && o.d <= 110).sort((x, y) => Math.abs(x.d - 60) - Math.abs(y.d - 60)).slice(0, 2);
-    if (!pool.length) pool = ranked.filter((o) => o.d >= 25).slice(0, 2);
-    if (!pool.length) pool = ranked.slice(0, 2);
+    if (!pool.length) pool = ranked.filter((o) => o.d >= 25).slice(0, 1);
+    if (!pool.length) pool = ranked.slice(0, 1);
     const bag = []; for (const o of pool) { const n = weight ? weight(o.s) : 1; for (let i = 0; i < n; i++) bag.push(o.s); }
     return BB.pick(bag.length ? bag : pool.map((o) => o.s));
   }
@@ -1694,7 +1698,8 @@
   function scnClear() {
     for (const m of SCN.items.concat(SCN.extra)) scnDrop(m);
     SCN.items = []; SCN.extra = [];
-    if (SCN.target) { delete SCN.target.frame; delete SCN.target.frameKey; SCN.target = null; vcall(['reframe']); }
+    if (SCN.target) { delete SCN.target.frame; delete SCN.target.frameKey; delete SCN.target.blockers; SCN.target = null; vcall(['reframe']); }
+    SCN.blockers = [];
   }
   J._scnClear = scnClear;
   // ask the scene camera to show these world points too
@@ -1703,6 +1708,7 @@
     if (!t || !pts.length) return;
     t.frame = pts.map((p) => ({ x: p.x, y: 0, z: p.z })).concat(pts.map((p) => ({ x: p.x, y: 2.4, z: p.z })));
     t.frameKey = 'scn' + (++frameNo);
+    t.blockers = (SCN.blockers || []).slice();      // the scene's big props: the camera mustn't look past them (bus.js)
     SCN.target = t;
     vcall(['reframe']);
   }
@@ -1722,7 +1728,9 @@
         const from = m.position.clone(), to = from.clone().add(new THREE.Vector3(slot.f.ox * 12, 0, slot.f.oz * 12));
         tween(1.1, (t) => { m.position.lerpVectors(from, to, t * t); }).then(() => scnDrop(m));
       },
-      points: (c) => Array.from({ length: Math.max(1, c) }, (_, i) => slot(i)),
+      // (the cars stand between the camera and the truck: the camera looks over them, not through them)
+      points: (c) => { const pts = Array.from({ length: Math.max(1, c) }, (_, i) => slot(i)); SCN.blockers = pts.map((p) => ({ x: p.x, z: p.z, hw: 0.95, hd: 1.9, ry: slot.face, y0: 0, top: GROUND + 1.75 }));
+        return pts.concat(pts.map((p) => p.clone().add(new THREE.Vector3(slot.f.ox * 1.9, 0, slot.f.oz * 1.9)))); },   // (and their far ends)
     };
   }
   function bagScene() {
@@ -1765,11 +1773,13 @@
     const G = sceneGeos(), f = doorFrame(false);
     const face = Math.atan2(f.ox, f.oz), base = kerbSpot(3.2, 12.5, false);   // ahead of the engine, beside the camera's view (not in front of it)
     const kiosk = scnMesh(G.kiosk, base, face, false); SCN.extra.push(kiosk);
+    SCN.blockers = [{ x: base.x, z: base.z, hw: 3.6, hd: 1.7, ry: face, y0: 0, top: GROUND + 4.4 }];
     const winPos = (i) => { const r = Math.floor(i / 5), c = i % 5, side = (c - 2) * 1.25; return new THREE.Vector3(base.x + f.ox * 1.55 + f.fx * side, GROUND + (r ? 1.25 : 2.55), base.z + f.oz * 1.55 + f.fz * side); };
     const smoke = [];
     for (let i = 0; i < 10; i++) {
       SCN.extra.push(scnMesh(G.win, winPos(i), face, false));
-      if (i < smoky) { const s2 = scnMesh(G.smoke, winPos(i).add(new THREE.Vector3(f.ox * 0.8, 0.5, f.oz * 0.8)), face, false); s2.scale.setScalar(1.3); smoke[i] = s2; SCN.extra.push(s2); }   // out in front of the window, seen from any camera
+      if (i < smoky) { const s2 = scnMesh(G.smoke, winPos(i).add(new THREE.Vector3(f.ox * 0.8, 0.5, f.oz * 0.8)), face, false); s2.scale.setScalar(1.3); smoke[i] = s2; SCN.extra.push(s2);
+        SCN.blockers.push({ x: s2.position.x, z: s2.position.z, hw: 0.8, hd: 0.8, ry: face, y0: s2.position.y - 0.3, top: s2.position.y + 2.2 }); }   // out in front of the window, seen from any camera
     }
     const slot = tray(2.8, 8.0, 1.05, 1.1);
     const fighter = (i, pop) => {
@@ -1809,7 +1819,7 @@
     const W = BB.world, stops = (W.stops || []).filter((s) => s && s.pos && s.say && s.edge != null);
     // the first leg runs from where the vehicle is (its bay, or the road / the depot yard), every leg ~7 s
     const at = BB.bus.atStop, from0 = at && at.edge != null && at.id !== 'depot' && at.id !== 'wash' ? at : null;
-    const spot = kind === 'icecream' ? null : legTo(from0, spots({ taxi: 'picnic', fire: 'fire', ambulance: 'picnic', tow: 'car' }[kind]));
+    const spot = kind === 'icecream' ? null : legTo(from0, spots({ taxi: 'picnic', fire: 'fire', ambulance: 'picnic', tow: 'car' }[kind]), [], null, kind === 'fire' ? tagged('fire2') : null);
     const L = [];
     const carry = { bags: null, teddies: null };
     if (kind === 'taxi') {
@@ -1854,7 +1864,7 @@
       } });
     } else if (kind === 'icecream') {
       // children wait at the stops and the roadside spots nearby (the park and the beach count double)
-      const pool = stops.concat(spots('icecream')), fun = (t) => (/park|beach|swings|seaside/i.test((t.say || '') + ' ' + (t.near || '') + ' ' + (t.id || '')) ? 3 : 1);
+      const pool = spots('icecream'), fun = (t) => (/park|beach|swings|seaside/i.test((t.say || '') + ' ' + (t.near || '') + ' ' + (t.id || '')) ? 3 : 1);
       const park = legTo(from0, pool, [], fun), beach = legTo(park, pool, [park], fun);
       L.push({ to: park, start: `Ice cream van! Let's go to ${sayOf(park)}!`, run: async (ok) => {
         jingle(); queueKids(BB.randInt(2, 4)); hatch(true);
@@ -1871,7 +1881,7 @@
       } });
     } else if (kind === 'tow') {
       // the depot yard when it's just down the road, else the car park nearby (the cars are drawn beside the truck)
-      const toDepot = isNear(spot, W.depot), yard = toDepot ? W.depot : legTo(spot, spots('yard'), [spot]), lot = toDepot ? 'the yard' : 'the car park';
+      const toDepot = isNear(spot, W.depot), yard = toDepot ? W.depot : legTo(spot, spots('yard'), [spot], null, tagged('yard2')), lot = toDepot ? 'the yard' : 'the car park';
       L.push({ to: spot, start: `Tow truck! A car has broken down${where(spot)}. Let's help!`, run: async (ok) => {
         const car = brokenCar();
         if (!(BB.bus.has && BB.bus.has('hook')) || vcall(['hookOn', 'hookCar'], car) === undefined) {
