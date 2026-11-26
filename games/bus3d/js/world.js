@@ -894,8 +894,10 @@
     [0.62, '#69b0e6', '#b9def2', '#ffe2a8', '#fff0dc', 0.47, '#ffe0b0', 0.49, 0.20, '#ffd27a', 0.25],
     [0.72, '#f0967a', '#ffbf8e', '#ffd27a', '#ffdcbc', 0.48, '#ffb27a', 0.44, 0.18, '#ffb070', 0.55],
     [0.80, '#c86a9e', '#ef8f9c', '#ffa07a', '#ecbccc', 0.43, '#ff9a8a', 0.30, 0.14, '#ff8c9c', 0.45],
-    [0.90, '#4a3f8f', '#86599e', '#c9789c', '#a99ed4', 0.38, '#c0a0e0', 0.18, 0.10, '#d070a0', 0.25],
-    [1.00, '#1c2154', '#2b3470', '#3f4b92', '#8d99da', 0.36, '#b0c0ff', 0.16, 0.08, '#3f4b92', 0.00],
+    // (night is a soft moonlit blue, light enough that roads, pavements, people and the stops stay easy to see:
+    // the owner found it too dark)
+    [0.90, '#4a3f8f', '#86599e', '#c9789c', '#b4abdc', 0.52, '#c8aee6', 0.26, 0.14, '#d070a0', 0.25],
+    [1.00, '#1c2154', '#2b3470', '#3f4b92', '#a9b4ea', 0.62, '#c4d0ff', 0.30, 0.16, '#3f4b92', 0.00],
   ];
   const skyU = {
     top: { value: new THREE.Color() }, mid: { value: new THREE.Color() }, hor: { value: new THREE.Color() },
