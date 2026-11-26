@@ -80,10 +80,14 @@
   // pre: people who get on (> 0) or off (< 0) first, without a question, so the question starts from a good group.
   function makeQuestion(n0, avoid) {
     const lv = level(), L = LEVELS[lv], first = !(BB.save.questions | 0);
+    // A fair mix: an empty bus (the first stop of a job) always picks people up; never more than two taking-away
+    // questions in a row, nor more than three adding ones (J.kinds = the last bus questions answered).
+    const hist = J.kinds || [], last = (k, c) => hist.length >= c && hist.slice(-c).every((x) => x === k);
+    const want = !(L.sub > 0) || n0 === 0 || last('sub', 2) ? 'add' : last('add', 3) ? 'sub' : null;
     let q = null;
     for (let tries = 0; tries < 60 && !q; tries++) {
       const free = tries > 10;                   // after a few tries, also change who is on the bus first
-      const kind = Math.random() < L.sub ? 'sub' : 'add';
+      const kind = want && tries < 50 ? want : Math.random() < L.sub ? 'sub' : 'add';
       let n = n0, k;
       // a new starting group, at most 4 people getting on or off first (so the stop doesn't take ages)
       const regroup = (lo, hi) => { const a = Math.max(lo, n0 - 4), b = Math.min(hi, n0 + 4); return a <= b ? BB.randInt(a, b) : BB.randInt(lo, hi); };
@@ -1162,6 +1166,7 @@
       BB.save.questions = (BB.save.questions | 0) + 1; learn(q); BB.saveNow();
       J.lastKey = qKey(q);
       J.recent = (J.recent || []).concat(J.lastKey).slice(-5);
+      if (!q.icon) J.kinds = (J.kinds || []).concat(q.kind).slice(-3);   // bus questions only (vehicle scenes have an icon)
       const cash = (q.tries ? CASH_STOP_RETRY : CASH_STOP) + (q.bonus ? 1 : 0);   // +1 for stopping in the rain
       // celebrate: every friend on the bus bounces, coins fly to the cash counter
       clearMarks();
