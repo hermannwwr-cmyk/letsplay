@@ -151,7 +151,7 @@
   }
 
   // ---------- people (low-poly, one mesh each, shared geometries) ----------
-  const LOOKS = [];
+  const LOOKS = [], LOOK_DATA = [];
   function buildLooks() {
     const shirts = [P.coral, P.teal, P.honey, P.berry, P.plum, P.leaf, P.rose, '#f28b4b'];
     const skins = ['#f1c7a0', '#d9a679', '#a8714a', '#f5d3b5', '#7a4b2e'];
@@ -164,16 +164,24 @@
       b.ball(0.28 * s, hairs[i % hairs.length], 0, 2.0 * s, -0.05 * s, 0, 1, 0.7, 1);
       b.box(0.12 * s, 0.6 * s, 0.14 * s, shirts[i], -0.36 * s, 0.95 * s, 0); b.box(0.12 * s, 0.6 * s, 0.14 * s, shirts[i], 0.36 * s, 0.95 * s, 0);
       LOOKS.push(b.geometry());
+      LOOK_DATA.push({ shirt: shirts[i], skin: skins[i % skins.length], hair: hairs[i % hairs.length], kid });
     }
   }
   // style: { kid, prop: 'bag'|'case'|'balloon'|'umbrella'|'cat'|'kite'|'durian'|'paper', geo (a friend's own look) }
   const KID_LOOKS = [2, 5];
+  // style.look ({shirt, skin, hair, kid}) dresses them exactly (someone getting off looks like whoever sat in that seat);
+  // style.seat = the seat they will take (a traveller's suitcase then has that seat's colour, like on the card).
+  const lookGeos = {};
+  function lookGeo(L) { const k = [L.shirt, L.skin, L.hair, L.kid ? 1 : 0, L.bun ? 1 : 0].join(); return lookGeos[k] || (lookGeos[k] = friendGeo(L)); }
   function person(i, style) {
     style = style || {};
-    const geo = style.geo || LOOKS[(style.kid ? KID_LOOKS[i % 2] : i) % LOOKS.length];
+    const li = (style.kid ? KID_LOOKS[i % 2] : i) % LOOKS.length;
+    const geo = style.geo || (style.look ? lookGeo(style.look) : LOOKS[li]);
     const m = new THREE.Mesh(geo, BB.mk.mat); m.name = 'person'; BB.scene.add(m);
+    m.userData.look = style.look || style.lookData || LOOK_DATA[li];
     if (style.prop && PROPS[style.prop]) {
-      const pm = new THREE.Mesh(PROPS[style.prop], BB.mk.mat); pm.name = 'prop';
+      const pg = style.prop === 'case' && style.seat != null ? caseGeo(bagColor(style.seat)) : PROPS[style.prop];
+      const pm = new THREE.Mesh(pg, BB.mk.mat); pm.name = 'prop';
       if (style.kid) pm.scale.setScalar(0.72);
       m.add(pm); m.userData.prop = pm; m.userData.propKind = style.prop;
     }
@@ -182,12 +190,23 @@
   }
 
   // ---------- props and the passenger friends ----------
+  // Suitcases: suitcase i (the card's picture, a taxi's bag, the traveller who takes seat i) has the same colour
+  // everywhere, so a child can match each one on the card with the one in the street.
+  const BAG_COLS = [P.coral, P.teal, P.honey, P.berry, P.plum, P.leaf, P.rose, '#f28b4b', '#4cb5a0', '#e0607e'];
+  const bagColor = (i) => BAG_COLS[((i | 0) * 3 + 1) % 10];
+  const caseGeos = {};
+  function caseGeo(c) {
+    if (caseGeos[c]) return caseGeos[c];
+    const b = BB.mk.builder();
+    b.box(0.44, 0.6, 0.26, c, 0.66, 0.04, 0); b.box(0.44, 0.07, 0.27, P.honeyLight, 0.66, 0.32, 0); b.box(0.07, 0.24, 0.07, '#3a2a3c', 0.66, 0.64, 0);
+    return (caseGeos[c] = b.geometry());
+  }
   // Props are tiny merged meshes in the people's paper-cut colours (y is the bottom of a box/cylinder, a ball's centre).
   const PROPS = {};
   function buildProps() {
     const mk = (fn) => { const b = BB.mk.builder(); fn(b); return b.geometry(); };
     PROPS.bag = mk((b) => { b.box(0.46, 0.52, 0.2, P.coral, 0, 0.74, -0.32); b.box(0.36, 0.12, 0.04, P.honeyLight, 0, 0.92, -0.43); });
-    PROPS.case = mk((b) => { b.box(0.44, 0.6, 0.26, P.berry, 0.66, 0.04, 0); b.box(0.44, 0.07, 0.27, P.honeyLight, 0.66, 0.32, 0); b.box(0.07, 0.24, 0.07, '#3a2a3c', 0.66, 0.64, 0); });
+    PROPS.case = caseGeo(P.berry);
     PROPS.balloon = mk((b) => { b.cyl(0.015, 0.015, 1.3, 4, '#fff6e0', 0.4, 1.0, 0); b.ball(0.32, P.rose, 0.4, 2.62, 0, 1, 0.92, 1.12, 0.92); b.ball(0.06, '#ff6f91', 0.4, 2.26, 0); });
     PROPS.umbrella = mk((b) => { b.cyl(0.03, 0.03, 1.5, 4, '#3a2a3c', 0.32, 1.1, 0); b.cyl(0.06, 0.9, 0.38, 8, P.teal, 0.32, 2.5, 0); b.cyl(0.2, 0.06, 0.12, 8, '#127a71', 0.32, 2.88, 0); });
     PROPS.cat = mk((b) => {
@@ -231,7 +250,7 @@
     return true;
   }
   J.friendsMet = () => friendsMet().slice();
-  function friendStyle(f) { if (!f.geo) f.geo = friendGeo(f.look); return { geo: f.geo, prop: f.prop, kid: !!f.look.kid, friend: f.id }; }
+  function friendStyle(f) { if (!f.geo) f.geo = friendGeo(f.look); return { geo: f.geo, lookData: f.look, prop: f.prop, kid: !!f.look.kid, friend: f.id }; }
   const removePerson = (m) => { BB.scene.remove(m); };
   function clearWaiting() { for (const m of J.waiting) removePerson(m); J.waiting = []; }
   const GROUND = 0.25;
@@ -266,6 +285,7 @@
       let style = i < pre ? q.preStyle : q.style;
       if (i === friendAt) { const f = FRIENDS.find((x) => x.id === q.friend); if (f) style = friendStyle(f); }
       if (q.bonus) style = Object.assign({}, style || {}, { prop: style && style.prop ? style.prop : 'umbrella' });
+      if (style && style.prop === 'case') style = Object.assign({}, style, { seat: q.n - pre + i });   // the seat they'll take
       const m = person(BB.randInt(0, 7), style);
       if (q.bonus) m.userData.waveDown = true;
       // one clear line along the pavement just past the shelter, nearest first, so every person can be counted
@@ -290,6 +310,7 @@
     await walkTo(m, doorIn(), 2.8);
     removePerson(m);
     BB.bus.passengers = BB.clamp((BB.bus.passengers | 0) + 1, 0, 10);
+    if (m.userData.look && typeof BB.bus.setSeatLook === 'function') BB.bus.setSeatLook(BB.bus.passengers - 1, m.userData.look);   // the same colours in the seat
     BB.sfx.pop();
     if (onSeat) onSeat(BB.bus.passengers - 1);
   }
@@ -304,7 +325,8 @@
     if (seat < 0) return;
     BB.bus.passengers = seat;
     if (onLeave) onLeave(seat);
-    const m = person(BB.randInt(0, 7), style);
+    const sl = typeof BB.bus.seatLook === 'function' ? BB.bus.seatLook(seat) : null;      // whoever sat there gets off
+    const m = person(BB.randInt(0, 7), sl && !(style && style.geo) ? Object.assign({}, style || {}, { look: sl }) : style);
     m.position.copy(doorIn(true));
     BB.sfx.pop();
     await walkTo(m, doorOut(true), 2.8);
@@ -748,7 +770,8 @@
   const SKINS = ['#f1c7a0', '#d9a679', '#a8714a', '#f5d3b5', '#7a4b2e'];
   const HAIRS = ['#3a2a2c', '#6b4a2e', '#1f1b22', '#b5793e', '#2a1d1a'];
   function face(i) {
-    const c = SHIRTS[i % 10], sk = SKINS[(i * 3) % 5], h = HAIRS[(i * 2 + 1) % 5], long = i % 3 === 1;
+    const L = typeof BB.bus.seatLook === 'function' ? BB.bus.seatLook(i) : null;     // the colours of whoever sits in seat i
+    const c = L ? L.shirt : SHIRTS[i % 10], sk = L ? L.skin : SKINS[(i * 3) % 5], h = L ? L.hair : HAIRS[(i * 2 + 1) % 5], long = i % 3 === 1;
     return `<svg viewBox="0 0 40 40"><path d="M7 40 Q7 25 20 25 Q33 25 33 40Z" fill="${c}"/>` +
       `<path d="M26 27 Q33 30 33 40 H26Z" fill="#000" opacity=".12"/>` +
       (long ? `<path d="M10 16 Q10 30 14 30 L26 30 Q30 30 30 16Z" fill="${h}"/>` : '') +
@@ -761,7 +784,7 @@
   // A suitcase picture for the ten-frame when the question counts suitcases.
   let iconMode = 'people';
   function suitcase(i) {
-    const c = SHIRTS[(i * 3 + 1) % 10];
+    const c = bagColor(i);
     return `<svg viewBox="0 0 40 40"><rect x="15" y="5" width="10" height="7" rx="3" fill="none" stroke="#3a2a3c" stroke-width="2.6"/>` +
       `<rect x="7" y="10" width="26" height="25" rx="5" fill="${c}"/><path d="M27 12 Q33 12 33 18 V30 Q33 35 28 35 H27Z" fill="#000" opacity=".13"/>` +
       `<rect x="7" y="19" width="26" height="4" fill="#ffd45c"/><circle cx="12" cy="37" r="2" fill="#3a2a3c"/><circle cx="28" cy="37" r="2" fill="#3a2a3c"/></svg>`;
@@ -1471,23 +1494,48 @@
   const siren = (on) => vcall(['setSiren', 'siren'], on);
   const ladder = (on) => vcall(['setLadder', 'ladder', 'raiseLadder'], on);
   const hatch = (on) => vcall(['setHatch', 'hatch', 'openHatch'], on);
-  // places: world.js scene spots and W.places when they exist, else the ordinary stops / the depot
-  // a scene spot for a tag ('fire' | 'car' | 'picnic' | 'icecream'), away from the bus (world.js W.sceneSpot)
-  function sceneSpot(tag) {
-    const W = BB.world, p = BB.bus.pos;
-    try { if (typeof W.sceneSpot === 'function') { const sp = W.sceneSpot(tag, p ? p.x : null, p ? p.z : null); if (sp && sp.pos) return sp; } } catch (e) { console.error(e); }
-    return farFrom(spots(), BB.bus.atStop || J.lastStop);
+  // Where vehicle jobs go: every leg about as long as a bus job's (LEG_MIN-LEG_MAX road units, ~7 s of driving).
+  // Targets are world.js scene spots (W.sceneSpots, with tags for what fits there), stops, and the fixed places
+  // (W.places.fireStation / clinic, the depot), each used only when it is that close.
+  // the spots whose tags include tag ('picnic' | 'icecream' | 'fire' | 'car' | 'yard'), or every spot
+  function spots(tag) {
+    const W = BB.world, list = (W.sceneSpots || []).filter((s) => s && s.pos && s.edge != null);
+    const t = tag ? list.filter((s) => !s.tags || s.tags.indexOf(tag) >= 0) : list;
+    return t.length ? t : list;
   }
-  function spots() {
-    const W = BB.world, list = W.sceneSpots || W.spots || (W.places && W.places.spots) || [];
-    const ok = (Array.isArray(list) ? list : Object.values(list)).filter((s) => s && s.pos);
-    return ok.length ? ok : (W.stops || []).filter((s) => s && s.pos && s.say);
+  // road distance from `from` (a bay, or null = from where the vehicle is now) to every candidate that could be near
+  // enough (a straight line is never longer than the road), nearest first
+  function rankNear(from, list, exclude) {
+    const p = from ? from.pos : (BB.bus.pos || { x: 0, z: 0 }), out = [];
+    for (const s of list) {
+      if (!s || !s.pos || s === from || exclude.indexOf(s) >= 0) continue;
+      if (Math.hypot(s.pos.x - p.x, s.pos.z - p.z) > 135) continue;
+      const d = stopDist(from, s);
+      if (isFinite(d) && d > 1) out.push({ s, d });
+    }
+    return out.sort((x, y) => x.d - y.d);
   }
-  const place = (name, fallback) => { const P2 = BB.world.places; return (P2 && P2[name] && P2[name].pos) ? P2[name] : fallback; };
-  const sayOf = (t) => (t && t.say && t.say !== 'here') ? t.say : 'the spot on the map';
-  // where a scene is: "at the beach", or (a plain roadside spot) "down the road"
-  const where = (t) => (t && t.say && t.say !== 'here') ? ` at ${t.say}` : '';   // a plain roadside spot: no name
-  function farFrom(list, here) { const l = list.filter((x) => x !== here && x !== J.lastStop); return BB.pick(l.length ? l : list); }
+  // one leg on from `from`: at random among the candidates LEG_MIN-LEG_MAX away (weighted by weight(s)), else the
+  // nearest that are a little nearer or further; anything at all as a last resort
+  function legTo(from, list, exclude = [], weight = null) {
+    let ranked = rankNear(from, list, exclude);
+    if (!ranked.length) ranked = list.filter((s) => s && s.pos && s !== from && exclude.indexOf(s) < 0).map((s) => ({ s, d: stopDist(from, s) })).filter((o) => isFinite(o.d)).sort((x, y) => x.d - y.d);
+    if (!ranked.length) return BB.pick(list);
+    let pool = ranked.filter((o) => o.d >= LEG_MIN && o.d <= LEG_MAX);
+    if (!pool.length) pool = ranked.filter((o) => o.d >= 25 && o.d <= 110).sort((x, y) => Math.abs(x.d - 60) - Math.abs(y.d - 60)).slice(0, 2);
+    if (!pool.length) pool = ranked.filter((o) => o.d >= 25).slice(0, 2);
+    if (!pool.length) pool = ranked.slice(0, 2);
+    const bag = []; for (const o of pool) { const n = weight ? weight(o.s) : 1; for (let i = 0; i < n; i++) bag.push(o.s); }
+    return BB.pick(bag.length ? bag : pool.map((o) => o.s));
+  }
+  J.legTo = legTo;
+  // is a fixed place one short leg on from `from`?
+  const isNear = (from, t) => { if (!t || !t.pos) return false; const d = stopDist(from, t); return d >= 25 && d <= LEG_MAX + 15; };
+  const place = (name) => { const P2 = BB.world.places; return (P2 && P2[name] && P2[name].pos) ? P2[name] : null; };
+  // a target's spoken name: a stop's own ("the swings"), a scene spot's surroundings ("the flats")
+  const sayOf = (t) => (t && t.say && t.say !== 'here') ? t.say : (t && t.near) || 'the next spot';
+  // where a scene is: "at the beach", or (a plain roadside spot) nothing
+  const where = (t) => (t && t.say && t.say !== 'here') ? ` at ${t.say}` : '';
 
   // A question about the vehicle's things: kind 'add' or 'sub' (sub becomes add before taking away is learned),
   // n0 = how many there are now (null = pick), within this level's limits and 0-10.
@@ -1525,16 +1573,16 @@
       : { n: `${pl(q.n, 'bag', 'bags')} ${isAre(q.n)} in the boot.`, k: `${q.k} ${plural(q.k, 'comes', 'come')} out.`, ask: 'How many bags are left in the boot?' },
     fighters: (q) => ({ n: `${pl(q.n, 'firefighter is', 'firefighters are')} spraying water.`, k: `${q.k} more ${plural(q.k, 'comes', 'come')} to help.`, ask: 'How many firefighters now?' }),
     windows: (q) => ({ n: `${pl(q.n, 'window has', 'windows have')} smoke.`, k: `${q.k} ${plural(q.k, 'is', 'are')} clear now.`, ask: 'How many windows still have smoke?' }),
-    teddies: (q) => q.kind === 'add'
+    teddies: (q, where = ' at the clinic') => q.kind === 'add'
       ? { n: `${pl(q.n, 'teddy bear is', 'teddy bears are')} in the kit.`, k: `${q.k} more ${plural(q.k, 'goes', 'go')} in.`, ask: 'How many teddy bears now?' }
-      : { n: `${pl(q.n, 'teddy bear is', 'teddy bears are')} in the kit.`, k: `${q.k} ${plural(q.k, 'goes', 'go')} to children at the clinic.`, ask: 'How many teddy bears are left?' },
+      : { n: `${pl(q.n, 'teddy bear is', 'teddy bears are')} in the kit.`, k: `${q.k} ${plural(q.k, 'goes', 'go')} to children${where}.`, ask: 'How many teddy bears are left?' },
     sold: (q) => q.kind === 'sub'
       ? { n: `${pl(q.n, 'ice cream is', 'ice creams are')} in the van.`, k: `${q.k} ${plural(q.k, 'is', 'are')} sold.`, ask: 'How many ice creams are left?' }
       : { n: `${pl(q.n, 'ice cream is', 'ice creams are')} in the van.`, k: `${q.k} more ${plural(q.k, 'goes', 'go')} in.`, ask: 'How many ice creams now?' },
     cones: (q) => ({ n: `${pl(q.n, 'cone is', 'cones are')} in the box.`, k: `${q.k} more ${plural(q.k, 'goes', 'go')} in.`, ask: 'How many cones now?' }),
-    yard: (q) => q.kind === 'add'
-      ? { n: `${pl(q.n, 'car is', 'cars are')} in the yard.`, k: `${q.k} more ${plural(q.k, 'car comes', 'cars come')} in.`, ask: 'How many cars are in the yard now?' }
-      : { n: `${pl(q.n, 'car is', 'cars are')} in the yard.`, k: `${q.k} ${plural(q.k, 'is', 'are')} fixed and ${plural(q.k, 'drives', 'drive')} away.`, ask: 'How many cars are left?' },
+    yard: (q, lot = 'the yard') => q.kind === 'add'
+      ? { n: `${pl(q.n, 'car is', 'cars are')} in ${lot}.`, k: `${q.k} more ${plural(q.k, 'car comes', 'cars come')} in.`, ask: `How many cars are in ${lot} now?` }
+      : { n: `${pl(q.n, 'car is', 'cars are')} in ${lot}.`, k: `${q.k} ${plural(q.k, 'is', 'are')} fixed and ${plural(q.k, 'drives', 'drive')} away.`, ask: 'How many cars are left?' },
   };
 
   // One question on the card: the story (pictures pop in or fade out as it's told), then the ask. Resolves on the
@@ -1611,7 +1659,7 @@
     });
     SGEO = {
       cars: ['#4fa3e0', '#f5b83d', '#5cb85c', '#ef5a4b', '#8e62c8'].map(car),
-      bag: mk((b) => { b.box(0.62, 0.72, 0.36, P.berry, 0, 0, 0); b.box(0.63, 0.09, 0.37, P.honeyLight, 0, 0.34, 0); b.box(0.09, 0.26, 0.09, '#3a2a3c', 0, 0.72, 0); }),
+      bags: Array.from({ length: 10 }, (_, i) => mk((b) => { b.box(0.62, 0.72, 0.36, bagColor(i), 0, 0, 0); b.box(0.63, 0.09, 0.37, P.honeyLight, 0, 0.34, 0); b.box(0.09, 0.26, 0.09, '#3a2a3c', 0, 0.72, 0); })),   // bag i = the card's suitcase i
       teddy: mk((b) => {
         b.ball(0.3, '#b5793e', 0, 0.3, 0); b.ball(0.24, '#c58a55', 0, 0.76, 0); b.ball(0.1, '#b5793e', -0.18, 0.95, 0); b.ball(0.1, '#b5793e', 0.18, 0.95, 0);
         b.ball(0.09, '#e2b07c', 0, 0.72, 0.2); b.ball(0.09, '#ff8fab', 0, 0.42, 0.26);
@@ -1619,7 +1667,7 @@
       kit: mk((b) => { b.box(4.4, 0.5, 2.0, '#fbf7ee', 0, 0, 0); b.box(4.44, 0.12, 2.04, '#ff8fab', 0, 0.36, 0); // a coral heart on the lid (the ambulance's emblem; never a cross)
         b.ball(0.17, '#ff6b5c', 1.63, 0.5, 0.7, 1, 1, 0.22, 1); b.ball(0.17, '#ff6b5c', 1.87, 0.5, 0.7, 1, 1, 0.22, 1);
         b.box(0.32, 0.06, 0.32, '#ff6b5c', 1.75, 0.47, 0.52, Math.PI / 4); }),
-      fighter: friendGeo({ shirt: '#3d5a80', skin: '#d9a679', hair: '#ef5a4b' }),          // red helmet
+      fighters: [0, 1, 2, 3, 4].map((k) => friendGeo({ shirt: '#3d5a80', skin: SKINS[(k * 3) % 5], hair: '#ef5a4b' })),   // red helmet; firefighter i = the card's i
       jet: mk((b) => { b.cyl(0.06, 0.11, 2.4, 5, '#bfe6f5', 0, 0, 0); }),
       kiosk: mk((b) => {
         b.box(6.8, 4.0, 3.0, '#fbf1dc', 0, 0, 0); b.box(7.2, 0.4, 3.4, '#ef5a4b', 0, 4.0, 0); b.box(6.82, 0.5, 3.02, '#e2c08d', 0, 0, 0);
@@ -1679,7 +1727,7 @@
   }
   function bagScene() {
     const G = sceneGeos(), slot = tray(2.5, -2.2, 0.85, 0.95), from = kerbSpot(3.2, 2.0, false);
-    const make = (i, pop) => scnMesh(G.bag, slot(i), slot.face, pop);
+    const make = (i, pop) => scnMesh(G.bags[i % 10], slot(i), slot.face, pop);
     return {
       show(n) { while (SCN.items.length < n) SCN.items.push(make(SCN.items.length, false)); },
       add(i) {          // swung from the family into the boot
@@ -1725,7 +1773,7 @@
     }
     const slot = tray(2.8, 8.0, 1.05, 1.1);
     const fighter = (i, pop) => {
-      const m = scnMesh(G.fighter, slot(i), Math.atan2(f.fx, f.fz), pop);          // facing the kiosk
+      const m = scnMesh(G.fighters[i % 5], slot(i), Math.atan2(f.fx, f.fz), pop);          // facing the kiosk
       const jet = new THREE.Mesh(G.jet, BB.mk.mat); jet.position.set(0.2, 1.1, 0.3); jet.rotation.x = 1.05; m.add(jet);
       return m;
     };
@@ -1758,8 +1806,10 @@
 
   // The legs of each vehicle job: { to: place, go: line when setting off, run: async scene }.
   function vehicleLegs(kind) {
-    const W = BB.world, here = BB.bus.atStop || J.lastStop, stops = (W.stops || []).filter((s) => s && s.pos && s.say);
-    const spot = sceneSpot({ taxi: 'picnic', fire: 'fire', ambulance: 'picnic', icecream: 'icecream', tow: 'car' }[kind]), landmark = farFrom(stops, spot);
+    const W = BB.world, stops = (W.stops || []).filter((s) => s && s.pos && s.say && s.edge != null);
+    // the first leg runs from where the vehicle is (its bay, or the road / the depot yard), every leg ~7 s
+    const at = BB.bus.atStop, from0 = at && at.edge != null && at.id !== 'depot' && at.id !== 'wash' ? at : null;
+    const spot = kind === 'icecream' ? null : legTo(from0, spots({ taxi: 'picnic', fire: 'fire', ambulance: 'picnic', tow: 'car' }[kind]));
     const L = [];
     const carry = { bags: null, teddies: null };
     if (kind === 'taxi') {
@@ -1769,13 +1819,14 @@
         hatch(true); await hopIn(fam); if (!ok()) return;
         const q = legQ('add', null, WORDS.bagsIn, 'bags'); q.scene = bagScene(); await askScene(q); carry.bags = q.answer; hatch(false);
       } });
-      L.push({ to: landmark, go: `Now drive to ${sayOf(landmark)}!`, run: async (ok) => {
+      const home = legTo(spot, spots('picnic'), [spot]);
+      L.push({ to: home, go: 'Now take the family home!', run: async (ok) => {
         hatch(true);
         const qb = legQ('sub', carry.bags, WORDS.bagsIn, 'bags'); qb.scene = bagScene(); await askScene(qb); if (!ok()) return;
         hatch(false); hopOut(fam); await say('Thank you, taxi! Bye bye!');
       } });
     } else if (kind === 'fire') {
-      const station = place('fireStation', W.depot);
+      const station = place('fireStation');      // (the drive back only when the station is just down the road)
       L.push({ to: spot, start: `Fire engine! There's smoke${where(spot)}! Siren on, let's go!`, onGo: () => siren(true), run: async (ok) => {
         const subOk = LEVELS[level()].sub > 0, qw = subOk ? legQ('sub', null, WORDS.windows, 'window') : null;
         const fs = fireScene(qw ? qw.n : 4);
@@ -1786,9 +1837,10 @@
         siren(false); ladder(false); BB.sfx.cheer(); if (BB.ui && BB.ui.confetti) BB.ui.confetti();
         await say('The fire is out! Hooray!');
       } });
-      L.push({ to: station, go: 'Back to the fire station!', run: async () => { await say('Thank you, firefighters!'); } });
+      if (isNear(spot, station)) L.push({ to: station, go: 'Back to the fire station!', run: async () => { await say('Thank you, firefighters!'); } });
     } else if (kind === 'ambulance') {
-      const clinic = place('clinic', farFrom(stops, spot));
+      // the clinic when it's just down the road, else Auntie goes home after her check-up in the ambulance
+      const clinic = place('clinic'), toClinic = isNear(spot, clinic), dest = toClinic ? clinic : legTo(spot, spots('picnic'), [spot]);
       const auntie = { geo: (FRIENDS[2].geo || (FRIENDS[2].geo = friendGeo(FRIENDS[2].look))) };
       L.push({ to: spot, start: `Ambulance! Auntie needs a check-up. She's waiting${where(spot)}. Let's go!`, onGo: () => siren(true), run: async (ok) => {
         siren(false);
@@ -1796,12 +1848,14 @@
         await hopIn(1, auntie); if (!ok()) return;
         const q = legQ('add', null, WORDS.teddies, 'teddy'); q.scene = teddyScene(); await askScene(q); carry.teddies = q.answer;
       } });
-      L.push({ to: clinic, go: 'Off to the clinic!', run: async (ok) => {
-        const qt = legQ('sub', carry.teddies, WORDS.teddies, 'teddy'); qt.scene = teddyScene(); await askScene(qt); if (!ok()) return;
+      L.push({ to: dest, go: toClinic ? 'Off to the clinic!' : "Now let's take Auntie home!", run: async (ok) => {
+        const qt = legQ('sub', carry.teddies, (q0) => WORDS.teddies(q0, toClinic ? ' at the clinic' : ' nearby'), 'teddy'); qt.scene = teddyScene(); await askScene(qt); if (!ok()) return;
         hopOut(1, auntie); await say('All better! Thank you!');
       } });
     } else if (kind === 'icecream') {
-      const park = stopLike(/park/i) || farFrom(stops, here), beach = stopLike(/beach/i) || farFrom(stops, park);
+      // children wait at the stops and the roadside spots nearby (the park and the beach count double)
+      const pool = stops.concat(spots('icecream')), fun = (t) => (/park|beach|swings|seaside/i.test((t.say || '') + ' ' + (t.near || '') + ' ' + (t.id || '')) ? 3 : 1);
+      const park = legTo(from0, pool, [], fun), beach = legTo(park, pool, [park], fun);
       L.push({ to: park, start: `Ice cream van! Let's go to ${sayOf(park)}!`, run: async (ok) => {
         jingle(); queueKids(BB.randInt(2, 4)); hatch(true);
         await say('Ice cream! Ice cream! The children are waiting!'); if (!ok()) return;
@@ -1816,7 +1870,8 @@
         hatch(false); await say('Yummy! Bye bye!');
       } });
     } else if (kind === 'tow') {
-      const yard = W.depot;
+      // the depot yard when it's just down the road, else the car park nearby (the cars are drawn beside the truck)
+      const toDepot = isNear(spot, W.depot), yard = toDepot ? W.depot : legTo(spot, spots('yard'), [spot]), lot = toDepot ? 'the yard' : 'the car park';
       L.push({ to: spot, start: `Tow truck! A car has broken down${where(spot)}. Let's help!`, run: async (ok) => {
         const car = brokenCar();
         if (!(BB.bus.has && BB.bus.has('hook')) || vcall(['hookOn', 'hookCar'], car) === undefined) {
@@ -1826,13 +1881,14 @@
         }
         BB.sfx.pop(); await say('Hook on! Up it goes!');
       } });
-      L.push({ to: yard, go: 'Tow it to the depot!', run: async (ok) => {
+      L.push({ to: yard, go: toDepot ? 'Tow it to the depot!' : 'Tow it to the car park!', run: async (ok) => {
         if (typeof BB.bus.hookOn === 'function') vcall(['hookOn'], null);
         if (towCar && towCar.parent) towCar.parent.remove(towCar);                    // the car stays in the yard (out of view)
-        await say('Here we are! The car is safe in the yard.'); if (!ok()) return;
+        await say(`Here we are! The car is safe in ${lot}.`); if (!ok()) return;
         const ys = yardScene();
-        const q = legQ('add', null, WORDS.yard, 'car'); q.scene = ys; await askScene(q); if (!ok()) return;
-        if (LEVELS[level()].sub > 0) { const q2 = legQ('sub', q.answer, WORDS.yard, 'car'); q2.scene = ys; await askScene(q2); }
+        const yw = (q0) => WORDS.yard(q0, lot);
+        const q = legQ('add', null, yw, 'car'); q.scene = ys; await askScene(q); if (!ok()) return;
+        if (LEVELS[level()].sub > 0) { const q2 = legQ('sub', q.answer, yw, 'car'); q2.scene = ys; await askScene(q2); }
       } });
     }
     return L;

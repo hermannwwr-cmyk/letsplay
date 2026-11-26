@@ -795,7 +795,18 @@
     }
     heads.count = hair.count = shirts.count = 0;
     const pg = new THREE.Group(); pg.add(heads, hair, shirts); B.paxGroup = pg;
+    for (let i = 0; i < 10; i++) seatLooks[i] = { skin: skins[(i * 3) % skins.length], shirt: tops[(i * 2 + 1) % tops.length], hair: hairs[(i * 5 + 1) % hairs.length] };
   }
+  // What the passenger in seat i looks like ({skin, shirt, hair}); jobs.js sets it to the person who just sat down, so
+  // the seated head, the card's face for that seat and the person who later gets off all match.
+  const seatLooks = [];
+  B.seatLook = (i) => seatLooks[i] || null;
+  B.setSeatLook = function (i, L) {
+    if (!heads || !L || i < 0 || i >= 10) return;
+    seatLooks[i] = { skin: L.skin, shirt: L.shirt, hair: L.hair, kid: !!L.kid };
+    heads.setColorAt(i, new THREE.Color(L.skin)); shirts.setColorAt(i, new THREE.Color(L.shirt)); hair.setColorAt(i, new THREE.Color(L.hair));
+    heads.instanceColor.needsUpdate = shirts.instanceColor.needsUpdate = hair.instanceColor.needsUpdate = true;
+  };
   // Seat the passengers on the current model's seats (they look out of the windows, and up a little at stops).
   function seatPassengers() {
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), sc = new THREE.Vector3(1.15, 1.15, 1.15), p = new THREE.Vector3();
