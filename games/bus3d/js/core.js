@@ -1175,7 +1175,10 @@
       if (!item.queue) speechSynthesis.cancel();
       speechSynthesis.resume();
       const u = new SpeechSynthesisUtterance(item.text);
-      u.rate = 0.95; u.pitch = 1.15; u.lang = 'en-GB';
+      // a warm, friendly storyteller: a gentle English voice when the device has one (not the default, which is
+      // often a formal or robotic one), a little slower and a little brighter than normal
+      u.rate = 0.88; u.pitch = 1.1; u.lang = 'en-GB';
+      try { const v = kidVoice(); if (v) { u.voice = v; u.lang = v.lang; } } catch (e) { /* the default voice, then */ }
       // heard: it really started, or it ran a normal length and ended without an error (some engines skip onstart)
       const t0 = performance.now();
       u.onend = () => { if (performance.now() - t0 > 700 && !item.held) heard.add(item.text); done(); };
@@ -1188,6 +1191,21 @@
       speechSynthesis.speak(u);
     } catch (e) { done(); }
   }
+  // The friendliest voice the device offers (iPad/iPhone: Samantha, Karen, Moira, Serena, Kate...; Android/Chrome:
+  // the Google UK/US English voices), picked once the voice list is ready; null = the device's default voice.
+  const KID_VOICES = ['Samantha', 'Karen', 'Moira', 'Serena', 'Kate', 'Tessa', 'Catherine', 'Martha', 'Stephanie', 'Ava',
+    'Google UK English Female', 'Google US English', 'Microsoft Libby', 'Microsoft Sonia', 'Microsoft Aria', 'Microsoft Jenny'];
+  let kidV, kidVTried = false;
+  function kidVoice() {
+    if (kidV !== undefined && kidVTried) return kidV;
+    let list = []; try { list = (window.speechSynthesis && speechSynthesis.getVoices()) || []; } catch (e) { /* no voices */ }
+    if (!list.length) return null;                     // (not ready yet: try again next line)
+    kidVTried = true; kidV = null;
+    const en = list.filter((v) => /^en/i.test(v.lang || ''));
+    for (const name of KID_VOICES) { const v = en.find((x) => x.name.indexOf(name) >= 0); if (v) { kidV = v; break; } }
+    return kidV;
+  }
+  try { if (window.speechSynthesis && speechSynthesis.addEventListener) speechSynthesis.addEventListener('voiceschanged', () => { kidVTried = false; kidV = undefined; }); } catch (e) { /* ignore */ }
   BB.say = function (text, opts = {}) {
     return new Promise((resolve) => {
       const item = { text: String(text), queue: !!opts.queue, resolve };

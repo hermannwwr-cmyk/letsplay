@@ -2153,7 +2153,9 @@
     const dx = m.x - bay.x, dz = m.z - bay.z;
     const along = dx * bay.fwd.x + dz * bay.fwd.z, lat = dx * bay.side.x + dz * bay.side.z;
     const dh = Math.abs(wrapA(h - bay.heading));
-    if (Math.abs(along) > 6 || Math.abs(lat) > 4.8) return false;
+    // (forgiving, so a child never has to back up: from a little before the box to well past it (an overshoot), in
+    // either lane of this side of the road; the bus then glides into the box by itself)
+    if (along < -8 || along > 12 || Math.abs(lat) > 6) return false;
     if (dh < Math.PI / 4) return 'same';
     if (dh > Math.PI * 3 / 4) return 'reversed';
     return false;
@@ -2162,8 +2164,9 @@
     if (arrivalHold > 0) arrivalHold = Math.max(0, arrivalHold - dt);
     if (!settle) {
       const which = arrivalHold > 0 ? false : bayCheck();
-      if (which && Math.abs(B.speed) < 2.6) {
+      if (which && Math.abs(B.speed) < 7) {               // (up to a gentle roll, not only a full stop)
         settle = { from: { fx, fz, h, hr }, to: poseAtBay(B.target, which === 'reversed'), t: 0, stop: B.target };
+        settle.dur = BB.clamp(0.5 + hypot2(settle.to.fx - fx, settle.to.fz - fz) * 0.05, 0.5, 1.1);   // (a longer glide from further off)
         B.speed = 0; ribbon.geometry.setDrawRange(0, 0);
       } else if (B.washBay && !B.inWash && !B.atStop && !washT && (!B.target || B.target === B.washBay) && Math.abs(B.speed) < 1.2 && B.camMode === 'chase') {
         // stopping in the wash bay (driving through it the right way round) settles the bus there too
@@ -2175,7 +2178,7 @@
       }
       return;
     }
-    settle.t = Math.min(1, settle.t + dt / 0.5);
+    settle.t = Math.min(1, settle.t + dt / (settle.dur || 0.5));
     const k = BB.smooth(settle.t), a = settle.from, b = settle.to;
     fx = a.fx + (b.fx - a.fx) * k; fz = a.fz + (b.fz - a.fz) * k;
     h = wrapA(a.h + wrapA(b.h - a.h) * k); hr = wrapA(a.hr + wrapA(b.hr - a.hr) * k);
