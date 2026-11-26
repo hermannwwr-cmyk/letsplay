@@ -3,7 +3,7 @@
    bus3d.save by core.js) and the garage screen, which the game starts in and which opens when the bus pulls in:
    - the bus rises on a striped turntable lift that sways gently, a 3D fuel pump in front of it, a striped awning;
    - a paper panel with three big labelled sections: My ride (the bus or another ride, colour, number), Shop (Stickers,
-     Lights, Bumpers, Wheels, Extras) and Settings (which side the pedals go, lane helper, Christmas); every tile has a
+     Lights, Bumpers, Wheels, Extras) and Settings (which side the pedals go, lane helper, music, Christmas); every tile has a
      picture and a word, and everything is spoken on tap (playing together is automatic, net.js: no section here);
    - the first tap on something new previews it live on the bus and says its price, a second tap buys it
      (coin jingle, coins fly from the counter); too few coins -> "Let's do more jobs!" and a coin goal to aim for;
@@ -510,7 +510,7 @@
 
   // ---------- the garage screen (DOM) ----------
   // A paper panel on the right with three big labelled sections: My ride (the ride, colour, number), Shop (Stickers,
-  // Lights, Bumpers, Wheels, Extras) and Settings (which side the pedals go, lane helper, Christmas).
+  // Lights, Bumpers, Wheels, Extras) and Settings (which side the pedals go, lane helper, music, Christmas).
   // Tiles have a picture and a word; unowned ones a price chip; the chosen one a teal rim and a tick; one being tried
   // on glows, with a green "tap again to buy" chip. Over the 3D view, top left: Coins and Fuel (filled free on every
   // visit) and, in hub mode, the all-games button and the clock. One big "Drive!" button at the bottom.
@@ -1043,6 +1043,14 @@
         tile(box, assistPic(on), { i: n++, on: !!S.assist === on, label: word, tap: () => {
           if (!!S.assist === on) { BB.say(on ? 'Lane helper on!' : 'Lane helper off!'); return; }
           BB.ui.setAssist(on); renderBody();
+        } });
+      }
+      // the music (it left the driving screen to keep the road clear; Sound stays there)
+      box = sec('music', 'Music');
+      for (const [on, word] of [[false, 'Off'], [true, 'On']]) {
+        tile(box, BB.icon(on ? 'music' : 'musicOff', 128), { i: n++, on: !!BB.audio.music === on, label: word, tap: () => {
+          if (!!BB.audio.music !== on) BB.audio.setSound(BB.audio.mute, on, true);
+          BB.sfx.pop(); BB.say(on ? 'Music on!' : 'Music off!'); renderBody();
         } });
       }
       // Christmas: by the date (1 December to 6 January), always, or never

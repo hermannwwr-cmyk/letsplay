@@ -1614,8 +1614,9 @@
       // chase: behind and above the front carriage, trailing its heading smoothly
       camH += wrapA(h - camH) * Math.min(1, dt * 2.2);
       const wide = BB.camera.aspect > 1.9;
-      let back = (wide ? 19 : 17) + Math.max(0, B.speed) * 0.25 + 3 * BB.smooth(boostK);
-      let up = wide ? 12.5 : 11.5;
+      // (a little lower and looking further ahead than before, so more of the road shows: the owner asked for more view)
+      let back = (wide ? 20 : 19.5) + Math.max(0, B.speed) * 0.25 + 3 * BB.smooth(boostK);
+      let up = wide ? 11 : 10;
       // a look at something (B.lookAt): swing round toward it (up to ~65 degrees) and tilt up for things in the sky
       let ch = camH, lk = null;
       const kL = look && look.target ? BB.smooth(lookK) : 0;
@@ -1634,7 +1635,9 @@
         back *= 0.78;
       }
       camPos.set(fx - f.x * back, up, fz - f.z * back);
-      camLook.set(fx + f.x * (wide ? 2 : 5), 0, fz + f.z * (wide ? 2 : 5));
+      // (under the MRT viaduct the camera is kept low, so it looks down more there and the deck stays out of view)
+      const ahead = underViaduct(fx, fz) || underViaduct(camPos.x, camPos.z) ? (wide ? 2 : 5) : (wide ? 7 : 11);
+      camLook.set(fx + f.x * ahead, ahead > 5 ? 0.6 : 0, fz + f.z * ahead);
       if (kL > 0) {
         // look part of the way toward it (the bus stays in the picture), never higher than 20 up
         const w = 0.55 * kL;

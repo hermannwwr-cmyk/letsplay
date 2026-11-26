@@ -469,6 +469,14 @@
           paper(x, (p) => rrP(p, 30, 41, 15, 12, 3), '#d4eef8', { depth: 0.2, rimW: 1.4 }); paper(x, (p) => rrP(p, 49, 41, 15, 12, 3), '#d4eef8', { depth: 0.2, rimW: 1.4 });
           for (const wx of [26, 74]) { paper(x, (p) => arcP(p, wx, 80, 10), '#3a343f', { depth: 0.5, rim: false }); dot(x, wx, 80, 4, '#c9d2db'); }
           break;
+        case 'taxi':                  // a yellow taxi with its roof lamp (the taxi's own stops)
+          paper(x, (p) => rrP(p, 40, 24, 20, 9, 3), '#fff6e0', { depth: 0.3, rimW: 1.4, rimColor: '#d9b57f' });
+          paper(x, (p) => rrP(p, 8, 54, 84, 24, 8), '#f5b83d');
+          paper(x, (p) => rrP(p, 22, 34, 56, 24, [11, 11, 2, 2]), '#f5b83d');
+          paper(x, (p) => rrP(p, 28, 39, 19, 13, 3), '#d4eef8', { depth: 0.2, rimW: 1.4 }); paper(x, (p) => rrP(p, 52, 39, 19, 13, 3), '#d4eef8', { depth: 0.2, rimW: 1.4 });
+          paper(x, (p) => rrP(p, 8, 62, 84, 5, 2), '#3a343f', { depth: 0, rim: false });
+          for (const wx of [26, 74]) { paper(x, (p) => arcP(p, wx, 80, 10), '#3a343f', { depth: 0.5, rim: false }); dot(x, wx, 80, 4, '#c9d2db'); }
+          break;
         // the fire station (a red firefighter's helmet) and the clinic (a heart: no red cross); first drawn in world.js
         case 'firestation':
           paper(x, (p) => { p.moveTo(10, 74); p.quadraticCurveTo(50, 62, 90, 74); p.quadraticCurveTo(92, 84, 80, 84); p.lineTo(20, 84); p.quadraticCurveTo(8, 84, 10, 74); p.closePath(); }, '#d9382c', { depth: 0.4 });

@@ -1330,7 +1330,7 @@
     ? (st.minor ? `New job! First stop, ${st.say}!` : `New job! Drive to ${st.say}!`)
     : (st.minor ? `Next stop, ${st.say}!` : `Now drive to ${st.say}!`);
   function bedtime() {
-    clearWaiting();
+    clearWaiting(); clearMarker();
     if (J.current) { J.current = null; BB.bus.stopAt(null); BB.emit('job:target', { stop: null, job: null }); }
     setPhase('bedtime');
     BB.emit('jobs:bedtime');
@@ -1499,8 +1499,9 @@
   // (W.places.fireStation / clinic, the depot), each used only when it is that close.
   // the scene spots and stops whose tags (world.js: what fits there) include tag ('picnic' | 'icecream' | 'fire' |
   // 'car' | 'yard'), or all of them
+  // (the other rides have their own stops: never a bus stop, the owner asked; each gets the ride's own marker there)
   function spots(tag) {
-    const W = BB.world, list = (W.sceneSpots || []).concat((W.stops || []).filter(okStop)).filter((s) => s && s.pos && s.edge != null);
+    const W = BB.world, list = (W.sceneSpots || []).filter((s) => s && s.pos && s.edge != null);
     const t = tag ? list.filter((s) => !s.tags || s.tags.indexOf(tag) >= 0) : list;
     return t.length ? t : list;
   }
@@ -1687,8 +1688,8 @@
       kit: mk((b) => { b.box(4.4, 0.5, 2.0, '#fbf7ee', 0, 0, 0); b.box(4.44, 0.12, 2.04, '#ff8fab', 0, 0.36, 0); // a coral heart on the lid (the ambulance's emblem; never a cross)
         b.ball(0.17, '#ff6b5c', 1.63, 0.5, 0.7, 1, 1, 0.22, 1); b.ball(0.17, '#ff6b5c', 1.87, 0.5, 0.7, 1, 1, 0.22, 1);
         b.box(0.32, 0.06, 0.32, '#ff6b5c', 1.75, 0.47, 0.52, Math.PI / 4); }),
-      fighters: [0, 1, 2, 3, 4].map((k) => friendGeo({ shirt: '#3d5a80', skin: SKINS[(k * 3) % 5], hair: '#ef5a4b' })),   // red helmet; firefighter i = the card's i
-      jet: mk((b) => { b.cyl(0.06, 0.11, 2.4, 5, '#bfe6f5', 0, 0, 0); }),
+      fighters: [0, 1, 2, 3, 4].map((k) => friendGeo({ shirt: '#3d5a80', skin: SKINS[(k * 3) % 5], hair: '#ef5a4b' }).scale(1.2, 1.2, 1.2)),   // (a bit bigger: easy to count)   // red helmet; firefighter i = the card's i
+      jet: mk((b) => { b.cyl(0.05, 0.17, 2.6, 6, '#d6f1fb', 0, 0, 0); }),          // a widening spray of water
       kiosk: mk((b) => {
         b.box(6.8, 4.0, 3.0, '#fbf1dc', 0, 0, 0); b.box(7.2, 0.4, 3.4, '#ef5a4b', 0, 4.0, 0); b.box(6.82, 0.5, 3.02, '#e2c08d', 0, 0, 0);
       }),
@@ -1797,10 +1798,13 @@
       if (i < smoky) { const s2 = scnMesh(G.smoke, winPos(i).add(new THREE.Vector3(f.ox * 0.8, 0.5, f.oz * 0.8)), face, false); s2.scale.setScalar(1.3); smoke[i] = s2; SCN.extra.push(s2);
         SCN.blockers.push({ x: s2.position.x, z: s2.position.z, hw: 0.8, hd: 0.8, ry: face, y0: s2.position.y - 0.3, top: s2.position.y + 2.2 }); }   // out in front of the window, seen from any camera
     }
-    const slot = tray(2.8, 8.0, 1.05, 1.1);
+    // (one tidy line along the pavement, well apart, so each firefighter is easy to count (a second row hid behind the
+    // first): from just short of the kiosk back along the engine; each one half-turned toward the camera side,
+    // spraying up and over at the kiosk, so the jets never cross the others)
+    const slot = (i) => new THREE.Vector3(f.d.x + f.ox * 2.6 + f.fx * (8.4 - i * 1.6), GROUND, f.d.z + f.oz * 2.6 + f.fz * (8.4 - i * 1.6));
     const fighter = (i, pop) => {
-      const m = scnMesh(G.fighters[i % 5], slot(i), Math.atan2(f.fx, f.fz), pop);          // facing the kiosk
-      const jet = new THREE.Mesh(G.jet, BB.mk.mat); jet.position.set(0.2, 1.1, 0.3); jet.rotation.x = 1.05; m.add(jet);
+      const m = scnMesh(G.fighters[i % 5], slot(i), Math.atan2(f.fx + f.ox, f.fz + f.oz), pop);
+      const jet = new THREE.Mesh(G.jet, BB.mk.mat); jet.position.set(0.15, 1.15, 0.25); jet.rotation.x = 0.85; m.add(jet);
       return m;
     };
     return {
@@ -1817,6 +1821,84 @@
         points: () => [base, winPos(0), winPos(4), winPos(5), winPos(9)],
       },
     };
+  }
+
+  // ---------- each ride's own stops ----------
+  // The other rides never use bus stops: they go to roadside spots (world.js W.sceneSpots), and the spot they're
+  // driving to shows that ride's own marker, seen from far off: a round sign on a pole with the ride's picture (the
+  // taxi stand, the check-up stop, the ice cream stop), a column of smoke where the fire is, the broken-down car
+  // with a warning triangle for the tow truck. The marker goes when the job ends (or Home, bedtime).
+  let marker = null;
+  const MARK_PIC = { taxi: 'taxi', ambulance: 'medic', icecream: 'icecream', tow: 'tow' };
+  const MARK_RIM = { taxi: '#f5b83d', ambulance: '#ff8fab', icecream: '#8fd3e8', tow: '#f28b4b' };
+  const rideTexs = {};
+  function rideMarkTex(kind) {
+    if (rideTexs[kind]) return rideTexs[kind];
+    const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d');
+    x.fillStyle = 'rgba(0,0,0,.18)'; x.beginPath(); x.arc(66, 68, 58, 0, Math.PI * 2); x.fill();
+    x.fillStyle = MARK_RIM[kind] || '#d9b57f'; x.beginPath(); x.arc(64, 64, 58, 0, Math.PI * 2); x.fill();
+    x.fillStyle = '#fff6e0'; x.beginPath(); x.arc(64, 64, 48, 0, Math.PI * 2); x.fill();
+    x.drawImage(BB.pic(MARK_PIC[kind], 128), 24, 24, 80, 80);
+    const t = new THREE.CanvasTexture(c);
+    if ('colorSpace' in t) t.colorSpace = THREE.SRGBColorSpace; else if (THREE.sRGBEncoding) t.encoding = THREE.sRGBEncoding;
+    return (rideTexs[kind] = t);
+  }
+  let MGEO = null;
+  function markGeos() {
+    if (MGEO) return MGEO;
+    const mk = (fn) => { const b = BB.mk.builder(); fn(b); return b.geometry(); };
+    MGEO = {
+      pole: mk((b) => { b.cyl(0.09, 0.09, 3.1, 6, '#8a8290', 0, 0, 0); b.cyl(0.32, 0.36, 0.14, 8, '#6c6470', 0, 0, 0); }),
+      puff: mk((b) => { b.ball(0.9, '#8a8290', 0, 0, 0); b.ball(0.7, '#a8a0ae', 0.55, 0.35, 0.2); b.ball(0.6, '#bdb6c2', -0.45, 0.45, -0.1); }),
+      triangle: mk((b) => { b.cyl(0.02, 0.62, 0.7, 3, '#ef5a4b', 0, 0, 0); b.cyl(0.02, 0.36, 0.42, 3, '#fff6e0', 0, 0.1, 0.03); }),
+    };
+    return MGEO;
+  }
+  function placeMarker(kind, t, legIdx) {
+    clearMarker();
+    if (!t || !t.pos || !t.fwd || !t.side || !BB.scene || t.place || t.id === 'depot') return;   // (the fire station, clinic and depot are their own places)
+    const G = markGeos(), parts = [], add = (m) => { BB.scene.add(m); parts.push(m); return m; };
+    // a point by the spot: 'along' the kerb (forward +, the way the ride drives in), 'out' onto the pavement (+)
+    const at = (along, out, y = GROUND) => new THREE.Vector3(t.pos.x + t.fwd.x * along + t.side.x * out, y, t.pos.z + t.fwd.z * along + t.side.z * out);
+    const m = { kind, parts, puffs: [], sign: null, t: 0 };
+    if (kind === 'fire') {
+      // smoke rising where the kiosk is on fire (world.js keeps that zone clear: 3-19 ahead, out to 4.6)
+      const base = at(12.5, 0.7);
+      for (let i = 0; i < 6; i++) { const p = add(new THREE.Mesh(G.puff, BB.mk.mat)); p.userData.ph = i / 6; p.userData.base = base; m.puffs.push(p); }
+    } else if (kind === 'tow' && legIdx === 0) {
+      // the broken-down car, two wheels up on the kerb ahead of the bay, and a warning triangle behind it
+      const car = brokenCar(); if (car.parent) car.parent.remove(car);
+      car.position.copy(at(7.5, -1.6)); car.rotation.set(0, Math.atan2(t.fwd.x, t.fwd.z), 0.06); car.scale.setScalar(1);
+      BB.scene.add(car); m.car = car;
+      const tri = add(new THREE.Mesh(G.triangle, BB.mk.mat)); tri.position.copy(at(3.6, -2.2)); tri.rotation.y = Math.atan2(t.fwd.x, t.fwd.z) + Math.PI;
+    } else if (MARK_PIC[kind] && kind !== 'tow') {
+      const pole = add(new THREE.Mesh(G.pole, BB.mk.mat)); pole.position.copy(at(5.5, 0.6));
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: rideMarkTex(kind), transparent: true, alphaTest: 0.05 }));
+      sp.scale.set(2.7, 2.7, 1); sp.position.copy(at(5.5, 0.6, GROUND + 4.3)); add(sp); m.sign = sp;
+    }
+    marker = m;
+  }
+  // arrived: the smoke column gives way to the real fire scene; a sign stays while the ride is there
+  function markerArrived() {
+    if (!marker) return;
+    if (marker.kind === 'fire') { for (const p of marker.puffs) if (p.parent) p.parent.remove(p); marker.puffs = []; }
+  }
+  function clearMarker() {
+    if (!marker) return;
+    for (const p of marker.parts) if (p.parent) p.parent.remove(p);
+    if (marker.car && marker.car.parent === BB.scene) BB.scene.remove(marker.car);   // (not once it hangs on the tow hook)
+    marker = null;
+  }
+  J._clearMarker = clearMarker;
+  function updateMarker(dt) {
+    if (!marker) return;
+    marker.t += dt;
+    if (marker.sign) { const s = 2.7 * (1 + Math.sin(marker.t * 3) * 0.05); marker.sign.scale.set(s, s, 1); }
+    for (const p of marker.puffs) {                    // puffs rise, swell and fade away (shrink), round and round
+      const k = (marker.t * 0.22 + p.userData.ph) % 1, b = p.userData.base;
+      p.position.set(b.x + Math.sin(k * 6 + p.userData.ph * 9) * 0.6, GROUND + 3.5 + k * 12, b.z + Math.cos(k * 5) * 0.4);
+      p.scale.setScalar(Math.max(0.01, (0.6 + k * 1.6) * (k > 0.8 ? (1 - k) / 0.2 : 1)));
+    }
   }
 
   // the broken-down car for the tow truck: our own little car, or the bus.js hook helper's
@@ -1879,7 +1961,7 @@
         hopOut(1, auntie); await say('All better! Thank you!');
       } });
     } else if (kind === 'icecream') {
-      // children wait at the stops and the roadside spots nearby (the park and the beach count double)
+      // children wait at the van's own stops nearby (by the park, the swings and the seaside more often)
       const pool = spots('icecream'), fun = (t) => (/park|beach|swings|seaside/i.test((t.say || '') + ' ' + (t.near || '') + ' ' + (t.id || '')) ? 3 : 1);
       const park = legTo(from0, pool, [], fun), beach = legTo(park, pool, [park], fun);
       L.push({ to: park, start: `Ice cream van! Let's go to ${sayOf(park)}!`, run: async (ok) => {
@@ -1933,6 +2015,7 @@
     const job = J.current; if (!job || !job.vehicle) return;
     const leg = job.legs[job.index];
     try { BB.bus.closeDoors(); } catch (e) { console.error(e); }   // leaves the scene spot (clears atStop) so it can drive
+    try { placeMarker(job.vehicle, leg.to, job.index); } catch (e) { console.error(e); }
     if (leg.onGo) leg.onGo();
     setPhase('drive');
     J.stopStart = null;
@@ -1946,6 +2029,7 @@
     setPhase('stop'); J.lastStop = leg.to;
     BB.sfx.ding();
     const g = ++legGen, ok = () => g === legGen && J.current === job && !BB.bedtime && J.phase !== 'home';
+    markerArrived();
     await wait(900);                         // the scene camera settles
     if (!ok()) return;
     try { await leg.run(ok); } catch (e) { console.error(e); }
@@ -1953,7 +2037,7 @@
     await wait(1200);
     scnClear();
     job.index++;
-    if (job.index >= job.legs.length) { jobDone(); return; }
+    if (job.index >= job.legs.length) { clearMarker(); jobDone(); return; }
     if (timeUp()) { bedtime(); return; }
     driveLeg();
   }
@@ -2125,9 +2209,10 @@
 
   // ---------- per frame ----------
   J.update = function (dt) {
+    try { updateMarker(dt); } catch (e) { console.error(e); }
     if (J.phase === 'home') {
       if (J.stopStart) rewindStop();
-      if (J.current && J.current.vehicle && J.stopStart !== false) { legGen++; clearWaiting(); scnClear(); for (const m of J.extras) removePerson(m); J.extras = []; J.walkers = []; }
+      if (J.current && J.current.vehicle && J.stopStart !== false) { legGen++; clearWaiting(); scnClear(); clearMarker(); for (const m of J.extras) removePerson(m); J.extras = []; J.walkers = []; }
       return;                                  // nothing walks or boards while the home screen is up
     }
     for (let i = J.walkers.length - 1; i >= 0; i--) {

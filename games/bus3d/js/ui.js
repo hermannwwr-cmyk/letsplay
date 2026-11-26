@@ -3,9 +3,11 @@
    camera swinging gently round it, ONE big Play button (to the garage), the family strip (status picture and the
    buses here now) and, in hub mode, the all-games button with its "Home" tag (to the app's launcher).
    HUD: every button is a paper tile with a picture and a word under it, spoken on tap (BB.icon pictures, Fredoka).
-   Top bar: left Home, Coins, Fuel (a little dial); middle Next stop (the stop's picture and progress dots) and, in hub
-   mode, the shared clock chip; right Garage, Music, Sound. Bottom: the steering wheel and the Go / Back pedals (the
-   only driving controls), Horn and Helper beside the wheel, Turn around above the pedals when the bus faces away.
+   Driving is kept clear so the road shows (the owner asked for fewer buttons): a small top bar with Home, one tile
+   for coins and the fuel dial, Next stop (the stop's picture and progress dots) and, in hub mode, the shared clock
+   chip, then Garage and Sound; at the bottom only the steering wheel (tap its middle to honk) and the Go / Back
+   pedals, plus Turn around or Wash when they're needed. Music and the lane helper are in the garage's Settings, and
+   the fire engine's and ambulance's sirens switch themselves on and off with their jobs.
    Home goes back to the home screen (hub and standalone alike); with a trip in progress a kind "Go home?" card asks
    first, and the job waits (phase 'home') until Play and Drive. Also toasts, coins, confetti, a fade for the tow, the
    goodnight overlay, the first-drive tips and the turn-sideways card (standalone portrait). Exposes BB.ui. */
@@ -18,11 +20,18 @@
   #ui { font-family: ${BB.FONT}; color: #3a2a3c;
     --bt: 72px; --bh: 80px; --ic: 42px; --lb: 15px;           /* HUD tiles: width, height (with the word), picture, word */
     --dt: 78px; --dh: 86px; --dic: 48px;                      /* driving tiles (horn, helper, turn around) */
-    --joy: 176px; --wh: 200px; --pgw: 120px; --pgh: 150px; --pbw: 84px; --pbh: 104px; --hudh: 80px; }
+    --joy: 176px; --wh: 184px; --pgw: 112px; --pgh: 138px; --pbw: 80px; --pbh: 98px; --hudh: 64px; }
   @media (max-height: 520px) {
     #ui { --bt: 60px; --bh: 64px; --ic: 34px; --lb: 13px; --dt: 68px; --dh: 72px; --dic: 40px;
-      --joy: 136px; --wh: 144px; --pgw: 96px; --pgh: 118px; --pbw: 70px; --pbh: 86px; --hudh: 64px; }
+      --joy: 136px; --wh: 144px; --pgw: 96px; --pgh: 118px; --pbw: 70px; --pbh: 86px; --hudh: 54px; }
   }
+  /* the driving top bar: small tiles, so the road shows */
+  .bbu-top { --bt: 60px; --bh: 64px; --ic: 32px; --lb: 13px; }
+  @media (max-height: 520px) { .bbu-top { --bt: 50px; --bh: 54px; --ic: 27px; --lb: 11px; } }
+  .bbu-b.nolb .lb { display: none; }
+  .bbu-top .bbu-b { border-radius: 16px; border-width: 2.5px; padding: 2px 6px 4px; }
+  .bbu-cash .row { gap: 4px; }
+  .bbu-cash .row .fuel { width: calc(var(--ic) * 1.7); height: calc(var(--ic) * .85); margin-left: 6px; align-self: flex-end; }
   #ui button { font-family: inherit; }
   .bbu-hud { position: absolute; inset: 0; pointer-events: none; transition: opacity .3s; }
   .bbu-hud.off { opacity: 0; } .bbu-hud.off * { pointer-events: none !important; }
@@ -43,12 +52,11 @@
   .bbu-grp { display: flex; gap: 8px; align-items: flex-start; flex: none; }
   .bbu-mid { flex: 1; min-width: 0; display: flex; justify-content: center; align-items: flex-start; gap: 12px; }
   .bbu-b .row canvas { width: var(--ic); height: var(--ic); flex: none; }
-  .bbu-cash .row b { font-size: calc(var(--ic) * .74); line-height: 1; min-width: .6em; text-align: left; color: #3a2a3c; }
+  .bbu-cash .row b { font-size: calc(var(--ic) * .8); line-height: 1; min-width: .6em; text-align: left; color: #3a2a3c; }
   .bbu-cash.bump { animation: bbu-bump .5s; }
   @keyframes bbu-bump { 40% { transform: scale(1.14); } }
   /* the fuel dial: always exactly 2 : 1 (a true half circle; this beats the tiles' square .row canvas rule) */
-  .bbu-b.bbu-fuel .row canvas { width: calc(var(--ic) * 2); height: var(--ic); display: block; }
-  .bbu-fuel .row { height: var(--ic); align-items: flex-end; }
+  .bbu-b.bbu-cash .row canvas.fuel { width: calc(var(--ic) * 1.7); height: calc(var(--ic) * .85); display: block; }
   .bbu-job { visibility: hidden; padding-left: 10px; padding-right: 12px; }
   .bbu-job .row canvas { width: var(--ic); height: var(--ic); }
   .bbu-job .dots { display: flex; gap: 5px; }
@@ -88,24 +96,14 @@
     text-shadow: 0 3px 0 rgba(0,0,0,.25); animation: bbu-zzz 3s ease-out infinite 1.5s; }
   @keyframes bbu-zzz { 0% { opacity: 0; transform: translate(0, 10px) scale(.6); } 30% { opacity: 1; } 100% { opacity: 0; transform: translate(40px, -60px) scale(1.2); } }
   /* driving tiles (base positions; the steering-wheel layout below, .ctl-wheel, is always on) */
-  .bbu-horn { position: absolute; left: calc(var(--sl) + 6px); bottom: var(--sb); }
-  .bbu-assist { position: absolute; left: calc(var(--sl) + 6px); bottom: calc(var(--sb) + var(--dh) + 14px); }
   .bbu-uturn { position: absolute; right: calc(var(--sr) + 6px + (var(--joy) - var(--dt) - 14px) / 2); bottom: calc(var(--sb) + var(--joy) + 14px);
     min-width: calc(var(--dt) + 14px); display: none; animation: bbu-pop .3s cubic-bezier(.2,1.5,.5,1), bbu-glow 1s .3s infinite alternate; }
   .bbu-uturn.on { display: flex; }
   @keyframes bbu-glow { to { box-shadow: inset -4px -5px 0 rgba(217,181,127,.45), 0 4px 0 rgba(120,80,40,.18), 0 0 0 9px rgba(255,212,92,.6); } }
-  /* the Wash tile (a dusty bus): beside the horn; above it in the wheel layout */
-  .bbu-wash { position: absolute; left: calc(var(--sl) + 6px + var(--dt) + 14px); bottom: var(--sb); display: none; animation: bbu-pop .3s cubic-bezier(.2,1.5,.5,1); }
+  /* the Wash tile (a dusty bus): beside the wheel, only when the bus is dusty */
+  .bbu-wash { position: absolute; left: calc(var(--sl) + 6px + var(--wh) + 16px); bottom: var(--sb); display: none; animation: bbu-pop .3s cubic-bezier(.2,1.5,.5,1); }
   .bbu-wash.on { display: flex; }
-  .lefty .bbu-wash { left: auto; right: calc(var(--sr) + 6px + var(--dt) + 14px); }
-  .ctl-wheel .bbu-wash { left: calc(var(--sl) + 6px + var(--wh) + 16px); bottom: calc(var(--sb) + var(--dh) + 14px); }
   .ctl-wheel.lefty .bbu-wash { left: auto; right: calc(var(--sr) + 6px + var(--wh) + 16px); }
-  /* the Siren tile (fire engine, ambulance): beside Helper; in the wheel layout above Helper's column */
-  .bbu-siren { position: absolute; left: calc(var(--sl) + 6px + var(--dt) + 14px); bottom: calc(var(--sb) + var(--dh) + 14px); display: none; animation: bbu-pop .3s cubic-bezier(.2,1.5,.5,1); }
-  .bbu-siren.show { display: flex; }
-  .lefty .bbu-siren { left: auto; right: calc(var(--sr) + 6px + var(--dt) + 14px); }
-  .ctl-wheel .bbu-siren { left: calc(var(--sl) + 6px + var(--wh) + 16px + var(--dt) + 12px); }
-  .ctl-wheel.lefty .bbu-siren { left: auto; right: calc(var(--sr) + 6px + var(--wh) + 16px + var(--dt) + 12px); }
   /* "TURBO!" over the bus for a moment (the secret turbo) */
   .bbu-turbo { position: absolute; left: 50%; top: 46%; z-index: 21; pointer-events: none; font: 700 52px/1 ${BB.FONT}; color: #ffd45c; letter-spacing: 2px;
     -webkit-text-stroke: 3px #d98700; paint-order: stroke fill; text-shadow: 0 4px 0 #b06e00, 0 0 18px rgba(255,212,92,.8); animation: bbu-turbo 1.6s ease-out forwards; }
@@ -125,15 +123,15 @@
     border-radius: 24px; padding: 2px 16px 2px 6px; box-shadow: 0 3px 0 rgba(150,90,0,.3); }
   .bbu-ask .price canvas { width: 40px; height: 40px; }
   .bbu-wcoin { position: absolute; width: 40px; height: 40px; z-index: 60; pointer-events: none; }
-  .lefty .bbu-horn, .lefty .bbu-assist { left: auto; right: calc(var(--sr) + 6px); }
   .lefty .bbu-uturn { right: auto; left: calc(var(--sl) + 6px + (var(--joy) - var(--dt) - 14px) / 2); }
-  /* steering-wheel layout (.ctl-wheel): the wheel bottom-left, Go and Back pedals bottom-right, Horn and Helper beside
-     the wheel; .lefty mirrors it */
+  /* steering-wheel layout (.ctl-wheel): the wheel bottom-left, Go and Back pedals bottom-right; .lefty mirrors it */
   .bbu-wheel, .bbu-ped { display: none; }
   .ctl-wheel .bbu-wheel, .ctl-wheel .bbu-ped { display: block; }
   .bbu-wheel { position: absolute; left: calc(var(--sl) + 6px); bottom: var(--sb); width: var(--wh); height: var(--wh); border-radius: 50%;
     pointer-events: auto; touch-action: none; }
   .bbu-wheel .rot { position: absolute; inset: 0; transition: transform .05s linear; }
+  .bbu-wheel.honk svg { animation: bbu-honk .3s ease-out; }
+  @keyframes bbu-honk { 40% { transform: scale(.94); } }
   .bbu-wheel svg { width: 100%; height: 100%; display: block; pointer-events: none; filter: drop-shadow(0 6px 0 rgba(80,60,40,.25)); }
   .bbu-ped { position: absolute; bottom: var(--sb); border: none; padding: 0; pointer-events: auto; touch-action: none; cursor: pointer; }
   .bbu-ped svg { width: 100%; height: 100%; display: block; pointer-events: none; }
@@ -147,14 +145,10 @@
   .bbu-ped.down { transform: translateY(6px); } .bbu-ped.go.down { box-shadow: 0 2px 0 #24702d; } .bbu-ped.back.down { box-shadow: 0 1px 0 #a8601a; }
   .bbu-ped.go.nudge { animation: bbu-pednudge 1.4s ease-in-out infinite; }
   @keyframes bbu-pednudge { 50% { box-shadow: 0 8px 0 #24702d, 0 0 0 14px rgba(255,212,92,.55); } }
-  .ctl-wheel .bbu-horn { left: calc(var(--sl) + 6px + var(--wh) + 16px); }
-  .ctl-wheel .bbu-assist { left: calc(var(--sl) + 6px + var(--wh) + 16px + var(--dt) + 12px); bottom: var(--sb); }
   .ctl-wheel .bbu-uturn { right: calc(var(--sr) + 6px + (var(--pgw) - var(--dt) - 14px) / 2); bottom: calc(var(--sb) + var(--pgh) + 16px); }
   .ctl-wheel.lefty .bbu-wheel { left: auto; right: calc(var(--sr) + 6px); }
   .ctl-wheel.lefty .bbu-ped.go { right: auto; left: calc(var(--sl) + 6px); }
   .ctl-wheel.lefty .bbu-ped.back { right: auto; left: calc(var(--sl) + 6px + var(--pgw) + 14px); }
-  .ctl-wheel.lefty .bbu-horn { left: auto; right: calc(var(--sr) + 6px + var(--wh) + 16px); }
-  .ctl-wheel.lefty .bbu-assist { left: auto; right: calc(var(--sr) + 6px + var(--wh) + 16px + var(--dt) + 12px); }
   .ctl-wheel.lefty .bbu-uturn { right: auto; left: calc(var(--sl) + 6px + (var(--pgw) - var(--dt) - 14px) / 2); }
   /* first-drive tips: a hand turning the wheel and a hand pressing Go */
   .bbu-tip { position: absolute; width: 70px; height: 70px; pointer-events: none; z-index: 3; right: calc(var(--sr) + 6px + var(--joy) / 2 - 28px); bottom: calc(var(--sb) + var(--joy) / 4);
@@ -302,24 +296,13 @@
   @media (max-height: 430px) {
     #ui { --wh: clamp(118px, 39vh, 136px); --joy: clamp(118px, 39vh, 132px); --pgw: 86px; --pgh: clamp(92px, 29vh, 106px);
       --pbw: 66px; --pbh: clamp(72px, 23vh, 82px); --cb: calc(var(--sb) + 4px); }
-    .bbu-wheel, .bbu-ped, .bbu-joy, .bbu-horn, .bbu-wash { bottom: var(--cb); }
-    .ctl-wheel .bbu-assist { bottom: var(--cb); }
-    .bbu-assist { bottom: calc(var(--cb) + var(--dh) + 12px); }
-    .ctl-wheel .bbu-wash { bottom: calc(var(--cb) + var(--dh) + 12px); }
-    .bbu-siren { bottom: calc(var(--cb) + var(--dh) + 12px); }
+    .bbu-wheel, .bbu-ped, .bbu-joy, .bbu-wash { bottom: var(--cb); }
     .bbu-uturn { bottom: calc(var(--cb) + var(--joy) + 12px); }
     .ctl-wheel .bbu-uturn { bottom: calc(var(--cb) + var(--pgh) + 14px); }
     .bbu-tip { bottom: calc(var(--cb) + var(--joy) / 4); }
     .bbu-tip.wheelhand { bottom: calc(var(--cb) + var(--wh) * .65); } .bbu-tip.pedalhand { bottom: calc(var(--cb) + var(--pgh) / 4); }
     .bbu-ped .lb { font-size: calc(var(--lb) + 3px); }
     .bbu-ped.go.nudge { animation-name: bbu-pednudge-s; }
-  }
-  /* ... and narrow too (568 wide): in the wheel layout Helper goes above Horn, and Wash beside it */
-  @media (max-height: 430px) and (max-width: 640px) {
-    .ctl-wheel .bbu-assist { left: calc(var(--sl) + 6px + var(--wh) + 16px); bottom: calc(var(--cb) + var(--dh) + 12px); }
-    .ctl-wheel.lefty .bbu-assist { left: auto; right: calc(var(--sr) + 6px + var(--wh) + 16px); }
-    .ctl-wheel .bbu-wash { left: calc(var(--sl) + 6px + var(--wh) + 16px + var(--dt) + 12px); bottom: var(--cb); }
-    .ctl-wheel.lefty .bbu-wash { left: auto; right: calc(var(--sr) + 6px + var(--wh) + 16px + var(--dt) + 12px); }
   }
   @keyframes bbu-pednudge-s { 50% { box-shadow: 0 8px 0 #24702d, 0 0 0 9px rgba(255,212,92,.55); } }
   `);
@@ -359,8 +342,8 @@
   // swap a tile's picture (e.g. Music on/off)
   U.setIcon = function (b, icon) { const old = b.querySelector('canvas, svg'); const nu = BB.iconEl(icon, 128); if (old) b.replaceChild(nu, old); else b.prepend(nu); };
 
-  let uturnBtn, washBtn, sirenEl, facing = false, driving = true, tips = [];
-  let hud, cashEl, fuelEl, fuelCv, jobEl, jobPic, jobDots, wheelEl, wheelRot, pedGo, pedBack, hornEl, assistEl, titleEl, soundBtn, musicBtn, exitBtn, homeBtn, garageBtn, playBtn, famEl;
+  let uturnBtn, washBtn, facing = false, driving = true, tips = [];
+  let hud, cashEl, fuelCv, jobEl, jobPic, jobDots, wheelEl, wheelRot, pedGo, pedBack, titleEl, soundBtn, exitBtn, homeBtn, garageBtn, playBtn, famEl;
 
   U.init = function () {
     U.root = document.getElementById('ui');
@@ -369,14 +352,15 @@
     const left = BB.el('div', 'bbu-grp', top);
     // Home: back to the game's home screen (from there the all-games button leaves to the app in hub mode)
     homeBtn = U.btn(left, 'home', 'Home', () => U.homeTap(), 'bbu-home');
-    cashEl = U.btn(left, null, 'Coins', () => { const n = BB.depot.cash; BB.say(n === 1 ? 'You have 1 coin!' : `You have ${n} coins!`); }, 'bbu-cash');
+    // one small tile for the coins and the fuel dial (tap: both are said)
+    cashEl = U.btn(left, null, 'Coins', () => {
+      const n = BB.depot.cash, f = BB.bus.fuel;
+      BB.say((n === 1 ? 'You have 1 coin! ' : `You have ${n} coins! `) +
+        (f > 0.55 ? 'Lots of fuel!' : f > BB.cfg.fuelLow + 0.05 ? 'Half a tank of fuel.' : "Fuel is getting low, let's go to the garage!"));
+    }, 'bbu-cash nolb');
     const crow = BB.el('span', 'row', null); cashEl.prepend(crow);
     crow.appendChild(BB.iconEl('coin', 96)); BB.el('b', '', crow, String(BB.depot.cash));
-    fuelEl = U.btn(left, null, 'Fuel', () => {
-      const f = BB.bus.fuel;
-      BB.say(f > 0.55 ? 'Lots of fuel!' : f > BB.cfg.fuelLow + 0.05 ? 'Half a tank of fuel.' : "Fuel is getting low, let's go to the garage!");
-    }, 'bbu-fuel');
-    const frow = BB.el('span', 'row', null); fuelEl.prepend(frow); fuelCv = BB.el('canvas', '', frow);
+    fuelCv = BB.el('canvas', 'fuel', crow);
     const mid = BB.el('div', 'bbu-mid', top);
     jobEl = U.btn(mid, null, 'Next stop', () => { const t = BB.bus.target; if (t) BB.say(BB.bus.washBay && t === BB.bus.washBay ? 'Drive to the bus wash!' : `Drive to ${t.say}!`); }, 'bbu-job');
     const jrow = BB.el('span', 'row', null); jobEl.prepend(jrow);
@@ -390,11 +374,6 @@
       else if (ph === 'toDepot') BB.say("We're going to the garage!");
       else BB.say('Garage!');
     });
-    musicBtn = U.btn(right, 'music', 'Music', () => {
-      const on = !BB.audio.music;
-      BB.audio.setSound(BB.audio.mute, on, true);
-      BB.sfx.click(); BB.say(on ? 'Music on!' : 'Music off!');
-    }, 'bbu-snd');
     soundBtn = U.btn(right, 'sound', 'Sound', () => {
       const mute = !BB.audio.mute;
       BB.audio.setSound(mute, BB.audio.music, true);
@@ -407,21 +386,30 @@
     // and eases back to the middle when let go), and the Go and Back pedals (hold)
     wheelEl = BB.el('div', 'bbu-wheel', hud); wheelRot = BB.el('div', 'rot', wheelEl, WHEEL_SVG);
     wheelEl.setAttribute('aria-label', 'steering wheel');
-    let wheelId = null, lastA = 0;
+    let wheelId = null, lastA = 0, turned = 0, downT = 0, inHub = false;
     const angOf = (e) => { const r = wheelEl.getBoundingClientRect(); return Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2)) * 180 / Math.PI; };
     wheelEl.addEventListener('pointerdown', (e) => {
       e.preventDefault(); if (wheelId != null) return;
       wheelId = e.pointerId; try { wheelEl.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
       lastA = angOf(e); wheel.drag = true;
+      const r = wheelEl.getBoundingClientRect(), dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+      turned = 0; downT = performance.now(); inHub = Math.hypot(dx, dy) < r.width * 0.3;     // the red middle (with the horn)
     });
     wheelEl.addEventListener('pointermove', (e) => {
       if (e.pointerId !== wheelId) return;
       const a = angOf(e); let d = a - lastA; while (d > 180) d -= 360; while (d < -180) d += 360; lastA = a;
+      if (inHub) { const r = wheelEl.getBoundingClientRect(); if (Math.hypot(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2)) < r.width * 0.3) return; inHub = false; }
+      turned += Math.abs(d);
       wheel.rot = BB.clamp(wheel.rot + d, -135, 135); showWheel();
       if (Math.abs(wheel.rot) > 25) hideTip('wheelhand');
       applyInput();
     });
-    const wheelUp = (e) => { if (e.pointerId !== wheelId) return; wheelId = null; wheel.drag = false; };
+    // a quick tap on the wheel's red middle (not a turn) honks the horn
+    const wheelUp = (e) => {
+      if (e.pointerId !== wheelId) return; wheelId = null; wheel.drag = false;
+      if (e.type === 'pointerup' && inHub && turned < 12 && performance.now() - downT < 600) honk();
+      inHub = false;
+    };
     for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) wheelEl.addEventListener(ev, wheelUp);
     wheelEl.addEventListener('contextmenu', (e) => e.preventDefault());
     const pedal = (cls, key, word) => {
@@ -435,23 +423,17 @@
       return b;
     };
     pedBack = pedal('back', 'back', 'Back'); pedGo = pedal('go', 'go', 'Go');
-    // Horn. A secret: three quick honks (within about a second) while driving fire the turbo, when bus.js has one
-    // ready (BB.bus.boost / boostReady); otherwise it is just the horn
+    // The horn: the wheel's red middle. A secret: three quick honks (within about a second) while driving fire the
+    // turbo, when bus.js has one ready (BB.bus.boost / boostReady); otherwise it is just the horn
     const honks = [];
-    hornEl = U.btn(hud, 'horn', 'Horn', () => {
+    function honk() {
       BB.bus.horn();
+      wheelEl.classList.remove('honk'); void wheelEl.offsetWidth; wheelEl.classList.add('honk');
       const now = performance.now(); honks.push(now); while (honks.length && now - honks[0] > 1100) honks.shift();
       if (honks.length >= 3) { honks.length = 0; secretTurbo(); }
-    }, 'drv bbu-horn');
-    assistEl = U.btn(hud, 'helper', 'Helper', () => U.setAssist(!BB.save.assist), 'drv bbu-assist');
-    // the siren (fire engine, ambulance; bus.js: BB.bus.siren / setSiren): on and off, with the lights in the picture
-    sirenEl = U.btn(hud, 'siren', 'Siren', () => {
-      const B = BB.bus, on = !sirenOn();
-      try { if (typeof B.siren === 'function') B.siren(on); else if (typeof B.setSiren === 'function') B.setSiren(on); else B.siren = on; } catch (e) { console.error(e); }
-      BB.sfx.click(); BB.say(on ? 'Nee naw! Siren on!' : 'Siren off!'); syncSiren();
-    }, 'drv bbu-siren');
-    BB.on('bus:type', () => { syncSiren(); renderJob(); });
-    BB.on('bus:siren', syncSiren);
+    }
+    U.honk = honk;
+    BB.on('bus:type', () => renderJob());
     U.setLefty(!!BB.save.leftHand, true);
     U.setControl(BB.save.control, true);
     // turn around: offered while the bus faces away from where it should go (bus.js emits bus:facingAway)
@@ -546,7 +528,6 @@
   };
   function syncSound() {
     const A = BB.audio;
-    musicBtn.classList.toggle('off', !A.music || A.mute); U.setIcon(musicBtn, A.music && !A.mute ? 'music' : 'musicOff');
     soundBtn.classList.toggle('off', A.mute); U.setIcon(soundBtn, A.mute ? 'soundOff' : 'sound');
   }
   function syncUturn() { const on = facing && driving && !!BB.bus.turnAround; if (uturnBtn) uturnBtn.classList.toggle('on', on); }
@@ -565,7 +546,7 @@
     washBtn.classList.toggle('on', washOK() && dusty() && driving && !washing && !washRoute && (ph === 'drive' || ph === 'done' || ph === 'idle'));
   }
   U.syncWash = syncWash;
-  setInterval(() => { if (hud && !hud.classList.contains('off')) { syncWash(); syncSiren(); } }, 1000);
+  setInterval(() => { if (hud && !hud.classList.contains('off')) syncWash(); }, 1000);
   // ---------- the secret turbo (three quick honks) ----------
   function secretTurbo() {
     const B = BB.bus;
@@ -601,19 +582,6 @@
     icecream: 'icecream', iceCream: 'icecream', tow: 'tow', towTruck: 'tow', taxi: 'taxi' };
   const rideKind = (type) => { const K = BB.fleet && BB.fleet.KIND; const k = (K && K[type]) || type; return KIND_OF[k] || KIND_OF[type] || 'bus'; };
   U.rideKind = () => { const B = BB.bus; return B && typeof B.kind === 'string' ? (KIND_OF[B.kind] || 'bus') : rideKind(B && B.type); };
-  // bus.js: B.has('siren'), B.siren(on), B.sirenOn() (older or stand-in: a plain B.siren flag)
-  const hasSiren = () => {
-    const B = BB.bus; if (!B) return false;
-    if (typeof B.has === 'function') { try { return !!B.has('siren'); } catch (e) { return false; } }
-    const k = U.rideKind(); return (k === 'fire' || k === 'ambulance') && 'siren' in B;
-  };
-  const sirenOn = () => { const B = BB.bus; if (!B) return false; return typeof B.sirenOn === 'function' ? !!B.sirenOn() : typeof B.siren === 'function' ? false : !!B.siren; };
-  function syncSiren() {
-    if (!sirenEl) return;
-    const show = hasSiren() && driving, on = show && sirenOn();
-    sirenEl.classList.toggle('show', show);
-    if (sirenEl._on !== on) { sirenEl._on = on; sirenEl.classList.toggle('on', on); U.setIcon(sirenEl, on ? 'sirenOn' : 'siren'); }
-  }
   // put the job's own target back (its arrival callback too) after the wash, or if the child says no
   function washBack() {
     const r = washRoute; washRoute = null;
@@ -699,15 +667,16 @@
   function hideTip(cls) { tips = tips.filter((t) => { if (t.classList.contains(cls)) { t.remove(); return false; } return true; }); }
   U.driveTip = () => 'Hold the green pedal to go! Turn the wheel to steer!';
   function setDriving(on) {
-    driving = on; syncUturn(); syncSiren();
+    driving = on; syncUturn();
     if (!on) U.hideTips();
-    for (const el of [wheelEl, pedGo, pedBack, hornEl, assistEl, washBtn, sirenEl]) if (el) el.style.visibility = on ? '' : 'hidden';
+    for (const el of [wheelEl, pedGo, pedBack, washBtn]) if (el) el.style.visibility = on ? '' : 'hidden';
     if (!on) U.releaseAll();
     syncWash();
   }
   // the Next stop tile's word on a job of the other rides
   const JOB_WORD = { fire: 'Fire!', ambulance: 'Check-up', icecream: 'Ice cream', tow: 'Tow' };
-  const JOB_PIC = { fire: 'fire', ambulance: 'medic', icecream: 'icecream', tow: 'tow', taxi: 'tree' };
+  const JOB_PIC = { fire: 'fire', ambulance: 'medic', icecream: 'icecream', tow: 'tow', taxi: 'taxi' };
+  const JOB_WORD_TAXI = 'Taxi';
   function renderJob() {
     const job = BB.jobs.current, t = BB.bus.target;
     if (!t && !job) { jobEl.style.visibility = 'hidden'; return; }
@@ -717,12 +686,14 @@
     const depot = !!(t && t.id === 'depot');
     // the picture of where the job is going (a job of the other rides may name its own: job.pic, or the target's pic)
     // (a roadside scene spot has no picture of its own: the fire, the check-up, the ice cream queue, the broken-down car)
-    const pic = wash ? null : (!depot && job && job.pic) || (stop && stop.pic) || JOB_PIC[U.rideKind()] || 'tree';
+    // (the other rides go to their own stops, not bus stops: the Next stop tile shows the job's own picture)
+    const vk = job && job.vehicle && (KIND_OF[job.vehicle] || job.vehicle);
+    const pic = wash ? null : (!depot && job && job.pic) || (vk && JOB_PIC[vk]) || (stop && stop.pic) || JOB_PIC[U.rideKind()] || 'tree';
     const x = jobPic.getContext('2d'); x.clearRect(0, 0, 96, 96); if (stop) x.drawImage(wash ? BB.icon('wash', 96) : BB.pic(pic, 96), 0, 0);
     jobDots.innerHTML = '';
     // going to the garage: just its picture; on a job, a dot per stop
     if (job && !wash && !(t && t.id === 'depot')) job.stops.forEach((s, i) => BB.el('i', i < job.index ? 'done' : i === job.index ? 'now' : '', jobDots));
-    jobEl.querySelector('.lb').textContent = wash ? 'Wash' : depot ? 'Garage' : (job && JOB_WORD[KIND_OF[job.kind] || KIND_OF[job.vehicle] || U.rideKind()]) || 'Next stop';
+    jobEl.querySelector('.lb').textContent = wash ? 'Wash' : depot ? 'Garage' : (job && JOB_WORD[KIND_OF[job.kind] || KIND_OF[job.vehicle] || U.rideKind()]) || (vk === 'taxi' ? JOB_WORD_TAXI : 'Next stop');
   }
 
   // ---------- Home ----------
@@ -808,7 +779,6 @@
   U.setAssist = function (on, quiet) {
     BB.save.assist = !!on; BB.saveNow();
     if (BB.bus) BB.bus.assist = !!on;
-    if (assistEl) { assistEl.classList.toggle('on', !!on); U.setIcon(assistEl, on ? 'helperOn' : 'helper'); }
     BB.emit('assist:changed', { on: !!on });
     if (!quiet) { BB.sfx.pop(); BB.say(on ? 'Lane helper on!' : 'Lane helper off!'); }
   };
