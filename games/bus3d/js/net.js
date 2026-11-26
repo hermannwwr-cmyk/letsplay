@@ -301,6 +301,8 @@
   const liveFriends = () => [...remotes.values()].filter((r) => !r.leaving);
   N.status = () => (link === 'open' ? (liveFriends().length ? 'together' : 'alone') : link === 'connecting' ? 'connecting' : 'offline');
   N.friends = () => liveFriends().map((r) => ({ id: r.id, type: r.look.ty, paint: r.look.pa, color: paintHex(r.look.pa), routeNo: r.look.no }));
+  // where the friends' buses are now (their latest known spot), e.g. so a start bay isn't taken twice
+  N.busSpots = () => liveFriends().map((r) => { const s = r.snaps && r.snaps[r.snaps.length - 1]; return s ? { x: s.x, z: s.z } : null; }).filter(Boolean);
   let lastStatus = '', lastFriends = '';
   function syncStatus() {
     const st = N.status();

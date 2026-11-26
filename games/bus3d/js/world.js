@@ -277,6 +277,24 @@
   // where the bus waits after Drive: on the yard's way out, just short of the gate (past the bus wash), facing out,
   // so the first drive is a short one (from the garage's own bay it was a long loop round the yard, ~35 s)
   W.yardStart = placeOnKerb({ id: 'yardStart', name: 'Bus Depot', say: 'the depot', pic: 'depot', from: 'Yb', to: 'Yg2', t: 0.85, toward: [40, 200] });
+  // More start bays, so buses of friends who tap Drive at about the same time don't stand inside each other: beside
+  // it in the inner lane, then on the road just outside the gates (between the two gates, both directions, kerb and
+  // inner lanes). BB.bus.placeInYard takes the first free one (W.startSlots()).
+  W.yardSlotsKerb = [
+    placeOnKerb({ id: 'startN', name: 'Bus Depot', say: 'the depot', pic: 'depot', from: 'Yg2', to: 'Yg1', t: 0.5, toward: [0, 147] }),    // heading north
+    placeOnKerb({ id: 'startS', name: 'Bus Depot', say: 'the depot', pic: 'depot', from: 'Yg1', to: 'Yg2', t: 0.5, toward: [60, 147] }),   // heading south
+  ];
+  let startSlots = null;
+  W.startSlots = function () {
+    if (startSlots) return startSlots;
+    // the same bay one lane in (the inner lane), for a bus beside the one in the kerb lane
+    const inner = (st) => {
+      const b = W.bayOf(st), d = -(C.lane - C.laneInner), sh = (q) => ({ x: q.x + st.side.x * d, z: q.z + st.side.z * d });
+      return Object.assign({}, st, { id: st.id + 'In', _bay: Object.assign({}, b, sh(b), { nose: sh(b.nose) }) });
+    };
+    const [n, s2] = W.yardSlotsKerb;
+    return (startSlots = [W.yardStart, inner(W.yardStart), s2, n, inner(s2), inner(n)]);
+  };
   W.workshop = { x: 166, z: 147, heading: -Math.PI / 2 };       // the bus's middle and heading in the workshop
   W.YARD = { x0: 37.2, x1: 188, z0: 104, z1: 178 };
   W.inDepotYard = (x, z) => x > W.YARD.x0 && x < W.YARD.x1 && z > W.YARD.z0 && z < W.YARD.z1;
@@ -335,7 +353,7 @@
     return o;
   };
   // every bay the town keeps clear (trees, lamps, the stop cameras' spots)
-  const allBays = () => W.stops.concat([W.depot, W.places.fireStation, W.places.clinic], W.sceneSpots);
+  const allBays = () => W.stops.concat([W.depot, W.places.fireStation, W.places.clinic], W.sceneSpots, W.yardSlotsKerb);
   W.allBays = allBays;
   // ---------- many small stops: one about every 7 s of driving ----------
   // Along every straight road, on each kerb, a small stop (pole, little canopy, bench, sign) about every 70 (110 on the

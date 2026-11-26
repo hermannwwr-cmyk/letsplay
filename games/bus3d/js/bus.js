@@ -95,9 +95,23 @@
   };
   // After Drive: the bus waits on the yard's way out, just short of the gate and facing it (W.yardStart; the
   // garage's own bay, W.depot, faced away from the gate and meant a long loop round the yard first).
+  // Friends playing at the same time each get their own start bay: the first one with no friend's bus in it (the
+  // inner lane beside it, then just outside the gates); if every bay is taken, any of them.
+  function startBay() {
+    const slots = W().startSlots ? W().startSlots() : [W().yardStart || W().depot];
+    let spots = []; try { spots = (BB.net && BB.net.busSpots) ? BB.net.busSpots() : []; } catch (e) { /* playing alone */ }
+    // taken: a friend's bus in this bay's own lane (across the road less than half a lane off) and along its length
+    const free = slots.filter((st) => {
+      const b = W().bayOf(st);
+      return !spots.some((p) => { const dx = p.x - b.x, dz = p.z - b.z, al = dx * b.fwd.x + dz * b.fwd.z, la = dx * b.side.x + dz * b.side.z; return Math.abs(la) < 2.4 && Math.abs(al) < 12; });
+    });
+    if (!free.length) return slots[Math.floor(Math.random() * slots.length)];
+    return free[0] === slots[0] && free[1] === slots[1] && spots.length ? free[Math.random() < 0.5 ? 0 : 1] : free[0];   // (two at once: less likely to pick the same)
+  }
+  B.startBay = startBay;
   B.placeInYard = function () {
     const t = B.target, cb = B.onArrive;                 // (a job may already have set its first stop)
-    B.placeAt(W().yardStart || W().depot); B.atStop = null; B.doorsOpen = false;
+    B.placeAt(startBay()); B.atStop = null; B.doorsOpen = false;
     if (t && t !== W().depot) { B.target = t; B.onArrive = cb; refreshRibbon(); }
   };
   // Is the bus inside the depot's yard (or its workshop)? 'bus:leftDepot' fires when it drives out of the gate.
