@@ -274,6 +274,9 @@
   // shed at the yard's east end; the wash bay is a drive-through gantry on the south aisle.
   W.depot = placeOnKerb({ id: 'depot', name: 'Bus Depot', say: 'the depot', pic: 'depot', from: 'Yg1', to: 'Ya', t: 0.42, toward: [70, 100] });
   W.washBay = placeOnKerb({ id: 'wash', name: 'Bus Wash', say: 'the bus wash', pic: 'wash', from: 'Yb', to: 'Yg2', t: 0.45, toward: [80, 200] });
+  // where the bus waits after Drive: on the yard's way out, just short of the gate (past the bus wash), facing out,
+  // so the first drive is a short one (from the garage's own bay it was a long loop round the yard, ~35 s)
+  W.yardStart = placeOnKerb({ id: 'yardStart', name: 'Bus Depot', say: 'the depot', pic: 'depot', from: 'Yb', to: 'Yg2', t: 0.85, toward: [40, 200] });
   W.workshop = { x: 166, z: 147, heading: -Math.PI / 2 };       // the bus's middle and heading in the workshop
   W.YARD = { x0: 37.2, x1: 188, z0: 104, z1: 178 };
   W.inDepotYard = (x, z) => x > W.YARD.x0 && x < W.YARD.x1 && z > W.YARD.z0 && z < W.YARD.z1;

@@ -779,6 +779,7 @@
   U.input = () => { const c = current(); return { throttle: c.throttle, steer: c.steer, go: c.throttle > 0.25, back: c.throttle < -0.25, left: c.steer < -0.3, right: c.steer > 0.3 }; };
   // Lane helper (BB.bus.assist, saved as save.assist): the HUD toggle and the garage's tiles both use this.
   U.setAssist = function (on, quiet) {
+    if (!quiet) { BB.save.assistChosen = true; autoAssist = false; }   // (a grown-up chose in the garage's Settings)
     BB.save.assist = !!on; BB.saveNow();
     if (BB.bus) BB.bus.assist = !!on;
     BB.emit('assist:changed', { on: !!on });
@@ -796,7 +797,19 @@
     U.releaseAll(); wheel.rot = 0; showWheel();
     if (hud) hud.classList.add('ctl-wheel');
   };
-  U.afterBus = function () { U.setAssist(!!BB.save.assist, true); };
+  // A beginner drives with the lane helper on: for the first 3 jobs, unless someone chose in the garage's Settings.
+  // After the third job it switches off, with a cheer.
+  let autoAssist = false;
+  U.afterBus = function () {
+    autoAssist = !BB.save.assistChosen && (BB.save.jobsDone | 0) < 3;
+    U.setAssist(autoAssist ? true : !!BB.save.assist, true);
+  };
+  BB.on('job:done', () => {
+    if (!autoAssist || (BB.save.jobsDone | 0) < 3) return;
+    autoAssist = false; U.setAssist(false, true);
+    BB.say('You can steer all by yourself now!', { queue: true });
+  });
+  U.facingAway = () => facing && driving;
 
   // ---------- the home screen ----------
   // opts.say: false = no welcome (the line is said by whoever opened it). The bus parks in front of its garage and the

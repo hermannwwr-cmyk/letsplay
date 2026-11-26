@@ -59,7 +59,7 @@
   const DEFAULT_SAVE = () => ({
     paint: 'green', upgrades: {}, stickers: [], fuel: 1, jobsDone: 0, questions: 0, seen: {},
     paints: ['green'], stickersOwned: [], parts: {}, partsOwned: [],
-    busType: null, routeNo: '88', assist: false, leftHand: false, control: 'wheel', xmas: 'auto', dirt: 0, spotted: {}, friendsMet: [],
+    busType: null, routeNo: '88', assist: false, assistChosen: false, leftHand: false, control: 'wheel', xmas: 'auto', dirt: 0, spotted: {}, friendsMet: [],
     washPaid: 0,                 // coins paid for a bus wash that hasn't finished yet (a reload mid-wash gives them back)
     vehiclesOwned: ['bendy', 'double', 'single'],   // the rides the child may drive (the buses are free; the others are bought in the garage)
     vehiclePaint: {},            // a colour per other ride ({fire: 'blue'}); none = its classic colours
@@ -78,7 +78,7 @@
       if (!s.parts || typeof s.parts !== 'object' || Array.isArray(s.parts)) s.parts = {};
       s.routeNo = /^[1-9][0-9]{0,2}$/.test(String(s.routeNo)) ? String(s.routeNo) : '88';
       if (s.busType != null && typeof s.busType !== 'string') s.busType = null;
-      s.assist = !!s.assist; s.leftHand = !!s.leftHand; s.control = 'wheel';                 // (the steering wheel is the only control now: old 'joystick' saves move to it)
+      s.assist = !!s.assist; s.assistChosen = !!s.assistChosen; s.leftHand = !!s.leftHand; s.control = 'wheel';                 // (the steering wheel is the only control now: old 'joystick' saves move to it)
       s.xmas = s.xmas === 'on' || s.xmas === 'off' ? s.xmas : 'auto';
       s.dirt = Math.max(0, Math.min(1, +s.dirt || 0));     // (how dusty the bus is: only looks, bus.js)
       if (Array.isArray(got.hatsOwned)) BB.saveMigrate.hatRefund = got.hatsOwned.reduce((n, id) => n + (HAT_PRICES[id] || 0), 0);

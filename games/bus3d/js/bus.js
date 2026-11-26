@@ -93,10 +93,11 @@
     refreshRibbon();
     B.setCamera(camera || 'depot', true);
   };
-  // After Drive: the bus waits in its bay in the yard (W.depot), ready to drive out through the gate.
+  // After Drive: the bus waits on the yard's way out, just short of the gate and facing it (W.yardStart; the
+  // garage's own bay, W.depot, faced away from the gate and meant a long loop round the yard first).
   B.placeInYard = function () {
     const t = B.target, cb = B.onArrive;                 // (a job may already have set its first stop)
-    B.placeAt(W().depot); B.atStop = null; B.doorsOpen = false;
+    B.placeAt(W().yardStart || W().depot); B.atStop = null; B.doorsOpen = false;
     if (t && t !== W().depot) { B.target = t; B.onArrive = cb; refreshRibbon(); }
   };
   // Is the bus inside the depot's yard (or its workshop)? 'bus:leftDepot' fires when it drives out of the gate.

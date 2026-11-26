@@ -2112,13 +2112,21 @@
     J.wantDepot = false;
     setPhase('toDepot');
     BB.bus.closeDoors();
-    BB.bus.stopAt(BB.world.depot, () => {
-      setPhase('depot');
-      BB.bus.openDoors();
-      BB.depot.open();
-    });
+    BB.bus.stopAt(null);
     BB.emit('job:target', { stop: BB.world.depot, job: J.current });
-    if (reason !== 'quiet') say(reason === 'fuel' ? "I'm getting hungry, let's go to the depot!" : "Let's drive to the depot!", { queue: true });
+    if (reason !== 'quiet') say(reason === 'fuel' ? "I'm getting hungry! Off to the garage!" : 'Off to the garage!', { queue: true });
+    // straight there with a quick fade (no long drive back across town and round the yard); a job in progress waits
+    // and carries on after Drive
+    BB.later(reason === 'fuel' ? 1800 : 350, () => {
+      if (J.phase !== 'toDepot' || BB.bedtime) return;
+      const open = () => {
+        if (J.phase !== 'toDepot' || BB.bedtime) return;
+        try { BB.bus.placeAtDepot('depot'); } catch (e) { console.error(e); }
+        setPhase('depot');
+        BB.depot.open();
+      };
+      if (BB.ui && typeof BB.ui.fade === 'function') BB.ui.fade(open); else open();
+    });
   };
   BB.on('depot:closed', () => {
     if (J.phase !== 'depot') return;
@@ -2269,8 +2277,30 @@
   }
 
   // ---------- per frame ----------
+  // A gentle hint when the child seems lost: driving to a target and no nearer to it (by road) for about 15 s.
+  // Standing still: hold the green pedal; facing away: turn around; else: follow the yellow arrows. At most every 40 s.
+  let lostT = 0, lostBest = Infinity, lostTarget = null, lostCool = 0, lostTick = 0, stillT = 0;
+  function updateLost(dt) {
+    const B = BB.bus, t = B.target;
+    lostCool = Math.max(0, lostCool - dt);
+    const off = !t || J.phase !== 'drive' || B.atStop || (B.isSettling && B.isSettling()) || BB.bedtime || BB.depot.isOpen ||
+      (BB.ui && BB.ui.homeShown && BB.ui.homeShown()) || (BB.ui && BB.ui.asking && BB.ui.asking());
+    if (off) { lostT = 0; stillT = 0; lostTarget = null; return; }
+    if (t !== lostTarget) { lostTarget = t; lostBest = Infinity; lostT = 0; stillT = 0; }
+    lostT += dt; stillT = Math.abs(B.speed) < 0.6 ? stillT + dt : 0;
+    if ((lostTick -= dt) <= 0) {
+      lostTick = 1;
+      let d = Infinity; try { d = +B.routeLength(t); } catch (e) { /* no route */ }
+      if (isFinite(d) && d < lostBest - 4) { lostBest = d; lostT = 0; }
+    }
+    if (lostT < 15 || lostCool > 0) return;
+    lostT = 0; lostCool = 40;
+    const away = BB.ui && BB.ui.facingAway && BB.ui.facingAway();
+    say(away ? 'Tap the turn around button!' : stillT > 8 ? 'Hold the green pedal to go!' : 'Follow the yellow arrows!');
+  }
   J.update = function (dt) {
     try { updateMarker(dt); } catch (e) { console.error(e); }
+    try { updateLost(dt); } catch (e) { console.error(e); }
     if (J.phase === 'home') {
       if (J.stopStart) rewindStop();
       if (J.current && J.current.vehicle && J.stopStart !== false) { legGen++; clearWaiting(); scnClear(); clearMarker(); for (const m of J.extras) removePerson(m); J.extras = []; J.walkers = []; }
