@@ -815,7 +815,7 @@
     for (const p of green.parts) town.parts.push(p);      // (same material: one draw per area)
     green.parts = [];
     addChunked(scene, roads, roadMat, 'roads', false, 205, 260); addChunked(scene, town, BB.mk.mat, 'town', false, 205, 130);
-    addChunked(scene, meadow, roadMat, 'meadow', false, 135, 400);   // (small and light: a few very big areas, drawn only nearby; darker when wet like the roads)
+    scene.add(tag(meadow.mesh(roadMat), 'meadow'));   // (small and light, about 4,000 triangles: one mesh; darker when wet like the roads)
     const farMesh = (m, name) => { m.geometry.computeBoundingBox(); m.userData.box = m.geometry.boundingBox.clone(); FAR_CULL.push(m); scene.add(tag(m, name)); };
     for (const k in DIST_B) if (DIST_B[k].parts.length) farMesh(DIST_B[k].mesh(), 'd:' + k);
     washFx = buildWashFx();
@@ -1345,7 +1345,7 @@
 
   // ---------- meadow details: soft grass patches, flower clumps and low bushes along the roads ----------
   // Paper scraps on the grass so the big lawns aren't one flat green. They keep their own random numbers (the town's
-  // layout stays as it was), have no colliders, and are a few thousand triangles in all, in their own few big-area meshes. Flat things may lie
+  // layout stays as it was), have no colliders, and are about 4,000 triangles in all, in one mesh of their own. Flat things may lie
   // anywhere on the grass; bushes stay 11 or more from the road edge, clear of the scenes staged by the kerb.
   let dseed = 24680;
   const drnd = () => { dseed = dseed + 0x6D2B79F5 | 0; let t = Math.imul(dseed ^ dseed >>> 15, 1 | dseed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
@@ -1363,7 +1363,7 @@
       for (let s = 5; s < e.length - 5; s += 3.6) {
         const p = W.pointAt(e, s);
         for (const side of [1, -1]) {
-          if (drnd() < 0.4) continue;
+          if (drnd() < 0.5) continue;
           const u = drnd(), off = e.half + 4.6 + u * u * 34, a = dr(-2, 2);
           const x = p.x + p.dz * side * off + p.dx * a, z = p.z - p.dx * side * off + p.dz * a;
           if (z > SZ + 8 || !clearOfRoads(x, z, RH + 4.4) || W.pushOut(x, z, 1.6).hit > 0.001 || inCamSpot(x, z)) continue;
@@ -1381,8 +1381,8 @@
             const r = dr(0.7, 1.15), col = dpick(TREE_GREENS);
             b.add(DISC, P.grassDark, x + 0.35, y + 0.035, z + 0.3, 0, 0, 0, r * 1.45, 1, r * 1.15);
             b.add(BUSH, col, x, y + r * 0.5, z, dr(0, 3), 0, 0, r, r * 0.72, r);
-            if (drnd() < 0.4) b.add(BUSH, light(col, 0.16), x - r * 0.5, y + r * 0.62, z - r * 0.35, dr(0, 3), 0, 0, r * 0.55, r * 0.5, r * 0.55);
-            if (drnd() < 0.45) { const c = dpick(PETALS); for (let i = 0; i < 3; i++) { const fa = i * 2.1 + dr(0, 1); b.add(BUD, c, x + Math.cos(fa) * r * 0.55, y + r * 0.95, z + Math.sin(fa) * r * 0.55, 0, 0, 0, 0.2, 0.3, 0.2); } }
+            if (drnd() < 0.25) b.add(BUSH, light(col, 0.16), x - r * 0.5, y + r * 0.62, z - r * 0.35, dr(0, 3), 0, 0, r * 0.55, r * 0.5, r * 0.55);
+            if (drnd() < 0.35) { const c = dpick(PETALS); for (let i = 0; i < 3; i++) { const fa = i * 2.1 + dr(0, 1); b.add(BUD, c, x + Math.cos(fa) * r * 0.55, y + r * 0.95, z + Math.sin(fa) * r * 0.55, 0, 0, 0, 0.2, 0.3, 0.2); } }
           }
         }
       }
@@ -1908,8 +1908,8 @@
   // Soft paper clouds: flat-bottomed clusters of puffs, white on top and a touch of lilac underneath.
   function buildClouds() {
     const b = BB.mk.builder();
-    for (let k = 0; k < 14; k++) {
-      const a = k / 14 * Math.PI * 2 + rr(0, 0.4), r = rr(120, 260), y = rr(55, 90);
+    for (let k = 0; k < 10; k++) {
+      const a = k / 10 * Math.PI * 2 + rr(0, 0.4), r = rr(120, 260), y = rr(55, 90);
       const x = Math.cos(a) * r, z = Math.sin(a) * r, s = rr(0.8, 1.4);
       b.at(x, y, z, -a, (q) => {
         q.ball(9 * s, '#eef0fb', 0, 0, 0, 0, 2.4, 0.35, 1.1);

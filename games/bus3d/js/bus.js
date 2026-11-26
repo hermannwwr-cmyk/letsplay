@@ -457,16 +457,18 @@
     const lb = BB.mk.builder();
     // (each cone's point is at its lamp on the nose and it opens out ahead, dipping to the road; under them a warm
     // pool of light lies on the road in front of the bus)
-    for (const x of [-0.8, 0.8]) lb.add(new THREE.ConeGeometry(1.5, 7.5, 10, 1, true), '#fff6c0', x, 0.24, 3.85, 0, -Math.PI / 2 + 0.11);
-    lightCones = new THREE.Mesh(lb.geometry(), new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.22, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+    for (const x of [-0.8, 0.8]) lb.add(new THREE.ConeGeometry(1.2, 6, 16, 1, true), '#fff6c0', x, 0.31, 3.1, 0, -Math.PI / 2 + 0.11);
+    lightCones = new THREE.Mesh(lb.geometry(), new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.22, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.FrontSide }));
     lightCones.visible = false; lightCones.renderOrder = 2;
     {
       const c = document.createElement('canvas'); c.width = 64; c.height = 128;
-      const x = c.getContext('2d'), gr = x.createRadialGradient(32, 30, 3, 32, 56, 66);
-      gr.addColorStop(0, 'rgba(255,240,180,0.85)'); gr.addColorStop(0.45, 'rgba(255,226,150,0.38)'); gr.addColorStop(1, 'rgba(255,220,140,0)');
-      x.fillStyle = gr; x.fillRect(0, 0, 64, 128);
-      lightPool = new THREE.Mesh(new THREE.PlaneGeometry(8.5, 26), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
-      lightPool.rotation.x = -Math.PI / 2; lightPool.position.set(0, 0.1, 12.4); lightPool.renderOrder = 1; lightCones.add(lightPool);
+      // (a long soft oval, brightest near the bus, fading to nothing before every edge of its square)
+      const x = c.getContext('2d'); x.translate(32, 64); x.scale(1, 2);
+      const gr = x.createRadialGradient(0, -15, 1, 0, 0, 31);
+      gr.addColorStop(0, 'rgba(255,240,180,0.85)'); gr.addColorStop(0.4, 'rgba(255,226,150,0.4)'); gr.addColorStop(1, 'rgba(255,220,140,0)');
+      x.fillStyle = gr; x.fillRect(-32, -32, 64, 64);
+      lightPool = new THREE.Mesh(new THREE.PlaneGeometry(10, 28), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+      lightPool.rotation.x = -Math.PI / 2; lightPool.position.set(0, 0.1, 12.6); lightPool.renderOrder = 1; lightCones.add(lightPool);
     }
     BB.scene.add(B.group);
     buildRibbon(); buildBeacon(); buildBayGlow(); buildWayArrow();
@@ -2282,7 +2284,7 @@
     const night = W().night ? W().night() : 0, up = !!(BB.save.upgrades && BB.save.upgrades.lights);
     const lit = B.lightsOn ? Math.max(night, up ? 1 : 0) : 0;
     lightCones.visible = lit > 0.05;
-    lightCones.material.opacity = 0.13 * lit * (up ? 1.2 : 0.8);
+    lightCones.material.opacity = 0.11 * lit * (up ? 1.2 : 0.8);
     lightPool.material.opacity = 0.8 * lit * (up ? 1.15 : 0.85);
     lampMat.color.setScalar(B.lightsOn ? 1 : 0.45);
     { const wx = W().weatherState || {}; paintLiftU.value = 0.32 * night + 0.2 * BB.clamp(+wx.rain || 0, 0, 1) + 0.08 * BB.clamp(+wx.cloud || 0, 0, 1); }

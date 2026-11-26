@@ -780,7 +780,7 @@
         case 'ambulance':
           vehicle(x, { body: '#fdfbf6', box: '#fdfbf6', top: 30, cabTop: 40 });
           x.fillStyle = '#5cb85c'; x.fillRect(6, 58, 88, 5);
-          x.fillStyle = '#e8473c'; x.fillRect(26, 40, 16, 5); x.fillRect(31.5, 34.5, 5, 16);
+          paper(x, (p) => heartP(p, 34, 43, 0.27), '#ff6b8a', { depth: 0.3 });   // (a heart, like the ambulance itself: never a red cross)
           paper(x, (p) => rrP(p, 70, 33, 12, 7, 3), '#4fa3e0', { depth: 0.2 });
           break;
         case 'police':
