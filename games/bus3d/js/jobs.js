@@ -1305,7 +1305,7 @@
     if (!ranked.length) return null;
     let pool = ranked.filter((o) => o.d >= LEG_MIN && o.d <= LEG_MAX);
     if (!pool.length) pool = ranked.filter((o) => o.d >= 25 && o.d <= 130);       // nothing that close: widen a little
-    if (!pool.length) pool = ranked.filter((o) => o.d >= 25).slice(0, 2);
+    if (!pool.length) { const n0 = (ranked.find((o) => o.d >= 25) || ranked[0]).d; pool = ranked.filter((o) => o.d >= 25 && o.d <= n0 + 80).slice(0, 5); }   // (from the garage yard: the few nearest from the gate)
     if (!pool.length) pool = ranked.slice(0, 3);
     // named stops count three times, so they come up more often than the small ones
     const bag = []; for (const o of pool) { bag.push(o.s); if (!o.s.minor) bag.push(o.s, o.s); }
@@ -1507,15 +1507,18 @@
   const tagged = (tag) => spots().filter((s) => s.tags && s.tags.indexOf(tag) >= 0);   // (only those, maybe none)
   // road distance from `from` (a bay, or null = from where the vehicle is now) to every candidate that could be near
   // enough (a straight line is never longer than the road), nearest first
-  function rankNear(from, list, exclude) {
+  function rankNear(from, list, exclude, reach = 135) {
     const p = from ? from.pos : (BB.bus.pos || { x: 0, z: 0 }), out = [];
     for (const s of list) {
       if (!s || !s.pos || s === from || exclude.indexOf(s) >= 0) continue;
-      if (Math.hypot(s.pos.x - p.x, s.pos.z - p.z) > 135) continue;
+      if (Math.hypot(s.pos.x - p.x, s.pos.z - p.z) > reach) continue;
       const d = stopDist(from, s);
       if (isFinite(d) && d > 1) out.push({ s, d });
     }
-    return out.sort((x, y) => x.d - y.d);
+    out.sort((x, y) => x.d - y.d);
+    // too few to choose from (e.g. in the garage yard, where the road out is long): look further
+    if (reach < 300 && out.filter((o) => o.d >= 25).length < 5) return rankNear(from, list, exclude, reach * 2.2);
+    return out;
   }
   // one leg on from `from`: at random among the candidates LEG_MIN-LEG_MAX away (weighted by weight(s)), else the
   // nearest that are a little nearer or further; anything at all as a last resort
@@ -1526,12 +1529,25 @@
     if (!ranked.length) ranked = list.filter((s) => s && s.pos && s !== from && exclude.indexOf(s) < 0).map((s) => ({ s, d: stopDist(from, s) })).filter((o) => isFinite(o.d)).sort((x, y) => x.d - y.d);
     if (!ranked.length) return BB.pick(list);
     let pool = ranked.filter((o) => o.d >= LEG_MIN && o.d <= LEG_MAX);
-    if (!pool.length) pool = ranked.filter((o) => o.d >= 25 && o.d <= 110).sort((x, y) => Math.abs(x.d - 60) - Math.abs(y.d - 60)).slice(0, 2);
+    // variety: with only a few that close (e.g. leaving the garage), a few a little nearer or further join in
+    if (pool.length < 5) {
+      // (leaving the garage yard everything is a few hundred units off: the few nearest from the gate then)
+      const near0 = (ranked.find((o) => o.d >= 25) || ranked[0]).d, far = Math.max(115, near0 + 120);
+      const more = ranked.filter((o) => o.d >= 25 && o.d <= far && pool.indexOf(o) < 0).sort((x, y) => Math.abs(x.d - 60) - Math.abs(y.d - 60));
+      pool = pool.concat(more.slice(0, 5 - pool.length));
+    }
     if (!pool.length) pool = ranked.filter((o) => o.d >= 25).slice(0, 1);
     if (!pool.length) pool = ranked.slice(0, 1);
+    // and not the places of the last few vehicle jobs, while there are others
+    const recent = recentLegs.slice(-Math.min(8, pool.length - (pool.length >= 4 ? 2 : 1)));   // (always leaves one or two to pick from)
+    const fresh = pool.length > 1 ? pool.filter((o) => recent.indexOf(o.s.id) < 0) : pool;
+    if (fresh.length) pool = fresh;
     const bag = []; for (const o of pool) { const n = weight ? weight(o.s) : 1; for (let i = 0; i < n; i++) bag.push(o.s); }
-    return BB.pick(bag.length ? bag : pool.map((o) => o.s));
+    const t = BB.pick(bag.length ? bag : pool.map((o) => o.s));
+    if (t && t.id) { recentLegs.push(t.id); if (recentLegs.length > 8) recentLegs.shift(); }
+    return t;
   }
+  const recentLegs = [];        // ids of the last few places vehicle jobs went to
   J.legTo = legTo;
   // is a fixed place one short leg on from `from`?
   const isNear = (from, t) => { if (!t || !t.pos) return false; const d = stopDist(from, t); return d >= 25 && d <= LEG_MAX + 15; };
