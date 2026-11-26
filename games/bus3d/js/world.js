@@ -293,9 +293,17 @@
       const b = W.bayOf(st), d = -(C.lane - C.laneInner), sh = (q) => ({ x: q.x + st.side.x * d, z: q.z + st.side.z * d });
       return Object.assign({}, st, { id: st.id + 'In', _bay: Object.assign({}, b, sh(b), { nose: sh(b.nose) }) });
     };
+    // the parking bays in the middle of the yard, between the parked buses (the owner's choice): nose to the south
+    // aisle, the yard's way out, so the bus drives forward out of its bay and turns right for the gate
+    const park = PARK_START.map((i) => {
+      const x = 52 + i * 9.4, z = 147, fwd = { x: 0, z: 1 }, side = { x: -1, z: 0 };
+      return { id: 'park' + i, name: 'Bus Depot', say: 'the depot', pic: 'depot', kind: 'start', pos: { x, z }, heading: 0, fwd, side,
+        _bay: { nose: { x, z: z + 7.2 }, x, z, heading: 0, fwd, side, len: 15.4, width: 3.4 } };
+    });
     const [n, s2] = W.yardSlotsKerb;
-    return (startSlots = [W.yardStart, inner(W.yardStart), s2, n, inner(s2), inner(n)]);
+    return (startSlots = park.concat([W.yardStart, inner(W.yardStart), s2, n, inner(s2), inner(n)]));
   };
+  const PARK_START = [1, 3, 5];          // which of the 7 parking bays are kept empty for starting (nearest the gate first)
   W.workshop = { x: 166, z: 147, heading: -Math.PI / 2 };       // the bus's middle and heading in the workshop
   W.YARD = { x0: 37.2, x1: 188, z0: 104, z1: 178 };
   W.inDepotYard = (x, z) => x > W.YARD.x0 && x < W.YARD.x1 && z > W.YARD.z0 && z < W.YARD.z1;
@@ -2163,6 +2171,7 @@
     for (let i = 0; i < 7; i++) {
       const x = 52 + i * 9.4;
       for (const sx of [-1.9, 1.9]) b.box(0.18, 0.02, 15.5, '#fff6e0', x + sx, 0.06, 147);
+      if (PARK_START.includes(i)) continue;                 // (kept empty: the child's bus starts here)
       if (LMP('parkedBus', x, 147, Math.PI, types[i], cols[i])) continue;
       b.at(x, 0.06, types[i] === 'bendy' ? 146 : 147.5, Math.PI, (q) => cheapBus(q, types[i], cols[i]));
       W.addBox(x, 147, 1.4, types[i] === 'bendy' ? 8.8 : 6.0, 0, 4.5);
