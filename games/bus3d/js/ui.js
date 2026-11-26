@@ -170,8 +170,15 @@
     padding: calc(var(--st) + 8px) var(--sr) calc(var(--sb) + 6px) var(--sl); box-sizing: border-box;
     background: linear-gradient(rgba(255,246,224,.55), rgba(255,246,224,0) 30%, rgba(255,246,224,0) 70%, rgba(255,230,180,.45)); }
   .bbu-title > * { pointer-events: auto; }
+  /* the garage's striped awning hangs along the top here too (over the shed's plain roof) */
+  .bbu-title::before { content: ''; position: absolute; left: 0; top: 0; right: 0; height: 30px; pointer-events: none;
+    background: repeating-linear-gradient(90deg, #19a79b 0 44px, #fff6e0 44px 88px);
+    -webkit-mask: radial-gradient(circle at 22px 15px, #000 15px, transparent 15.5px) 0 15px / 44px 100% repeat-x, linear-gradient(#000, #000) 0 0 / 100% 16px no-repeat;
+            mask: radial-gradient(circle at 22px 15px, #000 15px, transparent 15.5px) 0 15px / 44px 100% repeat-x, linear-gradient(#000, #000) 0 0 / 100% 16px no-repeat;
+    filter: drop-shadow(0 3px 0 rgba(0,0,0,.12)); }
+  @media (max-height: 520px) { .bbu-title::before { height: 24px; } }
   .bbu-logo { font-size: clamp(42px, min(8.5vw, 13vh), 96px); font-weight: 700; color: #fff; letter-spacing: 1px; line-height: 1; text-align: center; cursor: pointer;
-    text-shadow: 0 5px 0 #2f8f3a, 0 8px 14px rgba(0,0,0,.2); -webkit-text-stroke: 3px #3fae49; paint-order: stroke fill; margin-top: calc(var(--bh) - 2px); }
+    text-shadow: 0 5px 0 #2f8f3a, 0 8px 14px rgba(0,0,0,.2); -webkit-text-stroke: 3px #3fae49; paint-order: stroke fill; margin-top: calc(var(--bh) - 2px); animation: bbu-bob 3.4s ease-in-out infinite; }
   .bbu-logo span { color: #ffd45c; -webkit-text-stroke-color: #d98700; text-shadow: 0 5px 0 #b06e00, 0 8px 14px rgba(0,0,0,.2); }
   .bbu-play { display: flex; align-items: center; gap: 16px; height: 108px; padding: 0 44px 0 18px; border: none; border-radius: 56px; cursor: pointer; touch-action: manipulation;
     background: linear-gradient(#7ad86f, #3fae49 55%, #2f8f3a); box-shadow: inset -6px -8px 0 rgba(0,0,0,.1), 0 8px 0 #24702d, 0 12px 22px rgba(0,0,0,.18);

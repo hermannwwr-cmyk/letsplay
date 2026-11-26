@@ -20,7 +20,7 @@
   // ---------- sizes and colours ----------
   const HW = 1.25, WIDTH = 2.5, TYRE_R = 0.52, WHEEL_X = 1.08;
   const SKIRT0 = 0.36, FLOOR_Y = 0.66, WAIST = 1.32;
-  const FRAME = '#33303a', RUBBER = '#26232b', GLASS = '#d6f1fb', GLASS_A = 0.34, GLASS_OPAQUE = '#86a3b6';
+  const FRAME = '#33303a', RUBBER = '#26232b', GLASS = '#d6f1fb', GLASS_A = 0.34, GLASS_OPAQUE = '#8ab6d0';
   // ('&' = lit by the cabin lights at night, see setCabinLight)
   const FLOOR = '&#8f8699', LINING = '&#efe6d6', ARCH = '#3f3744', HOUSING = '&#7a7284', CEIL = '&#f4eee2';
   const SEAT_A = '&#4f8fe0', SEAT_B = '&#f29a3a', SEAT_UP = '&#6f86c9', CABIN_LAMP = '^#fff1c8';
@@ -625,7 +625,7 @@
       g.add(wim); wipers.mesh = wim;
     }
     let blob = null;
-    if (opts.shadow !== false && BB.mk.blob) { blob = BB.mk.blob(3.6, L + 1.6); blob.position.y = 0.08; g.add(blob); }
+    if (opts.shadow !== false && BB.mk.blob) { blob = BB.mk.blob(4.5, L + 2.2); blob.position.y = 0.08; g.add(blob); }
 
     return { g, wipers, L, zf, zb, lowMesh, upMesh, mats: [lowMat, upMat, kerbMat].filter(Boolean), kerbMesh, seats, doors, wheels, steer, hubs, blob, roof1, roof0, winTop };
   }
@@ -1164,7 +1164,7 @@
       const hub = new THREE.Group(); hub.name = 'wheelHub'; hub.position.set(0, R, z); g.add(hub); hubs.push(hub);
     }
     let blob = null;
-    if (opts.shadow !== false && BB.mk.blob) { blob = BB.mk.blob(V.W + 1.0, L + 1.2); blob.position.y = 0.08; g.add(blob); }
+    if (opts.shadow !== false && BB.mk.blob) { blob = BB.mk.blob(V.W * 1.8, L + 1.9); blob.position.y = 0.08; g.add(blob); }
     return { g, L, zf, zb, V, lowMesh, upMesh, kerbMesh, extra, mats: [lowMat, upMat, kerbMat].filter(Boolean), seats, doors, wheels, steer, hubs, blob,
       roof1, moving, doorLocal, stretcherLocal, serverLocal, stickerSpots, wipers: [] };
   }

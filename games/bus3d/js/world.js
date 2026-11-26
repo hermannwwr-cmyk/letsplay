@@ -530,6 +530,7 @@
   // Draw calls: sky, ground, roads, town, green, lit windows, lamp heads, lamp pools, signs, train (+ its windows),
   // clouds, cars, birds: about 14 for the whole world.
   let train = null, trainWin = null, clouds = null, sky = null, cars = null, birds = null, pools = null;
+  let seaGlints = null;
   let trainX = -200, trainDir = 1, trainWait = 0;
   let amb, hemi, sun, winMat, lampMat, poolMat, cloudMat;
   let WIN = null;                          // the lit-at-night windows builder (filled alongside the town)
@@ -817,10 +818,12 @@
     buildPlaces(town);
     const poolPts = buildLamps(town, lamps);
     fitSceneSpots((st) => blockedBay(st) || underDeck(st), nearYard);   // (after the trees and lamp posts, which don't make way for the scene spots)
+    const meadow = BB.mk.builder(); buildMeadow(meadow);   // (last, with its own random numbers: soft grass patches, flowers and bushes; nothing to bump into)
     roadMat = new THREE.MeshLambertMaterial({ vertexColors: true });   // its own material: it darkens in the rain
     for (const p of green.parts) town.parts.push(p);      // (same material: one draw per area)
     green.parts = [];
     addChunked(scene, roads, roadMat, 'roads', false, 205, 260); addChunked(scene, town, BB.mk.mat, 'town', false, 205, 130);
+    scene.add(tag(meadow.mesh(roadMat), 'meadow'));   // (small and light, about 4,000 triangles: one mesh; darker when wet like the roads)
     const farMesh = (m, name) => { m.geometry.computeBoundingBox(); m.userData.box = m.geometry.boundingBox.clone(); FAR_CULL.push(m); scene.add(tag(m, name)); };
     for (const k in DIST_B) if (DIST_B[k].parts.length) farMesh(DIST_B[k].mesh(), 'd:' + k);
     washFx = buildWashFx();
@@ -840,6 +843,7 @@
     scene.add(buildSigns());
     train = buildTrain(); scene.add(train);
     clouds = buildClouds(); scene.add(clouds);
+    seaGlints = buildSeaGlints(); scene.add(seaGlints);
     cars = buildCars(); scene.add(cars);
     birds = buildBirds(); scene.add(birds);
     W.built = true;
@@ -869,9 +873,9 @@
   // share 0..1 = morning -> afternoon -> evening -> night (the hub's sky clock). Keyframes:
   // [share, top, middle, horizon(=fog), ambient colour, ambient, sun colour, sun, hemi, glow colour, glow]
   const SKY = [
-    [0.00, '#5fb8ef', '#a6dcf6', '#ffe9d8', '#fff6ec', 0.52, '#fff0d8', 0.42, 0.22, '#ffc8c0', 0.30],
-    [0.40, '#4fb1ea', '#9fd7f4', '#fbeed6', '#fff8ec', 0.52, '#fff0d0', 0.42, 0.22, '#ffe0b0', 0.00],
-    [0.62, '#69b0e6', '#b9def2', '#ffe2a8', '#fff0dc', 0.50, '#ffe0b0', 0.42, 0.20, '#ffd27a', 0.25],
+    [0.00, '#5fb8ef', '#a6dcf6', '#ffe9d8', '#fff6ec', 0.48, '#fff0d8', 0.50, 0.22, '#ffc8c0', 0.30],
+    [0.40, '#4fb1ea', '#9fd7f4', '#fbeed6', '#fff8ec', 0.48, '#fff0d0', 0.50, 0.22, '#ffe0b0', 0.00],
+    [0.62, '#69b0e6', '#b9def2', '#ffe2a8', '#fff0dc', 0.47, '#ffe0b0', 0.49, 0.20, '#ffd27a', 0.25],
     [0.72, '#f0967a', '#ffbf8e', '#ffd27a', '#ffdcbc', 0.48, '#ffb27a', 0.44, 0.18, '#ffb070', 0.55],
     [0.80, '#c86a9e', '#ef8f9c', '#ffa07a', '#ecbccc', 0.43, '#ff9a8a', 0.30, 0.14, '#ff8c9c', 0.45],
     [0.90, '#4a3f8f', '#86599e', '#c9789c', '#a99ed4', 0.38, '#c0a0e0', 0.18, 0.10, '#d070a0', 0.25],
@@ -882,6 +886,7 @@
     glow: { value: new THREE.Color() }, glowAmt: { value: 0 }, sunDir: { value: new THREE.Vector3(0, 1, 0) },
     sunCol: { value: new THREE.Color('#ffd45c') }, sunAmt: { value: 1 }, moonDir: { value: new THREE.Vector3(0.4, 0.6, 0.7).normalize() },
     moonAmt: { value: 0 }, starAmt: { value: 0 }, time: { value: 0 },
+    hill1: { value: new THREE.Color() }, hill2: { value: new THREE.Color() },   // two layers of far paper hills on the horizon
   };
   W.sky = { share: 0, target: 0, night: 0, evening: 0, lights: 0 };
   let roadMat = null, puddles = null, rain = null, rainbow = null;
@@ -891,7 +896,7 @@
       uniforms: skyU, side: THREE.BackSide, depthWrite: false, fog: false,
       vertexShader: 'varying vec3 vDir; void main(){ vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
       fragmentShader: `precision highp float;
-        uniform vec3 top, mid, hor, glow, sunDir, sunCol, moonDir; uniform float glowAmt, sunAmt, moonAmt, starAmt, time;
+        uniform vec3 top, mid, hor, glow, sunDir, sunCol, moonDir, hill1, hill2; uniform float glowAmt, sunAmt, moonAmt, starAmt, time;
         varying vec3 vDir;
         float hash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
         void main() {
@@ -915,6 +920,14 @@
               float r = length(fract(p) - 0.5), tw = 0.55 + 0.45 * sin(time * 2.2 + h * 80.0);
               c = mix(c, vec3(1.0, 0.97, 0.8), starAmt * tw * (1.0 - smoothstep(0.1, 0.2, r)) * smoothstep(0.05, 0.25, y));
             }
+          }
+          // layered paper hills all round the horizon (in front of the setting sun and the rising moon)
+          if (y < 0.11) {
+            float az = atan(d.x, d.z);
+            float h1 = 0.052 + 0.026 * sin(az * 5.0 + 1.3) + 0.016 * sin(az * 9.0 + 4.0) + 0.005 * sin(az * 23.0);
+            float h2 = 0.024 + 0.016 * sin(az * 7.0 + 2.1) + 0.010 * sin(az * 13.0 + 0.7);
+            c = mix(c, hill1, smoothstep(h1 + 0.0012, h1 - 0.0012, y));
+            c = mix(c, hill2, smoothstep(h2 + 0.0012, h2 - 0.0012, y));
           }
           gl_FragColor = vec4(c, 1.0);
         }`,
@@ -948,6 +961,8 @@
     skyU.sunAmt.value = clamp01((el + 0.05) / 0.08);
     lerpCol(skyU.sunCol.value, '#ffd45c', '#ff8a3d', clamp01((ph - 0.5) / 0.3));
     skyU.moonAmt.value = clamp01((ph - 0.78) / 0.14); skyU.starAmt.value = clamp01((ph - 0.82) / 0.12);
+    lerpCol(skyU.hill2.value, '#86c2ae', '#232a66', night).lerp(_c1.set(evening > 0 ? '#c9799a' : '#86c2ae'), evening * 0.6);
+    skyU.hill1.value.copy(skyU.hill2.value).lerp(skyU.hor.value, 0.66 - 0.2 * night); skyU.hill2.value.lerp(skyU.hor.value, 0.46 - 0.2 * night);
     if (cloudMat) lerpCol(cloudMat.color, '#ffffff', ph < 0.85 ? '#ffc6b0' : '#5c6299', ph < 0.85 ? evening : night).lerp(_c1.set('#ffffff'), ph < 0.85 ? 0.25 : 0);
     if (winMat) winMat.emissive.set('#ffbf52').multiplyScalar(0.95 * lights);
     if (lampMat) lerpCol(lampMat.color, '#e9e4da', '#fff1b0', lights);
@@ -1054,6 +1069,8 @@
     if (roadMat) roadMat.color.setScalar(1 - 0.24 * wx.wet);
     if (puddles) { puddles.visible = wx.wet > 0.03; puddles.material.opacity = 0.5 * wx.wet; }
     if (rain) { rain.visible = wx.rain > 0.02; rain.material.uniforms.uAmount.value = wx.rain; rain.material.uniforms.uDark.value = nightK; }
+    { const mist = 0.8 * Math.max(c * 0.8, wx.rain); skyU.hill1.value.lerp(skyU.hor.value, mist); skyU.hill2.value.lerp(skyU.hor.value, mist); }   // the hills sink into the mist
+    if (seaGlints) seaGlints.material.uniforms.uAmt.value = (1 - nightK) * (1 - c * 0.8);
     if (rainbow) { rainbow.visible = wx.bow > 0.01; rainbow.material.opacity = wx.bow; }
     W.sky.lights = Math.max(W.sky.lights, wx.storm * 0.8);        // headlights and lamps on in a storm
     if (winMat && wx.storm > 0) winMat.emissive.set('#ffbf52').multiplyScalar(0.95 * W.sky.lights);
@@ -1333,6 +1350,81 @@
   ];
   const inReserved = (x, z) => RESERVED.some((r) => x > r[0] && x < r[2] && z > r[1] && z < r[3]);
   W.inReserved = inReserved;
+
+  // ---------- meadow details: soft grass patches, flower clumps and low bushes along the roads ----------
+  // Paper scraps on the grass so the big lawns aren't one flat green. They keep their own random numbers (the town's
+  // layout stays as it was), have no colliders, and are about 4,000 triangles in all, in one mesh of their own. Flat things may lie
+  // anywhere on the grass; bushes stay 11 or more from the road edge, clear of the scenes staged by the kerb.
+  let dseed = 24680;
+  const drnd = () => { dseed = dseed + 0x6D2B79F5 | 0; let t = Math.imul(dseed ^ dseed >>> 15, 1 | dseed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  const dr = (a, b) => a + drnd() * (b - a), dpick = (arr) => arr[Math.floor(drnd() * arr.length)];
+  const PETALS = ['#ffffff', '#ffd45c', '#ff8fab', '#ff6b5c', '#c7a8f5', '#fff0a8'];
+  // (the beach, the garden of tree towers and the wheel's pier stand in the sea's near strip)
+  const onShore = (x, z) => (x > 48 && x < 192 && z < SZ + 60) || (Math.abs(x + 45) < 38 && z < SZ + 64) || (Math.abs(x + 122) < 25 && z < SZ + 66);
+  function buildMeadow(b) {
+    const DISC = new THREE.CircleGeometry(1, 6); DISC.rotateX(-Math.PI / 2);
+    const BUD = new THREE.ConeGeometry(1, 1, 3, 1, true), BUSH = new THREE.OctahedronGeometry(1, 0);   // (kept very cheap: 3 and 8 triangles)
+    const PATCH = [light(P.grass, 0.13), light(P.grass, 0.2), '#69b553', '#7fc862'];
+    let n = 0;
+    for (const e of W.roads.edges) {
+      if (e.kind === 'yard') continue;
+      for (let s = 5; s < e.length - 5; s += 3.6) {
+        const p = W.pointAt(e, s);
+        for (const side of [1, -1]) {
+          if (drnd() < 0.5) continue;
+          const u = drnd(), off = e.half + 4.6 + u * u * 34, a = dr(-2, 2);
+          const x = p.x + p.dz * side * off + p.dx * a, z = p.z - p.dx * side * off + p.dz * a;
+          if (z > SZ + 8 || !clearOfRoads(x, z, RH + 4.4) || W.pushOut(x, z, 1.6).hit > 0.001 || inCamSpot(x, z)) continue;
+          const y = W.groundY(x, z) ? 0.27 : 0, k = drnd(); n++;
+          if (k < 0.46) {                                        // a paler or deeper scrap of grass
+            const r = dr(1.8, 4.6);
+            b.add(DISC, dpick(PATCH), x, y + 0.03, z, dr(0, 3.1), 0, 0, r * dr(1, 1.7), 1, r);
+          } else if (k < 0.8 || off < e.half + 11) {             // a clump of flowers in one or two colours
+            const c1 = dpick(PETALS), c2 = drnd() < 0.5 ? c1 : dpick(PETALS), m = 3 + Math.floor(drnd() * 3);
+            for (let i = 0; i < m; i++) {
+              const fa = i / m * 6.283 + dr(0, 0.8), fr = dr(0.25, 1.05), fs = dr(0.2, 0.3);
+              b.add(BUD, i % 2 ? c2 : c1, x + Math.cos(fa) * fr, y + 0.2, z + Math.sin(fa) * fr * 0.75, dr(0, 1.5), 0, 0, fs, 0.36, fs);
+            }
+          } else {                                               // a low round bush, some in flower
+            const r = dr(0.7, 1.15), col = dpick(TREE_GREENS);
+            b.add(DISC, P.grassDark, x + 0.35, y + 0.035, z + 0.3, 0, 0, 0, r * 1.45, 1, r * 1.15);
+            b.add(BUSH, col, x, y + r * 0.5, z, dr(0, 3), 0, 0, r, r * 0.72, r);
+            if (drnd() < 0.25) b.add(BUSH, light(col, 0.16), x - r * 0.5, y + r * 0.62, z - r * 0.35, dr(0, 3), 0, 0, r * 0.55, r * 0.5, r * 0.55);
+            if (drnd() < 0.35) { const c = dpick(PETALS); for (let i = 0; i < 3; i++) { const fa = i * 2.1 + dr(0, 1); b.add(BUD, c, x + Math.cos(fa) * r * 0.55, y + r * 0.95, z + Math.sin(fa) * r * 0.55, 0, 0, 0, 0.2, 0.3, 0.2); } }
+          }
+        }
+      }
+    }
+    // the sea: pale paper wave streaks (static; the twinkles are buildSeaGlints)
+    const sea = DIST_B.waterfront;
+    if (sea) for (let i = 0; i < 150; i++) {
+      const x = dr(-300, 420), z = SZ + 30 + dr(0, 1) * dr(0, 1) * 210;
+      if (onShore(x, z)) continue;
+      sea.add(DISC, i % 3 ? '#74c3e8' : '#8fd2ef', x, 0.1, z, 0, 0, 0, dr(4, 13), 1, dr(0.3, 0.65));
+    }
+    W.meadowCount = n;
+  }
+  // Sunlight twinkling on the sea: little diamonds that open and close in the vertex shader (one draw call, only
+  // drawn near the waterfront, faded out at night and in the rain).
+  function buildSeaGlints() {
+    const N = 110, pos = new Float32Array(N * 18), off = new Float32Array(N * 12), ph = new Float32Array(N * 6);
+    const Q = [[-1, 0], [0, 1], [1, 0], [-1, 0], [1, 0], [0, -1]];
+    for (let i = 0; i < N; i++) {
+      let x, z; do { x = dr(-230, 330); z = SZ + 30 + dr(0, 1) * dr(0, 1) * 150; } while (onShore(x, z));
+      const s = dr(0.5, 1.1), f = dr(0, 6.283);
+      for (let v = 0; v < 6; v++) { pos.set([x, 0.14, z], i * 18 + v * 3); off.set([Q[v][0] * s * 1.5, Q[v][1] * s * 0.6], i * 12 + v * 2); ph[i * 6 + v] = f; }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('aOff', new THREE.BufferAttribute(off, 2)); geo.setAttribute('aPh', new THREE.BufferAttribute(ph, 1));
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { uTime: { value: 0 }, uAmt: { value: 1 } }, transparent: true, depthWrite: false,
+      vertexShader: 'attribute vec2 aOff; attribute float aPh; uniform float uTime; void main(){ float s = max(0.0, sin(uTime * 1.3 + aPh)); s = s * s * s; gl_Position = projectionMatrix * modelViewMatrix * vec4(position + vec3(aOff.x * s, 0.0, aOff.y * s), 1.0); }',
+      fragmentShader: 'uniform float uAmt; void main(){ gl_FragColor = vec4(1.0, 1.0, 0.94, 0.85 * uAmt); }',
+    });
+    const m = new THREE.Mesh(geo, mat);
+    m.name = 'seaGlints'; geo.computeBoundingBox(); m.userData.box = geo.boundingBox.clone(); m.userData.farR = 150; FAR_CULL.push(m);
+    return m;
+  }
 
   // ---------- little people (static, merged): on void decks, at the hawker centre, in the park ----------
   const SKINS = ['#f1c7a0', '#d9a679', '#a8714a', '#f5d3b5', '#7a4b2e'], HAIRS = ['#3a2a2c', '#6b4a2e', '#1f1b22', '#b5793e', '#d8d0c8'];
@@ -1824,12 +1916,20 @@
   // Soft paper clouds: flat-bottomed clusters of puffs, white on top and a touch of lilac underneath.
   function buildClouds() {
     const b = BB.mk.builder();
-    for (let k = 0; k < 14; k++) {
-      const a = k / 14 * Math.PI * 2 + rr(0, 0.4), r = rr(120, 260), y = rr(55, 90);
+    for (let k = 0; k < 10; k++) {
+      const a = k / 10 * Math.PI * 2 + rr(0, 0.4), r = rr(120, 260), y = rr(55, 90);
       const x = Math.cos(a) * r, z = Math.sin(a) * r, s = rr(0.8, 1.4);
       b.at(x, y, z, -a, (q) => {
-        q.ball(9 * s, '#eef0fb', 0, 0, 0, 1, 2.4, 0.35, 1.1);
+        q.ball(9 * s, '#eef0fb', 0, 0, 0, 0, 2.4, 0.35, 1.1);
         for (let j = 0; j < 4; j++) q.ball(rr(4.5, 7) * s, '#ffffff', rr(-11, 11) * s, rr(1.5, 4) * s, rr(-3, 3) * s, 0, 1.2, 0.85, 1);
+      });
+    }
+    // a ring of low cloud banks just above the far hills (the driving camera looks down, so these are the ones it sees)
+    for (let k = 0; k < 10; k++) {
+      const a = k / 10 * Math.PI * 2 + dr(0, 0.45), r = dr(286, 312), y = dr(27, 44), s = dr(1.1, 1.8);
+      b.at(Math.cos(a) * r, y, Math.sin(a) * r, -a + Math.PI / 2, (q) => {
+        q.ball(8 * s, '#f1f2fb', 0, 0, 0, 0, 2.6, 0.32, 1);
+        for (let j = 0; j < 3; j++) q.ball(dr(4, 6.5) * s, '#ffffff', (j - 1) * dr(7, 10) * s, dr(1.2, 3.2) * s, dr(-2, 2), 0, 1.25, 0.8, 1);
       });
     }
     cloudMat = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false, transparent: true, opacity: 0.94 });
@@ -2672,6 +2772,7 @@
       rainbow.position.set(cp.x - sd.x / l * 300, -30, cp.z - sd.z / l * 300);
       rainbow.lookAt(cp.x, -30, cp.z);
     }
+    if (seaGlints && seaGlints.visible) seaGlints.material.uniforms.uTime.value = clock;
     if (clouds) { clouds.rotation.y += dt * 0.004; if (BB.camera) { clouds.position.x = BB.camera.position.x; clouds.position.z = BB.camera.position.z; } }
     if (wheelRim) wheelRim.rotation.z += dt * 0.07;
     if (planes) updatePlanes(dt);

@@ -240,12 +240,14 @@
   BB.mk = {
     builder: () => new Builder(),
     mat: new THREE.MeshLambertMaterial({ vertexColors: true }),
-    // Soft round blob shadow texture (no shadow maps).
+    // Soft shadow texture for under the vehicles (no shadow maps): a rounded rectangle with a blurred edge, so a
+    // long bus stands on a shadow of its own shape (the middle 56% is the body, the rest the soft edge).
     blobTex: (function () {
       const c = document.createElement('canvas'); c.width = c.height = 64;
-      const x = c.getContext('2d'), g = x.createRadialGradient(32, 32, 4, 32, 32, 31);
-      g.addColorStop(0, 'rgba(40,24,48,0.42)'); g.addColorStop(0.6, 'rgba(40,24,48,0.22)'); g.addColorStop(1, 'rgba(40,24,48,0)');
-      x.fillStyle = g; x.fillRect(0, 0, 64, 64);
+      const x = c.getContext('2d');
+      x.shadowColor = 'rgba(40,24,48,0.5)'; x.shadowBlur = 9; x.shadowOffsetX = 200; x.fillStyle = '#000';
+      const r = 9, x0 = 13 - 200, y0 = 9, x1 = 51 - 200, y1 = 55;
+      x.beginPath(); x.moveTo(x0 + r, y0); x.arcTo(x1, y0, x1, y1, r); x.arcTo(x1, y1, x0, y1, r); x.arcTo(x0, y1, x0, y0, r); x.arcTo(x0, y0, x1, y0, r); x.closePath(); x.fill();
       return new THREE.CanvasTexture(c);
     })(),
   };
@@ -782,7 +784,7 @@
         case 'ambulance':
           vehicle(x, { body: '#fdfbf6', box: '#fdfbf6', top: 30, cabTop: 40 });
           x.fillStyle = '#5cb85c'; x.fillRect(6, 58, 88, 5);
-          x.fillStyle = '#e8473c'; x.fillRect(26, 40, 16, 5); x.fillRect(31.5, 34.5, 5, 16);
+          paper(x, (p) => heartP(p, 34, 43, 0.27), '#ff6b8a', { depth: 0.3 });   // (a heart, like the ambulance itself: never a red cross)
           paper(x, (p) => rrP(p, 70, 33, 12, 7, 3), '#4fa3e0', { depth: 0.2 });
           break;
         case 'police':
