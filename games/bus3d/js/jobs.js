@@ -151,7 +151,7 @@
   function pickTheme() {
     if (level() < 1 || (BB.save.jobsDone | 0) < 3) return null;     // the first jobs stay close to home
     if ((J.sinceSpecial == null ? 2 : J.sinceSpecial) < 2 || Math.random() > 0.5) return null;
-    if (meetPoint()) return null;                                   // friends are out driving: stay with them (no themed trip away)
+    if (friendsOut()) return null;                                  // friends are out driving: stay with them (no themed trip away)
     // only when the themed stop is near enough by road (about 400 units), so no long trip across the map
     const here = BB.bus.atStop || J.lastStop;
     const near = (id) => { const st = themeStop(id); if (!st) return id === 'school'; return st !== here && stopDist(here && okStop(here) ? here : null, st) <= 400; };
@@ -1370,20 +1370,36 @@
   const LEG_MIN = 40, LEG_MAX = 80;         // ~70 units apart: mostly the very next stop, about 7 s of driving
   const okStop = (s) => s && s.pos && s.edge != null && s.say;
   // ---- playing together: jobs bring the players to one place (the owner asked: "all the players are together, even
-  // if it takes long to drive to the players"). The meeting point is the middle of everyone who is out driving now
-  // (us and the friends, BB.net.driving()); every device works out about the same point, so everybody drives to
-  // the same few stops. null when nobody else is out driving: then nothing here changes anything.
+  // if it takes long to drive to the players"). Everybody drives to one player, the leader: of all who are out
+  // driving now (us and the friends, BB.net.driving()), the one who has been in the room longest (the lowest member
+  // id; every device sees the same one). The leader just plays on in short hops, so the meeting place moves slowly
+  // and nobody chases a place the others are leaving. null when nobody else is out driving, or we lead: then
+  // nothing here changes anything.
   const MEET_FAR = 70, MEET_RING = 85;
+  function friendsOut() {
+    try { const fr = BB.net && typeof BB.net.driving === 'function' ? BB.net.driving() : null; return fr && fr.length ? fr : null; } catch (e) { return null; }
+  }
   function meetPoint() {
-    let fr = null;
-    try { fr = BB.net && typeof BB.net.driving === 'function' ? BB.net.driving() : null; } catch (e) { fr = null; }
-    if (!fr || !fr.length) return null;
-    const me = BB.bus.pos || { x: 0, z: 0 };
-    let x = me.x, z = me.z;
-    for (const f of fr) { x += f.x; z += f.z; }
-    return { x: x / (fr.length + 1), z: z / (fr.length + 1) };
+    const fr = friendsOut(); if (!fr) return null;
+    let lead = fr[0];
+    for (const f of fr) if (f.id < lead.id) lead = f;
+    if (!(BB.net.self > lead.id)) return null;                      // we are the leader: the others come to us
+    return { x: lead.x, z: lead.z };
   }
   J.meetPoint = meetPoint;
+  // The leader's own short hops lean towards the others (the middle of the friends out driving), so they meet sooner
+  // and then stay near each other: from the usual choice of next places (pool: [{ s }]), the ones near the friends,
+  // else the two nearest to them. No friends out, or we follow (meetPick did that already): pool as it is.
+  function leadPool(pool) {
+    if (pool.length < 2) return pool;
+    const fr = friendsOut(); if (!fr) return pool;
+    let x = 0, z = 0;
+    for (const f of fr) { x += f.x; z += f.z; }
+    x /= fr.length; z /= fr.length;
+    const by = pool.map((o) => ({ o, dg: hypot2(o.s.pos.x - x, o.s.pos.z - z) })).sort((a, b) => a.dg - b.dg);
+    const ring = by.filter((e) => e.dg <= MEET_RING);
+    return (ring.length ? ring : by.slice(0, 2)).map((e) => e.o);
+  }
   // The next place when friends are out driving, from `from` (a bay, or null = where the vehicle is) among list
   // (bus stops for a bus, the ride's own spots for the others):
   // - a long way from the meeting point: one of the two places nearest to it, however long the drive;
@@ -1403,16 +1419,17 @@
     const nm = (t) => t && ((t.say && t.say !== 'here') ? t.say : t.near), prev = nm(from);
     const reach = (o) => isFinite(stopDist(from, o.s));
     let pool;
-    if (hypot2(p.x - g.x, p.z - g.z) > MEET_FAR) {
+    const far = hypot2(p.x - g.x, p.z - g.z);
+    if (far > MEET_FAR) {
+      // (only places that really bring us nearer: a ride with few places of its own may have none that way)
       c.sort((a, b) => a.dg - b.dg);
-      pool = c.slice(0, 4).filter(reach).slice(0, 2);
+      pool = c.slice(0, 4).filter((o) => o.dg < far - 20 && reach(o)).slice(0, 2);
     } else {
       pool = c.filter((o) => o.dg <= MEET_RING && o.dp <= 130);
       const other = pool.filter((o) => nm(o.s) !== prev);          // (not the same spoken name twice running)
       if (other.length) pool = other;
       if (pool.length > 1) { const fresh = pool.filter((o) => recentLegs.indexOf(o.s.id) < 0); if (fresh.length) pool = fresh; }
-      pool = pool.filter(reach);
-      if (!pool.length) { c.sort((a, b) => a.dg - b.dg); pool = c.slice(0, 3).filter(reach); }
+      pool = pool.filter(reach);                                   // (none: the usual short hop keeps us near enough)
     }
     if (!pool.length) return null;
     const bag = [];
@@ -1441,6 +1458,7 @@
       if (!fresh.length) fresh = ranked.filter((o) => o.d >= 25 && o.d <= 160 && differ(o)).slice(0, 4);
       if (fresh.length) pool = fresh;
     }
+    pool = leadPool(pool);
     // named stops count three times, so they come up more often than the small ones
     const bag = []; for (const o of pool) { bag.push(o.s); if (!o.s.minor) bag.push(o.s, o.s); }
     return BB.pick(bag);
@@ -1687,6 +1705,7 @@
     const recent = recentLegs.slice(-Math.min(8, pool.length - (pool.length >= 4 ? 2 : 1)));   // (always leaves one or two to pick from)
     const fresh = pool.length > 1 ? pool.filter((o) => recent.indexOf(o.s.id) < 0) : pool;
     if (fresh.length) pool = fresh;
+    pool = leadPool(pool);
     const bag = []; for (const o of pool) { const n = weight ? weight(o.s) : 1; for (let i = 0; i < n; i++) bag.push(o.s); }
     const t = BB.pick(bag.length ? bag : pool.map((o) => o.s));
     if (t && t.id) { recentLegs.push(t.id); if (recentLegs.length > 8) recentLegs.shift(); }

@@ -11,8 +11,8 @@
    or tow truck in its own colours (buildBody's ride()), with its siren lights flashing while its siren is on.
    A friend on their home screen or in their garage stands in the workshop, where our own ride stands on ours: such
    a friend is never drawn (state flag 64, or simply being inside the workshop).
-   BB.net.driving() lists the friends out driving now: jobs.js sends the next stops their way (meetPick), so the
-   players end up together.
+   BB.net.driving() lists the friends out driving now: jobs.js sends the next stops towards the one of them who has
+   been here longest (meetPick), so the players end up together.
 
    MODES (saved as bus3d.netmode; whenever online the game joins by itself, at start and again after a dropped link,
    coming back online or the page showing again):
@@ -36,7 +36,7 @@
      BB.net.newFamily()       a fresh random family code; saved; reconnects if in family mode. -> the new ids
      BB.net.status()          'offline' | 'connecting' | 'alone' | 'together'
      BB.net.friends()         -> [{ id, type, paint, color, routeNo }] the other rides here now (routeNo '' if not a bus)
-     BB.net.driving()         -> [{ x, z }] the friends out driving in the town now (not home, garage, asleep, hidden)
+     BB.net.driving()         -> [{ id, x, z }] the friends out driving in the town now (not home, garage, asleep, hidden)
      BB.net.PICS / pic(name, size)   the 12 code pictures (and UI pictures: together, home, speak, tick, cross, del,
                               cloud, join, make) as paper-cut canvases
      BB.net.showFamily()      a card: our code (spoken, each picture lit in turn) and the buses here now
@@ -370,13 +370,13 @@
     return !!ws && Math.abs(s.x - ws.x) < 17 && Math.abs(s.z - ws.z) < 17;
   }
   // the friends who are out driving in the town now (not on their home screen or in the garage, not asleep, not put
-  // away, heard from lately): jobs.js sends our next stops their way, so everybody ends up together
+  // away, heard from lately): jobs.js sends our next stops to the one with the lowest id, so everybody ends up together
   N.driving = function () {
     const out = [], now = performance.now() / 1000;
     for (const r of remotes.values()) {
       const s = r.snaps && r.snaps[r.snaps.length - 1];
       if (!s || r.leaving || r.lost || (s.fl & 24) || inShop(s) || now - (r.heard || 0) > 12) continue;
-      out.push({ x: s.x, z: s.z });
+      out.push({ id: r.id, x: s.x, z: s.z });
     }
     return out;
   };
