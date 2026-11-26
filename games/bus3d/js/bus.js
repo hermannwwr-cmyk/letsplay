@@ -1353,6 +1353,8 @@
     }
     const mid = lw(0, 2.2, -frontOff());
     const checks = [heads[0], heads[4], heads[heads.length - 1], req[iDoor], req[iDoor + 1], req[iDoor + 2], req[iDoor + 3], mid].filter(Boolean);
+    // a scene: nothing solid in front of its props or either end of the vehicle either
+    if (st && Array.isArray(st.frame) && st.frame.length) for (let i = 2 * NS; i < iDoor; i += 2) checks.push(req[i]);
     const clear = (p) => {
       if (W().insideTall(p.pos.x, p.pos.y, p.pos.z)) return false;
       for (const v of checks) if (W().blocksSight(p.pos.x, p.pos.y, p.pos.z, v.x, v.y, v.z)) return false;
