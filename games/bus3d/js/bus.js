@@ -1339,7 +1339,10 @@
       }
       d = Math.max(d, minD);
       const look = place(yaw, pitch, d, pts);
-      return { pos: fitCam.position.clone(), look, d, gap: headGap() };
+      // does what must show really sit in the free space? (the fit can fail on a narrow phone column at a steep yaw)
+      const bq = box(req), sl = 0.12 * Math.max(aw, ah);
+      const fits = bq.x0 > R.x0 - sl && bq.x1 < R.x1 + sl && bq.y0 > R.y0 - sl && bq.y1 < R.y1 + sl;
+      return { pos: fitCam.position.clone(), look, d, gap: headGap(), fits };
     }
     // the smallest on-screen gap between neighbouring heads (in a row, and across the two rows) for fitCam as it is
     function headGap() {
@@ -1356,11 +1359,19 @@
     // a scene: nothing solid in front of its props or either end of the vehicle either
     if (st && Array.isArray(st.frame) && st.frame.length) for (let i = 2 * NS; i < iDoor; i += 2) checks.push(req[i]);
     const clear = (p) => {
+      if (p.fits === false) return false;
       if (W().insideTall(p.pos.x, p.pos.y, p.pos.z)) return false;
       for (const v of checks) if (W().blocksSight(p.pos.x, p.pos.y, p.pos.z, v.x, v.y, v.z)) return false;
       if (underViaduct(p.pos.x, p.pos.z) && p.pos.y > 10.2) return false;
       return true;
     };
+    // how many of the must-see points a view can't see (a scene's fallback: the view that hides the least)
+    const hidden = (p) => {
+      if (p.fits === false || W().insideTall(p.pos.x, p.pos.y, p.pos.z) || (underViaduct(p.pos.x, p.pos.z) && p.pos.y > 10.2)) return 1e9;
+      let n = 0; for (const v of checks) if (W().blocksSight(p.pos.x, p.pos.y, p.pos.z, v.x, v.y, v.z)) n++;
+      return n;
+    };
+    let leastHidden = null;
     const D2R = Math.PI / 180;
     // [yaw, pitch, nearest distance]: not too close first (people on the pavement would loom large), then closer;
     // then a little along the kerb; then higher up, looking down over the building in the way
@@ -1387,11 +1398,11 @@
     const sceneFrame = !!(st && Array.isArray(st.frame) && st.frame.length);
     for (const [yaw, pitch, md, wv] of cands) {
       const p = plan(yaw * D2R, pitch * D2R, md, wv);
-      if (!clear(p)) continue;
+      if (!clear(p)) { if (sceneFrame) { const n = hidden(p); if (!leastHidden || n < leastHidden.n) leastHidden = { p, n }; } continue; }
       if (p.gap >= 34 || sceneFrame) { pick = p; break; }       // (a scene counts its props, not heads: the first clear view)
       if (!best || (p.gap > best.gap * 1.2 && pitch <= 38)) best = p;   // (not steeper than that for a little more room)
     }
-    pick = pick || best || plan(0, 62 * D2R, near, true);
+    pick = pick || best || (leastHidden && leastHidden.n < 1e9 && leastHidden.p) || plan(0, 62 * D2R, near, true);
     return { key, pos: pick.pos, look: pick.look, fov: sceneFov };
   }
   // ---------- the garage cameras ----------
