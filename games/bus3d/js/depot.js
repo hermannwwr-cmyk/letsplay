@@ -78,7 +78,7 @@
   }
   // The other rides (fleet.js: taxi, ice cream van, tow truck, ambulance, fire engine) are bought once with coins; the
   // three buses are free. Owned ones are saved in save.vehiclesOwned.
-  const VEH_PRICE = { taxi: 20, icecream: 30, tow: 40, ambulance: 50, fire: 60 };
+  const VEH_PRICE = { taxi: 40, icecream: 60, tow: 80, ambulance: 100, fire: 120 };   // (doubled with the slower coins; any order)
   const BUS_KINDS = ['bendy', 'double', 'single'];
   const ownsVeh = (id) => !VEH_PRICE[id] || S.vehiclesOwned.includes(id);
   // a bus (route sign, number) or one of the other rides

@@ -7,7 +7,7 @@
    goodbye and count what's left for taking away, with "5 and 2 more" ten-frame language; the answer buttons are dimmed
    until "Now, which number is it?". The same scene guides the first question of each kind. Tap the card to skip it.
    Hint after 2 wrong tries: the seats glow on the card and numbers glow above the bus's seats.
-   Cash: 3 coins for a first-try answer, 2 after a retry (never taken away), 5 more for the whole job; coins fly to the
+   Cash: 1 coin per answered stop (never taken away), 2 more for the whole job; coins fly to the
    cash counter. Also: low-fuel trips to the depot and the friendly tow when the tank runs dry.
    Exposes BB.jobs = { current, phase, start(), update(dt), busy(), allOff(cb), ... }.
    Every flow timer goes through BB.later / BB.wait (they freeze while the game is held) and every spoken line is
@@ -18,7 +18,8 @@
   const BB = window.BB, P = BB.P;
   const J = BB.jobs = { current: null, phase: 'idle', walkers: [], waiting: [], extras: [], question: null, teaching: false };
 
-  const CASH_STOP = 3, CASH_STOP_RETRY = CASH_STOP, CASH_JOB = 5;   // same coins after a retry: no hidden penalty
+  // (slower on purpose, the owner's choice: about 50 coins a day at 15 minutes, so the rides take a few weeks)
+  const CASH_STOP = 1, CASH_STOP_RETRY = CASH_STOP, CASH_JOB = 2;   // same coins after a retry: no hidden penalty
   const wait = (ms) => (BB.wait ? BB.wait(ms) : new Promise((r) => BB.later(ms, r)));
   const cancelLater = (t) => { if (t == null) return; if (BB.cancelLater) BB.cancelLater(t); else clearTimeout(t); };
   // Lines queue behind whatever is being said (another part of the game may be talking); our own lines are awaited
@@ -150,6 +151,7 @@
   function pickTheme() {
     if (level() < 1 || (BB.save.jobsDone | 0) < 3) return null;     // the first jobs stay close to home
     if ((J.sinceSpecial == null ? 2 : J.sinceSpecial) < 2 || Math.random() > 0.5) return null;
+    if (meetPoint()) return null;                                   // friends are out driving: stay with them (no themed trip away)
     // only when the themed stop is near enough by road (about 400 units), so no long trip across the map
     const here = BB.bus.atStop || J.lastStop;
     const near = (id) => { const st = themeStop(id); if (!st) return id === 'school'; return st !== here && stopDist(here && okStop(here) ? here : null, st) <= 400; };
@@ -1367,8 +1369,60 @@
   // already in the job, leaning toward named stops (st.minor = small automatic ones with shared names like "the flats").
   const LEG_MIN = 40, LEG_MAX = 80;         // ~70 units apart: mostly the very next stop, about 7 s of driving
   const okStop = (s) => s && s.pos && s.edge != null && s.say;
+  // ---- playing together: jobs bring the players to one place (the owner asked: "all the players are together, even
+  // if it takes long to drive to the players"). The meeting point is the middle of everyone who is out driving now
+  // (us and the friends, BB.net.driving()); every device works out about the same point, so everybody drives to
+  // the same few stops. null when nobody else is out driving: then nothing here changes anything.
+  const MEET_FAR = 70, MEET_RING = 85;
+  function meetPoint() {
+    let fr = null;
+    try { fr = BB.net && typeof BB.net.driving === 'function' ? BB.net.driving() : null; } catch (e) { fr = null; }
+    if (!fr || !fr.length) return null;
+    const me = BB.bus.pos || { x: 0, z: 0 };
+    let x = me.x, z = me.z;
+    for (const f of fr) { x += f.x; z += f.z; }
+    return { x: x / (fr.length + 1), z: z / (fr.length + 1) };
+  }
+  J.meetPoint = meetPoint;
+  // The next place when friends are out driving, from `from` (a bay, or null = where the vehicle is) among list
+  // (bus stops for a bus, the ride's own spots for the others):
+  // - a long way from the meeting point: one of the two places nearest to it, however long the drive;
+  // - near it already: a normal short hop that stays near it (so the group keeps together and still moves around).
+  // null = no friends, or nothing fits: the usual pick.
+  function meetPick(from, list, exclude, weight) {
+    const g = meetPoint(); if (!g) return null;
+    const p = from ? from.pos : (BB.bus.pos || { x: 0, z: 0 });
+    const c = [];
+    for (const t of list) {
+      if (!t || !t.pos || t === from || exclude.indexOf(t) >= 0) continue;
+      const dp = hypot2(t.pos.x - p.x, t.pos.z - p.z);
+      if (dp < 22) continue;                                     // (not the place we're standing at)
+      c.push({ s: t, dp, dg: hypot2(t.pos.x - g.x, t.pos.z - g.z) });
+    }
+    if (!c.length) return null;
+    const nm = (t) => t && ((t.say && t.say !== 'here') ? t.say : t.near), prev = nm(from);
+    const reach = (o) => isFinite(stopDist(from, o.s));
+    let pool;
+    if (hypot2(p.x - g.x, p.z - g.z) > MEET_FAR) {
+      c.sort((a, b) => a.dg - b.dg);
+      pool = c.slice(0, 4).filter(reach).slice(0, 2);
+    } else {
+      pool = c.filter((o) => o.dg <= MEET_RING && o.dp <= 130);
+      const other = pool.filter((o) => nm(o.s) !== prev);          // (not the same spoken name twice running)
+      if (other.length) pool = other;
+      if (pool.length > 1) { const fresh = pool.filter((o) => recentLegs.indexOf(o.s.id) < 0); if (fresh.length) pool = fresh; }
+      pool = pool.filter(reach);
+      if (!pool.length) { c.sort((a, b) => a.dg - b.dg); pool = c.slice(0, 3).filter(reach); }
+    }
+    if (!pool.length) return null;
+    const bag = [];
+    for (const o of pool) { const n = weight ? weight(o.s) : 1; for (let i = 0; i < n; i++) bag.push(o.s); }
+    return BB.pick(bag.length ? bag : pool.map((o) => o.s));
+  }
   function nextNear(from, exclude) {
     const W = BB.world, all = (W.stops || []).filter((s) => okStop(s) && !exclude.includes(s));
+    const met = meetPick(from, all, exclude, (st) => (st.minor ? 1 : 3));
+    if (met) return met;
     let ranked;
     if (from && typeof W.stopsByDistance === 'function') ranked = W.stopsByDistance(from, all).map((s2) => ({ s: s2, d: stopDist(from, s2) }));
     else ranked = all.map((s2) => ({ s: s2, d: stopDist(from, s2) })).sort((p, q) => p.d - q.d);
@@ -1561,7 +1615,7 @@
   // ---------- vehicles kids can drive: a job kind per vehicle ----------
   // Each vehicle job is a few legs: drive to a place, then a little scene with spoken lines and one or two questions on
   // the card (the vehicle's own pictures + the written sum, every number 0-10, adding and taking away, the same
-  // teaching on wrong answers, 3 coins each, never lost). Everything new in bus.js / world.js is feature-detected.
+  // teaching on wrong answers, 1 coin each, never lost). Everything new in bus.js / world.js is feature-detected.
   const VEHICLES = ['taxi', 'fire', 'ambulance', 'icecream', 'tow'];
   let legGen = 0;                  // bumps when a vehicle scene should stop (Home, bedtime); a right answer doesn't
   function vehicleKind() {
@@ -1606,6 +1660,9 @@
   // nearest that are a little nearer or further; anything at all as a last resort
   // (spare: second-best candidates, used when none of list is near enough)
   function legTo(from, list, exclude = [], weight = null, spare = null) {
+    // friends are out driving: a place of this ride's own near where everybody meets (see meetPick)
+    const met = meetPick(from, spare ? list.concat(spare) : list, exclude, weight);
+    if (met) { if (met.id) { recentLegs.push(met.id); if (recentLegs.length > 8) recentLegs.shift(); } return met; }
     if (spare) { const r = rankNear(from, list, exclude); if (!r.some((o) => o.d >= 25 && o.d <= 110)) list = list.concat(spare); }
     let ranked = rankNear(from, list, exclude);
     if (!ranked.length) ranked = list.filter((s) => s && s.pos && s !== from && exclude.indexOf(s) < 0).map((s) => ({ s, d: stopDist(from, s) })).filter((o) => isFinite(o.d)).sort((x, y) => x.d - y.d);
