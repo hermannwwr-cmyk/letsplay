@@ -861,7 +861,7 @@
     BB.sideBus(x, 6, type === 'double' ? 12 : 0, 1.02, col, type);
     return (miniCache[k] = c);
   }
-  U.miniBus = (type, paint) => { const src = miniBus(type, paint), c = document.createElement('canvas'); c.width = src.width; c.height = src.height; c.getContext('2d').drawImage(src, 0, 0); return c; };
+  U.miniBus = (type, paint, color) => { const src = (BB.net && BB.net.mini && BB.fleet.KIND[type] && BB.fleet.KIND[type] !== 'bus') ? BB.net.mini(type, paint, color) : miniBus(type, paint), c = document.createElement('canvas'); c.width = src.width; c.height = src.height; c.getContext('2d').drawImage(src, 0, 0); return c; };
   U.family = function () {
     const N = BB.net; if (!N || typeof N.status !== 'function' || typeof N.friends !== 'function') return null;
     let status, friends;
@@ -872,7 +872,7 @@
   let famKey = '';
   function syncFam() {
     const f = U.family();
-    const key = f ? f.status + ':' + f.friends.map((x) => x.id + x.type + x.paint + x.routeNo).join(',') : 'none';
+    const key = f ? f.status + ':' + f.friends.map((x) => x.id + x.type + x.paint + x.color + x.routeNo).join(',') : 'none';
     if (key === famKey && famEl.firstChild) return;
     famKey = key; famEl.innerHTML = '';
     // (playing together is automatic: just a little picture of who is here, no button; nothing when nobody is)
@@ -881,7 +881,7 @@
     const col = BB.el('span', 'col', b);
     col.appendChild(BB.iconEl('world', 128)); BB.el('span', 'lb', col, 'Friends');
     BB.el('span', 'cnt', b, String(f.friends.length));   // (how many friends)
-    for (const fr of f.friends.slice(0, 4)) { const d = BB.el('span', 'bus', b); d.appendChild(U.miniBus(fr.type, fr.paint)); BB.el('b', '', d, String(fr.routeNo || '')); }
+    for (const fr of f.friends.slice(0, 4)) { const d = BB.el('span', 'bus', b); d.appendChild(U.miniBus(fr.type, fr.paint, fr.color)); BB.el('b', '', d, String(fr.routeNo || '')); }
     if (f.friends.length > 4) BB.el('span', 'more', b, '+' + (f.friends.length - 4));
   }
   U.showExit = function (on) { if (exitBtn) exitBtn.style.display = on && !BB.hub.slept && !BB.bedtime ? '' : 'none'; };

@@ -2,16 +2,23 @@
    Each child drives their own bus (own type, colour and number) in the same town and sees the others' buses; they can
    honk (a friend's bus nearby flashes its lights back: a wave). Gentle: no racing, no scores, buses pass through each
    other (a friend's bus is ghosted when it is close to ours, near our stop or in front of the camera), and each device
-   keeps its own jobs, questions and coins. No names, no chat, no free text: only bus state, the bus's looks (type,
-   paint id, route-number digits, part/sticker ids) and honks are sent. Everything that comes in is checked: known ids
+   keeps its own jobs, questions and coins. No names, no chat, no free text: only bus state, the ride's looks (type,
+   paint ids, route-number digits, part/sticker ids) and honks are sent. Everything that comes in is checked: known ids
    only, digits only, positions on the map, clamped speeds and angles, per-sender rate limits (states 25/s, looks every
-   2 s, honks and waves every 1.5 s); anything else is dropped.
+   2 s, honks and waves every 1.5 s, the sky once a second); anything else is dropped (a type we don't know is shown
+   as a single-decker).
+   Friends see the ride the child really drives: the three buses, or the taxi, fire engine, ambulance, ice cream van
+   or tow truck in its own colours (buildBody's ride()), with its siren lights flashing while its siren is on.
+   A friend on their home screen or in their garage stands in the workshop, where our own ride stands on ours: such
+   a friend is never drawn (state flag 64, or simply being inside the workshop).
+   BB.net.driving() lists the friends out driving now: jobs.js sends the next stops their way (meetPick), so the
+   players end up together.
 
    MODES (saved as bus3d.netmode; whenever online the game joins by itself, at start and again after a dropped link,
    coming back online or the page showing again):
    - 'world' (the default, the owner's choice "everyone in the world"): public rooms lbc-world-1, -2, ... of up to 10
      buses. Start at the last room that worked (bus3d.worldroom); a full room -> the next one at once; alone in a room
-     above 1 for a minute -> try from room 1 again, so players gather. Our day/night and weather stay our own.
+     above 1 for a minute -> try from room 1 again, so players gather. Weather and time of day are shared (below).
      Arrivals and departures: one short line at most every 30 s ("A friend's bus is here!", "Bye bye, bus 7!").
    - 'family' (a grown-up's option): a private room named by a saved 5-picture code (bus3d.family, random on first
      run); another device joins by entering it once (setFamily). Day/night and weather follow the earliest member.
@@ -28,7 +35,8 @@
                               and reconnects. -> true/false (enterFamily() uses it)
      BB.net.newFamily()       a fresh random family code; saved; reconnects if in family mode. -> the new ids
      BB.net.status()          'offline' | 'connecting' | 'alone' | 'together'
-     BB.net.friends()         -> [{ id, type, paint, color, routeNo }] the other buses here now
+     BB.net.friends()         -> [{ id, type, paint, color, routeNo }] the other rides here now (routeNo '' if not a bus)
+     BB.net.driving()         -> [{ x, z }] the friends out driving in the town now (not home, garage, asleep, hidden)
      BB.net.PICS / pic(name, size)   the 12 code pictures (and UI pictures: together, home, speak, tick, cross, del,
                               cloud, join, make) as paper-cut canvases
      BB.net.showFamily()      a card: our code (spoken, each picture lit in turn) and the buses here now
@@ -52,9 +60,10 @@
       Test only: ?relay=ws://127.0.0.1:8787 (a local `wrangler dev`; only localhost addresses are accepted).
    2. Room logic (below): every member sends its own state about 10 times a second (less when standing still; one
       "parked" state when the page hides; parked while the hub holds the game), its looks ('hi') when it arrives or
-      someone new comes, honks and waves. Day/night and weather follow the earliest member still in the room (the sky
-      authority, every 3 s); our own bedtime night (hub mode) always wins.
-   3. Friends' buses: cheap low-detail models (one draw call per bus, bending in the vertex shader for bendies) plus
+      someone new comes, honks and waves. Weather and time of day follow one member in every room, world rooms too
+      (the sky authority: the lowest member id still here, every 3 s; when it leaves the next one carries on; silent
+      for 12 s -> our own weather clock again); our own bedtime night (hub mode) always wins and is never sent.
+   3. Friends' rides: cheap low-detail models (one draw call each, bending in the vertex shader for bendies) plus
       ONE instanced mesh for all their wheels, one for all their blob shadows and one for all their floating
       route-number badges: ~12 draw calls for 9 friends. Interpolated ~200 ms behind.
    The HUD shows the friends here as little bus pictures with their numbers, top right under the buttons. */
@@ -139,8 +148,23 @@
 
   function myLook() {
     const S = BB.save;
-    return { ty: S.busType || 'bendy', pa: S.paint || 'green', no: String(S.routeNo || '88'), st: (S.stickers || []).slice(0, 3), pt: Object.assign({}, S.parts || {}) };
+    const ty = S.busType || 'bendy';
+    // vp: the colour the child gave one of the other rides ('' = its classic colours); pa stays the bus's colour
+    const vp = isBus(ty) ? '' : String((S.vehiclePaint && S.vehiclePaint[ty]) || '');
+    return { ty, pa: S.paint || 'green', vp, no: String(S.routeNo || '88'), st: (S.stickers || []).slice(0, 3), pt: Object.assign({}, S.parts || {}) };
   }
+  const RIDES = ['taxi', 'fire', 'ambulance', 'icecream', 'tow'];          // the rides that aren't buses
+  const RIDE_NAME = { taxi: 'taxi', fire: 'fire engine', ambulance: 'ambulance', icecream: 'ice cream van', tow: 'tow truck' };
+  const RIDE_PAINT = { taxi: '#f5b83d', fire: '#e8463a', ambulance: '#f4f1ea', icecream: '#ff8fab', tow: '#ffb81f' };
+  const isBus = (ty) => RIDES.indexOf(ty) < 0;
+  // the colour a friend's ride is drawn in: a bus in its paint, another ride in its own colour or its classic one
+  function lookHex(l) {
+    if (isBus(l.ty)) return paintHex(l.pa);
+    if (l.vp) return paintHex(l.vp);
+    return (BB.fleet && BB.fleet.PAINT && BB.fleet.PAINT[l.ty]) || RIDE_PAINT[l.ty];
+  }
+  // how a friend's ride is called in a spoken line: "bus 7", "the fire engine"
+  const sayRide = (o, cap) => (o.ty && !isBus(o.ty) ? (cap ? 'The ' : 'the ') + RIDE_NAME[o.ty] : (cap ? 'Bus ' : 'bus ') + o.no);
   function sendHi(force) {
     const look = myLook(), key = JSON.stringify(look);
     if (!force && key === lastHi) return;
@@ -148,16 +172,20 @@
   }
   function cleanLook(l) {
     if (!l || typeof l !== 'object') return null;
-    const types = (BB.fleet && BB.fleet.TYPES) || ['bendy', 'double', 'single'];
+    const types = ['bendy', 'double', 'single'].concat(RIDES);
     const word = (v) => typeof v === 'string' && /^[a-z0-9]{1,12}$/.test(v);    // ids only, never shown as text
-    // type, paint and number must be real ones (a look that isn't is ignored: that bus isn't shown)
-    if (types.indexOf(l.ty) < 0 || !BB.PAINTS.some((p) => p.id === l.pa) || !/^[1-9][0-9]{0,2}$/.test(String(l.no))) return null;
+    // paint and number must be real ones (a look that isn't is ignored: that bus isn't shown); a type we don't know
+    // (a newer game?) is shown as a plain single-decker
+    if (typeof l.ty !== 'string' || !BB.PAINTS.some((p) => p.id === l.pa) || !/^[1-9][0-9]{0,2}$/.test(String(l.no))) return null;
+    const ty = types.indexOf(l.ty) >= 0 ? l.ty : 'single';
+    const vp = !isBus(ty) && typeof l.vp === 'string' && BB.PAINTS.some((p) => p.id === l.vp) ? l.vp : '';
     const pt = {};
     if (l.pt && typeof l.pt === 'object' && !Array.isArray(l.pt)) for (const k of ['lights', 'bumpers', 'wheels', 'rims']) if (word(l.pt[k])) pt[k] = l.pt[k];
-    return { ty: l.ty, pa: l.pa, no: String(l.no), st: Array.isArray(l.st) ? l.st.filter(word).slice(0, 3) : [], pt };
+    return { ty, pa: l.pa, vp, no: String(l.no), st: Array.isArray(l.st) ? l.st.filter(word).slice(0, 3) : [], pt };
   }
   // my state: [x, z, heading, rear heading, speed, steer, flags]; flags 1 doors, 2 lights, 4 at a stop, 8 asleep,
-  // 16 parked (hidden or held), 32 in the garage
+  // 16 parked (hidden or held), 32 in the garage, 64 standing in the workshop (the home screen or the garage: friends
+  // don't draw us there, or everybody's ride would stand in the same spot), 128 siren on
   function myState(parked) {
     const B = BB.bus; if (!B || !B.front) return [0, 0, 0, 0, 0, 0, 16];
     const r2 = (v) => Math.round(v * 100) / 100, r3 = (v) => Math.round(v * 1000) / 1000;
@@ -169,6 +197,8 @@
     if (BB.bedtime) fl |= 8;
     if (held) fl |= 16;
     if (BB.depot && BB.depot.isOpen) fl |= 32;
+    if (B.inWorkshop) fl |= 64;
+    if (B.sirenOn && B.sirenOn()) fl |= 128;
     return [r2(B.front.position.x), r2(B.front.position.z), r3(wrapA(B.front.rotation.y)), r3(wrapA((B.rear || B.front).rotation.y)),
       held ? 0 : r2(B.speed || 0), r2(B.steer || 0), fl];
   }
@@ -178,7 +208,7 @@
     const Bd = (BB.world && BB.world.BOUNDS) || { x0: -1000, x1: 1000, z0: -1000, z1: 1000 };
     if (d[0] < Bd.x0 - 40 || d[0] > Bd.x1 + 40 || d[1] < Bd.z0 - 40 || d[1] > Bd.z1 + 40) return null;   // off the map: ignored
     if (Math.abs(d[2]) > 7 || Math.abs(d[3]) > 7) return null;
-    return { x: d[0], z: d[1], h: wrapA(d[2]), hr: wrapA(d[3]), sp: BB.clamp(d[4], -12, 12), st: BB.clamp(d[5], -1, 1), fl: (d[6] | 0) & 63 };
+    return { x: d[0], z: d[1], h: wrapA(d[2]), hr: wrapA(d[3]), sp: BB.clamp(d[4], -12, 12), st: BB.clamp(d[5], -1, 1), fl: (d[6] | 0) & 255 };
   }
 
   let lastKey = '', lastAt = 0, skyAt = 0, hiAt = 0, staleAt = 0, parkedSent = false;
@@ -201,9 +231,15 @@
     if (key !== lastKey || now - lastAt > 500) { send({ t: 's', d }); lastKey = key; lastAt = now; }
     if (now - hiAt > 15000) { hiAt = now; sendHi(true); }
     const W = BB.world;
-    if (mode !== 'family' || N.isAuthority()) {
-      if (W && !W.weatherAuto) W.weatherAuto = true;                  // (our own sky again)
-      if (mode === 'family' && members.size && now - skyAt > 3000) { skyAt = now; sendSky(); }
+    if (N.isAuthority()) {
+      if (W && !W.weatherAuto) W.weatherAuto = true;                  // (we decide the sky: our own weather clock)
+      skyWant = -1;
+      if (members.size && now - skyAt > 3000) { skyAt = now; sendSky(); }
+    } else if (now - skyHeard > 12000) {
+      // nothing from the one who decides (gone without a goodbye, asleep, or an older game that keeps its own sky):
+      // our own weather clock again, from the weather we have now
+      if (W && !W.weatherAuto) W.weatherAuto = true;
+      skyWant = -1;
     }
     // world mode: alone in a higher room for a minute -> look for company in the lower rooms again
     if (mode === 'world' && worldN > 1 && !members.size) {
@@ -211,13 +247,36 @@
       else if (now - aloneAt > 60000) { aloneAt = 0; gather(); }
     } else aloneAt = 0;
   }
-  function sendSky() { const W = BB.world; if (W) send({ t: 'sky', d: Math.round(W.dayTime * 10000) / 10000, w: W.weather }); }
+  // The sky is shared in a room (world rooms too: the owner asked for the same weather for everyone): the member who
+  // decides (authority(): the lowest member id still here) sends its weather and its time of day every 3 s and at once
+  // to a newcomer; the others follow. Its own bedtime night (hub mode) is never sent (d: -1 = "keep your own clock"),
+  // and ours always wins here: while W.bedSky() nothing touches our day clock. When the one who decides leaves, the
+  // next lowest id carries on from the same sky.
+  let skyHeard = -1e9, skyWant = -1, skyWantAt = 0;
+  function sendSky() {
+    const W = BB.world; if (!W || BB.bedtime) return;
+    const bed = W.bedSky && W.bedSky();
+    send({ t: 'sky', d: bed ? -1 : Math.round(W.dayTime * 10000) / 10000, w: W.weather });
+  }
   function applySky(d, w) {
     const W = BB.world; if (!W) return;
+    skyHeard = performance.now();
     if (typeof w === 'string' && W.WEATHERS.indexOf(w) >= 0) { W.weatherAuto = false; if (W.weather !== w) W.setWeather(w); }
-    if (typeof d !== 'number' || !isFinite(d) || d < 0 || d >= 1 || (W.bedSky && W.bedSky())) return;
-    let diff = Math.abs(((d - W.dayTime) % 1 + 1.5) % 1 - 0.5);
-    if (diff > 0.003) W.setDayTime(d);
+    if (typeof d !== 'number' || !isFinite(d) || d < 0 || d >= 1) { skyWant = -1; return; }
+    skyWant = d; skyWantAt = skyHeard;
+  }
+  // our day clock follows the shared one: a small step is taken at once; a big one (we just came into the room) is a
+  // jump on the home screen or in the garage, and a quick, smooth turn of the sky while driving (never a flash from
+  // day to night). Runs every frame; no objects made.
+  function followSky(dt) {
+    if (skyWant < 0) return;
+    const W = BB.world; if (!W || (W.bedSky && W.bedSky()) || BB.bedtime) { skyWant = -1; return; }
+    const want = (skyWant + (performance.now() - skyWantAt) / 1000 * W.day.speed) % 1;      // (their clock ran on meanwhile)
+    const diff = ((want - W.dayTime) % 1 + 1.5) % 1 - 0.5, ad = Math.abs(diff);
+    if (ad < 0.003) return;
+    const calmPlace = (BB.depot && BB.depot.isOpen) || (BB.ui && BB.ui.titleShown && BB.ui.titleShown());
+    if (ad < 0.012 || calmPlace) { W.setDayTime(want); return; }
+    W.setDayTime(W.dayTime + Math.sign(diff) * Math.min(ad, dt * 0.06));
   }
 
   function onMsg(from, m) {
@@ -225,7 +284,7 @@
     if (!members.has(from)) { if (members.size >= N.MAX - 1) return; members.add(from); }   // (a message can arrive just before its join)
     const r = remotes.get(from), now = performance.now();
     // per-sender limits, so a misbehaving client can't flood us: states 25/s, looks every 2 s, honks/waves every 1.5 s
-    const lim = rate.get(from) || { s: 0, sN: 0, hi: -1e9, honk: -1e9, wave: -1e9 };
+    const lim = rate.get(from) || { s: 0, sN: 0, hi: -1e9, honk: -1e9, wave: -1e9, sky: -1e9 };
     rate.set(from, lim);
     switch (m.t) {
       case 's': {
@@ -238,7 +297,7 @@
         if (r && now - lim.hi < 2000 && JSON.stringify(r.look) !== JSON.stringify(look)) return;   // no rapid look changes
         lim.hi = now; upsertRemote(from, look); break;
       }
-      case 'sky': if (mode === 'family' && from === authority()) applySky(m.d, m.w); break;   // world mode: our own sky
+      case 'sky': if (from === authority() && now - lim.sky > 1000) { lim.sky = now; applySky(m.d, m.w); } break;
       case 'honk': if (r && now - lim.honk > 1500) { lim.honk = now; friendHonk(r, m.tune === true); } break;
       case 'wave': if (r && now - lim.wave > 1500) { lim.wave = now; friendWave(r); } break;
       case 'bye': if (r) r.byeWhy = m.why === 'sleep' ? 'sleep' : 'home'; break;
@@ -301,9 +360,26 @@
   // ================= status =================
   const liveFriends = () => [...remotes.values()].filter((r) => !r.leaving);
   N.status = () => (link === 'open' ? (liveFriends().length ? 'together' : 'alone') : link === 'connecting' ? 'connecting' : 'offline');
-  N.friends = () => liveFriends().map((r) => ({ id: r.id, type: r.look.ty, paint: r.look.pa, color: paintHex(r.look.pa), routeNo: r.look.no }));
+  N.friends = () => liveFriends().map((r) => ({ id: r.id, type: r.look.ty, paint: r.look.pa, color: lookHex(r.look), routeNo: isBus(r.look.ty) ? r.look.no : '' }));
   // where the friends' buses are now (their latest known spot), e.g. so a start bay isn't taken twice
   N.busSpots = () => liveFriends().map((r) => { const s = r.snaps && r.snaps[r.snaps.length - 1]; return s ? { x: s.x, z: s.z } : null; }).filter(Boolean);
+  // standing in the workshop (the home screen or the garage)? By its flag, or by where it is (older games send no flag)
+  function inShop(s) {
+    if (s.fl & 96) return true;
+    const ws = BB.world && BB.world.workshop;
+    return !!ws && Math.abs(s.x - ws.x) < 17 && Math.abs(s.z - ws.z) < 17;
+  }
+  // the friends who are out driving in the town now (not on their home screen or in the garage, not asleep, not put
+  // away, heard from lately): jobs.js sends our next stops their way, so everybody ends up together
+  N.driving = function () {
+    const out = [], now = performance.now() / 1000;
+    for (const r of remotes.values()) {
+      const s = r.snaps && r.snaps[r.snaps.length - 1];
+      if (!s || r.leaving || r.lost || (s.fl & 24) || inShop(s) || now - (r.heard || 0) > 12) continue;
+      out.push({ x: s.x, z: s.z });
+    }
+    return out;
+  };
   let lastStatus = '', lastFriends = '';
   function syncStatus() {
     const st = N.status();
@@ -327,12 +403,12 @@
       if (mode === 'world') BB.store.set('worldroom', worldN);
       for (const id of [...remotes.keys()]) if (!members.has(id)) removeRemote(id, null, true);
       for (const r of remotes.values()) r.lost = false;
-      lastKey = ''; skyAt = 0;
+      lastKey = ''; skyAt = 0; skyHeard = performance.now(); skyWant = -1;
       sendHi(true); tick();
       clearInterval(tickT); tickT = setInterval(tick, 100);
       syncFriends();
     };
-    t.onPeerJoin = (id) => { if (T !== t) return; members.add(id); if (remotes.has(id)) removeRemote(id, null, true); sendHi(true); lastKey = ''; if (mode === 'family' && N.isAuthority()) { skyAt = performance.now(); sendSky(); } };
+    t.onPeerJoin = (id) => { if (T !== t) return; members.add(id); if (remotes.has(id)) removeRemote(id, null, true); sendHi(true); lastKey = ''; if (N.isAuthority()) { skyAt = performance.now(); sendSky(); } };
     t.onPeerLeave = (id) => { if (T !== t) return; members.delete(id); pending.delete(id); rate.delete(id); removeRemote(id); };
     t.onMessage = (from, msg) => { if (T === t) onMsg(from, msg); };
     t.onError = (k) => {
@@ -351,6 +427,7 @@
     for (const r of remotes.values()) r.lost = true;
     clearTimeout(lostT); lostT = setTimeout(() => { lostT = 0; if (link !== 'open') clearFriends(); }, 12000);
     if (BB.world) BB.world.weatherAuto = true;
+    skyWant = -1;
     syncStatus(); retry(1500);
   }
   function retry(ms) {
@@ -368,6 +445,7 @@
     if (T) { const t = T; T = null; if (link === 'open') t.send({ t: 'bye', why: why === 'sleep' ? 'sleep' : 'home' }); t.close(); }
     link = 'offline'; members = new Set(); pending.clear();
     if (BB.world) BB.world.weatherAuto = true;
+    skyWant = -1;
     clearFriends(); syncStatus();
   }
   function relink() { unlink('home'); backoff = 0; connect(); }
@@ -385,7 +463,7 @@
   }
   function addNews(item) {
     if (item.kind === 'bye') {                             // came and went before we said hello: say nothing
-      const i = news.findIndex((n) => n.kind === 'hi' && n.id === item.id && n.no === item.no);
+      const i = news.findIndex((n) => n.kind === 'hi' && n.id === item.id && n.no === item.no && n.ty === item.ty);
       if (i >= 0) { news.splice(i, 1); return; }
     }
     news.push(item); if (news.length > 12) news.shift();
@@ -400,20 +478,20 @@
       newsAt = now;
       const hi = news.filter((n) => n.kind === 'hi'), bye = news.filter((n) => n.kind === 'bye');
       news.length = 0;
-      if (hi.length) { BB.sfx.sparkle(); BB.say(hi.length > 1 ? 'Friends\' buses are here!' : 'A friend\'s bus is here!', { queue: true }); }
-      else if (bye.length) BB.say(`Bye bye, bus ${bye[0].no}!`, { queue: true });
+      if (hi.length) { BB.sfx.sparkle(); BB.say(hi.length > 1 ? 'Friends are here!' : `A friend's ${hi[0].ty && !isBus(hi[0].ty) ? RIDE_NAME[hi[0].ty] : 'bus'} is here!`, { queue: true }); }
+      else if (bye.length) BB.say(`Bye bye, ${sayRide(bye[0])}!`, { queue: true });
       return;
     }
     const hi = news.filter((n) => n.kind === 'hi'), bye = news.filter((n) => n.kind === 'bye');
     news.length = 0;
     if (hi.length) {
       BB.sfx.sparkle();
-      const nos = hi.map((n, i) => (i ? 'bus ' : 'Bus ') + n.no);
+      const nos = hi.map((n, i) => sayRide(n, !i));
       if (hi.length > 3) BB.say(`${hi.length} friends are here!`, { queue: true });
       else if (hi.length === 1) BB.say(`${nos[0]} is here!`, { queue: true });
       else BB.say(`${nos.slice(0, -1).join(', ')} and ${nos[nos.length - 1]} are here!`, { queue: true });
     }
-    for (const n of bye.slice(0, 3)) BB.say(n.sleep ? `Goodnight, bus ${n.no}!` : `Bye bye, bus ${n.no}!`, { queue: true });
+    for (const n of bye.slice(0, 3)) BB.say(n.sleep ? `Goodnight, ${sayRide(n)}!` : `Bye bye, ${sayRide(n)}!`, { queue: true });
   }
 
   // ================= friends' buses (low detail) =================
@@ -459,12 +537,17 @@
     return shared;
   }
   function drawBadge(r) {
-    const s = buildShared(), x = s.atlas.getContext('2d'), col = paintHex(r.look.pa);
+    const s = buildShared(), x = s.atlas.getContext('2d'), col = lookHex(r.look);
     const ox = (r.slot % 4) * 128, oy = Math.floor(r.slot / 4) * 64;
     x.clearRect(ox, oy, 128, 64);
     const rr = (X, Y, W, H, R, f) => { x.beginPath(); x.roundRect ? x.roundRect(X, Y, W, H, R) : x.rect(X, Y, W, H); x.fillStyle = f; x.fill(); };
     rr(ox + 4, oy + 4, 120, 56, 18, darkHex(col, 0.25));
     rr(ox + 4, oy + 3, 117, 53, 17, col);
+    if (!isBus(r.look.ty)) {                              // another ride: its little picture instead of a number
+      rr(ox + 13, oy + 11, 100, 38, 10, '#fff6e0');
+      x.save(); x.translate(ox + 36, oy + 10); x.scale(0.6, 0.6); sideRide(x, 0, 0, 1, col, r.look.ty); x.restore();
+      s.tex.needsUpdate = true; return;
+    }
     rr(ox + 13, oy + 11, 100, 38, 10, '#2b2430');
     x.fillStyle = '#ffb81f'; x.font = '800 32px "Courier New", monospace'; x.textAlign = 'center'; x.textBaseline = 'middle';
     x.fillText(r.look.no, ox + 63, oy + 31);
@@ -473,7 +556,7 @@
   // One merged mesh per friend: body, windows (glow a little at night) and lamps, each part flagged with how much it
   // bends (0 front carriage, 0.5 the joint, 1 the rear carriage) about the hitch.
   function buildBody(r) {
-    const D = r.dims = dimsOf(r.look.ty), col = paintHex(r.look.pa), deep = darkHex(col, 0.22);
+    const D = r.dims = dimsOf(r.look.ty), col = lookHex(r.look), deep = darkHex(col, 0.22);
     const parts = [];
     const kit = (bend, glow) => { const b = BB.mk.builder(); parts.push({ b, bend, glow }); return b; };
     const GLASS = '#a9d4e6', TOP = D.roof;
@@ -494,9 +577,85 @@
       }
       if (back) for (const sx of [-0.95, 0.95]) l.box(0.3, 0.42, 0.08, '#ff5a4a', sx, 0.7, zc - L / 2 - 0.05);
     }
-    const art = D.LR > 0;
+    // The other rides: a few boxes each, in the shapes and colours a child knows them by (one mesh, like the buses).
+    // glow 2 / 3 = the two halves of a siren's light bar (they flash in turn while the friend's siren is on).
+    function ride(ty) {
+      const b = kit(0, 0), w = kit(0, 0.35), l = kit(0, 1), s1 = kit(0, 2), s2 = kit(0, 3);
+      const L = D.LF, Wd = D.width, hw = Wd / 2, zf = L / 2, zb = -L / 2, CREAM = '#fff6e0', DARK = '#3f3744';
+      for (const az of D.axlesF) b.box(Wd + 0.06, D.tyre + 0.12, D.tyre * 2 + 0.3, DARK, 0, 0.28, az);          // wheel arches
+      for (const sx of [-1, 1]) {
+        l.box(0.36, 0.2, 0.08, '#fff3c4', sx * (hw - 0.34), ty === 'taxi' ? 0.68 : 0.9, zf + 0.01);
+        l.box(0.26, 0.3, 0.08, '#ff5a4a', sx * (hw - 0.3), 0.7, zb - 0.02);
+      }
+      if (ty === 'taxi') {
+        b.box(Wd + 0.04, 0.22, L - 0.1, deep, 0, 0.3, 0);
+        b.box(Wd, 0.56, L, col, 0, 0.5, 0);                                         // hood, doors and boot
+        b.box(Wd + 0.03, 0.09, L - 0.3, '#26232b', 0, 0.76, 0);                     // the dark band
+        b.box(Wd - 0.1, 1.1, 3.0, col, 0, 1.05, -0.35);                             // the tall cabin
+        w.box(Wd - 0.06, 0.72, 2.5, GLASS, 0, 1.24, -0.35);
+        w.box(Wd - 0.3, 0.72, 0.06, GLASS, 0, 1.24, 1.16); w.box(Wd - 0.3, 0.6, 0.06, GLASS, 0, 1.3, -1.86);
+        w.box(0.8, 0.28, 0.36, '#fff3c4', 0, 2.15, -0.35);                          // the lit roof sign
+        b.box(0.9, 0.06, 0.44, '#26232b', 0, 2.13, -0.35);
+      } else if (ty === 'fire') {
+        const cab0 = 0.85;
+        b.box(Wd + 0.04, 0.56, L, '#8f8a96', 0, 0.3, 0);
+        b.box(Wd, 1.85, zf - cab0, col, 0, 0.85, (zf + cab0) / 2);                  // the crew cab
+        w.box(Wd + 0.04, 1.0, zf - cab0 - 0.6, GLASS, 0, 1.5, (zf + cab0) / 2 - 0.05);
+        w.box(Wd - 0.2, 1.05, 0.06, GLASS, 0, 1.47, zf + 0.01);
+        b.box(Wd, 1.6, cab0 - 0.05 - zb, col, 0, 0.85, (zb + cab0 - 0.05) / 2);     // the equipment body
+        for (let i = 0; i < 3; i++) b.box(Wd + 0.05, 1.2, 1.35, '#d5d9e0', 0, 1.0, cab0 - 0.3 - i * 1.55 - 0.675);   // silver lockers
+        b.box(Wd + 0.07, 0.09, L - 0.2, '#fff3e0', 0, 0.88, 0);                     // the white stripe
+        b.box(Wd - 0.2, 0.16, 0.5, CREAM, 0, 2.7, zf - 0.45);                       // the light bar
+        s1.box(0.6, 0.2, 0.4, '#ff4a3a', -0.6, 2.72, zf - 0.45); s2.box(0.6, 0.2, 0.4, '#ff4a3a', 0.6, 2.72, zf - 0.45);
+        b.cyl(0.5, 0.55, 0.3, 8, '#5a5260', 0, 2.45, -3.0);                         // the ladder: turntable, rails, rungs
+        for (const sx of [-1, 1]) b.box(0.09, 0.18, 6.6, '#dfe3ea', sx * 0.42, 2.92, 0.1);
+        for (let i = 0; i < 9; i++) b.box(0.8, 0.06, 0.08, '#aab2bf', 0, 2.98, -3.0 + i * 0.77);
+        b.box(1.3, 0.8, 0.44, '#ffd45c', 0, 1.35, zb - 0.2);                        // the hose reel
+      } else if (ty === 'ambulance') {
+        const cabEnd = 1.55, bz = (zb + cabEnd) / 2, bl = cabEnd - zb;
+        b.box(Wd + 0.04, 0.3, L, '#a9a6ae', 0, 0.3, 0);
+        b.box(Wd, 0.56, zf - 2.3, col, 0, 0.58, (zf + 2.3) / 2);                    // hood
+        b.box(Wd, 1.72, 2.36 - cabEnd, col, 0, 0.58, (2.36 + cabEnd) / 2);          // cab
+        w.box(Wd + 0.04, 0.85, 0.6, GLASS, 0, 1.28, 1.98); w.box(Wd - 0.2, 0.85, 0.06, GLASS, 0, 1.28, 2.37);
+        b.box(Wd + 0.04, 2.2, bl, col, 0, 0.58, bz);                                // the tall box body
+        b.box(Wd + 0.07, 0.2, bl - 0.2, '#4fa3e0', 0, 1.0, bz); b.box(Wd + 0.07, 0.07, bl - 0.2, '#ff6b5c', 0, 1.24, bz);
+        // a heart on both sides (never a red cross): a turned square and two round tops, right through the body
+        const hy = 1.98, hz = -1.5, PINK = '#ff6b5c', hx = Wd + 0.1;
+        b.add(new THREE.BoxGeometry(hx, 0.5, 0.5), PINK, 0, hy, hz, 0, Math.PI / 4, 0);
+        for (const sz of [-1, 1]) b.add(new THREE.CylinderGeometry(0.25, 0.25, hx, 10), PINK, 0, hy + 0.177, hz + sz * 0.177, 0, 0, Math.PI / 2);
+        w.box(0.9, 0.5, 0.06, GLASS, 0, 1.75, zb - 0.01);
+        s1.box(0.5, 0.18, 0.3, '#4fa3ff', -0.6, 2.78, 1.2); s2.box(0.5, 0.18, 0.3, '#ff4a3a', 0.6, 2.78, 1.2);
+      } else if (ty === 'icecream') {
+        const cab = 1.9, bz = (zb + cab) / 2, bl = cab - zb;
+        b.box(Wd + 0.04, 0.26, L, deep, 0, 0.3, 0);
+        b.box(Wd, 0.62, zf - cab, col, 0, 0.55, (zf + cab) / 2);                    // hood
+        b.box(Wd, 2.2, bl, col, 0, 0.55, bz);                                       // the tall body
+        b.box(Wd + 0.1, 0.16, bl + 0.2, CREAM, 0, 2.75, bz);                        // a cream roof
+        w.box(Wd - 0.2, 0.9, 0.06, GLASS, 0, 1.5, cab + 0.01); w.box(Wd + 0.04, 0.85, 0.9, GLASS, 0, 1.5, 1.3);
+        w.box(0.06, 0.95, 1.9, '#6f8fa8', hw + 0.01, 1.35, -0.9);                   // the serving hatch (kerb side)
+        b.box(0.6, 0.1, 2.1, CREAM, hw + 0.28, 2.32, -0.9, 0, 0, -0.25);            // its awning
+        b.box(Wd + 0.05, 0.2, bl - 0.3, CREAM, 0, 0.85, bz);
+        b.cyl(0.42, 0.06, 0.7, 8, '#e0a85a', 0, 2.91, -0.6);                        // the big cone on the roof
+        b.ball(0.46, CREAM, 0, 3.75, -0.6, 1); b.ball(0.12, '#e8463a', 0, 4.25, -0.6);
+      } else {                                                                       // tow truck
+        const cab0 = 0.8, cab1 = 2.3, DK = '#3a343f';
+        b.box(Wd + 0.04, 0.5, L, '#4a4250', 0, 0.3, 0);
+        b.box(Wd, 0.7, zf - cab1, col, 0, 0.8, (zf + cab1) / 2);                    // hood
+        b.box(Wd, 1.9, cab1 - cab0, col, 0, 0.8, (cab0 + cab1) / 2);                // cab
+        w.box(Wd + 0.04, 0.8, 1.0, GLASS, 0, 1.65, (cab0 + cab1) / 2); w.box(Wd - 0.2, 0.8, 0.06, GLASS, 0, 1.65, cab1 + 0.01);
+        w.box(0.9, 0.2, 0.34, '#ff9d2e', 0, 2.7, 1.55);                             // an amber lamp
+        b.box(Wd, 0.36, cab0 - zb, '#5a5260', 0, 0.8, (zb + cab0) / 2);             // the flat bed and its sides
+        for (const sx of [-1, 1]) b.box(0.14, 0.34, cab0 - zb, col, sx * (hw - 0.07), 1.16, (zb + cab0) / 2);
+        b.box(0.6, 1.5, 0.6, col, 0, 1.16, 0.2);                                    // the boom: post, arm, cable, hook
+        b.add(new THREE.BoxGeometry(0.34, 0.34, 3.7), DK, 0, 2.35, -1.5, 0, 0.42, 0);
+        b.box(0.08, 1.2, 0.08, DK, 0, 1.85, -3.15); b.box(0.36, 0.16, 0.16, '#d5d9e0', 0, 1.7, -3.15);
+        for (let i = 0; i < 4; i++) b.box(0.5, 0.3, 0.08, i % 2 ? '#2b2430' : '#ffd45c', -0.75 + i * 0.5, 0.82, zb - 0.02);   // stripes on the tail
+      }
+    }
+    const art = D.LR > 0, rideTy = isBus(r.look.ty) ? null : r.look.ty;
     r.hitch = art ? -(D.LF / 2 + D.GAP / 2) : 0;
-    carriage(0, D.LF, 0, true, !art, D.doorsF, D.axlesF);
+    if (rideTy) ride(rideTy);
+    else carriage(0, D.LF, 0, true, !art, D.doorsF, D.axlesF);
     if (art) {
       const zr = -(D.LF / 2 + D.GAP + D.LR / 2);
       kit(0.5, 0).box(2.3, TOP - 0.8, D.GAP + 0.3, '#5a5260', 0, 0.45, r.hitch);
@@ -516,7 +675,7 @@
     geo.setAttribute('color', new THREE.BufferAttribute(colA, 3)); geo.setAttribute('aBend', new THREE.BufferAttribute(bend, 1));
     geo.setAttribute('aGlow', new THREE.BufferAttribute(glow, 1));
     geo.computeBoundingSphere(); geo.boundingSphere.radius += art ? D.LR : 0;
-    const u = r.u = { uBend: { value: 0 }, uHitch: { value: r.hitch }, uLamp: { value: 0 }, uNight: { value: 0 } };
+    const u = r.u = { uBend: { value: 0 }, uHitch: { value: r.hitch }, uLamp: { value: 0 }, uNight: { value: 0 }, uSirA: { value: 0 }, uSirB: { value: 0 } };
     const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
     mat.onBeforeCompile = (sh) => {
       Object.assign(sh.uniforms, u);
@@ -526,8 +685,8 @@
         .replace('#include <beginnormal_vertex>', 'vec3 objectNormal = bendV(vec3( normal ));\n#ifdef USE_TANGENT\nvec3 objectTangent = vec3( tangent.xyz );\n#endif')
         .replace('#include <begin_vertex>', 'vec3 transformed = bendV(position - vec3(0.0, 0.0, uHitch)) + vec3(0.0, 0.0, uHitch);\nvGlow = aGlow;');
       sh.fragmentShader = sh.fragmentShader
-        .replace('#include <common>', '#include <common>\nuniform float uLamp;\nuniform float uNight;\nvarying float vGlow;')
-        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n\ttotalEmissiveRadiance += diffuseColor.rgb * (vGlow > 0.9 ? uLamp : vGlow * uNight);');
+        .replace('#include <common>', '#include <common>\nuniform float uLamp;\nuniform float uNight;\nuniform float uSirA;\nuniform float uSirB;\nvarying float vGlow;')
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n\ttotalEmissiveRadiance += diffuseColor.rgb * (vGlow > 2.5 ? uSirB : vGlow > 1.5 ? uSirA : vGlow > 0.9 ? uLamp : vGlow * uNight);');
     };
     r.mat = mat; r.mesh = new THREE.Mesh(geo, mat); r.mesh.name = 'friend:' + r.id; r.mesh.visible = false;
     BB.scene.add(r.mesh);
@@ -548,7 +707,7 @@
     if (pending.has(id)) { pushSnap(r, pending.get(id)); pending.delete(id); }
     syncFriends();
     const lk = JSON.stringify(look), back = recent.get(lk) > performance.now() - 120000;
-    if (fresh && !BB.bedtime && !back) addNews({ kind: 'hi', id, no: look.no });
+    if (fresh && !BB.bedtime && !back) addNews({ kind: 'hi', id, no: look.no, ty: look.ty });
   }
   function removeRemote(id, why, now) {
     const r = remotes.get(id); if (!r) return;
@@ -557,7 +716,7 @@
     r.leaving = true;
     recent.set(JSON.stringify(r.look), performance.now());
     setTimeout(() => { if (remotes.get(id) === r) { disposeBody(r); remotes.delete(id); syncFriends(); } }, 3000);   // (no frames drawn meanwhile)
-    if (!BB.bedtime && link === 'open' && r.byeWhy) addNews({ kind: 'bye', id, no: r.look.no, sleep: r.byeWhy === 'sleep' });
+    if (!BB.bedtime && link === 'open' && r.byeWhy) addNews({ kind: 'bye', id, no: r.look.no, ty: r.look.ty, sleep: r.byeWhy === 'sleep' });
     syncFriends();
   }
   const recent = new Map();              // looks of buses that left lately (a dropped link that comes back isn't news)
@@ -570,20 +729,25 @@
   function sample(r, t) {
     const s = r.snaps; if (!s.length) return null;
     while (s.length > 2 && s[1].t <= t) s.shift();
-    const a = s[0], b = s[1];
+    const a = s[0], b = s[1], o = r.cur || (r.cur = { x: 0, z: 0, h: 0, hr: 0, sp: 0, st: 0, fl: 0, jump: false });
+    o.jump = false;
     if (!b || t <= a.t) {
       if (t <= a.t || a.sp === 0) return a;
       const k = Math.min(0.25, t - a.t) * a.sp, f = Math.sin(a.h), g = Math.cos(a.h);   // a moment of dead reckoning
-      return Object.assign({}, a, { x: a.x + f * k, z: a.z + g * k });
+      o.x = a.x + f * k; o.z = a.z + g * k; o.h = a.h; o.hr = a.hr; o.sp = a.sp; o.st = a.st; o.fl = a.fl;
+      return o;
     }
+    // a jump (Drive: from the workshop to a start bay; Home; a tow): no sliding across the town in between
+    if (Math.abs(b.x - a.x) + Math.abs(b.z - a.z) > 25) { o.x = b.x; o.z = b.z; o.h = b.h; o.hr = b.hr; o.sp = 0; o.st = 0; o.fl = b.fl; o.jump = true; return o; }
     const k = BB.clamp((t - a.t) / Math.max(0.001, b.t - a.t), 0, 1);
-    return { x: a.x + (b.x - a.x) * k, z: a.z + (b.z - a.z) * k, h: a.h + wrapA(b.h - a.h) * k, hr: a.hr + wrapA(b.hr - a.hr) * k,
-      sp: a.sp + (b.sp - a.sp) * k, st: a.st + (b.st - a.st) * k, fl: b.fl };
+    o.x = a.x + (b.x - a.x) * k; o.z = a.z + (b.z - a.z) * k; o.h = a.h + wrapA(b.h - a.h) * k; o.hr = a.hr + wrapA(b.hr - a.hr) * k;
+    o.sp = a.sp + (b.sp - a.sp) * k; o.st = a.st + (b.st - a.st) * k; o.fl = b.fl;
+    return o;
   }
 
   const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(0, 0, 0, 'YXZ'), _p = new THREE.Vector3(), _s = new THREE.Vector3();
   N.update = function (dt) {
-    updatePuffs(dt);
+    updatePuffs(dt); followSky(dt);
     if (!remotes.size) { if (shared && (shared.wheels.count || shared.badges.count || shared.shadows.count)) shared.wheels.count = shared.badges.count = shared.shadows.count = 0; return; }
     const S = buildShared(), B = BB.bus, W = BB.world, now = performance.now() / 1000;
     const night = W.night ? W.night() : 0;
@@ -591,6 +755,7 @@
     const atStop = !!(B.atStop || (B.isSettling && B.isSettling()));
     const bay = B.target && W.bayOf ? W.bayOf(B.target) : null;
     const cam = BB.camera ? BB.camera.position : null;
+    const inYard = !!(W.inDepotYard && W.inDepotYard(mx, mz));
     let wi = 0, si = 0, bi = 0;
     for (const r of [...remotes.values()]) {
       const p = sample(r, now - DELAY);
@@ -603,9 +768,14 @@
       // gentle: see-through when close to our bus, at our stop, or in the garage; fades in and out
       const d = hypot2(cx - mx, cz - mz);
       let a = 1;
-      if (BB.depot && BB.depot.isOpen) { if (d < 26) a = 0; }
+      // a friend on their home screen or in their garage stands in the workshop, right where our own ride stands on
+      // ours: never drawn there (nor one that just jumped: it fades in again at its new place)
+      const away = inShop(p) || p.jump;
+      if (away) { a = 0; r.alpha = 0; }
+      else if (BB.depot && BB.depot.isOpen) { if (d < 26) a = 0; }
       else {
         if (d < 13) a = 0.35;
+        if (inYard && d < 7.5) a = 0;                       // two rides parked in the same start bay: only ours shows
         if (atStop && d < 26) a = Math.min(a, 0.25);
         if (bay && hypot2(cx - bay.x, cz - bay.z) < 16 && hypot2(mx - bay.x, mz - bay.z) < 50) a = Math.min(a, 0.3);
       }
@@ -634,22 +804,25 @@
       const blink = r.flash > 0 ? (Math.floor(r.flash * 8) % 2 ? 1.2 : 0) : null;
       r.u.uLamp.value = blink != null ? blink : lights ? 0.2 + 0.8 * night : 0;
       r.u.uNight.value = asleep ? 0 : night * 0.7;
+      const sir = (p.fl & 128) !== 0 && !asleep ? (Math.floor(now * 4) % 2 ? 1 : 2) : 0;
+      r.u.uSirA.value = sir === 1 ? 1.5 : 0.1 * night; r.u.uSirB.value = sir === 2 ? 1.5 : 0.1 * night;
       const sp = parked ? 0 : p.sp;
       r.spin += sp * dt / D.tyre;
       // wheels
       if (r.alpha > 0.3) {
+        const wk = D.tyre / 0.52;                           // (the shared wheel is a bus's: smaller on a taxi)
         const wheel = (ccx, ccz, yaw, ox, oz, steer) => {
           if (wi >= 72) return;
           const c = Math.cos(yaw), s = Math.sin(yaw);
           _p.set(ccx + ox * c + oz * s, r.gy + D.tyre, ccz - ox * s + oz * c);
           _e.set(r.spin, yaw + steer, 0); _q.setFromEuler(_e);
-          S.wheels.setMatrixAt(wi++, _m.compose(_p, _q, _s.set(1, 1, 1)));
+          S.wheels.setMatrixAt(wi++, _m.compose(_p, _q, _s.set(1, wk, wk)));
         };
         const front = Math.max(...D.axlesF);
         for (const az of D.axlesF) for (const sx of [-1, 1]) wheel(p.x, p.z, h, sx * (D.wheelX + 0.04), az, az === front ? p.st * 0.8 : 0);
         if (art) for (const az of D.axlesR) for (const sx of [-1, 1]) wheel(rcx, rcz, hr, sx * (D.wheelX + 0.04), az, 0);
         // shadows
-        const shadow = (x, z, yaw, L) => { if (si >= 18) return; _e.set(-Math.PI / 2, yaw, 0); _q.setFromEuler(_e); S.shadows.setMatrixAt(si++, _m.compose(_p.set(x, r.gy + 0.08, z), _q, _s.set(3.6, L + 1.6, 1))); };
+        const shadow = (x, z, yaw, L) => { if (si >= 18) return; _e.set(-Math.PI / 2, yaw, 0); _q.setFromEuler(_e); S.shadows.setMatrixAt(si++, _m.compose(_p.set(x, r.gy + 0.08, z), _q, _s.set((D.width || 2.5) + 1.1, L + 1.6, 1))); };
         shadow(p.x, p.z, h, D.LF); if (art) shadow(rcx, rcz, hr, D.LR);
       }
       // the floating route-number badge over the front carriage (bigger further away, so it stays readable)
@@ -745,6 +918,42 @@
     for (const ry of dbl ? [top + 7, top + 31] : [top + 8]) for (let wx = 6; wx < 72; wx += 15) if (!(bendy && wx > 38 && wx < 52)) { x.beginPath(); rrP(x, wx, ry, 11, 13, 3); x.fill(); }
     x.beginPath(); rrP(x, 74, top + 6, 9, 22, 3); x.fill();
     for (const wx of bendy ? [16, 36, 74] : [18, 68]) { circ(x, wx, 62, 9, '#3a343f'); circ(x, wx, 62, 4, '#c9d2db'); }
+    x.restore();
+  }
+  // the same for the other rides (taxi, fire engine, ambulance, ice cream van, tow truck), same size and place
+  function sideRide(x, ox, oy, s, col, type) {
+    x.save(); x.translate(ox, oy); x.scale(s, s);
+    const part = (X, Y, W, H, R, f) => shaded(x, (p) => rrP(p, X, Y, W, H, R), f);
+    const glass = (X, Y, W, H) => { x.fillStyle = '#bfe6f5'; x.beginPath(); rrP(x, X, Y, W, H, 3); x.fill(); };
+    const flat = (X, Y, W, H, f) => { x.fillStyle = f; x.fillRect(X, Y, W, H); };
+    let wheels = [18, 68];
+    if (type === 'taxi') {
+      part(22, 18, 40, 26, 9, col); part(4, 36, 80, 24, 9, col);
+      glass(27, 23, 14, 13); glass(44, 23, 14, 13);
+      flat(6, 46, 76, 4, '#26232b'); part(34, 9, 16, 10, 4, '#fff3c4');
+    } else if (type === 'fire') {
+      part(0, 24, 60, 36, 6, col); part(58, 20, 28, 40, 8, col);
+      glass(66, 26, 15, 14); flat(4, 34, 14, 18, '#d5d9e0'); flat(22, 34, 14, 18, '#d5d9e0'); flat(40, 34, 14, 18, '#d5d9e0');
+      flat(2, 14, 66, 4, '#dfe3ea'); for (let i = 0; i < 7; i++) flat(6 + i * 9, 11, 3, 10, '#aab2bf');
+      flat(68, 14, 10, 6, '#ff4a3a'); wheels = [16, 70];
+    } else if (type === 'ambulance') {
+      part(0, 8, 60, 52, 7, col); part(58, 26, 28, 34, 8, col);
+      glass(66, 30, 15, 13); flat(2, 42, 56, 6, '#4fa3e0');
+      const h = new Path2D(); heartP(h, 30, 26, 0.36); x.fillStyle = '#ff6b5c'; x.fill(h);
+      flat(22, 3, 12, 6, '#4fa3ff');
+    } else if (type === 'icecream') {
+      part(2, 18, 62, 42, 7, col); part(62, 30, 24, 30, 8, col);
+      glass(68, 34, 13, 12); part(12, 26, 34, 16, 4, '#fff6e0'); flat(0, 16, 66, 5, '#fff6e0');
+      x.fillStyle = '#e0a85a'; x.beginPath(); x.moveTo(24, 6); x.lineTo(38, 6); x.lineTo(31, 18); x.closePath(); x.fill();
+      circ(x, 31, 3, 8, '#fff6e0'); wheels = [18, 70];
+    } else {                                                             // tow truck
+      part(54, 20, 32, 40, 8, col); part(0, 42, 58, 18, 5, '#5a5260');
+      glass(64, 26, 16, 14); flat(60, 15, 12, 6, '#ff9d2e');
+      x.strokeStyle = '#3a343f'; x.lineWidth = 6; x.lineCap = 'round'; x.beginPath(); x.moveTo(50, 40); x.lineTo(8, 16); x.stroke();
+      x.lineWidth = 2.5; x.beginPath(); x.moveTo(8, 16); x.lineTo(8, 34); x.stroke();
+      wheels = [16, 70];
+    }
+    for (const wx of wheels) { circ(x, wx, 62, 9, '#3a343f'); circ(x, wx, 62, 4, '#c9d2db'); }
     x.restore();
   }
   function pic(name, size = 128) {
@@ -861,13 +1070,24 @@
   }
   N.pic = pic;
   function miniBus(look) {
-    const key = 'mini:' + look.ty + look.pa;
+    const key = 'mini:' + look.ty + look.pa + (look.vp || '');
     if (picCache[key]) return picCache[key];
     const c = document.createElement('canvas'); c.width = 96; c.height = 64;
     const x = c.getContext('2d'); x.scale(96 / 100, 64 / 66);
-    sideBus(x, 6, look.ty === 'double' ? 12 : 0, 1.02, paintHex(look.pa), look.ty);
+    if (isBus(look.ty)) sideBus(x, 6, look.ty === 'double' ? 12 : 0, 1.02, paintHex(look.pa), look.ty);
+    else sideRide(x, 6, 0, 1.02, lookHex(look), look.ty);
     return (picCache[key] = c);
   }
+  // a friend's little picture for other files (ui.js: the home screen's strip): type, bus paint id, drawn colour
+  N.mini = (type, paint, color) => {
+    if (isBus(type)) return miniBus({ ty: type, pa: paint });
+    const key = 'minic:' + type + color;
+    if (picCache[key]) return picCache[key];
+    const c = document.createElement('canvas'); c.width = 96; c.height = 64;
+    const x = c.getContext('2d'); x.scale(96 / 100, 64 / 66);
+    sideRide(x, 6, 0, 1.02, /^#[0-9a-f]{6}$/i.test(color) ? color : RIDE_PAINT[type], type);
+    return (picCache[key] = c);
+  };
   const cv = (canvas) => { const c = document.createElement('canvas'); c.width = canvas.width; c.height = canvas.height; c.getContext('2d').drawImage(canvas, 0, 0); return c; };
 
   // ================= the room cards and the friends strip =================
@@ -977,8 +1197,9 @@
     if (withMe) list.unshift(Object.assign(myLook(), { me: true }));
     for (const look of list) {
       const f = BB.el('div', 'bbn-friend' + (look.me ? ' me' : ''), el);
-      f.appendChild(cv(miniBus(look))); BB.el('b', '', f, look.no);
-      BB.tap(f, () => BB.say(look.me ? `Your bus, number ${look.no}!` : `Bus ${look.no}!`));
+      const bus = isBus(look.ty);
+      f.appendChild(cv(miniBus(look))); BB.el('b', '', f, bus ? look.no : '');
+      BB.tap(f, () => BB.say(bus ? (look.me ? `Your bus, number ${look.no}!` : `Bus ${look.no}!`) : (look.me ? `Your ${RIDE_NAME[look.ty]}!` : `A friend's ${RIDE_NAME[look.ty]}!`)));
     }
   }
 
