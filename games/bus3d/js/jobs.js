@@ -1389,7 +1389,7 @@
   J.meetPoint = meetPoint;
   // The leader's own short hops lean towards the others (the middle of the friends out driving), so they meet sooner
   // and then stay near each other: from the usual choice of next places (pool: [{ s }]), the ones near the friends,
-  // else the two nearest to them. No friends out, or we follow (meetPick did that already): pool as it is.
+  // else the nearest to them. No friends out, or we follow (meetPick did that already): pool as it is.
   function leadPool(pool) {
     if (pool.length < 2) return pool;
     const fr = friendsOut(); if (!fr) return pool;
@@ -1398,7 +1398,7 @@
     x /= fr.length; z /= fr.length;
     const by = pool.map((o) => ({ o, dg: hypot2(o.s.pos.x - x, o.s.pos.z - z) })).sort((a, b) => a.dg - b.dg);
     const ring = by.filter((e) => e.dg <= MEET_RING);
-    return (ring.length ? ring : by.slice(0, 2)).map((e) => e.o);
+    return (ring.length ? ring : by.filter((e) => e.dg <= by[0].dg + 25)).map((e) => e.o);
   }
   // The next place when friends are out driving, from `from` (a bay, or null = where the vehicle is) among list
   // (bus stops for a bus, the ride's own spots for the others):
@@ -1423,7 +1423,7 @@
     if (far > MEET_FAR) {
       // (only places that really bring us nearer: a ride with few places of its own may have none that way)
       c.sort((a, b) => a.dg - b.dg);
-      pool = c.slice(0, 4).filter((o) => o.dg < far - 20 && reach(o)).slice(0, 2);
+      pool = c.slice(0, 4).filter((o) => o.dg < far - 5 && reach(o)).slice(0, 2);
     } else {
       pool = c.filter((o) => o.dg <= MEET_RING && o.dp <= 130);
       const other = pool.filter((o) => nm(o.s) !== prev);          // (not the same spoken name twice running)
@@ -1511,6 +1511,13 @@
   // Head for the job's current stop: a new question (and the people for it waiting at the shelter).
   function nextStop(quiet) {
     const job = J.current; if (!job) return;
+    // friends are out driving: the job's later stops were chosen a while ago, so choose this one afresh, for where
+    // the friends are now (see meetPick; alone, nothing changes)
+    if (job.index > 0 && !job.theme && !job.vehicle && job.stops[job.index] && friendsOut()) {
+      const at = BB.bus.atStop || J.lastStop, from = at && okStop(at) ? at : null;
+      const again = nextNear(from, job.stops.slice(0, job.index).concat(at ? [at] : []));
+      if (again) { job.stops[job.index] = again; for (let i = job.stops.length - 1; i > job.index; i--) if (job.stops[i] === again) job.stops.splice(i, 1); J.lastJobStops = job.stops.slice(); }
+    }
     // raining: someone with an umbrella waves the bus down at an extra stop on the way (once a job, one more coin)
     let bonusLine = null;
     const raining = BB.world && typeof BB.world.isRaining === 'function' && BB.world.isRaining();
