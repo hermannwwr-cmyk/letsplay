@@ -288,11 +288,12 @@
   .bbu-turn .phone .arc { animation: bbu-arc 2.4s ease-in-out infinite; }
   @keyframes bbu-arc { 0%, 15% { opacity: 1; } 55%, 100% { opacity: .25; } }
   @media (orientation: portrait) { .bbu-turn.standalone { display: flex; } }
-  /* narrower screens: the clock moves under Coins */
-  @media (max-width: 900px) { .bbu-top .bbu-clock { position: absolute; left: 0; top: calc(var(--bh) + 8px); margin-top: 0; font-size: 25px; } .bbu-top .bbu-clock svg { width: 30px; height: 30px; }
-    .lefty .bbu-top .bbu-clock { left: auto; right: 0; } }   /* (left-handed: Turn around is on the left, so the clock goes right) */
-  /* small phones: the sides are full (Turn around, Controls above the wheel), so the clock sits in the middle, under Next stop */
-  @media (max-width: 900px) and (max-height: 430px) { .bbu-top .bbu-clock, .lefty .bbu-top .bbu-clock { left: 50%; right: auto; transform: translateX(-50%); } }
+  /* narrower screens (phones): the clock stays in the top bar beside Next stop (the bar has room since it was
+     trimmed), a little smaller, so it never sits over the road or the question card */
+  @media (max-width: 900px) { .bbu-top .bbu-clock { height: 44px; padding: 0 12px 0 8px; gap: 4px; font-size: 22px; margin-top: calc((var(--bh) - 44px) / 2); }
+    .bbu-top .bbu-clock svg { width: 26px; height: 26px; } }
+  @media (max-width: 620px) { .bbu-top .bbu-clock { height: 40px; padding: 0 9px 0 6px; font-size: 19px; margin-top: calc((var(--bh) - 40px) / 2); }
+    .bbu-top .bbu-clock svg { width: 22px; height: 22px; } .bbu-mid { gap: 6px; } }
   /* small phones held sideways: the wheel, the pedals and the joystick are sized from the height (the wheel at most
      about 40% of it), lifted a little off the bottom edge so their shadows and glows show, and never under 64 px */
   @media (max-height: 430px) {
