@@ -1324,6 +1324,7 @@
     fitCam.fov = sceneFov || baseFov(); fitCam.aspect = cam.aspect; fitCam.updateProjectionMatrix();
     const aw = Math.max(80, R.x1 - R.x0), ah = Math.max(80, R.y1 - R.y0), rx = (R.x0 + R.x1) / 2, ry = (R.y0 + R.y1) / 2;
     const tanV = Math.tan(THREE.MathUtils.degToRad(fitCam.fov) / 2);
+    const low = Hd > 520 && NS > 0 && !(st && Array.isArray(st.frame) && st.frame.length);
     const proj = (v) => { _q.copy(v).project(fitCam); return [(_q.x + 1) / 2 * Wd, (1 - _q.y) / 2 * Hd, _q.z]; };
     const box = (pts) => { let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; for (const v of pts) { const p = proj(v); x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]); } return { x0, y0, x1, y1, w: x1 - x0, h: y1 - y0 }; };
     // the centre of what must show
@@ -1340,7 +1341,10 @@
       for (let it = 0; it < 3; it++) {
         const bx = box(pts), u = d * tanV / (Hd / 2);           // world units per pixel at the bus
         right.setFromMatrixColumn(fitCam.matrixWorld, 0); up.setFromMatrixColumn(fitCam.matrixWorld, 1);
-        const mx = -((rx - (bx.x0 + bx.x1) / 2) * u), my = (ry - (bx.y0 + bx.y1) / 2) * u;
+        // (tablets, card along the bottom: the bus stands just above the card instead of in the middle of the free
+        // space, so there is no empty band of road between the people and their pictures on the card)
+        const cy = low ? Math.max(ry, R.y1 - 26 - bx.h / 2) : ry;
+        const mx = -((rx - (bx.x0 + bx.x1) / 2) * u), my = (cy - (bx.y0 + bx.y1) / 2) * u;
         fitCam.position.addScaledVector(right, mx).addScaledVector(up, my); look.addScaledVector(right, mx).addScaledVector(up, my);
         if (fitCam.position.y < g0 + 1.3) { const dy = g0 + 1.3 - fitCam.position.y; fitCam.position.y += dy; look.y += dy; }
         fitCam.updateMatrixWorld(true);
@@ -1365,7 +1369,8 @@
       const dReq = fitD(yaw, pitch, req);
       let pts = req, d = dReq;
       if (withWave) {                          // the waving spot (and the whole bus) too, if the heads stay 36 px apart
-        const lim = Math.max(dReq * 1.08, spacingD(yaw, pitch));
+        // (on a tablet the people come first: the whole bus only when it costs next to nothing, else its tail may be cut)
+        const lim = low ? dReq * 1.18 : Math.max(dReq * 1.08, spacingD(yaw, pitch));
         for (const more of [all, reqWave]) { const dm = fitD(yaw, pitch, more); if (dm <= lim) { pts = more; d = dm; break; } }
       }
       d = Math.max(d, minD);

@@ -63,6 +63,8 @@
     washPaid: 0,                 // coins paid for a bus wash that hasn't finished yet (a reload mid-wash gives them back)
     vehiclesOwned: ['bendy', 'double', 'single'],   // the rides the child may drive (the buses are free; the others are bought in the garage)
     vehiclePaint: {},            // a colour per other ride ({fire: 'blue'}); none = its classic colours
+    skill: null,                 // how the sums are going (jobs.js: 0-4.6, the level is its whole part); null = work it out from questions
+    wish: null,                  // the ride the child is saving up for (depot.js: the locked ride they tapped last; none = the cheapest)
   });
   // Hats were sold in an earlier build; they're gone from the shop, and depot.js gives their coins back.
   const HAT_PRICES = { party: 5, flowers: 6, bunny: 8, crown: 10 };
@@ -87,6 +89,8 @@
       s.vehiclesOwned = (Array.isArray(s.vehiclesOwned) ? s.vehiclesOwned : []).filter((v) => typeof v === 'string');
       for (const v of ['single', 'double', 'bendy']) if (!s.vehiclesOwned.includes(v)) s.vehiclesOwned.unshift(v);
       if (!s.vehiclePaint || typeof s.vehiclePaint !== 'object' || Array.isArray(s.vehiclePaint)) s.vehiclePaint = {};
+      if (typeof s.skill !== 'number' || !isFinite(s.skill)) s.skill = null;
+      if (typeof s.wish !== 'string') s.wish = null;
     }
     return s;
   })();

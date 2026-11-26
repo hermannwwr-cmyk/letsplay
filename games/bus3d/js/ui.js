@@ -357,9 +357,12 @@
     homeBtn = U.btn(left, 'home', 'Home', () => U.homeTap(), 'bbu-home');
     // one small tile for the coins and the fuel dial (tap: both are said)
     cashEl = U.btn(left, null, 'Coins', () => {
-      const n = BB.depot.cash, f = BB.bus.fuel;
+      const n = BB.depot.cash, f = BB.bus.fuel, low = f <= BB.cfg.fuelLow + 0.05;
+      // (and the wish, the ride being saved up for: how many more coins it takes)
+      let w = null; try { w = BB.depot.wish && BB.depot.wish(); } catch (e) { /* none */ }
+      const wl = !w ? '' : w.need > 0 ? `${w.need} more for the ${w.name}!` : `Enough for the ${w.name}!`;
       BB.say((n === 1 ? 'You have 1 coin! ' : `You have ${n} coins! `) +
-        (f > 0.55 ? 'Lots of fuel!' : f > BB.cfg.fuelLow + 0.05 ? 'Half a tank of fuel.' : "Fuel is getting low, let's go to the garage!"));
+        (low ? "Fuel is getting low, let's go to the garage!" : wl || (f > 0.55 ? 'Lots of fuel!' : 'Half a tank of fuel.')));
     }, 'bbu-cash nolb');
     const crow = BB.el('span', 'row', null); cashEl.prepend(crow);
     crow.appendChild(BB.iconEl('coin', 96)); BB.el('b', '', crow, String(BB.depot.cash));

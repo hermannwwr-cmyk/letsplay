@@ -86,6 +86,16 @@
   // the ride on show is a bus? (bus.js says B.kind once it is built)
   const isRideBus = (id) => (BB.bus && BB.bus.type === id && typeof BB.bus.kind === 'string' ? BB.bus.kind === 'bus' : isBusKind(id));
   D.ownsVehicle = ownsVeh; D.VEH_PRICE = VEH_PRICE;
+  // The wish: the ride the child is saving up for. It is the locked ride they tapped last in the garage (save.wish),
+  // or, before they have tapped one, the cheapest ride not bought yet. null once every ride is theirs.
+  // {id, name ('taxi'), price, need (coins still missing, 0 = enough), pic() (a canvas)}
+  D.wish = function () {
+    let id = S.wish && VEH_PRICE[S.wish] && !ownsVeh(S.wish) ? S.wish : null;
+    if (!id) for (const k in VEH_PRICE) if (!ownsVeh(k) && (!id || VEH_PRICE[k] < VEH_PRICE[id])) id = k;
+    if (!id) return null;
+    const price = VEH_PRICE[id];
+    return { id, price, name: (TYPE_SAY[id] || id).toLowerCase(), need: Math.max(0, price - D.cash), pic: () => typePic(id) };
+  };
   const curType = () => S.busType || fleetTypes()[0].id;
   const DIGITS = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
   if (!S.paints.includes('green')) S.paints.unshift('green');
@@ -583,6 +593,9 @@
   @keyframes bbd-buy { 50% { transform: scale(1.16); } }
   .bbd-tile.preview .bbd-price::before { content: ''; width: 18px; height: 18px; margin-right: 2px;
     background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 12.5l4 4 8-9' stroke='white' stroke-width='3.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat; }
+  .bbd-wishbar { position: absolute; left: 9px; right: 9px; bottom: 4px; height: 7px; border-radius: 4px; background: #eadfca; overflow: hidden; }
+  .bbd-wishbar i { display: block; height: 100%; min-width: 4px; border-radius: 4px; background: #ffb81f; }
+  .bbd-tile.wish { padding-bottom: 9px; }
   .bbd-hint { flex-basis: 100%; font: 700 15px/1.2 ${BB.FONT}; color: #9a7a58; text-align: center; margin-top: -4px; }
   .bbd-goal { flex-basis: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font: 700 20px/1 ${BB.FONT}; color: #b06e00; animation: bbd-pop .3s; }
   .bbd-goal canvas { width: 30px; height: 30px; }
@@ -853,6 +866,8 @@
     t.appendChild(cv(picCanvas));
     if (opts.label) { BB.el('span', 'lb', t, opts.label); t.setAttribute('aria-label', opts.label); }
     if (opts.price) { const pr = BB.el('span', 'bbd-price', t); pr.appendChild(coinCv(20)); BB.el('span', '', pr, String(opts.price)); }
+    // the wish (the ride being saved up for): a little bar along the foot of the tile fills up with the coins
+    if (opts.saved != null) { t.classList.add('wish'); BB.el('i', '', BB.el('span', 'bbd-wishbar', t)).style.width = Math.round(100 * Math.max(0, Math.min(1, opts.saved))) + '%'; }
     t.style.animationDelay = (opts.i || 0) * 35 + 'ms';
     BB.tap(t, () => { opts.tap(t); camTo(camFor()); });
     return t;
@@ -985,7 +1000,8 @@
       let box = sec('mybus', 'Ride');
       fleetTypes().sort((a, b) => (VEH_PRICE[a.id] || 0) - (VEH_PRICE[b.id] || 0)).forEach((t) => {   // (buses first, then by price)
         const own = ownsVeh(t.id), price = VEH_PRICE[t.id] || 0, name = TYPE_SAY[t.id] || t.name;
-        tile(box, typePic(t.id), { i: n++, on: curType() === t.id && !(preview && preview.kind === 'vehicle'), preview: isPrev('vehicle', t.id), locked: !own,
+        const wish = !own && D.wish();
+        tile(box, typePic(t.id), { saved: wish && wish.id === t.id ? D.cash / price : null, i: n++, on: curType() === t.id && !(preview && preview.kind === 'vehicle'), preview: isPrev('vehicle', t.id), locked: !own,
           price: own ? 0 : price, wide: true, label: TYPE_WORD[t.id] || t.name, tap: (el) => {
             if (own) {
               if (preview) setPreview(null);
@@ -994,7 +1010,14 @@
               BB.later(400, () => renderBody());
               return;
             }
-            if (!isPrev('vehicle', t.id)) { setPreview({ kind: 'vehicle', id: t.id }); BB.sfx.whoosh(); D.hop(); speakPrice(name + '!', price); renderBody(); return; }
+            if (!isPrev('vehicle', t.id)) {
+              // trying a locked ride makes it the wish; with too few coins the child hears how many more it takes
+              setPreview({ kind: 'vehicle', id: t.id }); BB.sfx.whoosh(); D.hop();
+              if (S.wish !== t.id) { S.wish = t.id; BB.saveNow(); BB.emit('wish:changed', { id: t.id }); }
+              const need = price - D.cash;
+              if (need > 0) BB.say(`${name}! ${price} coins. ${need} more ${need === 1 ? 'coin' : 'coins'} to go! Let's save up!`); else speakPrice(name + '!', price);
+              renderBody(); return;
+            }
             if (tooSoon()) return;
             if (!buy(el, price)) return;
             S.vehiclesOwned.push(t.id); S.busType = t.id; preview = null; BB.saveNow(); applyType();

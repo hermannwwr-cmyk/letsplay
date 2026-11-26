@@ -45,7 +45,10 @@
   J.busy = () => J.phase === 'stop' || J.phase === 'question' || J.phase === 'tow';
 
   // ---------- difficulty ----------
-  // Grows with the number of questions answered (BB.save.questions). Every number stays 0-10.
+  // Follows how the child is doing (BB.save.skill, 0 to 4.6; its whole part is the level). A right answer at the first
+  // try lifts it a little (about three in a row for the next level), a question that needed Mina's walk-through (two
+  // wrong tries or more) steps it back about half a level, one wrong try leaves it. Nothing is shown or said about
+  // it: the sums just get a little bigger or smaller. Every number stays 0-10, and adding comes before taking away.
   // tot = most people on the bus, kMax = most getting on/off at once, sub = chance of taking away.
   const LEVELS = [
     { kMax: 1, tot: 4, sub: 0 },                 // the very first questions: 2 + 1, then 3 + 1
@@ -54,8 +57,20 @@
     { kMax: 3, tot: 9, sub: 0.5 },
     { kMax: 4, tot: 10, sub: 0.5, zero: true },  // now and then everybody gets off: 0 left
   ];
-  const level = () => { const q = BB.save.questions | 0; return q < 2 ? 0 : q < 4 ? 1 : q < 7 ? 2 : q < 11 ? 3 : 4; };
+  const SKILL_MAX = LEVELS.length - 1 + 0.6, SKILL_UP = 0.4, SKILL_DOWN = 0.6;
+  // (saves from before the skill existed start at the level their number of answered questions had reached)
+  if (typeof BB.save.skill !== 'number' || !isFinite(BB.save.skill)) { const q0 = BB.save.questions | 0; BB.save.skill = q0 < 2 ? 0 : q0 < 4 ? 1 : q0 < 7 ? 2 : q0 < 11 ? 3 : 4; }
+  BB.save.skill = Math.max(0, Math.min(SKILL_MAX, BB.save.skill));
+  const level = () => Math.max(0, Math.min(LEVELS.length - 1, Math.floor(BB.save.skill + 1e-6)));
   J.level = level;
+  // after a right answer: tries = wrong tries before it
+  function learn(q) {
+    const t = q.tries | 0, s0 = +BB.save.skill || 0;
+    BB.save.skill = Math.max(0, Math.min(SKILL_MAX, t === 0 ? s0 + SKILL_UP : t >= 2 ? s0 - SKILL_DOWN : s0));
+    J.sinceZero = q.answer === 0 ? 0 : (J.sinceZero == null ? 9 : J.sinceZero) + 1;
+  }
+  // "0 left" (everybody off) is a special one: not again within the next few questions
+  const zeroOk = () => J.sinceZero == null || J.sinceZero >= 4;
   const qKey = (q) => q.kind + q.n + '/' + q.k;
 
   // n0 = passengers on the bus now. Returns {kind, pre, n, k, answer, choices}.
@@ -80,6 +95,7 @@
       }
       const c = { kind, n, k, answer: kind === 'add' ? n + k : n - k };
       if (c.answer < 0 || c.answer > 10 || c.n > 10) continue;
+      if (c.answer === 0 && !zeroOk()) continue;
       if (avoid && qKey(c) === avoid) continue;
       if (tries < 40 && (J.recent || []).includes(qKey(c))) continue;   // not a sum from the last 5 questions, if we can help it
       if (c.n < n0 && tries < 45) continue;      // people getting off before the question is confusing: avoid it
@@ -371,8 +387,10 @@
       const exit = doorFrame(true), frontD = doorFrame(false);
       const span = front ? 0 : (exit.d.x - frontD.d.x) * frontD.fx + (exit.d.z - frontD.d.z) * frontD.fz;   // the door, along the bus
       const cands = [];
-      for (const out of [2.4, 3.4, 1.6]) {
-        for (let along = span + 4; along >= span - 14; along -= 0.9) {
+      // (along the whole bus and a little past both ends: when the stop view is close and cuts the tail off, there is
+      // still room in front of the nose; the nearest spot to the door wins)
+      for (const out of [2.4, 3.4, 1.6, 4.4]) {
+        for (let along = Math.max(span + 4, 6); along >= span - 14; along -= 0.9) {
           const p = kerbSpot(out, along, false);
           const foot = proj(p), head = proj(new THREE.Vector3(p.x, p.y + 2.3, p.z));
           if (!foot || !head) continue;
@@ -727,6 +745,8 @@
   .bbq-btn.yes { animation: bbq-pop .5s; box-shadow: 0 0 0 6px #ffd45c, 0 6px 0 rgba(0,0,0,.2); }
   @keyframes bbq-pop { 50% { transform: scale(1.25); } }
   .bbq.wait .bbq-btn, .bbq.teaching .bbq-btn { opacity: .35; pointer-events: none; }
+  .bbq.wait.listen .bbq-ask { animation: bbq-listen .45s ease-in-out; }
+  @keyframes bbq-listen { 30% { transform: translateY(5px) scale(.97); } 65% { transform: translateY(-2px); } }
   .bbq-say { width: 60px; height: 60px; border-radius: 50%; border: 3px solid #d9b57f; background: #fff; cursor: pointer; padding: 0;
     display: flex; align-items: center; justify-content: center; touch-action: manipulation; box-shadow: 0 4px 0 rgba(120,80,40,.15); }
   .bbq-say svg { width: 34px; height: 34px; }
@@ -742,7 +762,20 @@
   .bbj svg { width: 56px; height: 56px; animation: bbq-pop .5s both; }
   .bbj svg:nth-child(2) { animation-delay: .15s; } .bbj svg:nth-child(3) { animation-delay: .3s; }
   .bbj canvas { width: 52px; height: 52px; margin-left: 10px; }
+  .bbj-wish { position: absolute; left: 50%; top: calc(24% + 92px); transform: translate(-50%, 0); display: flex; align-items: center; gap: 10px;
+    background: #fff6e0; border: 4px solid #d9b57f; border-radius: 26px; padding: 6px 20px 6px 12px; pointer-events: none;
+    box-shadow: 0 6px 0 rgba(120,80,40,.18); font: 800 34px/1 'Fredoka', 'Baloo 2', system-ui, sans-serif; color: #b06e00;
+    animation: bbj-in .5s cubic-bezier(.2,1.5,.5,1) .35s both; }
+  .bbj-wish.out { transition: opacity .4s, transform .4s; opacity: 0; transform: translate(-50%, -30px); }
+  .bbj-wish .ride { width: 84px; height: 63px; }
+  .bbj-wish .bar { width: 150px; height: 18px; border-radius: 10px; background: #eadfca; overflow: hidden; }
+  .bbj-wish .bar i { display: block; height: 100%; min-width: 6px; border-radius: 10px; background: #ffb81f; transition: width .9s ease-out; }
+  .bbj-wish .coin { width: 34px; height: 34px; margin-right: -4px; }
+  .bbj-wish .ok { width: 38px; height: 38px; border-radius: 50%; background: #19a79b url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 12.5l4 4 8-9' stroke='white' stroke-width='3.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/80% no-repeat; }
   @media (max-height: 520px) {
+    .bbj-wish { top: calc(24% + 78px); font-size: 26px; padding: 4px 14px 4px 8px; border-width: 3px; }
+    .bbj-wish .ride { width: 64px; height: 48px; } .bbj-wish .bar { width: 110px; height: 14px; } .bbj-wish .coin { width: 26px; height: 26px; }
+    .bbj-wish .ok { width: 30px; height: 30px; }
     .bbq { left: max(10px, env(safe-area-inset-left), var(--padx, 0px)); bottom: max(8px, env(safe-area-inset-bottom)); transform: none;
       flex-direction: column; align-items: center; gap: 8px; padding: 6px 12px 12px; border-radius: 22px; --cell: 36px; --bird: 66px; }
     @keyframes bbq-in { from { transform: translateX(-120%); } }
@@ -950,6 +983,9 @@
       if (!card || e.target.closest('button')) return;
       if (BB.audio && BB.audio.unlock) BB.audio.unlock();
       if (J.teaching) { skipTeach(); return; }
+      // the answer buttons are still faded (the story is being told): Mina gives a little hop and the buttons a
+      // nudge, with a soft tick, so the tap is noticed; the story carries on (no words, they would cut it off)
+      if (card.classList.contains('wait') && !q.done && e.target.closest('.bbq-ask')) { listenFirst(); return; }
       const seat = e.target.closest('.bbq-seat');
       if (seat && J.phase === 'question' && !q.done) countTap(+seat.dataset.i);
     });
@@ -957,6 +993,15 @@
     BB.emit('question:show', { q });
   }
 
+  let listenAt = 0;
+  function listenFirst() {
+    const now = performance.now();
+    if (now - listenAt < 700 || !card) return;
+    listenAt = now;
+    BB.sfx.tick();
+    if (bird) { bird.classList.remove('hop'); void bird.offsetWidth; bird.classList.add('hop'); }
+    card.classList.remove('listen'); void card.offsetWidth; card.classList.add('listen');
+  }
   // The child taps seats to count: each friend not counted yet gets the next number, said aloud.
   function countTap(i) {
     if (!isFull(i)) return;
@@ -998,10 +1043,10 @@
   async function runStop(stop, q, onRight) {
     const g = ++stopGen;
     const alive = () => g === stopGen && J.phase === 'stop' && !BB.bedtime;
-    await wait(450);                          // the stop camera settles about 1 s after arrival
+    await wait(250);                          // the stop camera settles about 1 s after arrival
     if (!alive()) return;
     queueIntoView();
-    await wait(450);
+    await wait(350);
     if (!alive()) return;
     // a passenger friend in the queue waves and says hello (met for the first time: added to the friends list)
     if (q.friend) {
@@ -1018,7 +1063,7 @@
     if (q.pre > 0) {
       const pre = J.waiting.filter((m) => m.userData.pre);
       J.waiting = J.waiting.filter((m) => !m.userData.pre);
-      await Promise.all([say('Hello! In you get!'), boardPeople(pre)]);
+      await Promise.all([say(helloLine()), boardPeople(pre)]);
     } else if (q.pre < 0) {
       await alightPeople(-q.pre);
     }
@@ -1026,7 +1071,7 @@
     BB.bus.passengers = q.n;
     buildCard(q);
     J.question = q;
-    await wait(350);
+    await wait(200);
     if (!alive()) return;
     // (no worked example before the first question: the owner removed it; Mina teaches after a wrong answer)
     // the first time on a double-decker: only the people downstairs count
@@ -1060,10 +1105,10 @@
     q.onRight = onRight;
     const s = ++seq;
     showSum('ask'); litSum('ask');
+    card.classList.remove('wait');            // a child who knows already may answer while the question is still being asked
     await say(askPhrase(q));
-    litSum(null);
     if (s !== seq || !card) return;
-    card.classList.remove('wait');
+    litSum(null);
   }
   // The card shows just the starting group (seats 0..n-1), e.g. after the worked example.
   function showGroup(n) {
@@ -1073,9 +1118,14 @@
   }
 
 
-  const PRAISE = ['Well done!', 'Super counting!', 'Hooray!', 'You got it!'];
+  const PRAISE = ['Well done!', 'Super counting!', 'Hooray!', 'You got it!', 'Great job, Captain!', 'Clever you!'];
+  // people getting on before the story: a short hello, never the same one twice running
+  const HELLOS = ['Hello! In you get!', 'Hop on!', 'Welcome aboard!', 'Good to see you!', 'All aboard!', 'Hello, hello!'];
+  let lastHello = '';
+  const helloLine = () => { let h; do h = BB.pick(HELLOS); while (h === lastHello); lastHello = h; return h; };
   const XMAS_PRAISE = ['Ho ho ho! Well done!', 'Merry counting!', 'Jingle jingle, you got it!'];
-  const praise = () => BB.pick(BB.xmas && Math.random() < 0.6 ? XMAS_PRAISE : PRAISE);
+  let lastPraise = '';
+  const praise = () => { let p; do p = BB.pick(BB.xmas && Math.random() < 0.6 ? XMAS_PRAISE : PRAISE); while (p === lastPraise); lastPraise = p; return p; };
   const sumWords = (q) => q.kind === 'add' ? `${q.n} plus ${q.k} makes ${q.answer}!` : `${q.n} take away ${q.k} leaves ${q.answer}!`;
   async function answer(q, v, btn) {
     if (!card || J.teaching || q.done || card.classList.contains('wait')) return;
@@ -1086,7 +1136,7 @@
       card.classList.add('wait');
       card.classList.remove('hint', 'counting');
       btn.classList.add('yes'); BB.sfx.right();
-      BB.save.questions = (BB.save.questions | 0) + 1; BB.saveNow();
+      BB.save.questions = (BB.save.questions | 0) + 1; learn(q); BB.saveNow();
       J.lastKey = qKey(q);
       J.recent = (J.recent || []).concat(J.lastKey).slice(-5);
       const cash = (q.tries ? CASH_STOP_RETRY : CASH_STOP) + (q.bonus ? 1 : 0);   // +1 for stopping in the rain
@@ -1095,7 +1145,7 @@
       seatEls.forEach((el, i) => { if (isFull(i)) { el.classList.add('lit'); BB.later(160 + i * 60, () => el.classList.remove('lit')); } });
       const counted = flyCoins(btn, cash);
       showSum('n1', 'n2', 'ask'); litSum(null); fillSum(q.answer);
-      await Promise.all([say(`Yes! ${sumWords(q)} ${praise()}`), wait(1500), counted]);
+      await Promise.all([sayNow(`Yes! ${sumWords(q)} ${praise()}`), wait(1400), counted]);
       hideQuestion();
       if (q.onRight) q.onRight(q, cash);
     } else {
@@ -1283,7 +1333,22 @@
     const c = document.createElement('canvas'); c.width = c.height = 80; c.getContext('2d').drawImage(BB.pic('coin', 80), 0, 0);
     el.appendChild(c); BB.el('span', '', el, '+' + cash);
     BB.later(2600, () => { el.classList.add('out'); BB.later(450, () => el.remove()); });
+    // the wish (the ride being saved up for, depot.js): its picture, a bar filling with the coins and how many more
+    // it takes (or a tick when there are enough); returns the line to say about it
+    let w = null; try { w = BB.depot.wish && BB.depot.wish(); } catch (e) { console.error(e); }
+    if (!w) return null;
+    const we = BB.el('div', 'bbj-wish', root);
+    try { const pc = w.pic(), c2 = document.createElement('canvas'); c2.width = pc.width; c2.height = pc.height; c2.getContext('2d').drawImage(pc, 0, 0); c2.className = 'ride'; we.appendChild(c2); } catch (e) { console.error(e); }
+    const had = Math.max(0, w.price - w.need - cash);
+    const fill = BB.el('i', '', BB.el('span', 'bar', we)); fill.style.width = Math.round(100 * Math.min(1, had / w.price)) + '%';
+    BB.later(500, () => { fill.style.width = Math.round(100 * Math.min(1, (w.price - w.need) / w.price)) + '%'; });
+    if (w.need > 0) { const c3 = document.createElement('canvas'); c3.width = c3.height = 64; c3.getContext('2d').drawImage(BB.pic('coin', 64), 0, 0); c3.className = 'coin'; we.appendChild(c3); BB.el('b', '', we, String(w.need)); }
+    else BB.el('b', 'ok', we, '');
+    BB.later(3600, () => { we.classList.add('out'); BB.later(450, () => we.remove()); });
+    if (w.need <= 0) return (wishTold[w.id] = (wishTold[w.id] | 0) + 1) <= 3 ? `You have enough coins for the ${w.name}! It is in the garage!` : null;
+    return `${w.need} more ${w.need === 1 ? 'coin' : 'coins'} for the ${w.name}!`;
   }
+  const wishTold = {};              // how often "you have enough" was said per ride (not on and on if the child keeps saving)
 
   // ---------- the job loop ----------
   // Stops for a new job: never where we are, and the previous job's stops only when there aren't enough others,
@@ -1435,7 +1500,7 @@
     BB.bus.openDoors(); BB.sfx.ding();
     const q = job.q;
     J.stopStart = { job, stop, q, pax0: BB.bus.passengers | 0 };     // to replay this stop exactly after Home
-    BB.later(600, () => { if (J.phase === 'stop') runStop(stop, q, (qq, cash) => afterRight(stop, qq, cash)); });
+    BB.later(350, () => { if (J.phase === 'stop') runStop(stop, q, (qq, cash) => afterRight(stop, qq, cash)); });
   }
   async function afterRight(stop, q, cash) {
     const job = J.current; if (!job) return;
@@ -1443,7 +1508,7 @@
     BB.emit('job:stopDone', { correct: true, cash, stop, tries: q.tries, bonus: !!q.bonus });
     if (q.group) job.groupOn = q.k + (q.preStyle ? Math.max(0, q.pre) : 0);   // the themed group now on board
     if (q.bonus) await say('Thank you for stopping in the rain!');
-    await wait(500);
+    await wait(250);
     if (J.current !== job || BB.bedtime) return;
     if (J.phase === 'home') {
       job.index++; job.q = null;
@@ -1484,9 +1549,9 @@
     BB.depot.add(CASH_JOB); job.cash += CASH_JOB;
     J.current = null; setPhase('done');
     BB.sfx.cheer();
-    celebrateJob(job.cash);
+    const wishLine = celebrateJob(job.cash);
     BB.emit('job:done', { cash: job.cash, job });
-    await Promise.all([say(BB.xmas ? 'Ho ho ho! Job done! Great driving!' : 'Job done! Great driving!'), wait(2800)]);
+    await Promise.all([say(BB.xmas ? 'Ho ho ho! Job done! Great driving!' : 'Job done! Great driving!').then(() => (wishLine && J.phase === 'done' && !BB.bedtime && !timeUp() ? say(wishLine) : null)), wait(2800)]);
     if (J.phase !== 'done' || BB.bedtime) return;
     if (timeUp()) { bedtime(); return; }
     if (J.wantDepot || BB.bus.fuel <= BB.cfg.fuelLow + 0.06) J.goDepot(BB.bus.fuel <= BB.cfg.fuelLow + 0.06 ? 'fuel' : undefined);
@@ -1592,7 +1657,7 @@
       k = BB.randInt(1, Math.max(1, Math.min(L.kMax, L.tot - n, 10 - n)));
     } else {
       if (n == null || n < 2 || n > Math.min(10, L.tot)) n = BB.randInt(3, Math.min(10, L.tot));
-      k = BB.randInt(1, Math.max(1, Math.min(L.subK || L.kMax, L.zero ? n : n - 1)));
+      k = BB.randInt(1, Math.max(1, Math.min(L.subK || L.kMax, L.zero && zeroOk() ? n : n - 1)));
     }
     const q = { kind, n, k, answer: kind === 'add' ? n + k : n - k, pre: 0, tries: 0, icon };
     q.choices = makeChoices(q);
@@ -1659,10 +1724,10 @@
         q.onRight = (qq, cash) => { const job = J.current; if (job) job.cash += cash; BB.emit('job:stopDone', { correct: true, cash, vehicle: job && job.vehicle, tries: qq.tries }); resolve(); };
         const s2 = ++seq;
         showSum('ask'); litSum('ask');
-        await say(q.text.ask);
-        litSum(null);
-        if (s2 !== seq || !card) return;
         card.classList.remove('wait');
+        await say(q.text.ask);
+        if (s2 !== seq || !card) return;
+        litSum(null);
       })().catch((e) => console.error(e));
     });
   }
