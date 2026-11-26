@@ -42,6 +42,54 @@
   /* MRT's start-screen dock carried on into the safe-area strips beside and under it (paintFrameBg) */
   .strip { position: fixed; z-index: 0; pointer-events: none; display: none; }
   #fontwarm { position: absolute; left: -999px; top: -999px; font: 600 20px Fredoka; }
+  /* Version pop-ups and "What's new": paper cards in the hub's cream, over the launcher only */
+  .vcard { position: fixed; z-index: 6; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: min(440px, calc(100% - 32px - var(--sal) - var(--sar))); max-height: calc(100% - 32px - var(--sat) - var(--sab));
+    box-sizing: border-box; display: flex; flex-direction: column; padding: 22px 22px 18px;
+    background: #fff6e0; border: 3px solid #e2c08d; border-radius: 28px; color: #3a2a3c;
+    box-shadow: 0 8px 0 #d9b57f, 0 14px 30px rgba(28,20,52,.35); }
+  .vcard[hidden], .vback[hidden], #updToast[hidden] { display: none; }
+  .vback { position: fixed; inset: 0; z-index: 5; background: rgba(28,20,52,.55); }
+  .vcard h2 { margin: 0 34px 4px; text-align: center; font-size: 28px; font-weight: 700; color: #9b6238; line-height: 1.15; }
+  .vcard .vsub { text-align: center; font-size: 17px; color: #a9875a; margin-bottom: 10px; }
+  .vcard ul { margin: 6px 0 0; padding: 0 0 0 4px; list-style: none; font-size: 18px; line-height: 1.3; }
+  .vcard li { position: relative; padding-left: 24px; margin: 7px 0; }
+  .vcard li::before { content: ''; position: absolute; left: 4px; top: .42em; width: 10px; height: 10px; border-radius: 50%; background: #f5b83d; }
+  .vlist { overflow-y: auto; touch-action: pan-y; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+    background: #fff; border: 2px solid #ecd6ad; border-radius: 18px; padding: 4px 16px 12px; margin: 6px 0 2px; }
+  .vlist h3 { margin: 14px 0 0; font-size: 20px; font-weight: 700; color: #9b6238; }
+  .vlist h3 small { font-size: 15px; font-weight: 600; color: #a9875a; margin-left: 8px; }
+  .vlist h3 .vnow { display: inline-block; font-size: 13px; font-weight: 700; color: #fff; background: #4fb659;
+    border-radius: 10px; padding: 1px 8px; margin-left: 8px; vertical-align: 2px; }
+  .vbtns { display: flex; justify-content: center; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
+  .vbtn { font: 700 22px "Fredoka", ui-rounded, system-ui, sans-serif; color: #fff; border: 0; border-radius: 22px;
+    min-width: 130px; height: 54px; padding: 0 22px; box-sizing: border-box; background: #4fb659; box-shadow: 0 6px 0 #33853c; cursor: pointer;
+    text-shadow: 0 2px 0 rgba(0,0,0,.18); margin-bottom: 6px; }
+  .vbtn:active { transform: translateY(4px); box-shadow: 0 2px 0 #33853c; }
+  .vbtn.soft { background: #cdb48a; box-shadow: 0 6px 0 #9f8659; }
+  .vbtn.soft:active { box-shadow: 0 2px 0 #9f8659; }
+  .vx { position: absolute; right: 14px; top: 14px; width: 44px; height: 44px; border-radius: 50%; border: 2.5px solid #e2c08d;
+    background: #fdebc8; cursor: pointer; padding: 0; }
+  .vx::before, .vx::after { content: ''; position: absolute; left: 12px; top: 18.5px; width: 16px; height: 3.5px; border-radius: 2px;
+    background: #3a2a3c; transform: rotate(45deg); }
+  .vx::after { transform: rotate(-45deg); }
+  #updToast { position: fixed; z-index: 6; left: calc(var(--sal) + 14px); bottom: calc(var(--sab) + 14px);
+    display: flex; align-items: center; gap: 10px; padding: 10px 20px 10px 14px; border-radius: 26px;
+    background: #fff6e0; border: 2.5px solid #d9b57f; box-shadow: 0 5px 0 #e8d3a8, 0 10px 20px rgba(28,20,52,.25);
+    font-size: 19px; font-weight: 600; color: #3a2a3c; pointer-events: none; white-space: nowrap; }
+  #updToast .spin { width: 22px; height: 22px; border-radius: 50%; border: 4px solid #f5d79a; border-top-color: #f39a1e;
+    box-sizing: border-box; animation: vspin 0.9s linear infinite; }
+  #updToast.done .spin { animation: none; border-color: #4fb659; background: #4fb659; }
+  @media (max-height: 520px) {                       /* phones held sideways: keep the list tall enough to read */
+    .vcard { padding: 12px 18px 8px; border-radius: 22px; }
+    #news { width: min(620px, calc(100% - 32px - var(--sal) - var(--sar))); }
+    .vcard h2 { font-size: 22px; } .vcard .vsub { font-size: 14px; margin-bottom: 4px; }
+    .vcard ul { font-size: 16px; } .vcard li { margin: 4px 0; }
+    .vbtns { margin-top: 8px; } .vbtn { height: 46px; font-size: 19px; }
+    .vx { right: 10px; top: 8px; }
+  }
+  @keyframes vspin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { #updToast .spin { animation-duration: 3s; } }
 </style>
 </head>
 <body>
@@ -49,6 +97,19 @@
 <div id="safe"></div>
 <div id="frameDock" class="strip"></div><div id="frameDeck" class="strip"></div>
 <div id="fontwarm">Let's Play 0123456789</div>
+<div id="vback" class="vback" hidden></div>
+<div id="news" class="vcard" role="dialog" aria-label="What's new" hidden>
+  <button class="vx" id="newsX" aria-label="Close"></button>
+  <h2>What's new</h2><div class="vsub" id="newsSub"></div>
+  <div class="vlist" id="newsList"></div>
+  <div class="vbtns"><button class="vbtn" id="newsDone">Done</button></div>
+</div>
+<div id="updPop" class="vcard" role="dialog" hidden>
+  <h2 id="updTitle"></h2><div class="vsub" id="updSub"></div>
+  <ul id="updList"></ul>
+  <div class="vbtns" id="updBtns"></div>
+</div>
+<div id="updToast" hidden><span class="spin"></span><span id="updText">Updating…</span></div>
 <script>
 (() => {
   'use strict';
@@ -69,6 +130,48 @@
     mrt:     { key: 'mrt',     url: 'games/mrt/index.html',     name: 'MRT Train',  say: 'MRT Math Express!',        color: '#e0473a' },
   };
   const ORDER = ['bus', 'grizzly', 'mrt'];
+
+  // ---- The app's version (the same number as VERSION in sw.js) and a short "What's new" for grown-ups,
+  //      newest first. Shown in the grown-up settings, and after an update. Plain words, no jargon. ----
+  const APP_VERSION = 15;
+  const CHANGELOG = [
+    { v: 15, date: '26 Nov 2026', items: [
+      'Hands-on counting: tap friends onto the bus, drag bags, teddies and cars, and aim the fire hose at the windows',
+      'A much nicer water spray for the fire engine',
+      'Friends playing together see the ride you really drive, share the same weather and meet up at nearby stops',
+      'A warmer, slower storyteller voice',
+      'Parking at a stop never needs reversing',
+      'A brighter, moonlit night',
+      'Coins come a little slower, and rides can be bought in any order',
+      'This version number and "What\'s new" in the grown-up settings',
+    ] },
+    { v: 14, date: '26 Nov 2026', items: [
+      'A prettier town: hills and clouds on the horizon, flowers, a sparkling sea and headlights at night',
+      'The bus starts in the depot car park between the parked buses',
+      'Sums get easier or harder to suit your child',
+      'Save up for a wished-for ride',
+    ] },
+    { v: 13, date: '26 Nov 2026', items: [
+      'Smoother on older iPads',
+      'Fewer buttons while driving, more road to see',
+      'Every vehicle has its own places to go',
+      'The lane helper is on from the start',
+    ] },
+    { v: 12, date: '25 Nov 2026', items: [
+      'Five new rides: taxi, fire engine, ambulance, ice cream van and tow truck',
+      'Steering wheel driving, a stop about every 7 seconds',
+      'Play in the same town as other children, automatically',
+    ] },
+    { v: 10, date: '25 Nov 2026', items: [
+      'A bigger town with an airport, a beach and a bus depot',
+      'Special trips, passenger friends, a bus wash and Christmas decorations',
+      'A home screen and a garage with parts to buy',
+    ] },
+    { v: 5, date: '25 Nov 2026', items: ['Little Bus Captain, the new 3D bus game, replaces the old bus game'] },
+    { v: 4, date: '22 Nov 2026', items: ['One sound and music switch for all the games'] },
+    { v: 3, date: '18 Nov 2026', items: ['Daily play time starts at 15 minutes'] },
+    { v: 2, date: '18 Nov 2026', items: ['Works offline from the Home Screen', 'Wakes up by itself in the morning'] },
+  ];
 
   const rand = (a, b) => a + Math.random() * (b - a);
   const randInt = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
@@ -1956,12 +2059,22 @@
     if (state.screen === 'sleep' && playTime.left() > 0) wake();
     else if (state.screen === 'launcher' && playTime.left() <= 0) goSleep();
   }
+  // "Version 15 | What's new": a small paper chip in the settings; tapping it opens the list of changes
+  function drawVersionChip(x, y) {
+    const w = 300, h = 40, push = hot(x - w / 2, y - h / 2, w, h) && pointer.down ? 2 : 0;
+    ctx.fillStyle = '#ecd6ad'; ctx.fill(rr(x - w / 2, y - h / 2 + 4, w, h, 20));
+    solid(rr(x - w / 2, y - h / 2 + push, w, h, 20), '#ffffff', { depth: 0, rim: 2.5, rimColor: P.tan });
+    text(`Version ${APP_VERSION}`, x - 72, y + push + 1, 19, '#a9875a', null);
+    ctx.fillStyle = '#ecd6ad'; ctx.fillRect(x - 3, y - 11 + push, 2.5, 22);
+    text("What's new", x + 70, y + push + 1, 19, '#3f86d8', null, 'center', 700);
+    pushButton(x - w / 2, y - h / 2 - 4, w, h + 8, openNews);
+  }
   const fmtMinutes = sec => sec < 60 ? 'under 1 min' : `${Math.floor(sec / 60)} min`;
   function drawModal() {
     buttons = [];
     ctx.fillStyle = 'rgba(28,20,52,.55)'; ctx.fillRect(0, 0, W, H);
     const narrow = W < H * 0.9;
-    const pw = narrow ? 440 : 560, ph = modal.mode === 'gate' ? 476 : 512;
+    const pw = narrow ? 440 : 560, ph = modal.mode === 'gate' ? 476 : 556;
     const s = Math.min((W - SAFE.l - SAFE.r - 16) / pw, (H - SAFE.t - SAFE.b - 16) / (ph + 10), 1.5);
     UI = { ox: W / 2 - pw / 2 * s, oy: (H - ph * s) / 2, s };
     ctx.save(); ctx.translate(UI.ox, UI.oy); ctx.scale(s, s);
@@ -2000,7 +2113,8 @@
         button('+5 min today', cx, 318, 320, 52, '#ff9a2e', () => playTime.addMinutes(5));
       }
       button('Start today again', cx, 384, 320, 52, '#4f9df7', () => playTime.resetToday());
-      button('Done', cx, 462, 200, 52, '#4fb659', closeModal);
+      drawVersionChip(cx, 442);
+      button('Done', cx, 506, 200, 52, '#4fb659', closeModal);
     }
     ctx.restore();
     UI = { ox: 0, oy: 0, s: 1 };
@@ -3028,6 +3142,7 @@
   window.addEventListener('keydown', e => {
     initAudio(true); inputSince = true;
     const k = e.key;
+    if (verOpen()) { if (k === 'Escape' || k === 'Enter') { e.preventDefault(); closeVer(); } return; }
     if (modal) {
       e.preventDefault();
       if (k === 'Escape') closeModal();
@@ -3098,10 +3213,112 @@
   };
   requestAnimationFrame(frameLoop);
 
+  // =====================================================================
+  //  Versions: "What's new" (from the grown-up settings), a small "Updating…" note while the
+  //  service worker fetches a new version, and a card once the app has been updated.
+  //  Cards only show over the launcher or the sleep scene, never over a game or the settings.
+  // =====================================================================
+  const $ = id => document.getElementById(id);
+  const upd = { installing: false, since: 0, doneAt: -1e9, ready: 0, readyAsked: false, whatsNew: false,
+    bootAt: performance.now(), checked: performance.now() };
+  let verShown = null;                                  // 'news' | 'pop' | null
+  function verOpen() { return verShown !== null; }
+  const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  function hideVer() { $('news').hidden = true; $('updPop').hidden = true; $('vback').hidden = true; verShown = null; }
+  function closeVer() { sfx.click(); hideVer(); }
+  function openNews() {
+    hideVer();
+    $('newsSub').textContent = `You have version ${APP_VERSION}`;
+    $('newsList').innerHTML = CHANGELOG.map(e => `<h3>Version ${e.v}<small>${esc(e.date)}</small>` +
+      (e.v === APP_VERSION ? '<span class="vnow">This one</span>' : '') + '</h3><ul>' +
+      e.items.map(i => `<li>${esc(i)}</li>`).join('') + '</ul>').join('');
+    $('newsList').scrollTop = 0;
+    $('vback').hidden = false; $('news').hidden = false; verShown = 'news';
+  }
+  function showPop(title, sub, items, btns) {
+    hideVer();
+    $('updTitle').textContent = title; $('updSub').textContent = sub;
+    $('updList').innerHTML = items.map(i => `<li>${esc(i)}</li>`).join('');
+    $('updList').hidden = !items.length;
+    const box = $('updBtns'); box.textContent = '';
+    btns.forEach(([label, soft, fn]) => {
+      const b = document.createElement('button');
+      b.className = soft ? 'vbtn soft' : 'vbtn'; b.textContent = label;
+      b.addEventListener('click', () => { sfx.click(); fn(); });
+      box.appendChild(b);
+    });
+    $('vback').hidden = false; $('updPop').hidden = false; verShown = 'pop';
+  }
+  $('newsX').addEventListener('click', closeVer);
+  $('newsDone').addEventListener('click', closeVer);
+  $('vback').addEventListener('click', closeVer);
+
+  // Updated since last time? (Grown-ups who played before this number existed count as updated too.)
+  let hadController = false;
+  try { hadController = !!(navigator.serviceWorker && navigator.serviceWorker.controller); } catch (e) { /* ignore */ }
+  const seenV = load('hub-version', null);
+  if (typeof seenV === 'number') { if (seenV < APP_VERSION) upd.whatsNew = true; }
+  else if (load('hub-play', null) !== null || hadController) upd.whatsNew = true;
+  else save('hub-version', APP_VERSION);               // a brand-new player: nothing to announce
+
+  const installingNow = () => upd.installing && performance.now() - upd.since < 90e3;
+  const launcherFree = () => !frame && !trans && !rotateCard && !modal && !document.hidden &&
+    (state.screen === 'launcher' || state.screen === 'sleep');
+  function verTick() {
+    const now = performance.now();
+    const toastOn = !frame && !verShown && (installingNow() || now - upd.doneAt < 2500);
+    const toast = $('updToast');
+    if (toast.hidden === toastOn) toast.hidden = !toastOn;
+    const done = !installingNow();
+    if (toast.classList.contains('done') !== done) {
+      toast.classList.toggle('done', done);
+      $('updText').textContent = done ? 'Updated!' : 'Updating…';
+    }
+    if (verShown || !launcherFree() || now - upd.bootAt < 1500) return;
+    if (upd.ready > APP_VERSION && !upd.readyAsked) {
+      upd.readyAsked = true;                           // this page is older than the copy just saved
+      showPop(`Version ${upd.ready} is ready!`, 'Start it again to get the newest games.', [],
+        [['Later', true, hideVer], ['Update now', false, () => { hideVer(); location.reload(); }]]);
+    } else if (upd.whatsNew && !installingNow()) {
+      upd.whatsNew = false; save('hub-version', APP_VERSION);
+      const e = CHANGELOG.find(c => c.v === APP_VERSION);
+      showPop(`Updated to version ${APP_VERSION}!`, e ? e.date : '', e ? e.items.slice(0, 3) : [],
+        [['See all', true, openNews], ['OK', false, hideVer]]);
+    }
+  }
+  setInterval(verTick, 250);
+
   // Offline Home Screen app: a service worker keeps a copy of the hub and the games (sw.js).
   // Only on https (GitHub Pages), never from file:// or inside another page.
   if ('serviceWorker' in navigator && location.protocol === 'https:' && window.parent === window) {
-    window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => { /* not available here */ }); });
+    const sw = navigator.serviceWorker;
+    const askVersion = w => { try { w.postMessage({ type: 'version' }); } catch (e) { /* ignore */ } };
+    sw.addEventListener('message', e => {
+      const n = Number(e.data && e.data.swVersion);
+      if (n > APP_VERSION) upd.ready = Math.max(upd.ready, n);
+    });
+    window.addEventListener('load', () => {
+      sw.register('sw.js').then(reg => {
+        const track = w => {
+          if (!w || !hadController || w.state === 'activated') return;   // the very first install isn't an update
+          upd.installing = true; upd.since = performance.now();
+          w.addEventListener('statechange', () => {
+            if (w.state !== 'activated' && w.state !== 'redundant') return;
+            upd.installing = false;
+            if (w.state === 'activated') { upd.doneAt = performance.now(); askVersion(w); }
+          });
+        };
+        track(reg.installing || reg.waiting);
+        reg.addEventListener('updatefound', () => track(reg.installing));
+        if (reg.active) askVersion(reg.active);
+        if (hadController) reg.update().catch(() => { /* offline */ });   // look for a new version at every launch
+        // a Home Screen app can stay open for days: look for a new version when it comes back (at most every 30 min)
+        document.addEventListener('visibilitychange', () => {
+          if (document.hidden || performance.now() - upd.checked < 30 * 60e3) return;
+          upd.checked = performance.now(); reg.update().catch(() => { /* offline */ });
+        });
+      }).catch(() => { /* not available here */ });
+    });
   }
 })();
 </script>

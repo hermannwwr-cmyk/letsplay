@@ -1,9 +1,11 @@
 // Let's Play! service worker: keeps a copy of the hub and the three games so the Home Screen app
 // opens without a network. Registered from index.html on https only.
 //
-// Bump VERSION on every release (any change to index.html, games/ or icons/), so the new files are
-// fetched and the old copy is dropped.
-const VERSION = 'lets-play-v14';
+// Bump APP_VERSION on every release (any change to index.html, games/ or icons/), so the new files are
+// fetched and the old copy is dropped. Keep it the same as APP_VERSION in index.html, and add a line
+// for it to CHANGELOG there (the hub shows "Version N" and "What's new" to grown-ups).
+const APP_VERSION = 15;
+const VERSION = 'lets-play-v' + APP_VERSION;
 const FONTS = 'lets-play-fonts';            // the bus game's Google Font, cached the first time it loads
 
 // Must all exist: if one is missing the install fails and the old copy stays in use.
@@ -132,6 +134,11 @@ async function cacheFirst(event, cacheName) {
   event.waitUntil(res.then(r => store(cacheName, req, r.clone())).catch(() => {}));
   return res;
 }
+
+// The hub asks which version this worker holds, so a page older than the saved copy can offer to restart.
+self.addEventListener('message', event => {
+  if (event.data && event.data.type === 'version' && event.source) event.source.postMessage({ swVersion: APP_VERSION });
+});
 
 self.addEventListener('fetch', event => {
   const req = event.request;
