@@ -7,6 +7,8 @@
    goodbye and count what's left for taking away, with "5 and 2 more" ten-frame language; the answer buttons are dimmed
    until "Now, which number is it?". The same scene guides the first question of each kind. Tap the card to skip it.
    Hint after 2 wrong tries: the seats glow on the card and numbers glow above the bus's seats.
+   Hands-on: while the story is told the child does its "k" part with a finger (BB.hands, hands.js): taps each friend
+   aboard or goodbye here, and each vehicle scene has its own moment (hands() in the scene builders).
    Cash: 1 coin per answered stop (never taken away), 2 more for the whole job; coins fly to the
    cash counter. Also: low-fuel trips to the depot and the friendly tow when the tank runs dry.
    Exposes BB.jobs = { current, phase, start(), update(dt), busy(), allOff(cb), ... }.
@@ -392,7 +394,7 @@
       // (along the whole bus and a little past both ends: when the stop view is close and cuts the tail off, there is
       // still room in front of the nose; the nearest spot to the door wins)
       for (const out of [2.4, 3.4, 1.6, 4.4]) {
-        for (let along = Math.max(span + 4, 6); along >= span - 14; along -= 0.9) {
+        for (let along = Math.max(span + 4, 6); along >= span - (front ? 24 : 14); along -= 0.9) {   // (the queue may stand well back on a small screen, where the card covers the door: every friend must be seen, they are tapped aboard)
           const p = kerbSpot(out, along, false);
           const foot = proj(p), head = proj(new THREE.Vector3(p.x, p.y + 2.3, p.z));
           if (!foot || !head) continue;
@@ -1026,7 +1028,7 @@
   }
 
   function hideQuestion(now, keepSeq) {
-    if (!keepSeq) { seq++; stopGen++; releaseExtras(); }
+    if (!keepSeq) { seq++; stopGen++; releaseExtras(); if (BB.hands) BB.hands.stop(); }
     hideCount();
     scene.reset();
     J.teaching = false;
@@ -1092,11 +1094,30 @@
     litSum(null);
     if (!alive()) return;
     showSum('n2'); litSum('n2');
-    if (q.kind === 'add') {
+    // the child waves each friend aboard, or says goodbye to each one, with a tap (BB.hands); then the story says it
+    const onSeat = (seat) => { if (card) setSeat(seat, 'new'); };
+    const onLeave = (seat) => { if (card) { setSeat(seat, 'gone'); seatEls[seat].classList.add('bye'); } };
+    if (BB.hands && q.k > 0 && (q.kind !== 'add' || J.waiting.length)) {
+      let done;
+      if (q.kind === 'add') {
+        const list = J.waiting.slice();
+        done = await BB.hands.run({ kind: 'tap', count: list.length, say: `Tap ${pl(list.length, 'friend', 'friends')} to get on!`, hint: 'Tap a friend to wave them on!',
+          targets: list.map((m) => (out) => { out.copy(m.position); out.y = GROUND + 1.25; return out; }),
+          bubble: (j, idx, out) => { out.copy(list[idx].position); out.y = GROUND + 2.3; },
+          act: (j, idx) => { const m = list[idx]; J.waiting = J.waiting.filter((x) => x !== m); return boardOne(m, onSeat); } });
+      } else {
+        const n = q.n;
+        done = await BB.hands.run({ kind: 'tap', count: q.k, ordered: true, say: `Tap ${pl(q.k, 'friend', 'friends')} to say goodbye!`, hint: 'Tap the glowing friend!',
+          targets: Array.from({ length: q.k }, (_, t) => (out) => { BB.bus.seatWorld(n - 1 - t, out); out.y += 1.0; return out; }),
+          act: () => alightOne(onLeave, true) });
+      }
+      if (!done || !alive()) return;
+      await say(kPhrase(q));
+    } else if (q.kind === 'add') {
       const list = J.waiting; J.waiting = [];
-      await Promise.all([say(kPhrase(q)), boardPeople(list, (seat) => { if (card) setSeat(seat, 'new'); })]);
+      await Promise.all([say(kPhrase(q)), boardPeople(list, onSeat)]);
     } else {
-      await Promise.all([say(kPhrase(q)), alightPeople(q.k, (seat) => { if (card) { setSeat(seat, 'gone'); seatEls[seat].classList.add('bye'); } }, true)]);
+      await Promise.all([say(kPhrase(q)), alightPeople(q.k, onLeave, true)]);
     }
     litSum(null);
     if (!alive() || !card) return;
@@ -1780,12 +1801,18 @@
 
   // One question on the card: the story (pictures pop in or fade out as it's told), then the ask. Resolves on the
   // right answer (after the praise and the coins), or never if the job stops (Home, bedtime).
+  // picture i on the card joins (adding) or goes (taking away)
+  function cardStep(q, i) {
+    if (!card || !seatEls[i]) return;
+    if (q.kind === 'add') setSeat(i, 'new'); else { setSeat(i, 'gone'); seatEls[i].classList.add('bye'); }
+    BB.sfx.pop();
+  }
   function askScene(q) {
     return new Promise((resolve) => {
       const g = legGen, alive = () => g === legGen && !BB.bedtime && !!J.current && J.phase !== 'home';
       (async () => {
         buildCard(q); J.question = q;
-        if (q.scene) { try { q.scene.show(q.n); scnFrame(q.scene.points(Math.max(q.n, q.kind === 'add' ? q.n + q.k : q.n))); } catch (e) { console.error(e); } }
+        if (q.scene) { try { q.scene.show(q.n); if (q.scene.prep) q.scene.prep(q); scnFrame(q.scene.points(Math.max(q.n, q.kind === 'add' ? q.n + q.k : q.n))); } catch (e) { console.error(e); } }
         await wait(350); if (!alive()) return;
         for (let i = 0; i < q.n; i++) light(i, true);
         showSum('n1'); litSum('n1');
@@ -1793,8 +1820,16 @@
         for (let i = 0; i < q.n; i++) light(i, false);
         litSum(null); if (!alive() || !card) return;
         showSum('n2'); litSum('n2');
+        // the child does this part by hand (BB.hands): each thing they move is counted aloud and marked on the card
+        let hs = null;
+        if (q.scene && q.scene.hands && BB.hands) { try { hs = q.scene.hands(q, (i) => cardStep(q, i)); } catch (e) { console.error(e); } }
+        if (hs) {
+          const done = await BB.hands.run(hs);
+          if (!done || !alive() || !card) return;
+          await wait(500);
+        }
         const pops = [];
-        for (let j = 0; j < q.k; j++) pops.push(wait(250 + j * 380).then(() => {
+        for (let j = 0; j < q.k && !hs; j++) pops.push(wait(250 + j * 380).then(() => {
           if (!card) return;
           if (q.kind === 'add') setSeat(q.n + j, 'new'); else { const i = q.n - 1 - j; setSeat(i, 'gone'); seatEls[i].classList.add('bye'); }
           if (q.scene) { try { if (q.kind === 'add') q.scene.add(q.n + j); else q.scene.remove(q.n - 1 - j); } catch (e) { console.error(e); } }
@@ -1841,7 +1876,7 @@
   // ten-frame): cars in the depot yard, bags behind the taxi's boot, teddy bears on a kit box, firefighters and a
   // kiosk's smoky windows. They pop in / drive off / hop away / clear as the story is told, and the scene camera is
   // asked to frame them (target.frame + BB.bus.reframe()).
-  const SCN = { items: [], extra: [], target: null, n: 0 };
+  const SCN = { items: [], extra: [], target: null, n: 0, tick: null, dry: false };   // tick(dt): the scene's own per-frame work (the fire)
   let SGEO = null, frameNo = 0;
   function sceneGeos() {
     if (SGEO) return SGEO;
@@ -1866,12 +1901,17 @@
         b.ball(0.17, '#ff6b5c', 1.63, 0.5, 0.7, 1, 1, 0.22, 1); b.ball(0.17, '#ff6b5c', 1.87, 0.5, 0.7, 1, 1, 0.22, 1);
         b.box(0.32, 0.06, 0.32, '#ff6b5c', 1.75, 0.47, 0.52, Math.PI / 4); }),
       fighters: [0, 1, 2, 3, 4].map((k) => friendGeo({ shirt: '#3d5a80', skin: SKINS[(k * 3) % 5], hair: '#ef5a4b' }).scale(1.2, 1.2, 1.2)),   // (a bit bigger: easy to count)   // red helmet; firefighter i = the card's i
-      jet: mk((b) => { b.cyl(0.05, 0.17, 2.6, 6, '#d6f1fb', 0, 0, 0); }),          // a widening spray of water
-      kiosk: mk((b) => {
-        b.box(6.8, 4.0, 3.0, '#fbf1dc', 0, 0, 0); b.box(7.2, 0.4, 3.4, '#ef5a4b', 0, 4.0, 0); b.box(6.82, 0.5, 3.02, '#e2c08d', 0, 0, 0);
+      // the kiosk with its ten windows (two rows of five, like the card), a pale frame round each pane: one mesh
+      kioskWin: mk((b) => {
+        b.box(6.8, 4.0, 3.0, '#fbf1dc', 0, 0, 0); b.box(7.2, 0.4, 3.4, '#ef5a4b', 0, 4.0, 0); b.box(7.0, 0.14, 3.2, '#c84a3c', 0, 3.9, 0); b.box(6.82, 0.5, 3.02, '#e2c08d', 0, 0, 0);
+        for (let i = 0; i < 10; i++) {
+          const x = (i % 5 - 2) * 1.25, y = i < 5 ? 2.55 : 1.25;
+          b.box(1.07, 0.97, 0.06, '#fffaf0', x, y - 0.06, 1.5); b.box(0.95, 0.85, 0.08, '#4d6f8a', x, y, 1.51); b.box(0.42, 0.85, 0.09, '#5f86a3', x - 0.2, y, 1.51);
+          b.box(1.16, 0.1, 0.16, '#c84a3c', x, y - 0.1, 1.52);
+        }
       }),
-      win: mk((b) => { b.box(0.95, 0.85, 0.08, '#4d6f8a', 0, 0, 0); b.box(1.1, 0.1, 0.1, '#c84a3c', 0, -0.06, 0); }),
-      smoke: mk((b) => { b.ball(0.5, '#8a8290', 0, 0.45, 0); b.ball(0.4, '#a8a0ae', 0.35, 0.95, 0); b.ball(0.32, '#bdb6c2', -0.2, 1.35, 0); }),
+      // a puff of smoke coming out of a window (it sits on the pane's lower edge and leans out toward the viewer)
+      smoke: mk((b) => { b.ball(0.36, '#8a8290', 0, 0.5, 0.25); b.ball(0.28, '#a8a0ae', 0.26, 0.72, 0.36); b.ball(0.26, '#9a93a0', -0.25, 0.74, 0.3); b.ball(0.24, '#bdb6c2', 0.02, 1.0, 0.42); }),
     };
     return SGEO;
   }
@@ -1888,10 +1928,17 @@
     if (pop) { m.scale.setScalar(0.01); tween(0.3, (t) => m.scale.setScalar(Math.max(0.01, t < 0.7 ? t / 0.7 * 1.15 : 1.15 - (t - 0.7) / 0.3 * 0.15))); }
     return m;
   }
-  const scnDrop = (m) => { if (m && m.parent) m.parent.remove(m); };
+  // (userData.own: this mesh's geometry or instance buffers were made for it alone, so they are freed with it)
+  const scnDrop = (m) => {
+    if (!m) return;
+    if (m.parent) m.parent.remove(m);
+    if (m.userData.own) { if (m.isInstancedMesh) m.dispose(); else m.geometry.dispose(); }
+  };
   function scnClear() {
     for (const m of SCN.items.concat(SCN.extra)) scnDrop(m);
-    SCN.items = []; SCN.extra = [];
+    SCN.items = []; SCN.extra = []; SCN.tick = null; SCN.dry = false;
+    if (BB.hands) BB.hands.stop();
+    if (BB.water) BB.water.clear();
     if (SCN.target) { delete SCN.target.frame; delete SCN.target.frameKey; delete SCN.target.blockers; SCN.target = null; vcall(['reframe']); }
     SCN.blockers = [];
   }
@@ -1906,11 +1953,24 @@
     SCN.target = t;
     vcall(['reframe']);
   }
-  // Scene kinds: { show(n) (make sure n are there), add(i) (one more arrives), remove(i) (one goes), points(count) }
-  function yardScene() {
+  // Scene kinds: { show(n) (make sure n are there), add(i) (one more arrives), remove(i) (one goes), points(count),
+  //   prep(q) (set the stage before the story: the things still to come, the children waiting),
+  //   hands(q, step) -> the hands-on moment for the story's "k" part (BB.hands.run's options; step(i) marks picture
+  //   i on the card) }. In a hands-on moment thing i in 3D is always picture i on the card (same colour, same place).
+  // a thing hops from where it is to `to` in a little arc
+  function scnHop(m, to, h, dur) {
+    const a = m.position.clone();
+    return tween(dur, (t) => { m.position.lerpVectors(a, to, t); m.position.y = a.y + (to.y - a.y) * t + Math.sin(t * Math.PI) * h; });
+  }
+  // the things taken away are the last k: target t is thing n - 1 - t
+  const lastOnes = (q, pos, dy) => Array.from({ length: q.k }, (_, t) => { const p = pos(q.n - 1 - t).clone(); p.y += dy; return (out) => out.copy(p); });
+  function yardScene(lot = 'the yard') {
     const G = sceneGeos(), slot = tray(3.8, -1.5, 2.5, 4.6);
     const make = (i, pop) => scnMesh(G.cars[i % 5], slot(i), slot.face, pop);
-    return {
+    // the cars still to come wait in a short queue just ahead of the spaces
+    const queue = (j) => kerbSpot(3.8 + Math.floor(j / 3) * 4.6, 1.5 + (j % 3) * 2.3, false);
+    let coming = [];
+    const S = {
       show(n) { while (SCN.items.length < n) SCN.items.push(make(SCN.items.length, false)); },
       add(i) {          // drives in from the pavement side
         const m = make(i, false), to = slot(i), from = to.clone().add(new THREE.Vector3(slot.f.ox * 9, 0, slot.f.oz * 9));
@@ -1922,15 +1982,41 @@
         const from = m.position.clone(), to = from.clone().add(new THREE.Vector3(slot.f.ox * 12, 0, slot.f.oz * 12));
         tween(1.1, (t) => { m.position.lerpVectors(from, to, t * t); }).then(() => scnDrop(m));
       },
+      prep(q) {
+        coming = [];
+        if (q.kind !== 'add') return;
+        for (let j = 0; j < q.k; j++) { const m = make(q.n + j, true); m.position.copy(queue(j)); m.rotation.y = Math.atan2(-slot.f.fx, -slot.f.fz); coming.push(m); SCN.extra.push(m); }
+      },
+      hands(q, step) {
+        if (q.kind === 'add') {
+          const drop = slot(q.n);
+          return { kind: 'drag', count: q.k, plane: GROUND, say: `Drive ${pl(q.k, 'more car', 'more cars')} into ${lot}!`, hint: 'Tap a car, or drag it to the green ring!',
+            targets: coming.map((m) => (out) => { out.copy(m.position); out.y += 0.8; return out; }), drop: (out) => out.copy(drop),
+            drag: (idx, p) => { if (p) coming[idx].position.set(p.x, GROUND, p.z); },
+            bubble: (j, idx, out) => { out.copy(slot(q.n + idx)); out.y += 1.9; },
+            act: (j, idx) => {
+              const m = coming[idx], i = q.n + idx, a = m.position.clone(), to = slot(i);
+              SCN.extra = SCN.extra.filter((x) => x !== m); SCN.items[i] = m; step(i);
+              m.rotation.y = Math.atan2(to.x - a.x, to.z - a.z);
+              return tween(0.8, (t) => { const e = 1 - (1 - t) * (1 - t); m.position.lerpVectors(a, to, e); if (t >= 1) m.rotation.y = slot.face; });
+            } };
+        }
+        return { kind: 'tap', count: q.k, say: `Tap ${pl(q.k, 'car', 'cars')} to send ${plural(q.k, 'it', 'them')} home!`, hint: 'Tap a glowing car!',
+          targets: lastOnes(q, slot, 0.8), act: (j, t) => { const i = q.n - 1 - t; step(i); S.remove(i); } };
+      },
       // (the cars stand between the camera and the truck: the camera looks over them, not through them)
       points: (c) => { const pts = Array.from({ length: Math.max(1, c) }, (_, i) => slot(i)); SCN.blockers = pts.map((p) => ({ x: p.x, z: p.z, hw: 0.95, hd: 1.9, ry: slot.face, y0: 0, top: GROUND + 1.75 }));
-        return pts.concat(pts.map((p) => p.clone().add(new THREE.Vector3(slot.f.ox * 1.9, 0, slot.f.oz * 1.9)))); },   // (and their far ends)
+        return pts.concat(pts.map((p) => p.clone().add(new THREE.Vector3(slot.f.ox * 1.9, 0, slot.f.oz * 1.9))), coming.map((m) => m.position.clone().add(new THREE.Vector3(slot.f.fx * 2.2, 0, slot.f.fz * 2.2)))); },   // (and their far ends)
     };
+    return S;
   }
   function bagScene() {
     const G = sceneGeos(), slot = tray(2.5, -2.2, 0.85, 0.95), from = kerbSpot(3.2, 2.0, false);
     const make = (i, pop) => scnMesh(G.bags[i % 10], slot(i), slot.face, pop);
-    return {
+    // the bags still to come stand in a little row by the family
+    const pile = (j) => kerbSpot(3.2 + Math.floor(j / 5) * 1.0, 1.0 + (j % 5) * 1.0, false);
+    let coming = [];
+    const S = {
       show(n) { while (SCN.items.length < n) SCN.items.push(make(SCN.items.length, false)); },
       add(i) {          // swung from the family into the boot
         const m = make(i, false), to = slot(i); m.position.copy(from); SCN.items[i] = m;
@@ -1941,8 +2027,26 @@
         const a = m.position.clone(), to = a.clone().add(new THREE.Vector3(slot.f.ox * 2.2, 0, slot.f.oz * 2.2));
         tween(0.6, (t) => { m.position.lerpVectors(a, to, t); m.position.y = GROUND + Math.sin(t * Math.PI) * 1.0; });
       },
-      points: (c) => Array.from({ length: Math.max(1, c) }, (_, i) => slot(i)).concat([from]),
+      prep(q) {
+        coming = [];
+        if (q.kind !== 'add') return;
+        for (let j = 0; j < q.k; j++) { const m = make(q.n + j, true); m.position.copy(pile(j)); coming.push(m); SCN.extra.push(m); }
+      },
+      hands(q, step) {
+        if (q.kind === 'add') {
+          const drop = slot(q.n); drop.y += 0.4;
+          return { kind: 'drag', count: q.k, plane: GROUND + 0.4, say: `Put ${pl(q.k, 'more bag', 'more bags')} by the taxi!`, hint: 'Tap a bag, or drag it to the green ring!',
+            targets: coming.map((m) => (out) => { out.copy(m.position); out.y += 0.4; return out; }), drop: (out) => out.copy(drop),
+            drag: (idx, p) => { if (p) coming[idx].position.set(p.x, GROUND + 0.45, p.z); },
+            bubble: (j, idx, out) => { out.copy(slot(q.n + idx)); out.y += 1.0; },
+            act: (j, idx) => { const m = coming[idx], i = q.n + idx; SCN.extra = SCN.extra.filter((x) => x !== m); SCN.items[i] = m; step(i); return scnHop(m, slot(i), 1.2, 0.55); } };
+        }
+        return { kind: 'tap', count: q.k, say: `Tap ${pl(q.k, 'bag', 'bags')} to carry home!`, hint: 'Tap a glowing bag!',
+          targets: lastOnes(q, slot, 0.4), act: (j, t) => { const i = q.n - 1 - t; step(i); S.remove(i); } };
+      },
+      points: (c) => Array.from({ length: Math.max(1, c) }, (_, i) => slot(i)).concat([from], coming.map((m) => m.position.clone())),
     };
+    return S;
   }
   function teddyScene() {
     const G = sceneGeos(), slot = tray(2.7, -0.9, 0.8, 0.85, 0.5);
@@ -1951,16 +2055,48 @@
       const kit = scnMesh(G.kit, c, Math.atan2(slot.f.fx, slot.f.fz) + Math.PI / 2, false); kit.userData.kit = true; SCN.extra.push(kit);
     }
     const make = (i, pop) => scnMesh(G.teddy, slot(i), slot.face, pop);
-    return {
+    // the teddies still to go in sit on the pavement beside the kit
+    const pile = (j) => kerbSpot(3.1 + Math.floor(j / 5) * 0.9, 0.5 + (j % 5) * 0.9, false);
+    let coming = [], kids = [];
+    const S = {
       show(n) { while (SCN.items.length < n) SCN.items.push(make(SCN.items.length, false)); },
       add(i) { SCN.items[i] = make(i, true); },
-      remove(i) {       // a teddy hops off to a child at the clinic
+      remove(i, kid) {       // a teddy hops off to a child
         const m = SCN.items[i]; if (!m) return; SCN.items[i] = null;
-        const a = m.position.clone(), to = a.clone().add(new THREE.Vector3(slot.f.ox * 3, -0.5, slot.f.oz * 3));
-        tween(0.7, (t) => { m.position.lerpVectors(a, to, t); m.position.y += Math.sin(t * Math.PI) * 1.2; }).then(() => scnDrop(m));
+        const a = m.position.clone(), to = kid ? kid.position.clone().add(new THREE.Vector3(0, 0.75, 0)) : a.clone().add(new THREE.Vector3(slot.f.ox * 3, -0.5, slot.f.oz * 3));
+        return tween(0.7, (t) => { m.position.lerpVectors(a, to, t); m.position.y += Math.sin(t * Math.PI) * 1.2; }).then(() => {
+          scnDrop(m);
+          if (kid && kid.parent) { const h = new THREE.Mesh(G.teddy, BB.mk.mat); h.scale.setScalar(0.6); h.position.set(0, 0.62, 0.34); kid.add(h); kid.userData.jump = 1; kid.userData.jumpDelay = 0; }   // hugged
+        });
       },
-      points: (c) => Array.from({ length: Math.max(1, c) }, (_, i) => slot(i)),
+      prep(q) {
+        coming = []; kids = [];
+        if (q.kind === 'add') { for (let j = 0; j < q.k; j++) { const m = make(q.n + j, true); m.position.copy(pile(j)); coming.push(m); SCN.extra.push(m); } return; }
+        // one child for each teddy that goes, waiting in a row by the door
+        clearWaiting();
+        for (let j = 0; j < q.k; j++) {
+          const m = person(BB.randInt(0, 7), { kid: true });
+          m.position.copy(kerbSpot(3.0 + (j % 2) * 0.9, 1.0 + j * 0.85, false)); m.rotation.y = slot.face; m.userData.seed = Math.random() * 6;
+          J.waiting.push(m); kids.push(m);
+        }
+      },
+      hands(q, step) {
+        if (q.kind === 'add') {
+          const drop = slot(q.n);
+          return { kind: 'drag', count: q.k, plane: GROUND + 0.4, say: `Pop ${pl(q.k, 'more teddy bear', 'more teddy bears')} into the kit!`, hint: 'Tap a teddy bear, or drag it to the green ring!',
+            targets: coming.map((m) => (out) => { out.copy(m.position); out.y += 0.5; return out; }), drop: (out) => out.copy(drop),
+            drag: (idx, p) => { if (p) coming[idx].position.set(p.x, GROUND + 0.4, p.z); },
+            bubble: (j, idx, out) => { out.copy(slot(q.n + idx)); out.y += 1.2; },
+            act: (j, idx) => { const m = coming[idx], i = q.n + idx; SCN.extra = SCN.extra.filter((x) => x !== m); SCN.items[i] = m; step(i); return scnHop(m, slot(i), 1.1, 0.55); } };
+        }
+        return { kind: 'tap', count: q.k, say: plural(q.k, 'Tap the child to give a teddy bear!', 'Tap each child to give a teddy bear!'), hint: 'Tap a waving child!',
+          targets: kids.map((m) => (out) => { out.copy(m.position); out.y = GROUND + 1.0; return out; }),
+          bubble: (j, t, out) => { out.copy(kids[t].position); out.y = GROUND + 2.0; },
+          act: (j, t) => { const i = q.n - 1 - j; step(i); return S.remove(i, kids[t]); } };
+      },
+      points: (c) => Array.from({ length: Math.max(1, c) }, (_, i) => slot(i)).concat(coming.map((m) => m.position.clone()), kids.map((m) => m.position.clone())),
     };
+    return S;
   }
   // the ice cream van's stand: two rows of five ice creams (like the card's ten-frame); a sold one goes to the next
   // child in the queue (who hops with joy), a new one pops on
@@ -1971,54 +2107,173 @@
       const st = scnMesh(G.stand, c, Math.atan2(slot.f.fx, slot.f.fz) + Math.PI / 2, false); st.userData.stand = true; SCN.extra.push(st);
     }
     const make = (i, pop) => scnMesh(G.creams[i % 4], slot(i), slot.face, pop);
+    const hatchP = new THREE.Vector3(slot.f.d.x + slot.f.ox * 0.2, GROUND + 1.55, slot.f.d.z + slot.f.oz * 0.2);   // the serving hatch
     let served = 0;
-    return {
+    const S = {
       show(n) { while (SCN.items.length < n) SCN.items.push(make(SCN.items.length, false)); },
       add(i) { SCN.items[i] = make(i, true); },
       remove(i) {
         const m = SCN.items[i]; if (!m) return; SCN.items[i] = null;
         const kid = J.waiting[served++], a = m.position.clone();
         const to = kid ? kid.position.clone().add(new THREE.Vector3(0, 1.0, 0)) : a.clone().add(new THREE.Vector3(slot.f.ox * 3, 0, slot.f.oz * 3));
-        tween(0.6, (t) => { m.position.lerpVectors(a, to, t); m.position.y += Math.sin(t * Math.PI) * 1.0; }).then(() => { scnDrop(m); if (kid) { kid.userData.jump = 1; kid.userData.jumpDelay = 0; } });
+        return tween(0.6, (t) => { m.position.lerpVectors(a, to, t); m.position.y += Math.sin(t * Math.PI) * 1.0; }).then(() => { scnDrop(m); if (kid) { kid.userData.jump = 1; kid.userData.jumpDelay = 0; } });
+      },
+      prep() {},
+      hands(q, step) {
+        if (q.kind === 'add') {       // each tap on the van makes one more: it comes out of the hatch and hops onto the stand
+          return { kind: 'tap', count: q.k, repeat: true, say: `Tap the van to make ${pl(q.k, 'more ice cream', 'more ice creams')}!`, hint: 'Tap the ice cream van!',
+            targets: [(out) => out.copy(hatchP)],
+            bubble: (j, idx, out) => { out.copy(slot(q.n + j)); out.y += 1.2; },
+            act: (j) => { const i = q.n + j, m = make(i, true); m.position.copy(hatchP); SCN.items[i] = m; step(i); jingle(); return scnHop(m, slot(i), 0.9, 0.6); } };
+        }
+        // one ice cream for each child in the queue
+        const kidP = new THREE.Vector3();
+        return { kind: 'drag', count: q.k, plane: GROUND + 0.9, say: plural(q.k, 'Give the child an ice cream!', 'Give each child an ice cream!'), hint: 'Tap an ice cream, or drag it to a child!',
+          targets: lastOnes(q, slot, 0.45),
+          drop: (out) => { const kid = J.waiting[Math.min(served, J.waiting.length - 1)]; if (kid) { kidP.copy(kid.position); kidP.y = GROUND + 1.1; } return out.copy(kidP); },
+          drag: (t, p) => { const m = SCN.items[q.n - 1 - t]; if (m && p) m.position.set(p.x, GROUND + 0.9, p.z); },
+          bubble: (j, t, out) => { const kid = J.waiting[Math.min(j, J.waiting.length - 1)]; if (kid) { out.copy(kid.position); out.y = GROUND + 2.0; } else out.copy(slot(q.n - 1 - t)); },
+          act: (j, t) => { const i = q.n - 1 - t; step(i); return S.remove(i); } };
       },
       points: (c) => Array.from({ length: Math.max(1, c) }, (_, i) => slot(i)).concat(J.waiting.map((k) => k.position)),
     };
+    return S;
   }
-  // the fire: a kiosk with a 2x5 grid of windows (the smoky ones puff smoke) and firefighters spraying water
-  function fireScene(smoky) {
-    const G = sceneGeos(), f = doorFrame(false);
-    const face = Math.atan2(f.ox, f.oz), base = kerbSpot(3.2, 12.5, false);   // ahead of the engine, beside the camera's view (not in front of it)
-    const kiosk = scnMesh(G.kiosk, base, face, false); SCN.extra.push(kiosk);
-    SCN.blockers = [{ x: base.x, z: base.z, hw: 3.6, hd: 1.7, ry: face, y0: 0, top: GROUND + 4.4 }];
-    const winPos = (i) => { const r = Math.floor(i / 5), c = i % 5, side = (c - 2) * 1.25; return new THREE.Vector3(base.x + f.ox * 1.55 + f.fx * side, GROUND + (r ? 1.25 : 2.55), base.z + f.oz * 1.55 + f.fz * side); };
-    const smoke = [];
-    for (let i = 0; i < 10; i++) {
-      SCN.extra.push(scnMesh(G.win, winPos(i), face, false));
-      if (i < smoky) { const s2 = scnMesh(G.smoke, winPos(i).add(new THREE.Vector3(f.ox * 0.8, 0.5, f.oz * 0.8)), face, false); s2.scale.setScalar(1.3); smoke[i] = s2; SCN.extra.push(s2);
-        SCN.blockers.push({ x: s2.position.x, z: s2.position.z, hw: 0.8, hd: 0.8, ry: face, y0: s2.position.y - 0.3, top: s2.position.y + 2.2 }); }   // out in front of the window, seen from any camera
+  // a hose (or any tube) along a list of points, as open five-sided pipes in the builder
+  const TUBE = new THREE.CylinderGeometry(1, 1, 1, 5, 1, true), _up = new THREE.Vector3(0, 1, 0);
+  function tube(b, pts, r, color) {
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], c = pts[i + 1], d = new THREE.Vector3().subVectors(c, a), len = d.length();
+      if (len < 0.001) continue;
+      b.addM(TUBE, color, new THREE.Matrix4().compose(new THREE.Vector3().addVectors(a, c).multiplyScalar(0.5),
+        new THREE.Quaternion().setFromUnitVectors(_up, d.multiplyScalar(1 / len)), new THREE.Vector3(r, len * 1.12, r)));
     }
-    // (one tidy line along the pavement, well apart, so each firefighter is easy to count (a second row hid behind the
-    // first): from just short of the kiosk back along the engine; each one half-turned toward the camera side,
-    // spraying up and over at the kiosk, so the jets never cross the others)
-    const slot = (i) => new THREE.Vector3(f.d.x + f.ox * 2.6 + f.fx * (8.4 - i * 1.6), GROUND, f.d.z + f.oz * 2.6 + f.fz * (8.4 - i * 1.6));
-    const fighter = (i, pop) => {
-      const m = scnMesh(G.fighters[i % 5], slot(i), Math.atan2(f.fx + f.ox, f.fz + f.oz), pop);
-      const jet = new THREE.Mesh(G.jet, BB.mk.mat); jet.position.set(0.15, 1.15, 0.25); jet.rotation.x = 0.85; m.add(jet);
-      return m;
+  }
+  // the fire: a kiosk with a 2x5 grid of windows (the smoky ones puff smoke) and a line of firefighters, each with
+  // a hose from the engine, spraying an arc of water onto the wall (BB.water). The kiosk and its ten windows are
+  // one mesh, all the smoke is one instanced mesh, all the hoses one mesh, all the water one instanced mesh.
+  function fireScene(smoky) {
+    const G = sceneGeos(), f = doorFrame(false), Wt = BB.water;
+    const face = Math.atan2(f.ox, f.oz), base = kerbSpot(3.2, 12.5, false);   // ahead of the engine, beside the camera's view (not in front of it)
+    const kiosk = scnMesh(G.kioskWin, base, face, false); SCN.extra.push(kiosk);
+    SCN.blockers = [{ x: base.x, z: base.z, hw: 3.6, hd: 1.7, ry: face, y0: 0, top: GROUND + 4.4 }];
+    const wins = [];              // the middle of each window pane
+    for (let i = 0; i < 10; i++) { const r = Math.floor(i / 5), side = (i % 5 - 2) * 1.25; wins.push(new THREE.Vector3(base.x + f.ox * 1.6 + f.fx * side, GROUND + (r ? 1.25 : 2.55) + 0.42, base.z + f.oz * 1.6 + f.fz * side)); }
+    // smoke: a puff out of each smoky window, billowing; it shrinks away when the window is sprayed clear
+    const sm = new THREE.InstancedMesh(G.smoke, BB.mk.mat, 10); sm.name = 'sceneItem'; sm.frustumCulled = false; sm.userData.own = true;
+    BB.scene.add(sm); SCN.extra.push(sm);
+    const amt = [], want = [], dwell = [];
+    for (let i = 0; i < 10; i++) { amt[i] = want[i] = i < smoky ? 1 : 0; dwell[i] = 0; }
+    // one tidy line along the pavement, well apart, out in front of the kiosk's wall (so the water reaches the
+    // windows), each one easy to count: from just short of the kiosk back along the engine
+    const FOUT = 6.6, slots = [], nozz = [];
+    for (let i = 0; i < 10; i++) {
+      const al = 8.2 - i * 1.6;
+      slots.push(new THREE.Vector3(f.d.x + f.ox * FOUT + f.fx * al, GROUND, f.d.z + f.oz * FOUT + f.fz * al));
+      nozz.push(new THREE.Vector3(slots[i].x + f.fx * 0.62 + f.ox * 0.3, GROUND + 1.42, slots[i].z + f.fz * 0.62 + f.oz * 0.3));
+    }
+    const fdir = Math.atan2(f.fx, f.fz), ready = [];
+    const ends = [-3.9, 0, 3.9].map((al) => new THREE.Vector3(base.x + f.ox * 1.6 + f.fx * al, GROUND, base.z + f.oz * 1.6 + f.fz * al));   // the kiosk's front, end to end
+    let hose = null, time = 0, aimOn = false, sweeping = false, aimQ = null;
+    const aimP = new THREE.Vector3(), _a = new THREE.Vector3(), _l = new THREE.Vector3(), _sc = new THREE.Vector3(), _mm = new THREE.Matrix4();
+    const wall = new THREE.Plane().setFromNormalAndCoplanarPoint(new THREE.Vector3(f.ox, 0, f.oz), wins[0]);
+    function hoses() {
+      if (hose) { SCN.extra = SCN.extra.filter((m) => m !== hose); scnDrop(hose); }
+      const b = BB.mk.builder(), g = GROUND + 0.08;
+      for (let i = 0; i < 10; i++) {
+        if (!ready[i]) continue;
+        const s = slots[i], px = f.d.x - f.fx * (1.9 + i * 0.13), pz = f.d.z - f.fz * (1.9 + i * 0.13), V = (x, y, z) => new THREE.Vector3(x, y, z);
+        const path = new THREE.CatmullRomCurve3([
+          V(px, 0.95, pz), V(px + f.ox * 0.5, 0.45, pz + f.oz * 0.5), V(px + f.ox * 1.1, g, pz + f.oz * 1.1),
+          V((px + s.x) / 2 + f.ox * 1.2, g, (pz + s.z) / 2 + f.oz * 1.2), V(s.x - f.fx * 0.45 + f.ox * 0.3, g, s.z - f.fz * 0.45 + f.oz * 0.3),
+          V(s.x + f.fx * 0.05 + f.ox * 0.32, GROUND + 1.0, s.z + f.fz * 0.05 + f.oz * 0.32), V(nozz[i].x - f.fx * 0.3, nozz[i].y - 0.1, nozz[i].z - f.fz * 0.3)]).getPoints(16);
+        tube(b, path, 0.07, '#f5b83d');
+        tube(b, [V(nozz[i].x - f.fx * 0.34, nozz[i].y - 0.12, nozz[i].z - f.fz * 0.34), nozz[i]], 0.1, '#5a5260');      // the nozzle
+        b.ball(0.12, '#ef5a4b', nozz[i].x, nozz[i].y, nozz[i].z);
+      }
+      hose = b.mesh(); hose.name = 'sceneItem'; hose.userData.own = true; BB.scene.add(hose); SCN.extra.push(hose);
+    }
+    const fighter = (i, pop) => scnMesh(G.fighters[i % 5], slots[i], fdir, pop);
+    const arrive = (i) => { ready[i] = true; hoses(); };
+    // where firefighter i sprays when nobody aims: its own patch of the wall above the windows, swaying a little
+    function restAt(i, out) {
+      const al = Math.min(2.9, -2.8 + i * 0.62) + Math.sin(time * 1.3 + i * 1.9) * 0.22;
+      return out.set(base.x + f.ox * 1.6 + f.fx * al, GROUND + 3.55 + (i % 2) * 0.18 + Math.sin(time * 1.7 + i) * 0.1, base.z + f.oz * 1.6 + f.fz * al);
+    }
+    SCN.tick = function (dt) {
+      time += dt;
+      if (aimOn && !sweeping && !BB.hands.active()) aimOn = false;
+      for (let i = 0; i < 10; i++) {
+        if (!ready[i]) continue;
+        if (aimOn) _a.set(aimP.x + f.fx * ((i % 3) - 1) * 0.13, aimP.y + ((i % 2) - 0.5) * 0.16, aimP.z + f.fz * ((i % 3) - 1) * 0.13); else restAt(i, _a);
+        Wt.stream(i, nozz[i], _a, !SCN.dry);
+      }
+      // the windows the child is spraying: the water must rest on one for a moment
+      if (aimQ && aimOn && BB.hands.active()) {
+        const first = ready.indexOf(true), land = first >= 0 ? Wt.landing(first, _l) : null;
+        for (let t = 0; t < aimQ.k; t++) {
+          const i = aimQ.n - 1 - t; if (!(want[i] > 0)) continue;
+          const near = land && land.distanceToSquared(wins[i]) < 0.55;
+          dwell[i] = near ? dwell[i] + dt : Math.max(0, dwell[i] - dt * 2);
+          if (dwell[i] >= 0.4) { dwell[i] = 0; BB.hands.hit(t); }
+        }
+      }
+      for (let i = 0; i < 10; i++) {
+        amt[i] += BB.clamp(want[i] - amt[i], -dt * 2.4, dt * 4);
+        const s = Math.max(0.001, amt[i] * (1 - 0.5 * Math.min(1, dwell[i] / 0.4)) * (1 + 0.07 * Math.sin(time * 3.1 + i * 1.7)));
+        _mm.makeRotationY(face); _mm.scale(_sc.set(s, s * (1 + 0.06 * Math.sin(time * 2.3 + i)), s));
+        _mm.setPosition(wins[i].x + f.ox * 0.05, wins[i].y - 0.42 + Math.sin(time * 1.9 + i * 2.2) * 0.04, wins[i].z + f.oz * 0.05);
+        sm.setMatrixAt(i, _mm);
+      }
+      sm.instanceMatrix.needsUpdate = true;
+    };
+    SCN.tick(0);
+    const clampAim = (p) => {
+      const side = BB.clamp((p.x - base.x) * f.fx + (p.z - base.z) * f.fz, -3.3, 3.3), y = BB.clamp(p.y, GROUND + 0.3, GROUND + 3.95);
+      aimP.set(base.x + f.ox * 1.6 + f.fx * side, y, base.z + f.oz * 1.6 + f.fz * side);
     };
     return {
       fighters: {
-        show(n) { while (SCN.items.length < n) SCN.items.push(fighter(SCN.items.length, false)); },
-        add(i) { SCN.items[i] = fighter(i, true); },
+        show(n) { while (SCN.items.length < n) { const i = SCN.items.length; SCN.items.push(fighter(i, false)); ready[i] = true; } hoses(); },
+        add(i) { SCN.items[i] = fighter(i, true); arrive(i); },
         remove() {},
-        points: (c) => Array.from({ length: Math.max(1, c) }, (_, i) => slot(i)).concat([base, winPos(0), winPos(4)]),
+        prep() {},
+        hands(q, step) {          // each tap on the engine calls one more firefighter out: they run to their place and spray
+          const doorP = new THREE.Vector3(f.d.x + f.ox * 0.3, GROUND + 1.5, f.d.z + f.oz * 0.3), from = new THREE.Vector3(f.d.x + f.ox * 0.8, GROUND, f.d.z + f.oz * 0.8);
+          return { kind: 'tap', count: q.k, repeat: true, say: `Tap the fire engine to call ${pl(q.k, 'more firefighter', 'more firefighters')}!`, hint: 'Tap the fire engine!',
+            targets: [(out) => out.copy(doorP)],
+            bubble: (j, idx, out) => { out.copy(slots[q.n + j]); out.y += 2.9; },
+            act: (j) => {
+              const i = q.n + j, m = fighter(i, true); m.position.copy(from); SCN.items[i] = m; step(i);
+              const to = slots[i]; m.rotation.y = Math.atan2(to.x - from.x, to.z - from.z);
+              return tween(0.75, (t) => { m.position.lerpVectors(from, to, t); m.position.y = GROUND + Math.abs(Math.sin(t * Math.PI * 3)) * 0.25; }).then(() => { m.rotation.y = fdir; arrive(i); });
+            } };
+        },
+        points: (c) => Array.from({ length: Math.max(1, c) }, (_, i) => slots[i]).concat(ends),
       },
       windows: {
         show() {},
         add() {},
-        remove(i) { const s2 = smoke[i]; if (!s2) return; smoke[i] = null; tween(0.8, (t) => s2.scale.setScalar(Math.max(0.01, 1.3 * (1 - t)))).then(() => scnDrop(s2)); },
-        points: () => [base, winPos(0), winPos(4), winPos(5), winPos(9)],
+        remove(i) { want[i] = 0; },
+        prep() {},
+        hands(q, step) {          // the child points the water at the glowing windows
+          aimQ = q; restAt(Math.max(0, ready.indexOf(true)), aimP);
+          return { kind: 'aim', count: q.k, say: `Spray ${pl(q.k, 'window', 'windows')}! Point the water at the glowing ${plural(q.k, 'one', 'ones')}!`, hint: 'Touch a glowing window!',
+            targets: Array.from({ length: q.k }, (_, t) => (out) => out.copy(wins[q.n - 1 - t])),
+            aim: (x, y) => { const p = BB.hands.ray(x, y).intersectPlane(wall, _a); if (p) { clampAim(p); aimOn = true; } },
+            auto: (t) => { aimP.copy(wins[q.n - 1 - t]); aimOn = true; },
+            act: (j, t) => { const i = q.n - 1 - t; want[i] = 0; step(i); BB.sfx.whoosh(); } };
+        },
+        points: () => ends.concat(slots.filter((s, i) => ready[i])),
       },
+      // the water sweeps over the windows still smoking, one after another
+      async sweep(ok) {
+        sweeping = true;
+        for (let i = 0; i < 10 && ok(); i++) { if (!(want[i] > 0)) continue; aimP.copy(wins[i]); aimOn = true; await wait(420); want[i] = 0; BB.sfx.pop(); }
+        await wait(500);
+        sweeping = false; aimOn = false;
+      },
+      dry() { SCN.dry = true; Wt.off(); },
     };
   }
 
@@ -2143,11 +2398,10 @@
         if (qw) {
           qw.scene = fs.windows; await askScene(qw); if (!ok()) return;
           if (qw.answer > 0) {                    // the windows still smoking get sprayed clear first
-            await say('Spray the last ones! Whoosh!'); if (!ok()) return;
-            for (let i = 0; i < 10; i++) { try { fs.windows.remove(i); } catch (e) { /* none there */ } }
-            await wait(900); if (!ok()) return;
+            await Promise.all([say('Spray the last ones! Whoosh!'), fs.sweep(ok)]); if (!ok()) return;
           }
         }
+        fs.dry();
         siren(false); ladder(false); BB.sfx.cheer(); if (BB.ui && BB.ui.confetti) BB.ui.confetti();
         await say('The fire is out! Hooray!');
       } });
@@ -2164,6 +2418,7 @@
       } });
       L.push({ to: dest, go: toClinic ? 'Off to the clinic!' : "Auntie's knee is better! Let's take her home!", run: async (ok) => {
         const qt = legQ('sub', carry.teddies, (q0) => WORDS.teddies(q0, toClinic ? ' at the clinic' : ' nearby'), 'teddy'); qt.scene = teddyScene(); await askScene(qt); if (!ok()) return;
+        for (const m of J.waiting.splice(0)) { m.userData.jump = 1; J.extras.push(m); BB.later(900, () => walkAway(m)); }   // the children, each with a teddy
         hopOut(1, auntie); await say('All better! Thank you!');
       } });
     } else if (kind === 'icecream') {
@@ -2197,13 +2452,21 @@
           if (car.parent) car.parent.remove(car);
           car.position.set(0, 0.35, -5.2); car.rotation.set(0.12, 0, 0); BB.bus.front.add(car);
         }
-        BB.sfx.pop(); await say('Hook on! Up it goes!');
+        BB.sfx.pop();
+        // the child winds the winch: a big wheel to turn with a finger, and the boom lifts the car as it turns
+        if (BB.hands && BB.bus.has && BB.bus.has('hook') && typeof BB.bus.setBoom === 'function') {
+          BB.bus.setBoom(0);
+          await say('Hook on!'); if (!ok()) return;
+          const done = await BB.hands.run({ kind: 'crank', turns: 3, say: 'Turn the wheel to lift the car!', hint: 'Put your finger on the wheel and go round and round!', turn: (p) => BB.bus.setBoom(p) });
+          if (!done || !ok()) return;
+          BB.sfx.right(); await say('Up it goes! Well done!');
+        } else await say('Hook on! Up it goes!');
       } });
       L.push({ to: yard, go: toDepot ? 'Tow it to the depot!' : 'Tow it to the car park!', run: async (ok) => {
         if (typeof BB.bus.hookOn === 'function') vcall(['hookOn'], null);
         if (towCar && towCar.parent) towCar.parent.remove(towCar);                    // the car stays in the yard (out of view)
         await say(`Here we are! The car is safe in ${lot}.`); if (!ok()) return;
-        const ys = yardScene();
+        const ys = yardScene(lot);
         const yw = (q0) => WORDS.yard(q0, lot);
         const q = legQ('add', null, yw, 'car'); q.scene = ys; await askScene(q); if (!ok()) return;
         if (LEVELS[level()].sub > 0) { const q2 = legQ('sub', q.answer, yw, 'car'); q2.scene = ys; await askScene(q2); }
@@ -2451,6 +2714,7 @@
     try { updateMarker(dt); } catch (e) { console.error(e); }
     try { updateLost(dt); } catch (e) { console.error(e); }
     if (J.phase === 'home') {
+      if (BB.hands) BB.hands.stop();
       if (J.stopStart) rewindStop();
       if (J.current && J.current.vehicle && J.stopStart !== false) { legGen++; clearWaiting(); scnClear(); clearMarker(); for (const m of J.extras) removePerson(m); J.extras = []; J.walkers = []; }
       return;                                  // nothing walks or boards while the home screen is up
@@ -2497,6 +2761,12 @@
       m.rotation.z = Math.sin(ph * Math.PI * 2) * 0.18 * u.jump;
       if (bp && !J.walkers.some((w) => w.m === m)) m.rotation.y = Math.atan2(bp.x - m.position.x, bp.z - m.position.z);
       if (u.jump === 0) m.rotation.z = 0;
+    }
+    // the hands-on moment (targets, hints, the game's help), the fire's smoke and water
+    if (BB.hands) {
+      if (BB.hands.active() && (BB.bedtime || J.phase === 'drive' || J.phase === 'idle')) BB.hands.stop();
+      if (SCN.tick) { try { SCN.tick(dt); } catch (e) { console.error(e); } }
+      BB.hands.update(dt);
     }
     for (let i = tweens.length - 1; i >= 0; i--) {
       const tw = tweens[i];
