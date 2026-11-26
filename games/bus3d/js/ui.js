@@ -210,6 +210,8 @@
   .bbu-book .x canvas { width: 60px; height: 60px; }
   .bbu-book .x .lb { font: 700 13px/1 ${BB.FONT}; color: #4a3424; background: #fff6e0; border: 2px solid #d9b57f; border-radius: 9px; padding: 1px 6px 2px; margin-top: -6px; }
   .bbu-book .count { font: 700 16px/1 ${BB.FONT}; color: #a07a50; margin-left: auto; }
+  .bbu-book .pg:last-of-type h3 { padding-right: 46px; }        /* (the Close button sits over this page's top corner) */
+  @media (max-height: 520px) { .bbu-book .pg:last-of-type h3 { padding-right: 40px; } }
   @media (max-height: 820px) { .bbu-book { --sk: 80px; } }
   @media (max-height: 700px) { .bbu-book { --sk: 70px; --skl: 13px; } }
   @media (max-height: 520px) { .bbu-book { --sk: 56px; --skl: 12px; } .bbu-book h3 { font-size: 17px; } .bbu-book h3 canvas { width: 22px; height: 22px; }
@@ -674,7 +676,7 @@
     syncWash();
   }
   // the Next stop tile's word on a job of the other rides
-  const JOB_WORD = { fire: 'Fire!', ambulance: 'Check-up', icecream: 'Ice cream', tow: 'Tow' };
+  const JOB_WORD = { fire: 'Fire!', ambulance: 'Ambulance', icecream: 'Ice cream', tow: 'Tow' };
   const JOB_PIC = { fire: 'fire', ambulance: 'medic', icecream: 'icecream', tow: 'tow', taxi: 'taxi' };
   const JOB_WORD_TAXI = 'Taxi';
   function renderJob() {

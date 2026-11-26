@@ -99,10 +99,12 @@
       for (const [X, Y, R] of [[22, 30, 9], [42, 22, 12], [64, 28, 10], [80, 40, 7], [30, 84, 6], [60, 86, 7]]) BB.paper(x, (p) => p.ellipse(X, Y, R, R, 0, 0, 7), '#e9f6ff', { depth: 0.3, rimW: 1.6, rimColor: '#7cc4e8' });
     },
   };
-  if (typeof BB.pic === 'function' && !BB.pic.extra) {
-    const basePic = BB.pic, cache = {};
+  // (core.js lists the names it draws itself in BB.pic.extra; every other name here is drawn by world.js, e.g. the
+  // flats and the market, which core.js doesn't have: they showed as a plain circle before)
+  if (typeof BB.pic === 'function') {
+    const basePic = BB.pic, cache = {}, coreHas = BB.pic.extra || {};
     BB.pic = function (name, size = 128) {
-      const fn = MY_PICS[name];
+      const fn = !coreHas[name] && MY_PICS[name];
       if (!fn) return basePic(name, size);
       const key = name + size;
       if (cache[key]) return cache[key];
@@ -111,7 +113,7 @@
       try { fn(x, BB.paths || { rr: (p, X, Y, Wd, H) => p.rect(X, Y, Wd, H) }); } catch (e) { console.error(e); }
       return (cache[key] = c);
     };
-    BB.pic.extra = MY_PICS;
+    BB.pic.extra = Object.assign({}, coreHas, MY_PICS);
   }
 
   const W = BB.world = { scene: null, roads: { nodes: [], edges: [] }, stops: [], depot: null };
@@ -377,6 +379,8 @@
   // (fitSceneSpots: 'fire' needs the burning kiosk's room ahead, 'yard' the tray of cars behind).
   const GEN_SPOTS = [];
   (function addSceneSpots() {
+    // (the first few hand-placed spots get a name from what they're near too, like the made ones below)
+    W.sceneSpots.forEach((sp, i) => { if (!sp.near) sp.near = MINOR_PICS[minorPic(sp.pos.x, sp.pos.z, i)][1]; });
     const nodeClear = (id, e) => { const n = nodeById[id]; return n.edges.length >= 3 ? Math.max(...n.edges.map((q) => edgeById[q].half || RH)) + 9 : 12; };
     let k = 0;
     for (const e of W.roads.edges) {

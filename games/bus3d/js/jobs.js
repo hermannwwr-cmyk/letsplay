@@ -22,7 +22,12 @@
   const cancelLater = (t) => { if (t == null) return; if (BB.cancelLater) BB.cancelLater(t); else clearTimeout(t); };
   // Lines queue behind whatever is being said (another part of the game may be talking); our own lines are awaited
   // one after another. Only a child's own tap (counting, skip, say again) cuts in.
-  const say = (text, opts) => BB.say(text, opts || { queue: true });
+  // (while the "Go home?" card is up the story waits, and if the child chose Home it says nothing more)
+  const askUp = () => !!(BB.ui && BB.ui.asking && BB.ui.asking());
+  const afterAsk = () => new Promise((r) => { const t = setInterval(() => { if (!askUp()) { clearInterval(t); r(); } }, 150); });
+  const say = (text, opts) => askUp()
+    ? afterAsk().then(() => (J.phase === 'home' || BB.bedtime ? undefined : BB.say(text, opts || { queue: true })))
+    : BB.say(text, opts || { queue: true });
   const sayNow = (text) => BB.say(text, { queue: false });
   const plural = (n, one, many) => (n === 1 ? one : many);
   const timeUp = () => !!(BB.bedtime || (BB.hub && BB.hub.timeUp && BB.hub.timeUp()));
@@ -1307,6 +1312,15 @@
     if (!pool.length) pool = ranked.filter((o) => o.d >= 25 && o.d <= 130);       // nothing that close: widen a little
     if (!pool.length) { const n0 = (ranked.find((o) => o.d >= 25) || ranked[0]).d; pool = ranked.filter((o) => o.d >= 25 && o.d <= n0 + 80).slice(0, 5); }   // (from the garage yard: the few nearest from the gate)
     if (!pool.length) pool = ranked.slice(0, 3);
+    // never the same name (and picture) as the stop just before: several small stops share a name ("old town", "the
+    // flats"), and a child can't tell two "old town" stops in a row apart
+    const prevSay = from && from.say;
+    if (prevSay) {
+      const differ = (o) => o.s.say !== prevSay && !(from.pic && o.s.pic === from.pic && o.s.minor && from.minor);
+      let fresh = pool.filter(differ);
+      if (!fresh.length) fresh = ranked.filter((o) => o.d >= 25 && o.d <= 160 && differ(o)).slice(0, 4);
+      if (fresh.length) pool = fresh;
+    }
     // named stops count three times, so they come up more often than the small ones
     const bag = []; for (const o of pool) { bag.push(o.s); if (!o.s.minor) bag.push(o.s, o.s); }
     return BB.pick(bag);
@@ -1517,8 +1531,9 @@
       if (isFinite(d) && d > 1) out.push({ s, d });
     }
     out.sort((x, y) => x.d - y.d);
-    // too few to choose from (e.g. in the garage yard, where the road out is long): look further
-    if (reach < 300 && out.filter((o) => o.d >= 25).length < 5) return rankNear(from, list, exclude, reach * 2.2);
+    // too few short trips to choose from (in the garage yard, or where the near places are a long way round by road,
+    // like the one-way seaside and old town roads): look further afield, where the road may come round sooner
+    if (reach < 600 && out.filter((o) => o.d >= 25 && o.d <= 160).length < 3) return rankNear(from, list, exclude, reach * 2.2);
     return out;
   }
   // one leg on from `from`: at random among the candidates LEG_MIN-LEG_MAX away (weighted by weight(s)), else the
@@ -1540,6 +1555,12 @@
     if (!pool.length) pool = ranked.filter((o) => o.d >= 25).slice(0, 1);
     if (!pool.length) pool = ranked.slice(0, 1);
     // and not the places of the last few vehicle jobs, while there are others
+    // (not a place with the same spoken name as the one just before: "the flats", then "the flats" again)
+    const nm = (t) => t && ((t.say && t.say !== 'here') ? t.say : t.near);
+    if (from && nm(from)) {
+      const dMin = Math.min(...pool.map((o) => o.d)), other = pool.filter((o) => nm(o.s) !== nm(from) && o.d <= dMin + 60);
+      if (other.length) pool = other;            // (none near with another name: the spoken line says "the next … stop")
+    }
     const recent = recentLegs.slice(-Math.min(8, pool.length - (pool.length >= 4 ? 2 : 1)));   // (always leaves one or two to pick from)
     const fresh = pool.length > 1 ? pool.filter((o) => recent.indexOf(o.s.id) < 0) : pool;
     if (fresh.length) pool = fresh;
@@ -1589,18 +1610,20 @@
   const pl = (n, one, many) => `${n} ${plural(n, one, many)}`;
   const isAre = (n) => plural(n, 'is', 'are');
   const WORDS = {
+    // (the bags stand on the pavement by the taxi, where they can be seen and counted)
     bagsIn: (q) => q.kind === 'add'
-      ? { n: `${pl(q.n, 'bag', 'bags')} ${isAre(q.n)} in the boot.`, k: `${q.k} more ${plural(q.k, 'goes', 'go')} in.`, ask: 'How many bags are in the boot now?' }
-      : { n: `${pl(q.n, 'bag', 'bags')} ${isAre(q.n)} in the boot.`, k: `${q.k} ${plural(q.k, 'comes', 'come')} out.`, ask: 'How many bags are left in the boot?' },
+      ? { n: `${pl(q.n, 'bag', 'bags')} ${isAre(q.n)} by the taxi.`, k: `${q.k} more ${plural(q.k, 'bag comes', 'bags come')}.`, ask: 'How many bags now?' }
+      : { n: `${pl(q.n, 'bag', 'bags')} ${isAre(q.n)} by the taxi.`, k: `${q.k} ${plural(q.k, 'is', 'are')} carried home.`, ask: 'How many bags are left?' },
     fighters: (q) => ({ n: `${pl(q.n, 'firefighter is', 'firefighters are')} spraying water.`, k: `${q.k} more ${plural(q.k, 'comes', 'come')} to help.`, ask: 'How many firefighters now?' }),
     windows: (q) => ({ n: `${pl(q.n, 'window has', 'windows have')} smoke.`, k: `${q.k} ${plural(q.k, 'is', 'are')} clear now.`, ask: 'How many windows still have smoke?' }),
     teddies: (q, where = ' at the clinic') => q.kind === 'add'
       ? { n: `${pl(q.n, 'teddy bear is', 'teddy bears are')} in the kit.`, k: `${q.k} more ${plural(q.k, 'goes', 'go')} in.`, ask: 'How many teddy bears now?' }
       : { n: `${pl(q.n, 'teddy bear is', 'teddy bears are')} in the kit.`, k: `${q.k} ${plural(q.k, 'goes', 'go')} to children${where}.`, ask: 'How many teddy bears are left?' },
+    // (the ice creams stand on a little stand by the van; each child who buys one takes it)
     sold: (q) => q.kind === 'sub'
-      ? { n: `${pl(q.n, 'ice cream is', 'ice creams are')} in the van.`, k: `${q.k} ${plural(q.k, 'is', 'are')} sold.`, ask: 'How many ice creams are left?' }
-      : { n: `${pl(q.n, 'ice cream is', 'ice creams are')} in the van.`, k: `${q.k} more ${plural(q.k, 'goes', 'go')} in.`, ask: 'How many ice creams now?' },
-    cones: (q) => ({ n: `${pl(q.n, 'cone is', 'cones are')} in the box.`, k: `${q.k} more ${plural(q.k, 'goes', 'go')} in.`, ask: 'How many cones now?' }),
+      ? { n: `${pl(q.n, 'ice cream is', 'ice creams are')} on the stand.`, k: `${q.k} ${plural(q.k, 'is', 'are')} sold.`, ask: 'How many ice creams are left?' }
+      : { n: `${pl(q.n, 'ice cream is', 'ice creams are')} on the stand.`, k: `${q.k} more ${plural(q.k, 'is', 'are')} made.`, ask: 'How many ice creams now?' },
+    cones: (q) => ({ n: `${pl(q.n, 'ice cream is', 'ice creams are')} on the stand.`, k: `${q.k} more ${plural(q.k, 'is', 'are')} made.`, ask: 'How many ice creams now?' }),
     yard: (q, lot = 'the yard') => q.kind === 'add'
       ? { n: `${pl(q.n, 'car is', 'cars are')} in ${lot}.`, k: `${q.k} more ${plural(q.k, 'car comes', 'cars come')} in.`, ask: `How many cars are in ${lot} now?` }
       : { n: `${pl(q.n, 'car is', 'cars are')} in ${lot}.`, k: `${q.k} ${plural(q.k, 'is', 'are')} fixed and ${plural(q.k, 'drives', 'drive')} away.`, ask: 'How many cars are left?' },
@@ -1681,6 +1704,11 @@
     SGEO = {
       cars: ['#4fa3e0', '#f5b83d', '#5cb85c', '#ef5a4b', '#8e62c8'].map(car),
       bags: Array.from({ length: 10 }, (_, i) => mk((b) => { b.box(0.62, 0.72, 0.36, bagColor(i), 0, 0, 0); b.box(0.63, 0.09, 0.37, P.honeyLight, 0, 0.34, 0); b.box(0.09, 0.26, 0.09, '#3a2a3c', 0, 0.72, 0); })),   // bag i = the card's suitcase i
+      // an ice cream: a wafer cone with one scoop; scoop i has the card's colour for ice cream i
+      creams: ['#ff8fab', '#fff3d6', '#8b5a3c', '#8fe0c4'].map((c) => mk((b) => {
+        b.cyl(0.2, 0.04, 0.5, 7, '#e2b07c', 0, 0, 0); b.ball(0.23, c, 0, 0.58, 0); b.ball(0.06, '#ef5a4b', 0, 0.84, 0);
+      })),
+      stand: mk((b) => { b.box(4.2, 0.4, 1.9, '#fbf7ee', 0, 0, 0); b.box(4.24, 0.1, 1.94, '#8fd3e8', 0, 0.4, 0); }),   // top at 0.5
       teddy: mk((b) => {
         b.ball(0.3, '#b5793e', 0, 0.3, 0); b.ball(0.24, '#c58a55', 0, 0.76, 0); b.ball(0.1, '#b5793e', -0.18, 0.95, 0); b.ball(0.1, '#b5793e', 0.18, 0.95, 0);
         b.ball(0.09, '#e2b07c', 0, 0.72, 0.2); b.ball(0.09, '#ff8fab', 0, 0.42, 0.26);
@@ -1783,6 +1811,28 @@
         tween(0.7, (t) => { m.position.lerpVectors(a, to, t); m.position.y += Math.sin(t * Math.PI) * 1.2; }).then(() => scnDrop(m));
       },
       points: (c) => Array.from({ length: Math.max(1, c) }, (_, i) => slot(i)),
+    };
+  }
+  // the ice cream van's stand: two rows of five ice creams (like the card's ten-frame); a sold one goes to the next
+  // child in the queue (who hops with joy), a new one pops on
+  function iceScene() {
+    const G = sceneGeos(), slot = tray(2.7, -0.9, 0.8, 0.85, 0.5);
+    if (!SCN.extra.some((m) => m.userData.stand)) {
+      const c = slot(2).clone().add(new THREE.Vector3(slot.f.ox * 0.42, -0.5, slot.f.oz * 0.42));
+      const st = scnMesh(G.stand, c, Math.atan2(slot.f.fx, slot.f.fz) + Math.PI / 2, false); st.userData.stand = true; SCN.extra.push(st);
+    }
+    const make = (i, pop) => scnMesh(G.creams[i % 4], slot(i), slot.face, pop);
+    let served = 0;
+    return {
+      show(n) { while (SCN.items.length < n) SCN.items.push(make(SCN.items.length, false)); },
+      add(i) { SCN.items[i] = make(i, true); },
+      remove(i) {
+        const m = SCN.items[i]; if (!m) return; SCN.items[i] = null;
+        const kid = J.waiting[served++], a = m.position.clone();
+        const to = kid ? kid.position.clone().add(new THREE.Vector3(0, 1.0, 0)) : a.clone().add(new THREE.Vector3(slot.f.ox * 3, 0, slot.f.oz * 3));
+        tween(0.6, (t) => { m.position.lerpVectors(a, to, t); m.position.y += Math.sin(t * Math.PI) * 1.0; }).then(() => { scnDrop(m); if (kid) { kid.userData.jump = 1; kid.userData.jumpDelay = 0; } });
+      },
+      points: (c) => Array.from({ length: Math.max(1, c) }, (_, i) => slot(i)).concat(J.waiting.map((k) => k.position)),
     };
   }
   // the fire: a kiosk with a 2x5 grid of windows (the smoky ones puff smoke) and firefighters spraying water
@@ -1941,7 +1991,14 @@
         await say("We're here! Ladder up!"); ladder(true); if (!ok()) return;
         const qf = legQ('add', null, WORDS.fighters, 'fighter'); qf.scene = fs.fighters;
         await askScene(qf); if (!ok()) return;
-        if (qw) { qw.scene = fs.windows; await askScene(qw); if (!ok()) return; }
+        if (qw) {
+          qw.scene = fs.windows; await askScene(qw); if (!ok()) return;
+          if (qw.answer > 0) {                    // the windows still smoking get sprayed clear first
+            await say('Spray the last ones! Whoosh!'); if (!ok()) return;
+            for (let i = 0; i < 10; i++) { try { fs.windows.remove(i); } catch (e) { /* none there */ } }
+            await wait(900); if (!ok()) return;
+          }
+        }
         siren(false); ladder(false); BB.sfx.cheer(); if (BB.ui && BB.ui.confetti) BB.ui.confetti();
         await say('The fire is out! Hooray!');
       } });
@@ -1950,13 +2007,13 @@
       // the clinic when it's just down the road, else Auntie goes home after her check-up in the ambulance
       const clinic = place('clinic'), toClinic = isNear(spot, clinic), dest = toClinic ? clinic : legTo(spot, spots('picnic'), [spot]);
       const auntie = { geo: (FRIENDS[2].geo || (FRIENDS[2].geo = friendGeo(FRIENDS[2].look))) };
-      L.push({ to: spot, start: `Ambulance! Auntie needs a check-up. She's waiting${where(spot)}. Let's go!`, onGo: () => siren(true), run: async (ok) => {
+      L.push({ to: spot, start: `Ambulance! Auntie hurt her knee. She's waiting${where(spot)}. Let's go!`, onGo: () => siren(true), run: async (ok) => {
         siren(false);
-        await say('Hello, Auntie! Hop in!'); if (!ok()) return;
+        await say('Hello, Auntie! Hop in! We have teddy bears for brave children.'); if (!ok()) return;
         await hopIn(1, auntie); if (!ok()) return;
         const q = legQ('add', null, WORDS.teddies, 'teddy'); q.scene = teddyScene(); await askScene(q); carry.teddies = q.answer;
       } });
-      L.push({ to: dest, go: toClinic ? 'Off to the clinic!' : "Now let's take Auntie home!", run: async (ok) => {
+      L.push({ to: dest, go: toClinic ? 'Off to the clinic!' : "Auntie's knee is better! Let's take her home!", run: async (ok) => {
         const qt = legQ('sub', carry.teddies, (q0) => WORDS.teddies(q0, toClinic ? ' at the clinic' : ' nearby'), 'teddy'); qt.scene = teddyScene(); await askScene(qt); if (!ok()) return;
         hopOut(1, auntie); await say('All better! Thank you!');
       } });
@@ -1965,15 +2022,19 @@
       const pool = spots('icecream'), fun = (t) => (/park|beach|swings|seaside/i.test((t.say || '') + ' ' + (t.near || '') + ' ' + (t.id || '')) ? 3 : 1);
       const park = legTo(from0, pool, [], fun), beach = legTo(park, pool, [park], fun);
       L.push({ to: park, start: `Ice cream van! Let's go to ${sayOf(park)}!`, run: async (ok) => {
-        jingle(); queueKids(BB.randInt(2, 4)); hatch(true);
+        // exactly as many children queue as buy one (each takes an ice cream off the stand)
+        const q = legQ('sub', null, WORDS.sold, 'icecream'); q.scene = iceScene();
+        jingle(); queueKids(q.kind === 'sub' ? q.k : 2); hatch(true);
         await say('Ice cream! Ice cream! The children are waiting!'); if (!ok()) return;
-        await askScene(legQ('sub', null, WORDS.sold, 'icecream')); if (!ok()) return;
+        await askScene(q); if (!ok()) return;
         for (const m of J.waiting.splice(0)) { m.userData.jump = 1; J.extras.push(m); BB.later(900, () => walkAway(m)); }
         hatch(false); await say('Yummy! Thank you!');
       } });
-      L.push({ to: beach, go: `Now drive to ${sayOf(beach)}!`, run: async (ok) => {
-        jingle(); queueKids(BB.randInt(2, 4)); hatch(true);
-        await askScene(legQ('add', null, WORDS.cones, 'icecream')); if (!ok()) return;
+      // (old town and the seaside are big: when the next stop has the same name, it's "the next ice cream stop")
+      L.push({ to: beach, go: sayOf(beach) === sayOf(park) ? 'Now drive to the next ice cream stop!' : `Now drive to ${sayOf(beach)}!`, run: async (ok) => {
+        jingle(); hatch(true);
+        const q = legQ('add', null, WORDS.cones, 'icecream'); q.scene = iceScene(); await askScene(q); if (!ok()) return;
+        queueKids(2); await wait(400);
         for (const m of J.waiting.splice(0)) { m.userData.jump = 1; J.extras.push(m); BB.later(900, () => walkAway(m)); }
         hatch(false); await say('Yummy! Bye bye!');
       } });

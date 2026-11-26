@@ -1520,9 +1520,12 @@
         gCam.updateMatrixWorld(true);
       }
     };
-    for (let it = 0; it < 5; it++) { place(); const bx = box(); d = BB.clamp(d * Math.max((bx.x1 - bx.x0) / (aw * sp.fill), (bx.y1 - bx.y0) / (ah * sp.fill)), 2.5, 60); }
+    // (a narrow 3D area beside the panel, on small phones: not so close that the part's surroundings are cut off and
+    // the view is all door, and no slow orbit, which there swings the part out of the picture)
+    const narrow = aw < 380, dMin = narrow ? 5.5 : 2.5;
+    for (let it = 0; it < 5; it++) { place(); const bx = box(); d = BB.clamp(d * Math.max((bx.x1 - bx.x0) / (aw * sp.fill), (bx.y1 - bx.y0) / (ah * sp.fill)), dMin, 60); }
     place();
-    return { pos: gCam.position.clone(), look: look.clone(), centre: T.clone(), orbit: sp.orbit || 0 };
+    return { pos: gCam.position.clone(), look: look.clone(), centre: T.clone(), orbit: narrow ? 0 : (sp.orbit || 0) };
   }
   function garagePlan(mode) {
     const m = GARAGE[mode] === 1 ? mode : GARAGE[mode], key = m + '|' + B.type + '|' + innerWidth + 'x' + innerHeight + '|' + BB.camera.fov + '|' + (B.inWorkshop ? 'ws' : 'x');
