@@ -59,7 +59,7 @@
   const DEFAULT_SAVE = () => ({
     paint: 'green', upgrades: {}, stickers: [], fuel: 1, jobsDone: 0, questions: 0, seen: {},
     paints: ['green'], stickersOwned: [], parts: {}, partsOwned: [],
-    busType: null, routeNo: '88', assist: false, assistChosen: false, leftHand: false, control: 'wheel', xmas: 'auto', dirt: 0, spotted: {}, friendsMet: [],
+    busType: null, routeNo: '88', assist: true, assistChosen: false, leftHand: false, control: 'wheel', xmas: 'auto', dirt: 0, spotted: {}, friendsMet: [],
     washPaid: 0,                 // coins paid for a bus wash that hasn't finished yet (a reload mid-wash gives them back)
     vehiclesOwned: ['bendy', 'double', 'single'],   // the rides the child may drive (the buses are free; the others are bought in the garage)
     vehiclePaint: {},            // a colour per other ride ({fire: 'blue'}); none = its classic colours

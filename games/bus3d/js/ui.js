@@ -797,18 +797,13 @@
     U.releaseAll(); wheel.rot = 0; showWheel();
     if (hud) hud.classList.add('ctl-wheel');
   };
-  // A beginner drives with the lane helper on: for the first 3 jobs, unless someone chose in the garage's Settings.
-  // After the third job it switches off, with a cheer.
+  // The lane helper is on by default (the owner's choice); only a grown-up's choice in the garage's Settings
+  // (save.assistChosen) turns it off.
   let autoAssist = false;
   U.afterBus = function () {
-    autoAssist = !BB.save.assistChosen && (BB.save.jobsDone | 0) < 3;
+    autoAssist = !BB.save.assistChosen;
     U.setAssist(autoAssist ? true : !!BB.save.assist, true);
   };
-  BB.on('job:done', () => {
-    if (!autoAssist || (BB.save.jobsDone | 0) < 3) return;
-    autoAssist = false; U.setAssist(false, true);
-    BB.say('You can steer all by yourself now!', { queue: true });
-  });
   U.facingAway = () => facing && driving;
 
   // ---------- the home screen ----------
