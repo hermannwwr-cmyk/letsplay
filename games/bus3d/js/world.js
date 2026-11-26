@@ -185,7 +185,8 @@
   })();
   W.halfOf = (e) => (e && e.half) || RH;
   // The bus stays inside this box (the sea wall to the south, the airport fence to the north, tunnels east and west).
-  W.BOUNDS = { x0: -244, x1: 548, z0: -300, z1: 211 };
+  const BX0 = -244, BX1 = 548, BZ0 = -300, BZ1 = 211;
+  W.BOUNDS = { x0: BX0, x1: BX1, z0: BZ0, z1: BZ1 };
   W.node = (id) => nodeById[id];
   W.edge = (id) => edgeById[id];
   W.edgeBetween = (a, b) => W.roads.edges.find((e) => (e.a === a && e.b === b) || (e.a === b && e.b === a));
@@ -451,22 +452,31 @@
   // fence), and give each one the tags whose zones are clear of roads, buildings and solid posts (trees and lamp posts
   // don't count: the scene camera hides them).
   function fitSceneSpots(blockedBay, nearYard) {
-    const onOtherRoad = (sp, x, z) => {
+    // (the road pieces near a spot are listed once per spot, as [ax, az, dx, dz, l2, reach] runs: every zone of the
+    //  spot is sampled against that short list instead of against every road in town)
+    const near = new Map();
+    const roadsNear = (sp, p) => {
+      let L = near.get(sp); if (L) return L;
+      L = [];
       for (const e of W.roads.edges) {
         if (e.id === sp.edge) continue;
         for (let i = 1; i < e.points.length; i++) {
-          const a = e.points[i - 1], c = e.points[i], dx = c.x - a.x, dz = c.z - a.z, l2 = dx * dx + dz * dz || 1;
-          if (Math.min(a.x, c.x) - x > 30 || x - Math.max(a.x, c.x) > 30 || Math.min(a.z, c.z) - z > 30 || z - Math.max(a.z, c.z) > 30) continue;
-          const t = BB.clamp(((x - a.x) * dx + (z - a.z) * dz) / l2, 0, 1);
-          if (hypot2(a.x + dx * t - x, a.z + dz * t - z) < (e.half || RH) + 0.6) return true;
+          const a = e.points[i - 1], c = e.points[i], dx = c.x - a.x, dz = c.z - a.z;
+          if (Math.min(a.x, c.x) - p.x > 90 || p.x - Math.max(a.x, c.x) > 90 || Math.min(a.z, c.z) - p.z > 90 || p.z - Math.max(a.z, c.z) > 90) continue;
+          L.push(a.x, a.z, dx, dz, dx * dx + dz * dz || 1, (e.half || RH) + 0.6);
         }
       }
-      return false;
+      near.set(sp, L); return L;
     };
     const zoneClear = (sp, z) => {
+      const e = edgeById[sp.edge], p = W.pointAt(e, sp.s), L = roadsNear(sp, p);
       for (let a = z[0]; a <= z[1] + 0.01; a += 1.5) for (let o = z[2]; o <= z[3] + 0.01; o += 1.2) {
-        const w = sceneWorld(sp, a, o);
-        if (W.solidAt(w.x, w.z, 0.6) || onOtherRoad(sp, w.x, w.z)) return false;
+        const x = p.x + sp.fwd.x * a + sp.side.x * (e.half + o), zz = p.z + sp.fwd.z * a + sp.side.z * (e.half + o);
+        if (W.solidAt(x, zz, 0.6)) return false;
+        for (let k = 0; k < L.length; k += 6) {
+          const t = BB.clamp(((x - L[k]) * L[k + 2] + (zz - L[k + 1]) * L[k + 3]) / L[k + 4], 0, 1);
+          if (hypot2(L[k] + L[k + 2] * t - x, L[k + 1] + L[k + 3] * t - zz) < L[k + 5]) return false;
+        }
       }
       return true;
     };
@@ -541,17 +551,17 @@
   const PROPS = new Map();                 // builder -> [{s, e, x, z, r}] part ranges
   function propStart(b) { return b.parts.length; }
   function propEnd(b, s, x, z, r) { if (!PROPS.has(b)) PROPS.set(b, []); PROPS.get(b).push({ s, e: b.parts.length, x, z, r }); }
-  // Build the aCenter attribute for a builder (call before b.geometry()/mesh(), which disposes the parts).
+  // Build the aCenter attribute for a builder (call after b.geometry()/mesh(): b.counts = the vertices each part kept).
   function propAttr(b) {
-    const counts = b.parts.map((p) => p.geo.index ? p.geo.index.count : p.geo.attributes.position.count);
+    const counts = b.counts;
     const total = counts.reduce((a, c) => a + c, 0), arr = new Float32Array(total * 3).fill(1e5);
     const starts = []; let o = 0; for (const c of counts) { starts.push(o); o += c; }
     for (const pr of PROPS.get(b) || []) for (let k = pr.s; k < pr.e; k++) for (let v = 0; v < counts[k]; v++) { const q = (starts[k] + v) * 3; arr[q] = pr.x; arr[q + 1] = pr.z; arr[q + 2] = pr.r; }
     return new THREE.BufferAttribute(arr, 3);
   }
   function propMesh(b, mat, name) {
-    const attr = propAttr(b), m = b.mesh(mat);
-    m.geometry.setAttribute('aCenter', attr);
+    const m = b.mesh(mat);
+    m.geometry.setAttribute('aCenter', propAttr(b));
     return tag(m, name);
   }
   // Split a builder into square areas (CHUNK units a side, by each part's centre; a prop's parts by the prop's centre), so
@@ -566,7 +576,7 @@
       if (pi >= 0) { x = props[pi].x; z = props[pi].z; }
       else { const g = p.geo; if (!g.boundingBox) g.computeBoundingBox(); g.boundingBox.getCenter(_c).applyMatrix4(p.m); x = _c.x; z = _c.z; }
       const key = Math.floor(x / CHUNK) + ',' + Math.floor(z / CHUNK);
-      let c = cells.get(key); if (!c) { c = BB.mk.builder(); cells.set(key, c); }
+      let c = cells.get(key); if (!c) { c = BB.mk.builder(); c.trim = b.trim; c.pack = b.pack; cells.set(key, c); }
       if (pi >= 0 && !open.has(pi)) open.set(pi, c.parts.length);
       c.parts.push(p);
       if (pi >= 0 && k === props[pi].e - 1) { if (!PROPS.has(c)) PROPS.set(c, []); const pr = props[pi]; PROPS.get(c).push({ s: open.get(pi), e: c.parts.length, x: pr.x, z: pr.z, r: pr.r }); }
@@ -622,7 +632,9 @@
   // ---------- colliders (for free driving): circles {x,z,r} and turned boxes {x,z,hw,hd,ry}, in a coarse grid ----------
   const COLS = W.colliders = [], CELL = 16, grid = new Map();
   const ckey = (i, j) => i * 1000 + j;
-  function addCol(c) {
+  function addCol(o) {
+    // (every collider is stored with the same fields in the same order, so the hot loops below read them quickly)
+    const c = { x: o.x, z: o.z, r: o.r, hw: o.hw, hd: o.hd, ry: o.ry, cos: 1, sin: 0, R: 0, top: o.top, y0: o.y0, sightOnly: !!o.sightOnly, deck: !!o.deck, _ps: 0, _ss: 0 };
     const R = c.r != null ? c.r : hypot2(c.hw, c.hd);
     c.R = R; if (c.ry != null) { c.cos = Math.cos(c.ry); c.sin = Math.sin(c.ry); }
     COLS.push(c);
@@ -662,7 +674,8 @@
       const i = Math.floor(x / CELL), j = Math.floor(z / CELL);
       for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) {
         const list = grid.get(ckey(i + di, j + dj)); if (!list) continue;
-        for (const c of list) {
+        for (let n = 0, nl = list.length; n < nl; n++) {
+          const c = list[n];
           if (c.sightOnly || (pass === 0 && c._ps === stamp)) continue; c._ps = stamp;
           const dx = x - c.x, dz = z - c.z;
           if (dx * dx + dz * dz > (c.R + r) * (c.R + r)) continue;
@@ -671,7 +684,7 @@
             if (m > 0) { const ux = d > 1e-4 ? dx / d : 1, uz = d > 1e-4 ? dz / d : 0; x += ux * m; z += uz * m; hit += m; }
           } else {
             const lx = dx * c.cos - dz * c.sin, lz = dx * c.sin + dz * c.cos;      // into the box's frame
-            const qx = BB.clamp(lx, -c.hw, c.hw), qz = BB.clamp(lz, -c.hd, c.hd);
+            const qx = lx < -c.hw ? -c.hw : lx > c.hw ? c.hw : lx, qz = lz < -c.hd ? -c.hd : lz > c.hd ? c.hd : lz;
             let ox = lx - qx, oz = lz - qz, d = hypot2(ox, oz), px, pz, m;
             if (d > 1e-4) { m = r - d; if (m <= 0) continue; px = ox / d * m; pz = oz / d * m; }
             else {                                                                 // centre inside: out by the nearest side
@@ -683,9 +696,10 @@
         }
       }
     }
-    const Bd = W.BOUNDS;
-    if (x < Bd.x0 + r) { hit += Bd.x0 + r - x; x = Bd.x0 + r; } else if (x > Bd.x1 - r) { hit += x - Bd.x1 + r; x = Bd.x1 - r; }
-    if (z < Bd.z0 + r) { hit += Bd.z0 + r - z; z = Bd.z0 + r; } else if (z > Bd.z1 - r) { hit += z - Bd.z1 + r; z = Bd.z1 - r; }
+    // (the bounds are plain numbers here: this runs about 25 times a frame, and reading them from W.BOUNDS kept
+    //  throwing Chrome's optimised code away, which made it some ten times slower)
+    if (x < BX0 + r) { hit += BX0 + r - x; x = BX0 + r; } else if (x > BX1 - r) { hit += x - BX1 + r; x = BX1 - r; }
+    if (z < BZ0 + r) { hit += BZ0 + r - z; z = BZ0 + r; } else if (z > BZ1 - r) { hit += z - BZ1 + r; z = BZ1 - r; }
     _push.x = x; _push.z = z; _push.hit = hit;
     return _push;
   };
@@ -705,18 +719,18 @@
   // Does a building (box collider), a solid post or pillar (a circle with a top) or a deck stand between two points?
   // Boxes are sampled every unit along the line against their footprints and heights; posts are tested exactly
   // (they are thin). Trees and lamp posts are left out: they fade instead. Used by the cameras.
-  const _seen = new Set();
+  let sightStamp = 0;                          // (marks the posts already tested in this call)
   W.blocksSight = function (x0, y0, z0, x1, y1, z1) {
-    const L = hypot2(x1 - x0, z1 - z0), n = Math.max(4, Math.ceil(L));
-    _seen.clear();
+    const L = hypot2(x1 - x0, z1 - z0), n = Math.max(4, Math.ceil(L)), stamp = ++sightStamp;
     for (let k = 1; k < n; k++) {
       const t = k / n, x = x0 + (x1 - x0) * t, z = z0 + (z1 - z0) * t, y = y0 + (y1 - y0) * t;
       const list = grid.get(ckey(Math.floor(x / CELL), Math.floor(z / CELL)));
       if (!list) continue;
-      for (const c of list) {
+      for (let q = 0, ql = list.length; q < ql; q++) {
+        const c = list[q];
         if (c.r != null) {
-          if (c.top == null || _seen.has(c)) continue;
-          _seen.add(c);
+          if (c.top == null || c._ss === stamp) continue;
+          c._ss = stamp;
           // the line's closest approach to the post's axis (in plan), and its height while inside the post
           const dx = x1 - x0, dz = z1 - z0, l2 = dx * dx + dz * dz || 1e-9;
           const tc = ((c.x - x0) * dx + (c.z - z0) * dz) / l2, cx = x0 + dx * tc - c.x, cz = z0 + dz * tc - c.z, d2 = cx * cx + cz * cz;
@@ -797,9 +811,9 @@
     ground.disc(720, 48, P.grass, 140, 0, 0);
     scene.add(tag(ground.mesh(), 'ground'));
 
-    const roads = BB.mk.builder(), town = BB.mk.builder(), green = BB.mk.builder(), lamps = BB.mk.builder();
-    TREES = BB.mk.builder();
-    WIN = BB.mk.builder();
+    const roads = lean(BB.mk.builder()), town = lean(BB.mk.builder()), green = BB.mk.builder(), lamps = lean(BB.mk.builder());
+    TREES = lean(BB.mk.builder());
+    WIN = lean(BB.mk.builder());
     buildRoads(roads);
     buildBlocks(roads, green);
     buildStreetTrees(green);
@@ -818,7 +832,7 @@
     buildPlaces(town);
     const poolPts = buildLamps(town, lamps);
     fitSceneSpots((st) => blockedBay(st) || underDeck(st), nearYard);   // (after the trees and lamp posts, which don't make way for the scene spots)
-    const meadow = BB.mk.builder(); buildMeadow(meadow);   // (last, with its own random numbers: soft grass patches, flowers and bushes; nothing to bump into)
+    const meadow = lean(BB.mk.builder()); buildMeadow(meadow);   // (last, with its own random numbers: soft grass patches, flowers and bushes; nothing to bump into)
     roadMat = new THREE.MeshLambertMaterial({ vertexColors: true });   // its own material: it darkens in the rain
     for (const p of green.parts) town.parts.push(p);      // (same material: one draw per area)
     green.parts = [];
@@ -865,6 +879,8 @@
     for (const o of hidden) o.visible = false;
   };
   const tag = (m, name) => { m.name = name; m.matrixAutoUpdate = false; m.updateMatrix(); return m; };
+  // a builder for the static town: faces no camera can see are left out and the mesh is stored compactly (BB.mk, core.js)
+  const lean = (b) => { b.trim = true; b.pack = true; return b; };
   const light = (c, t = 0.35) => '#' + new THREE.Color(c).lerp(new THREE.Color('#ffffff'), t).getHexString();
   const dark = (c, t = 0.2) => '#' + new THREE.Color(c).lerp(new THREE.Color('#3a2a3c'), t).getHexString();
   W.light = light; W.dark = dark;
@@ -2206,6 +2222,7 @@
       // (one batch per district and area, so a big district's landmarks are culled area by area)
       const key = curDist + '@' + Math.floor((x + FRAME.x) / 200) + ',' + Math.floor((z + FRAME.z) / 200);
       const bt = LMB[key] || (LMB[key] = L.batch());
+      if (bt.kit && bt.kit.b) lean(bt.kit.b);
       const info = bt.add(name, x, z, ry, ...args);
       for (const c of info.circles || []) addCol({ x: c.x, z: c.z, r: c.r, top: Math.min(14, info.height || 8) });   // (solid: no fading)
       if (name === 'chinatownRow') {          // the upper floor over the arcade: the cameras can't see through it either
@@ -2618,7 +2635,7 @@
   const DIST_B = {}, FAR_CULL = [];
   function buildDistricts(green) {
     for (const [k, fn] of [['depot', buildDepot], ['highway', buildHighway], ['airport', buildAirport], ['city', buildCity], ['oldtown', buildOldTown], ['waterfront', buildWaterfront]]) {
-      curDist = k; DIST_B[k] = BB.mk.builder(); fn(DIST_B[k], green);
+      curDist = k; DIST_B[k] = lean(BB.mk.builder()); fn(DIST_B[k], green);
     }
   }
   // distance culling: a district mesh is drawn only while the camera is within ~215 of its box (the fog hides it there)

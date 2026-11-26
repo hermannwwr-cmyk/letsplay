@@ -147,6 +147,7 @@
   // y in box/cyl/prism is the BOTTOM of the part.
   const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _v = new THREE.Vector3(), _s = new THREE.Vector3();
   const _c = new THREE.Color();
+  const UNIT_BOX = new THREE.BoxGeometry(1, 1, 1), UNIT = {};
   class Builder {
     constructor() { this.parts = []; this.stack = [new THREE.Matrix4()]; }
     get base() { return this.stack[this.stack.length - 1]; }
@@ -163,11 +164,16 @@
       _e.set(rx, ry, rz, 'YXZ'); _q.setFromEuler(_e);
       return this.addM(geo, color, new THREE.Matrix4().compose(_v.set(x, y, z), _q, _s.set(sx, sy, sz)));
     }
+    // (boxes, cylinders and balls are one shared unit shape each, stretched by the part's transform: thousands of
+    //  them are placed while the town is built, and geometry() never changes a part's shape)
     box(w, h, d, color, x = 0, y = 0, z = 0, ry = 0, rx = 0, rz = 0) {
-      return this.add(new THREE.BoxGeometry(w, h, d), color, x, y + h / 2, z, ry, rx, rz);
+      return this.add(UNIT_BOX, color, x, y + h / 2, z, ry, rx, rz, w, h, d);
     }
     cyl(rTop, rBot, h, seg, color, x = 0, y = 0, z = 0, ry = 0, rx = 0, rz = 0) {
-      return this.add(new THREE.CylinderGeometry(rTop, rBot, h, seg), color, x, y + h / 2, z, ry, rx, rz);
+      const m = Math.max(rTop, rBot);
+      if (!(m > 0) || !(h > 0)) return this.add(new THREE.CylinderGeometry(rTop, rBot, h, seg), color, x, y + h / 2, z, ry, rx, rz);
+      const key = 'c' + seg + '_' + rTop / m + '_' + rBot / m;
+      return this.add(UNIT[key] || (UNIT[key] = new THREE.CylinderGeometry(rTop / m, rBot / m, 1, seg)), color, x, y + h / 2, z, ry, rx, rz, m, h, m);
     }
     // Triangular prism (a pitched roof): length along local x, width w along z, height h.
     prism(len, w, h, color, x = 0, y = 0, z = 0, ry = 0) {
@@ -178,7 +184,8 @@
       return this.add(g, color, x, y, z, ry);
     }
     ball(r, color, x = 0, y = 0, z = 0, detail = 0, sx = 1, sy = 1, sz = 1) {
-      return this.add(new THREE.IcosahedronGeometry(r, detail), color, x, y, z, 0, 0, 0, sx, sy, sz);
+      const key = 'i' + detail;
+      return this.add(UNIT[key] || (UNIT[key] = new THREE.IcosahedronGeometry(1, detail)), color, x, y, z, 0, 0, 0, r * sx, r * sy, r * sz);
     }
     disc(r, seg, color, x = 0, y = 0, z = 0, sx = 1, sz = 1) {
       const g = new THREE.CircleGeometry(r, seg); g.rotateX(-Math.PI / 2);
@@ -205,33 +212,59 @@
       g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
       return this.addM(g, color, new THREE.Matrix4());
     }
+    // Merge the parts into one flat-shaded geometry, in one pass (no copies of the parts are made, and the parts'
+    // own shapes are left as they are, so shared unit shapes can be used again).
+    // Two switches for the big static town meshes (set on the builder before calling this):
+    //   trim: leave out triangles no camera can ever see: the undersides of things standing on the ground or the
+    //         pavement (the cameras never go below knee height), anything wholly under the ground, and the hair-thin
+    //         sides of painted road markings. After this, `counts` holds the vertices kept per part.
+    //   pack: store the normals and colours in one byte per number (a third of the size; colours come from 8-bit
+    //         hex anyway), which halves the memory of a mesh.
     geometry() {
+      const parts = this.parts, np = parts.length, trim = !!this.trim, pack = !!this.pack;
       let total = 0;
-      const gs = this.parts.map((p) => {
-        let g = p.geo.index ? p.geo.toNonIndexed() : p.geo;
-        g.applyMatrix4(p.m);
-        total += g.attributes.position.count;
-        return { g, c: p.color };
-      });
-      const pos = new Float32Array(total * 3), nor = new Float32Array(total * 3), col = new Float32Array(total * 3);
-      let o = 0;
-      const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
-      for (const { g, c: color } of gs) {
-        const src = g.attributes.position.array, cnt = g.attributes.position.count;
-        pos.set(src.subarray(0, cnt * 3), o * 3);
-        for (let i = 0; i < cnt; i += 3) {          // flat normals: one per triangle
-          a.fromArray(src, i * 3); b.fromArray(src, i * 3 + 3); c.fromArray(src, i * 3 + 6);
-          b.sub(a); c.sub(a); b.cross(c).normalize();
-          for (let k = 0; k < 3; k++) { nor[(o + i + k) * 3] = b.x; nor[(o + i + k) * 3 + 1] = b.y; nor[(o + i + k) * 3 + 2] = b.z; }
+      for (let k = 0; k < np; k++) { const g = parts[k].geo; total += g.index ? g.index.count : g.attributes.position.count; }
+      let pos = new Float32Array(total * 3), nor = new Float32Array(total * 3);
+      const counts = this.counts = new Int32Array(np), cr = new Float32Array(np), cg = new Float32Array(np), cb = new Float32Array(np);
+      let o = 0;                                    // (numbers written so far: 3 per vertex)
+      for (let k = 0; k < np; k++) {
+        const p = parts[k], g = p.geo, src = g.attributes.position.array, idx = g.index ? g.index.array : null;
+        const cnt = idx ? idx.length : g.attributes.position.count, e = p.m.elements, o0 = o;
+        const e0 = e[0], e1 = e[1], e2 = e[2], e3 = e[3], e4 = e[4], e5 = e[5], e6 = e[6], e7 = e[7], e8 = e[8], e9 = e[9], e10 = e[10], e11 = e[11], e12 = e[12], e13 = e[13], e14 = e[14], e15 = e[15];
+        for (let i = 0; i + 2 < cnt; i += 3) {
+          let j = (idx ? idx[i] : i) * 3, x = src[j], y = src[j + 1], z = src[j + 2], w = 1 / (e3 * x + e7 * y + e11 * z + e15);
+          pos[o] = (e0 * x + e4 * y + e8 * z + e12) * w; pos[o + 1] = (e1 * x + e5 * y + e9 * z + e13) * w; pos[o + 2] = (e2 * x + e6 * y + e10 * z + e14) * w;
+          j = (idx ? idx[i + 1] : i + 1) * 3; x = src[j]; y = src[j + 1]; z = src[j + 2]; w = 1 / (e3 * x + e7 * y + e11 * z + e15);
+          pos[o + 3] = (e0 * x + e4 * y + e8 * z + e12) * w; pos[o + 4] = (e1 * x + e5 * y + e9 * z + e13) * w; pos[o + 5] = (e2 * x + e6 * y + e10 * z + e14) * w;
+          j = (idx ? idx[i + 2] : i + 2) * 3; x = src[j]; y = src[j + 1]; z = src[j + 2]; w = 1 / (e3 * x + e7 * y + e11 * z + e15);
+          pos[o + 6] = (e0 * x + e4 * y + e8 * z + e12) * w; pos[o + 7] = (e1 * x + e5 * y + e9 * z + e13) * w; pos[o + 8] = (e2 * x + e6 * y + e10 * z + e14) * w;
+          // flat normals: one per triangle
+          const ax = pos[o], ay = pos[o + 1], az = pos[o + 2], y1 = pos[o + 4], y2 = pos[o + 7];
+          const bx = pos[o + 3] - ax, by = y1 - ay, bz = pos[o + 5] - az, cx = pos[o + 6] - ax, cy = y2 - ay, cz = pos[o + 8] - az;
+          let nx = by * cz - bz * cy, ny = bz * cx - bx * cz, nz = bx * cy - by * cx;
+          const len = Math.sqrt(nx * nx + ny * ny + nz * nz), inv = 1 / (len || 1);
+          nx *= inv; ny *= inv; nz *= inv;
+          if (trim) {
+            const top = Math.max(ay, y1, y2);
+            if (len === 0 || top < -0.001 || (ny < -0.999 && top < 0.36) || (ny > -0.02 && ny < 0.02 && top < 0.5 && top - Math.min(ay, y1, y2) < 0.031)) continue;
+          }
+          nor[o] = nor[o + 3] = nor[o + 6] = nx; nor[o + 1] = nor[o + 4] = nor[o + 7] = ny; nor[o + 2] = nor[o + 5] = nor[o + 8] = nz;
+          o += 9;
         }
-        for (let i = 0; i < cnt; i++) { col[(o + i) * 3] = color.r; col[(o + i) * 3 + 1] = color.g; col[(o + i) * 3 + 2] = color.b; }
-        o += cnt;
-        g.dispose();
+        counts[k] = (o - o0) / 3; cr[k] = p.color.r; cg[k] = p.color.g; cb[k] = p.color.b;
+      }
+      if (o < pos.length) { pos = pos.slice(0, o); nor = nor.slice(0, o); }
+      const col = pack ? new Uint8Array(o) : new Float32Array(o);
+      let nb = nor;
+      if (pack) { nb = new Int8Array(o); for (let i = 0; i < o; i++) nb[i] = Math.round(nor[i] * 127); }
+      for (let k = 0, q = 0; k < np; k++) {
+        const r = pack ? Math.round(cr[k] * 255) : cr[k], gg = pack ? Math.round(cg[k] * 255) : cg[k], b = pack ? Math.round(cb[k] * 255) : cb[k];
+        for (let end = q + counts[k] * 3; q < end; q += 3) { col[q] = r; col[q + 1] = gg; col[q + 2] = b; }
       }
       const out = new THREE.BufferGeometry();
       out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-      out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-      out.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      out.setAttribute('normal', new THREE.BufferAttribute(nb, 3, pack));
+      out.setAttribute('color', new THREE.BufferAttribute(col, 3, pack));
       out.computeBoundingSphere();
       return out;
     }

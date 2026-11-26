@@ -1847,21 +1847,24 @@
 
   // ---------- driving ----------
   const circles = [], circlePool = []; let nFront = 8;
+  // (this runs several times a frame: the same little [x, z, r] arrays are reused, and nothing new is made per call)
+  const CORNERS = [-0.85, 0.85], REAR_ALONG = [2.2, 0.75, -0.75, -2.2];
+  function addCircle(cx, cz, dx, dz, along, side, rad) {
+    const c = circlePool[circles.length] || (circlePool[circles.length] = [0, 0, 0]);
+    c[0] = cx + dx * along + dz * side; c[1] = cz + dz * along - dx * side; c[2] = rad; circles.push(c);
+  }
   function busCircles() {
-    const f = fwdOf(h), rp = rearPose(), r = fwdOf(hr);
+    const fX = Math.sin(h), fZ = Math.cos(h);
     circles.length = 0;
-    // (the same little [x, z, r] arrays are reused every call: this runs many times a frame)
-    const add = (cx, cz, d, along, side, rad) => {
-      const c = circlePool[circles.length] || (circlePool[circles.length] = [0, 0, 0]);
-      c[0] = cx + d.x * along + d.z * side; c[1] = cz + d.z * along - d.x * side; c[2] = rad; circles.push(c);
-    };
     const hl = LF / 2, n = Math.max(2, Math.ceil((LF - 2.4) / 1.7));
-    for (let k = 0; k < n; k++) add(fx, fz, f, -hl + 1.3 + (LF - 2.6) * k / (n - 1), 0, 1.3);
-    for (const s of [-0.85, 0.85]) { add(fx, fz, f, hl - 0.35, s, 0.56); add(fx, fz, f, -hl + 0.35, s, 0.56); }   // the corners
+    for (let k = 0; k < n; k++) addCircle(fx, fz, fX, fZ, -hl + 1.3 + (LF - 2.6) * k / (n - 1), 0, 1.3);
+    for (let i = 0; i < 2; i++) { const s = CORNERS[i]; addCircle(fx, fz, fX, fZ, hl - 0.35, s, 0.56); addCircle(fx, fz, fX, fZ, -hl + 0.35, s, 0.56); }   // the corners
     nFront = circles.length;
     if (!ART) return circles;
-    for (const a of [2.2, 0.75, -0.75, -2.2]) add(rp.rx, rp.rz, r, a, 0, 1.3);
-    for (const s of [-0.85, 0.85]) { add(rp.rx, rp.rz, r, 2.65, s, 0.56); add(rp.rx, rp.rz, r, -2.65, s, 0.56); }
+    // the rear carriage: its middle is R_CTR behind the hitch, along its own heading (as in rearPose())
+    const rX = Math.sin(hr), rZ = Math.cos(hr), rx = fx - fX * HITCH - rX * R_CTR, rz = fz - fZ * HITCH - rZ * R_CTR;
+    for (let i = 0; i < 4; i++) addCircle(rx, rz, rX, rZ, REAR_ALONG[i], 0, 1.3);
+    for (let i = 0; i < 2; i++) { const s = CORNERS[i]; addCircle(rx, rz, rX, rZ, 2.65, s, 0.56); addCircle(rx, rz, rX, rZ, -2.65, s, 0.56); }
     return circles;
   }
   // Push the whole bus out of anything it overlaps; returns the push vector length and direction.

@@ -81,9 +81,9 @@
     at(x, y, z, ry, fn) { this.b.at(x, y, z, ry, () => fn(this)); return this; }
     rr(a, b) { return a + this.rnd() * (b - a); }
     pick(arr) { return arr[Math.floor(this.rnd() * arr.length)]; }
-    // (BB.mk's builder transforms non-indexed geometry in place, so shared non-indexed shapes are copied per use)
-    add(geo, col, x = 0, y = 0, z = 0, ry = 0, rx = 0, rz = 0, sx = 1, sy = 1, sz = 1) { if (!geo.index && geo.userData.shared) geo = geo.clone(); this.b.add(geo, col, x, y, z, ry, rx, rz, sx, sy, sz); return this._tag(); }
-    addM(geo, col, m) { if (!geo.index && geo.userData.shared) geo = geo.clone(); this.b.addM(geo, col, m); return this._tag(); }
+    // (BB.mk's builder never changes a part's shape, so the shared unit shapes are used as they are)
+    add(geo, col, x = 0, y = 0, z = 0, ry = 0, rx = 0, rz = 0, sx = 1, sy = 1, sz = 1) { this.b.add(geo, col, x, y, z, ry, rx, rz, sx, sy, sz); return this._tag(); }
+    addM(geo, col, m) { this.b.addM(geo, col, m); return this._tag(); }
     box(w, h, d, col, x = 0, y = 0, z = 0, ry = 0, rx = 0, rz = 0) { return this.add(UBOX, col, x, y + h / 2, z, ry, rx, rz, w, h, d); }
     boxC(w, h, d, col, x = 0, y = 0, z = 0, ry = 0, rx = 0, rz = 0) { return this.add(UBOX, col, x, y, z, ry, rx, rz, w, h, d); }
     quad(w, h, col, x, y, z, ry = 0, rx = 0) { return this.add(QUAD, col, x, y, z, ry, rx, 0, w, h, 1); }
@@ -133,10 +133,10 @@
     rect(x, z, hw, hd, ry = 0, top = 10) { this.info.boxes.push({ x, z, hw, hd, ry, top }); return this; }
     geometry() {
       const parts = this.b.parts; if (!parts.length) return null;
-      const counts = parts.map((p) => (p.geo.index ? p.geo.index.count : p.geo.attributes.position.count));
-      const gl = new Float32Array(counts.reduce((a, c) => a + c, 0)); let o = 0;
+      const geo = this.b.geometry(), counts = this.b.counts;        // (the vertices each part kept)
+      const gl = new Float32Array(geo.attributes.position.count); let o = 0;
       parts.forEach((p, i) => { gl.fill(p.glow || 0, o, o + counts[i]); o += counts[i]; });
-      const geo = this.b.geometry(); geo.setAttribute('aGlow', new THREE.BufferAttribute(gl, 1));
+      geo.setAttribute('aGlow', new THREE.BufferAttribute(gl, 1));
       return geo;
     }
   }
@@ -630,7 +630,7 @@
         // two hanging lanterns in the arcade
         for (const lx of [-1.2, 1.2]) {
           k.box(0.04, 0.5, 0.04, '#3a2a3c', lx, 3.5, D / 2 - 1.0);
-          k.glow(ON, () => k.ball(0.38, '#ff3b2f', lx, 3.2, D / 2 - 1.0, 1, 1.15, 1, 1));
+          k.glow(ON, () => k.ball(0.38, '#ff3b2f', lx, 3.2, D / 2 - 1.0, 1, 1.15, 1));   // (20 flat faces, like the lanterns strung across the street)
           k.cyl(0.18, 0.18, 0.1, 6, '#ffb81f', lx, 3.55, D / 2 - 1.0); k.cyl(0.18, 0.18, 0.1, 6, '#ffb81f', lx, 2.72, D / 2 - 1.0);
         }
       });
