@@ -958,7 +958,8 @@
     return true;
   }
   function popNext() {
-    if (!newQueue.length || document.querySelector('.bbu-newst') || !calmForPop()) return;
+    // (not while the job-done banner is up: on phones the two overlapped; it pops just after)
+    if (!newQueue.length || document.querySelector('.bbu-newst') || document.querySelector('.bbj') || !calmForPop()) return;
     const it = newQueue.shift();
     const el = BB.el('div', 'bbu-newst', U.root); el.appendChild(it.pic()); BB.el('span', '', el, 'New sticker!');
     BB.sfx.page(); BB.later(250, () => BB.sfx.sparkle());

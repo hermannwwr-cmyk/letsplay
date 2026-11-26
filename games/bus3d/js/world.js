@@ -1371,7 +1371,7 @@
       for (let s = 5; s < e.length - 5; s += 3.6) {
         const p = W.pointAt(e, s);
         for (const side of [1, -1]) {
-          if (drnd() < 0.5) continue;
+          if (drnd() < 0.62) continue;                           // (fewer: keeps busy views within the triangle budget)
           const u = drnd(), off = e.half + 4.6 + u * u * 34, a = dr(-2, 2);
           const x = p.x + p.dz * side * off + p.dx * a, z = p.z - p.dx * side * off + p.dz * a;
           if (z > SZ + 8 || !clearOfRoads(x, z, RH + 4.4) || W.pushOut(x, z, 1.6).hit > 0.001 || inCamSpot(x, z)) continue;
