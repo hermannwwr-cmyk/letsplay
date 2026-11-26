@@ -428,7 +428,7 @@
   // builds their models when it is loaded; without it this file's own bendy bus is used. install() wires a model in;
   // the physics reads the geometry vars (LF, LR, GAP, axles, ART) it sets.
   let paintMat, glassMat, lampMat, wheelsF = [], wheelsR = [], steerWheels = [], doors = [], wipers = [];
-  let heads, hair, shirts, lightCones, beacon, ribbon, ribbonTex, bayGlow, bayTex, wayArrow, jointF = null, jointR = null;
+  let heads, hair, shirts, lightCones, lightPool, beacon, ribbon, ribbonTex, bayGlow, bayTex, wayArrow, jointF = null, jointR = null;
   let M = null;                       // the installed model: {type, roofParts, mounts, routeSign, doorLocal, roofY, paintMats}
   let extras = {}, partT = {}, partW = {}, sirenOn = false, sirenT = 0, sirenHi = false, hooked = null;
   let WHEEL = { r: 0.52, x: 1.08 };      // the model's tyre radius and wheel offset (the parts shop scales from these)
@@ -455,9 +455,19 @@
     buildPassengers();
     // headlight beams (brighter with the upgrade; at night and in storms)
     const lb = BB.mk.builder();
-    for (const x of [-0.8, 0.8]) lb.add(new THREE.ConeGeometry(1.4, 7, 10, 1, true), '#fff6c0', x, 0.9, 3.5, 0, Math.PI / 2 + 0.12);
+    // (each cone's point is at its lamp on the nose and it opens out ahead, dipping to the road; under them a warm
+    // pool of light lies on the road in front of the bus)
+    for (const x of [-0.8, 0.8]) lb.add(new THREE.ConeGeometry(1.5, 7.5, 10, 1, true), '#fff6c0', x, 0.24, 3.85, 0, -Math.PI / 2 + 0.11);
     lightCones = new THREE.Mesh(lb.geometry(), new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.22, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
-    lightCones.visible = false;
+    lightCones.visible = false; lightCones.renderOrder = 2;
+    {
+      const c = document.createElement('canvas'); c.width = 64; c.height = 128;
+      const x = c.getContext('2d'), gr = x.createRadialGradient(32, 30, 3, 32, 56, 66);
+      gr.addColorStop(0, 'rgba(255,240,180,0.85)'); gr.addColorStop(0.45, 'rgba(255,226,150,0.38)'); gr.addColorStop(1, 'rgba(255,220,140,0)');
+      x.fillStyle = gr; x.fillRect(0, 0, 64, 128);
+      lightPool = new THREE.Mesh(new THREE.PlaneGeometry(8.5, 26), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+      lightPool.rotation.x = -Math.PI / 2; lightPool.position.set(0, 0.1, 12.4); lightPool.renderOrder = 1; lightCones.add(lightPool);
+    }
     BB.scene.add(B.group);
     buildRibbon(); buildBeacon(); buildBayGlow(); buildWayArrow();
     B.setPaint(BB.save.paint);
@@ -577,7 +587,8 @@
       else { ud.obc0 = pm.onBeforeCompile; ud.key0 = pm.customProgramCacheKey; }
       try { m.lightUp(pm); } catch (e) { console.error(e); }
     }
-    lightCones.position.set(0, 0, LF / 2); B.front.add(lightCones);
+    // (on the model's lights mount: the ground under the middle of the nose, +z ahead)
+    { const lm = (m.partMounts || {}).lightsFront || (m.partMounts || {}).lights; if (lm) { lightCones.position.set(0, 0, 0); lm.add(lightCones); } else { lightCones.position.set(0, 0, LF / 2); B.front.add(lightCones); } }
     B.hatMount = new THREE.Group(); B.hatMount.name = 'hatMount'; B.hatMount.position.set(0, M.roofY, LF / 2 - 1.7); B.front.add(B.hatMount);
     B.stickerAnchors = m.stickerAnchors || [[], [], []];
     for (let i = 0; i < 3; i++) { stickerMeshes[i] = []; stickerMeshes[i].want = undefined; }
@@ -625,7 +636,7 @@
   }
   function solidGlass(mat) {
     if (mat.userData.solidU) return mat.userData.solidU;
-    const u = mat.userData.solidU = { value: 1 }, tint = new THREE.Color('#86a3b6'), prev = mat.onBeforeCompile;
+    const u = mat.userData.solidU = { value: 1 }, tint = new THREE.Color('#8ab6d0'), prev = mat.onBeforeCompile;
     mat.onBeforeCompile = function (sh, r) {
       if (prev) prev.call(this, sh, r);
       sh.uniforms.uSolid = u; sh.uniforms.uSolidTint = { value: tint };
@@ -2271,7 +2282,8 @@
     const night = W().night ? W().night() : 0, up = !!(BB.save.upgrades && BB.save.upgrades.lights);
     const lit = B.lightsOn ? Math.max(night, up ? 1 : 0) : 0;
     lightCones.visible = lit > 0.05;
-    lightCones.material.opacity = 0.22 * lit * (up ? 1.2 : 0.8);
+    lightCones.material.opacity = 0.13 * lit * (up ? 1.2 : 0.8);
+    lightPool.material.opacity = 0.8 * lit * (up ? 1.15 : 0.85);
     lampMat.color.setScalar(B.lightsOn ? 1 : 0.45);
     { const wx = W().weatherState || {}; paintLiftU.value = 0.32 * night + 0.2 * BB.clamp(+wx.rain || 0, 0, 1) + 0.08 * BB.clamp(+wx.cloud || 0, 0, 1); }
     // cabin lights: from dusk, full at night (off for the goodnight moment), eased
