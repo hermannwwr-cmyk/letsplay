@@ -22,6 +22,7 @@
    BB.landmarks.colliders(groupOrInfo) / addColliders(groupOrInfo) turn local colliders into world ones. */
 (function () {
   'use strict';
+  const hypot2 = (a, b) => Math.sqrt(a * a + b * b);   // (Math.hypot is slow and makes garbage on every call)
   const BB = window.BB = window.BB || {};
   const P = BB.P || {};
   const dark = (c, t) => BB.dark(c, t), light = (c, t) => BB.light(c, t), mix = (a, b, t) => BB.mixHex(a, b, t);
@@ -339,7 +340,7 @@
     });
     // a skywalk between the two tallest, lit underneath
     const [a, b] = [spots[0], spots[1]], wy = 13;
-    const dx = b[0] - a[0], dz = b[1] - a[1], len = Math.hypot(dx, dz), ry = Math.atan2(dx, dz);
+    const dx = b[0] - a[0], dz = b[1] - a[1], len = hypot2(dx, dz), ry = Math.atan2(dx, dz);
     k.at((a[0] + b[0]) / 2, wy, (a[1] + b[1]) / 2, ry, () => {
       k.box(1.8, 0.35, len, '#efe6d6', 0, 0, 0);
       for (const sx of [-0.9, 0.9]) k.box(0.1, 1.0, len, '#cfe7ea', sx, 0.35, 0);
@@ -696,7 +697,7 @@
   function resample(pts, step) {
     const out = [{ x: pts[0].x, z: pts[0].z, s: 0 }]; let s = 0;
     for (let i = 1; i < pts.length; i++) {
-      const a = pts[i - 1], b = pts[i], len = Math.hypot(b.x - a.x, b.z - a.z), n = Math.max(1, Math.ceil(len / step));
+      const a = pts[i - 1], b = pts[i], len = hypot2(b.x - a.x, b.z - a.z), n = Math.max(1, Math.ceil(len / step));
       for (let j = 1; j <= n; j++) out.push({ x: a.x + (b.x - a.x) * j / n, z: a.z + (b.z - a.z) * j / n, s: s + len * j / n });
       s += len;
     }
@@ -711,7 +712,7 @@
     const hAt = (s) => Math.max(0.3, Y * Math.min(rin ? smooth(s / rin) : 1, rout ? smooth((total - s) / rout) : 1));
     const Ls = S.map((p, i) => {
       const a = S[Math.max(0, i - 1)], b = S[Math.min(S.length - 1, i + 1)];
-      let dx = b.x - a.x, dz = b.z - a.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
+      let dx = b.x - a.x, dz = b.z - a.z; const l = hypot2(dx, dz) || 1; dx /= l; dz /= l;
       p.y = hAt(p.s); p.dx = dx; p.dz = dz;
       return [dz, -dx];
     });
@@ -742,7 +743,7 @@
       }
       if (!lowA) under.push({ pts: [at(i, -half, h0 - T), at(j, -half, h1 - T), at(j, half, h1 - T), at(i, half, h0 - T)], out: [0, -1, 0] });
       else {
-        const mx = (S[i].x + S[j].x) / 2, mz = (S[i].z + S[j].z) / 2, len = Math.hypot(S[j].x - S[i].x, S[j].z - S[i].z);
+        const mx = (S[i].x + S[j].x) / 2, mz = (S[i].z + S[j].z) / 2, len = hypot2(S[j].x - S[i].x, S[j].z - S[i].z);
         k.rect(mx, mz, half, len / 2 + 0.15, Math.atan2(S[i].dx, S[i].dz), Math.max(h0, h1) + PH);
       }
     }

@@ -13,6 +13,7 @@
    Exposes BB.bus (see SPEC.md "Shared contract"). */
 (function () {
   'use strict';
+  const hypot2 = (a, b) => Math.sqrt(a * a + b * b);   // (Math.hypot is slow and makes garbage on every call)
   const BB = window.BB, C = BB.cfg, P = BB.P;
 
   const B = BB.bus = {
@@ -288,17 +289,17 @@
     if (B.atStop || settle || spin || B.doorsOpen || B.locked || B.noFuel || B.camMode !== 'chase') return true;
     if (BB.jobs && BB.jobs.busy && BB.jobs.busy()) return true;
     if (B.inDepot && B.inDepot() && Math.abs(B.speed) < 3) return true;   // (in the yard: not from a standstill; on the way out, fine)
-    if (B.target) { const bay = W().bayOf(B.target); if (Math.hypot(bay.x - fx, bay.z - fz) < 20) return true; }
+    if (B.target) { const bay = W().bayOf(B.target); if (hypot2(bay.x - fx, bay.z - fz) < 20) return true; }
     return false;
   }
   // a sharp bend on the route within ~40 ahead
   function bendAhead() {
     const r = routePts; if (!r || r.length < 3) return false;
     let bi = 0, bd = 1e9;
-    for (let i = 0, acc = 0; i < r.length && acc < 20; i++) { if (i) acc += Math.hypot(r[i].x - r[i - 1].x, r[i].z - r[i - 1].z); const d = Math.hypot(r[i].x - fx, r[i].z - fz); if (d < bd) { bd = d; bi = i; } }
+    for (let i = 0, acc = 0; i < r.length && acc < 20; i++) { if (i) acc += hypot2(r[i].x - r[i - 1].x, r[i].z - r[i - 1].z); const d = hypot2(r[i].x - fx, r[i].z - fz); if (d < bd) { bd = d; bi = i; } }
     let acc = 0, th0 = null;
     for (let j = bi; j < r.length - 1 && acc < 40; j++) {
-      const sl = Math.hypot(r[j + 1].x - r[j].x, r[j + 1].z - r[j].z); if (sl < 0.3) continue;
+      const sl = hypot2(r[j + 1].x - r[j].x, r[j + 1].z - r[j].z); if (sl < 0.3) continue;
       const th = Math.atan2(r[j + 1].x - r[j].x, r[j + 1].z - r[j].z);
       if (th0 == null) th0 = th; else if (Math.abs(wrapA(th - th0)) > 0.35) return true;
       acc += sl;
@@ -333,7 +334,7 @@
     } else if (boostCool > 0) boostCool -= dt;
     // (eases off by itself nearing the target bay, so the stop's braking takes over smoothly)
     let nearT = false;
-    if (B.target) { const bay = W().bayOf(B.target); nearT = Math.hypot(bay.x - fx, bay.z - fz) < 55; }
+    if (B.target) { const bay = W().bayOf(B.target); nearT = hypot2(bay.x - fx, bay.z - fz) < 55; }
     const want = boostT > 0 && !bendAhead() && !nearT ? 1 : 0;
     boostK += BB.clamp(want - boostK, -dt / 0.7, dt / 0.8);
     // the camera's view widens a little
@@ -1096,20 +1097,24 @@
   // Nearest point on the road graph to (x,z): {edge, s (from the edge's a end), x, z, dx, dz (a->b), d}.
   // With a heading hh, roads running across the bus count as further away (so a bus in a junction, lined up with
   // one of its roads, is taken to be on that road and not on the cross street).
+  // (it runs several times a frame: the best so far is kept in plain numbers and one result object is made at the
+  // end, so it leaves no garbage behind for the browser to clean up)
   function nearestRoad(x, z, hh) {
-    let best = null, bestS = Infinity;
-    const f = hh == null ? null : fwdOf(hh);
-    for (const e of W().roads.edges) {
-      const p = e.points;
+    let bestS = Infinity, bE = null, bI = 0, bT = 0, bL = 1, bX = 0, bZ = 0, bDx = 0, bDz = 0, bD = 0;
+    const hasF = hh != null, fx2 = hasF ? Math.sin(hh) : 0, fz2 = hasF ? Math.cos(hh) : 0;
+    const edges = W().roads.edges;
+    for (let ei = 0; ei < edges.length; ei++) {
+      const e = edges[ei], p = e.points;
       for (let i = 1; i < p.length; i++) {
         const a = p[i - 1], c = p[i], dx = c.x - a.x, dz = c.z - a.z, l2 = dx * dx + dz * dz || 1;
-        const t = BB.clamp(((x - a.x) * dx + (z - a.z) * dz) / l2, 0, 1);
-        const qx = a.x + dx * t, qz = a.z + dz * t, d = Math.hypot(qx - x, qz - z);
-        const l = Math.sqrt(l2), sc = f ? d + 8 * (1 - Math.abs(f.x * dx + f.z * dz) / l) : d;
-        if (sc < bestS) { bestS = sc; best = { edge: e, s: e.cum[i - 1] + t * l, x: qx, z: qz, dx: dx / l, dz: dz / l, d }; }
+        let t = ((x - a.x) * dx + (z - a.z) * dz) / l2; t = t < 0 ? 0 : t > 1 ? 1 : t;
+        const qx = a.x + dx * t, qz = a.z + dz * t, ex = qx - x, ez = qz - z, d = Math.sqrt(ex * ex + ez * ez);
+        if (d >= bestS) continue;                        // (its score is never below d: it can't win)
+        const l = Math.sqrt(l2), sc = hasF ? d + 8 * (1 - Math.abs(fx2 * dx + fz2 * dz) / l) : d;
+        if (sc < bestS) { bestS = sc; bE = e; bI = i; bT = t; bL = l; bX = qx; bZ = qz; bDx = dx; bDz = dz; bD = d; }
       }
     }
-    return best;
+    return bE ? { edge: bE, s: bE.cum[bI - 1] + bT * bL, x: bX, z: bZ, dx: bDx / bL, dz: bDz / bL, d: bD } : null;
   }
   B.nearestRoad = nearestRoad;
   // Centre-line polyline from the road point nearest the bus to the target's parking spot, approaching in the stop's
@@ -1164,7 +1169,7 @@
     return pts;
   }
   function addEdgePart(out, e, s0, s1) {
-    const push = (p) => { const q = out[out.length - 1]; if (!q || Math.hypot(q.x - p.x, q.z - p.z) > 0.05) out.push({ x: p.x, z: p.z }); };
+    const push = (p) => { const q = out[out.length - 1]; if (!q || hypot2(q.x - p.x, q.z - p.z) > 0.05) out.push({ x: p.x, z: p.z }); };
     push(W().pointAt(e, s0));
     if (s1 > s0) { for (let i = 1; i < e.points.length - 1; i++) if (e.cum[i] > s0 && e.cum[i] < s1) push(e.points[i]); }
     else { for (let i = e.points.length - 2; i > 0; i--) if (e.cum[i] < s0 && e.cum[i] > s1) push(e.points[i]); }
@@ -1177,7 +1182,7 @@
   function leftLane(pts) {
     for (let i = 1; i < pts.length - 1; i++) {
       const a = pts[i - 1], p = pts[i], c = pts[i + 1];
-      const ix = p.x - a.x, iz = p.z - a.z, ox = c.x - p.x, oz = c.z - p.z, li = Math.hypot(ix, iz), lo = Math.hypot(ox, oz);
+      const ix = p.x - a.x, iz = p.z - a.z, ox = c.x - p.x, oz = c.z - p.z, li = hypot2(ix, iz), lo = hypot2(ox, oz);
       if (li > 1e-3 && lo > 1e-3 && (ix * ox + iz * oz) / (li * lo) < -0.9) {
         const A = leftLane(pts.slice(0, i + 1)), Bq = leftLane(pts.slice(i));
         const ux = ix / li, uz = iz / li, lx = uz, lz = -ux, r = C.lane, arc = [];
@@ -1188,11 +1193,11 @@
     // junction corners (a sharp bend at one point) are rounded with a circular fillet, so the kerb lane of a left turn
     // is about 6 round or more (turnIn(): each bus can follow it) and the line never folds
     const cum = [0];
-    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z));
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + hypot2(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z));
     const corners = [];
     for (let i = 1; i < pts.length - 1; i++) {
       const a = pts[i - 1], p = pts[i], c = pts[i + 1];
-      const ix = p.x - a.x, iz = p.z - a.z, ox = c.x - p.x, oz = c.z - p.z, li = Math.hypot(ix, iz), lo = Math.hypot(ox, oz);
+      const ix = p.x - a.x, iz = p.z - a.z, ox = c.x - p.x, oz = c.z - p.z, li = hypot2(ix, iz), lo = hypot2(ox, oz);
       if (li < 1e-3 || lo < 1e-3) continue;
       const cs = (ix * ox + iz * oz) / (li * lo);
       if (cs > 0.9) continue;                                                      // gentle (an arc's own bends)
@@ -1217,11 +1222,11 @@
       if (c && cum[i] >= c.s0) {
         // a cubic curve tangent to the line at both ends, shaped like a circular arc (handles 4/3 tan(turn/4) R)
         const A = at(c.s0 + 1e-3), Bq = at(c.s1 - 1e-3);
-        const th = Math.acos(BB.clamp(A.dx * Bq.dx + A.dz * Bq.dz, -1, 1)), ch = Math.hypot(Bq.x - A.x, Bq.z - A.z);
+        const th = Math.acos(BB.clamp(A.dx * Bq.dx + A.dz * Bq.dz, -1, 1)), ch = hypot2(Bq.x - A.x, Bq.z - A.z);
         const R = th > 1e-3 ? ch / (2 * Math.sin(th / 2)) : ch, hl = th > 1e-3 ? 4 / 3 * Math.tan(th / 4) * R : ch / 3;
         const P1 = { x: A.x + A.dx * hl, z: A.z + A.dz * hl }, P2 = { x: Bq.x - Bq.dx * hl, z: Bq.z - Bq.dz * hl };
         // (a corner point just short of the curve would fold the kerb lane once it is moved over: drop it)
-        while (out.length > 1 && Math.hypot(out[out.length - 1].x - A.x, out[out.length - 1].z - A.z) < 2.5) out.pop();
+        while (out.length > 1 && hypot2(out[out.length - 1].x - A.x, out[out.length - 1].z - A.z) < 2.5) out.pop();
         // a left turn (toward the kerb) swings out toward the middle of the road, as a bus does, so its inside rear
         // doesn't run over the junction's corner: the offset eases out and back (sin squared: no kink where it starts,
         // so the bend has no tight ends)
@@ -1235,11 +1240,11 @@
       }
       out.push(pts[i]);
     }
-    for (let i = out.length - 1; i > 0; i--) if (Math.hypot(out[i].x - out[i - 1].x, out[i].z - out[i - 1].z) < 0.2) out.splice(i, 1);   // no zero-length steps
+    for (let i = out.length - 1; i > 0; i--) if (hypot2(out[i].x - out[i - 1].x, out[i].z - out[i - 1].z) < 0.2) out.splice(i, 1);   // no zero-length steps
     // into the kerb (left) lane: each point moved left of the way by its own offset (C.lane, less in a left turn)
     return out.map((q, i) => {
       const a = out[Math.max(0, i - 1)], b = out[Math.min(out.length - 1, i + 1)];
-      let dx = b.x - a.x, dz = b.z - a.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
+      let dx = b.x - a.x, dz = b.z - a.z; const l = hypot2(dx, dz) || 1; dx /= l; dz /= l;
       const o = q.o != null ? q.o : C.lane;
       return { x: q.x + dz * o, z: q.z - dx * o };
     });                   // the kerb (left) lane
@@ -1376,7 +1381,7 @@
       if (heads.length < 2) return 99;
       for (let i = 0; i < heads.length; i++) for (let j = i + 1; j < heads.length; j++) {
         if ((i < 5) === (j < 5) ? j - i !== 1 : Math.abs((i % 5) - (j % 5)) > 1) continue;
-        mn = Math.min(mn, Math.hypot(hp[i][0] - hp[j][0], hp[i][1] - hp[j][1]));
+        mn = Math.min(mn, hypot2(hp[i][0] - hp[j][0], hp[i][1] - hp[j][1]));
       }
       return mn;
     }
@@ -1391,7 +1396,7 @@
     const propHides = (a, v) => {
       for (const b of blockers) {
         if (inBox(b, v.x, v.z, 0.7)) continue;
-        const n = Math.max(6, Math.ceil(Math.hypot(v.x - a.x, v.z - a.z) * 2));
+        const n = Math.max(6, Math.ceil(hypot2(v.x - a.x, v.z - a.z) * 2));
         for (let k = 1; k < n; k++) { const t = k / n, y = a.y + (v.y - a.y) * t; if (y < (b.y0 || 0) || y > b.top) continue; if (inBox(b, a.x + (v.x - a.x) * t, a.z + (v.z - a.z) * t, 0)) return true; }
       }
       return false;
@@ -1583,7 +1588,7 @@
     else {
       // angle round the middle measured from the road side (-x), so the kerb side (+-180) is never crossed
       const ang = (v) => Math.atan2(v.z - cz, -v.x), a0 = ang(gcam.fromPos), a1 = ang(_gp);
-      const r0 = Math.hypot(gcam.fromPos.x, gcam.fromPos.z - cz), r1 = Math.hypot(_gp.x, _gp.z - cz);
+      const r0 = hypot2(gcam.fromPos.x, gcam.fromPos.z - cz), r1 = hypot2(_gp.x, _gp.z - cz);
       const a = a0 + (a1 - a0) * e, r = r0 + (r1 - r0) * e;
       px = -Math.cos(a) * r; pz = cz + Math.sin(a) * r; py = gcam.fromPos.y + (_gp.y - gcam.fromPos.y) * e;
       // never inside (or skimming) the bus: over it instead
@@ -1625,7 +1630,9 @@
       // at a stop: side-on from the pavement, looking at the kerb side (the doors): the kerb wall fades (dollhouse),
       // so both rows of seats, both doors and the pavement are in view. Worked out once per stop (and screen size)
       // from this bus's seats and doors and the screen space beside the question card, then held still.
-      const st = B.atStop || (settle && settle.stop), key = st.id + '|' + B.type + '|' + innerWidth + 'x' + innerHeight + '|' + (B.atStop ? 1 : 0) + '|' + (st.frameKey || (st.frame ? st.frame.length : 0));
+      // (planned once as the bus starts pulling in, for its parked pose: not again the moment it stops, which was a
+      // second costly plan of the very same view)
+      const st = B.atStop || (settle && settle.stop), key = st.id + '|' + B.type + '|' + innerWidth + 'x' + innerHeight + '|' + (st.frameKey || (st.frame ? st.frame.length : 0));
       if (!stopCam || stopCam.key !== key) stopCam = planStopCam(st, key);
       camPos.copy(stopCam.pos); camLook.copy(stopCam.look);
     } else {
@@ -1679,7 +1686,7 @@
     const k = 1 - Math.exp(-(chase ? 3.0 : stopView ? 2.6 : 1.6) * dt);
     const m = midPoint(), cp = BB.camera.position;
     const a0 = Math.atan2(cp.x - m.x, cp.z - m.z), a1 = Math.atan2(camPos.x - m.x, camPos.z - m.z);
-    const r0 = Math.hypot(cp.x - m.x, cp.z - m.z), r1 = Math.hypot(camPos.x - m.x, camPos.z - m.z);
+    const r0 = hypot2(cp.x - m.x, cp.z - m.z), r1 = hypot2(camPos.x - m.x, camPos.z - m.z);
     const a = a0 + wrapA(a1 - a0) * k;
     let r = r0 + (r1 - r0) * k;
     if (Math.abs(wrapA(a1 - a0)) > 0.3) r = Math.max(r, Math.min(r0, r1, 13));   // keep clear of the bus while swinging
@@ -1775,7 +1782,7 @@
       let bi = -1, bd = 1e9, bq = null;
       for (let i = 0, acc = 0; i < routePts.length - 1 && acc < 30; i++) {
         const a = routePts[i], b = routePts[i + 1], dx = b.x - a.x, dz = b.z - a.z, l2 = dx * dx + dz * dz || 1;
-        const tt = BB.clamp(((fx - a.x) * dx + (fz - a.z) * dz) / l2, 0, 1), d = Math.hypot(a.x + dx * tt - fx, a.z + dz * tt - fz);
+        const tt = BB.clamp(((fx - a.x) * dx + (fz - a.z) * dz) / l2, 0, 1), d = hypot2(a.x + dx * tt - fx, a.z + dz * tt - fz);
         if (d < bd) { bd = d; bi = i; bq = { x: a.x + dx * tt, z: a.z + dz * tt }; }
         acc += Math.sqrt(l2);
       }
@@ -1790,7 +1797,7 @@
     routePts = pts; B.route = pts;
     const pos = ribbon.geometry.attributes.position.array, uv = ribbon.geometry.attributes.uv.array;
     const cum = [0];
-    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z));
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + hypot2(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z));
     const total = Math.min(cum[cum.length - 1], 300);
     let n = 0, i = 1;
     const step = 1.2, w = 1.0;
@@ -1816,16 +1823,20 @@
     if (B.atStop === stop) return 0;
     const c = routeTo(stop);
     if (!c || c.length < 2) return Infinity;
-    let L = 0; for (let i = 1; i < c.length; i++) L += Math.hypot(c[i].x - c[i - 1].x, c[i].z - c[i - 1].z);
+    let L = 0; for (let i = 1; i < c.length; i++) L += hypot2(c[i].x - c[i - 1].x, c[i].z - c[i - 1].z);
     return L;
   };
 
   // ---------- driving ----------
-  const circles = []; let nFront = 8;
+  const circles = [], circlePool = []; let nFront = 8;
   function busCircles() {
     const f = fwdOf(h), rp = rearPose(), r = fwdOf(hr);
     circles.length = 0;
-    const add = (cx, cz, d, along, side, rad) => circles.push([cx + d.x * along + d.z * side, cz + d.z * along - d.x * side, rad]);
+    // (the same little [x, z, r] arrays are reused every call: this runs many times a frame)
+    const add = (cx, cz, d, along, side, rad) => {
+      const c = circlePool[circles.length] || (circlePool[circles.length] = [0, 0, 0]);
+      c[0] = cx + d.x * along + d.z * side; c[1] = cz + d.z * along - d.x * side; c[2] = rad; circles.push(c);
+    };
     const hl = LF / 2, n = Math.max(2, Math.ceil((LF - 2.4) / 1.7));
     for (let k = 0; k < n; k++) add(fx, fz, f, -hl + 1.3 + (LF - 2.6) * k / (n - 1), 0, 1.3);
     for (const s of [-0.85, 0.85]) { add(fx, fz, f, hl - 0.35, s, 0.56); add(fx, fz, f, -hl + 0.35, s, 0.56); }   // the corners
@@ -1858,7 +1869,7 @@
       }
       if (!moved) break;
     }
-    return { x: tx, z: tz, d: Math.hypot(tx, tz) };
+    return { x: tx, z: tz, d: hypot2(tx, tz) };
   }
   // How far the rear carriage's circles still overlap anything (after collide()).
   function rearOverlap() {
@@ -1921,7 +1932,7 @@
     const hx = fx - f1.x * HITCH, hz = fz - f1.z * HITCH;
     const dx = hx - before.ax, dz = hz - before.az;
     if (!ART) hr = h;
-    else if (Math.hypot(dx, dz) > 1e-4) hr = Math.atan2(dx, dz);
+    else if (hypot2(dx, dz) > 1e-4) hr = Math.atan2(dx, dz);
     if (ART && v < 0) hr += wrapA(h - hr) * Math.min(1, -ds * 0.25 + dt * 0.9);  // reversing: a helping hand straightens it
     const bend = wrapA(hr - h);
     if (Math.abs(bend) > MAX_BEND) hr = wrapA(h + Math.sign(bend) * MAX_BEND);
@@ -1929,7 +1940,7 @@
     if (v > 0.8) kerbGuide(dt);
     // never crash: slide along walls, trees and posts
     const push = collide();
-    if (ART && rearOverlap() > 0.2) { const p2 = collide(true); push.x += p2.x; push.z += p2.z; push.d = Math.hypot(push.x, push.z); }   // the rear carriage at its bend limit: move the whole bus
+    if (ART && rearOverlap() > 0.2) { const p2 = collide(true); push.x += p2.x; push.z += p2.z; push.d = hypot2(push.x, push.z); }   // the rear carriage at its bend limit: move the whole bus
     if (push.d > 0.01) {
       const nx = push.x / push.d, nz = push.z / push.d, mv = Math.sign(v) || 1;
       const head = -(nx * f1.x + nz * f1.z) * mv;          // > 0 when driving into it
@@ -1958,7 +1969,7 @@
     if (Math.abs(thr) > 0.3 && canDrive && arrivalHold <= 0) {
       if (!stuckRef) stuckRef = { x: fx, z: fz, t: 0 };
       stuckRef.t += dt;
-      if (Math.hypot(fx - stuckRef.x, fz - stuckRef.z) > 1.2) stuckRef = { x: fx, z: fz, t: 0 };
+      if (hypot2(fx - stuckRef.x, fz - stuckRef.z) > 1.2) stuckRef = { x: fx, z: fz, t: 0 };
       else if (stuckRef.t > 2.5) { stuckRef = null; jamT = 0; jamSide = 0; jamFlipped = false; hopFree(); }
     } else stuckRef = null;
     // speed, fuel and wheels follow how far the bus really moved (not how hard it pushes)
@@ -1988,7 +1999,9 @@
   // left alone; and not at junctions) is pushed gently back toward the road, sideways only; on a bendy the rear
   // carriage swings back about the hitch.
   function nearJunction(x, z) {
-    for (const n of W().roads.nodes) {
+    const nodes = W().roads.nodes;
+    for (let ni = 0; ni < nodes.length; ni++) {
+      const n = nodes[ni];
       if (n.edges.length < 3) continue;
       const m = (n.half || (n.half = Math.max(...n.edges.map((id) => W().halfOf(W().edge(id)))))) + 9;
       if (Math.abs(x - n.x) < m && Math.abs(z - n.z) < m) return true;
@@ -2016,14 +2029,18 @@
   // Assist's steering: pure pursuit of a point ahead on the ribbon (with a target) or on the kerb lane of the road
   // the bus is on, in the way it is going. Returns a steer angle, or null when off the roads.
   let laneR = null;
+  const assistPath = [], assistPast = { x: 0, z: 0 };
   function laneAssist(ms) { const keep = routePts; routePts = null; try { return assistSteer(ms); } finally { routePts = keep; } }
   function assistSteer(ms) {
     // the path to keep to: the ribbon (with a target, plus a little past the bay) or the kerb lane of this road
     const f = fwdOf(h);
     let r;
     if (routePts && routePts.length > 1 && B.target) {
+      // (the ribbon plus a point a little past the bay, in one reused list: no copy of the whole ribbon each frame)
       const bay = W().bayOf(B.target);
-      r = routePts.concat([{ x: bay.nose.x + bay.fwd.x * 12, z: bay.nose.z + bay.fwd.z * 12 }]);
+      r = assistPath; r.length = 0;
+      for (let i = 0; i < routePts.length; i++) r.push(routePts[i]);
+      assistPast.x = bay.nose.x + bay.fwd.x * 12; assistPast.z = bay.nose.z + bay.fwd.z * 12; r.push(assistPast);
     } else {
       const near = nearestRoad(fx, fz);
       if (!near || near.d > W().halfOf(near.edge) + 2) return null;
@@ -2040,7 +2057,7 @@
     let bi = -1, bd = 1e9, bt = 0;
     for (let i = 0, acc = 0; i < r.length - 1 && acc < 24; i++) {
       const a = r[i], b = r[i + 1], dx = b.x - a.x, dz = b.z - a.z, l2 = dx * dx + dz * dz || 1;
-      const tt = BB.clamp(((ax - a.x) * dx + (az - a.z) * dz) / l2, 0, 1), d = Math.hypot(a.x + dx * tt - ax, a.z + dz * tt - az);
+      const tt = BB.clamp(((ax - a.x) * dx + (az - a.z) * dz) / l2, 0, 1), d = hypot2(a.x + dx * tt - ax, a.z + dz * tt - az);
       if (d < bd) { bd = d; bi = i; bt = tt; }
       acc += Math.sqrt(l2);
     }
@@ -2051,7 +2068,7 @@
     // feed-forward for the path's own bend here (so the bus commits to a junction's arc instead of drifting wide)
     let ff = 0;
     if (bi + 2 < r.length) {
-      const c2 = r[bi + 2], th2 = Math.atan2(c2.x - b.x, c2.z - b.z), l1 = Math.hypot(b.x - a.x, b.z - a.z), l2 = Math.hypot(c2.x - b.x, c2.z - b.z);
+      const c2 = r[bi + 2], th2 = Math.atan2(c2.x - b.x, c2.z - b.z), l1 = hypot2(b.x - a.x, b.z - a.z), l2 = hypot2(c2.x - b.x, c2.z - b.z);
       const kap = l1 > 0.3 && l2 > 0.3 ? wrapA(th2 - th) / Math.max(1, (l1 + l2) / 2) : 0;   // (not across a zero-length step)
       if (Math.abs(kap) > 0.01) ff = Math.atan(WB * kap) * BB.clamp(bt * 2, 0.4, 1);
     }
@@ -2065,7 +2082,7 @@
     const look = 14 + Math.max(0, B.speed) * 1.6, samp = [qx, qz];
     let rMin = Infinity, need = 2, px = qx, pz = qz;
     for (let j = bi + 1; j < r.length && samp.length < 2 * (look / 2 + 3);) {
-      const dx = r[j].x - px, dz = r[j].z - pz, d = Math.hypot(dx, dz);
+      const dx = r[j].x - px, dz = r[j].z - pz, d = hypot2(dx, dz);
       if (d >= need) { px += dx / d * need; pz += dz / d * need; samp.push(px, pz); need = 2; }
       else { need -= d; px = r[j].x; pz = r[j].z; j++; }
     }
@@ -2202,7 +2219,7 @@
     wasInYard = inYard;
     if (B.inWash && !washT && B.washBay) {
       const wb = W().bayOf(B.washBay), m = midPoint();
-      if (Math.hypot(m.x - wb.x, m.z - wb.z) > 5) { B.inWash = false; BB.emit('bus:washBay', { inBay: false }); }
+      if (hypot2(m.x - wb.x, m.z - wb.z) > 5) { B.inWash = false; BB.emit('bus:washBay', { inBay: false }); }
     }
     if (washT) updateWash(dt);
 
@@ -2274,7 +2291,7 @@
       const bay = W().bayOf(t);
       beacon.visible = true;
       beacon.position.set(bay.x, 5.6 + Math.abs(Math.sin(clock * 3)) * 0.7, bay.z);
-      const dB = Math.hypot(bay.x - fx, bay.z - fz);
+      const dB = hypot2(bay.x - fx, bay.z - fz);
       beacon.material.opacity = BB.clamp((dB - 12) / 22, 0.12, 0.9);
       beacon.rotation.y = clock * 1.5;
       bayGlow.visible = true;
@@ -2397,11 +2414,11 @@
     let bi = 0, bd = Infinity;
     // (the route starts at the road point nearest the bus, so only look near its start: a U-turn's way back may pass close by)
     for (let i = 0, acc = 0; i < routePts.length && acc < 16; i++) {
-      if (i) acc += Math.hypot(routePts[i].x - routePts[i - 1].x, routePts[i].z - routePts[i - 1].z);
-      const d = Math.hypot(routePts[i].x - fx, routePts[i].z - fz); if (d < bd) { bd = d; bi = i; }
+      if (i) acc += hypot2(routePts[i].x - routePts[i - 1].x, routePts[i].z - routePts[i - 1].z);
+      const d = hypot2(routePts[i].x - fx, routePts[i].z - fz); if (d < bd) { bd = d; bi = i; }
     }
     let j = bi, acc = 0;
-    while (j < routePts.length - 1 && acc < 12) { acc += Math.hypot(routePts[j + 1].x - routePts[j].x, routePts[j + 1].z - routePts[j].z); j++; }
+    while (j < routePts.length - 1 && acc < 12) { acc += hypot2(routePts[j + 1].x - routePts[j].x, routePts[j + 1].z - routePts[j].z); j++; }
     const tx = routePts[j].x - fx, tz = routePts[j].z - fz, ang = Math.atan2(tx, tz);
     const away = Math.abs(wrapA(ang - h));
     const off = bd > 7 || away > 1.6;

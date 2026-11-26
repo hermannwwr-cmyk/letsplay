@@ -14,6 +14,7 @@
    awaited before the next one, so nothing is cut off. */
 (function () {
   'use strict';
+  const hypot2 = (a, b) => Math.sqrt(a * a + b * b);   // (Math.hypot is slow and makes garbage on every call)
   const BB = window.BB, P = BB.P;
   const J = BB.jobs = { current: null, phase: 'idle', walkers: [], waiting: [], extras: [], question: null, teaching: false };
 
@@ -270,7 +271,7 @@
     const c = B.pos || d;                                    // a point on the bus's middle line
     const along = (d.x - c.x) * fx + (d.z - c.z) * fz;
     let ox = d.x - (c.x + fx * along), oz = d.z - (c.z + fz * along);
-    const ol = Math.hypot(ox, oz);
+    const ol = hypot2(ox, oz);
     if (ol < 0.2) { ox = fz; oz = -fx; } else { ox /= ol; oz /= ol; }   // fallback: left of travel (the kerb side)
     return { d, ox, oz, fx, fz };
   }
@@ -305,7 +306,7 @@
   // Walk a person to a point at a gentle pace. Resolves on arrival.
   function walkTo(m, to, speed = 3.3, opts = {}) {
     return new Promise((resolve) => {
-      const from = m.position.clone(), dist = Math.hypot(to.x - from.x, to.z - from.z);
+      const from = m.position.clone(), dist = hypot2(to.x - from.x, to.z - from.z);
       J.walkers.push({ m, from, to: to.clone(), t: 0, dur: Math.max(0.35, dist / speed), done: resolve, shrink: !!opts.shrink });
     });
   }
@@ -620,7 +621,7 @@
         // rings and bubbles follow the on-screen distance between neighbouring heads, so close heads never blob
         const a = toScreen(headOf(1).clone()), b = toScreen(headOf(2).clone());
         if (a && b) {
-          const gap = Math.hypot(a[0] - b[0], a[1] - b[1]), phone = innerHeight <= 520;
+          const gap = hypot2(a[0] - b[0], a[1] - b[1]), phone = innerHeight <= 520;
           const hs = Math.round(BB.clamp(gap * 0.92, 22, phone ? 40 : 58));
           const bub = Math.round(BB.clamp(hs * 1.15, phone ? 38 : 46, phone ? 46 : 64));
           if (hs !== this._hs) {
@@ -1294,7 +1295,7 @@
       if (from && typeof BB.world.stopDistance === 'function') { const d = +BB.world.stopDistance(from, s); if (isFinite(d)) return d; }
     } catch (e) { /* fall back */ }
     const p = from ? from.pos : (BB.bus.pos || { x: 0, z: 0 });
-    return Math.hypot(s.pos.x - p.x, s.pos.z - p.z);
+    return hypot2(s.pos.x - p.x, s.pos.z - p.z);
   }
   // Short legs (about 7 s of driving): each next stop is picked from BB.world.stopsByDistance(current) within about
   // 40-80 road units, at random among those (variety, not always the nearest), never the stop just visited or one
@@ -1526,7 +1527,7 @@
     const p = from ? from.pos : (BB.bus.pos || { x: 0, z: 0 }), out = [];
     for (const s of list) {
       if (!s || !s.pos || s === from || exclude.indexOf(s) >= 0) continue;
-      if (Math.hypot(s.pos.x - p.x, s.pos.z - p.z) > reach) continue;
+      if (hypot2(s.pos.x - p.x, s.pos.z - p.z) > reach) continue;
       const d = stopDist(from, s);
       if (isFinite(d) && d > 1) out.push({ s, d });
     }
@@ -2244,7 +2245,7 @@
     lastHorn = now;
     const bp = BB.bus.pos || (BB.bus.front && BB.bus.front.position);
     for (const m of J.waiting.concat(J.extras, J.walkers.map((w) => w.m))) {
-      if (bp && Math.hypot(m.position.x - bp.x, m.position.z - bp.z) > 30) continue;
+      if (bp && hypot2(m.position.x - bp.x, m.position.z - bp.z) > 30) continue;
       m.userData.jump = 1; m.userData.jumpDelay = Math.random() * 0.25;
     }
   }
@@ -2329,7 +2330,7 @@
       for (const m of J.waiting) {
         const u = m.userData;
         if (!u.waveDown || u.jump > 0) continue;
-        if (Math.hypot(m.position.x - BB.bus.pos.x, m.position.z - BB.bus.pos.z) < 45) {
+        if (hypot2(m.position.x - BB.bus.pos.x, m.position.z - BB.bus.pos.z) < 45) {
           u.waveT = (u.waveT || Math.random()) - dt;
           if (u.waveT <= 0) { u.waveT = 1.6 + Math.random(); u.jump = 1; u.jumpDelay = 0; }
         }

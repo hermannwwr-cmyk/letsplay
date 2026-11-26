@@ -60,6 +60,7 @@
    The HUD shows the friends here as little bus pictures with their numbers, top right under the buttons. */
 (function () {
   'use strict';
+  const hypot2 = (a, b) => Math.sqrt(a * a + b * b);   // (Math.hypot is slow and makes garbage on every call)
   const BB = window.BB, P = BB.P;
   const N = BB.net = { self: -1, MAX: 10 };
   const remotes = new Map();                      // friends' buses by member id
@@ -600,18 +601,18 @@
       const rcx = hx - rx * (D.GAP / 2 + D.LR / 2), rcz = hz - rz * (D.GAP / 2 + D.LR / 2);
       const cx = art ? (p.x + rcx) / 2 : p.x, cz = art ? (p.z + rcz) / 2 : p.z;
       // gentle: see-through when close to our bus, at our stop, or in the garage; fades in and out
-      const d = Math.hypot(cx - mx, cz - mz);
+      const d = hypot2(cx - mx, cz - mz);
       let a = 1;
       if (BB.depot && BB.depot.isOpen) { if (d < 26) a = 0; }
       else {
         if (d < 13) a = 0.35;
         if (atStop && d < 26) a = Math.min(a, 0.25);
-        if (bay && Math.hypot(cx - bay.x, cz - bay.z) < 16 && Math.hypot(mx - bay.x, mz - bay.z) < 50) a = Math.min(a, 0.3);
+        if (bay && hypot2(cx - bay.x, cz - bay.z) < 16 && hypot2(mx - bay.x, mz - bay.z) < 50) a = Math.min(a, 0.3);
       }
       // nothing big right in front of the camera: fade a friend's bus near the camera or on the line to our bus
       if (cam) {
         const vx = mx - cam.x, vz = mz - cam.z, wx = cx - cam.x, wz = cz - cam.z, L2 = vx * vx + vz * vz || 1;
-        const k = BB.clamp((wx * vx + wz * vz) / L2, 0, 1), off = Math.hypot(wx - vx * k, wz - vz * k), dc = Math.hypot(wx, wz);
+        const k = BB.clamp((wx * vx + wz * vz) / L2, 0, 1), off = hypot2(wx - vx * k, wz - vz * k), dc = hypot2(wx, wz);
         if (k < 0.95 && off < 4.5) a = Math.min(a, 0.2);
         if (dc < 16) a = Math.min(a, BB.clamp((dc - 7) / 9, 0, 1) * 0.4);
       }
@@ -672,7 +673,7 @@
   function myMid() { const B = BB.bus; return B.front ? { x: (B.front.position.x + B.rear.position.x) / 2, z: (B.front.position.z + B.rear.position.z) / 2 } : { x: 0, z: 0 }; }
   function friendHonk(r, tune) {
     if (!r.pose || r.leaving) return;
-    const m = myMid(), d = Math.hypot(r.pose.cx - m.x, r.pose.cz - m.z);
+    const m = myMid(), d = hypot2(r.pose.cx - m.x, r.pose.cz - m.z);
     BB.sfx.horn(tune, BB.clamp(1 - d / 160, 0.2, 0.7));
     puff('note', r.pose.x, r.pose.y + 0.6, r.pose.z);
     // a friend honked close by: our bus waves back (flashes its lights), and they see it

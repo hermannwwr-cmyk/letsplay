@@ -16,6 +16,7 @@
    'events:start' {id}, 'events:end' {id}. Load after the other game files, before main.js. */
 (function () {
   'use strict';
+  const hypot2 = (a, b) => Math.sqrt(a * a + b * b);   // (Math.hypot is slow and makes garbage on every call)
   const BB = window.BB;
   if (!BB || typeof THREE === 'undefined') return;
   const P = BB.P || {};
@@ -65,13 +66,13 @@
   // the stop the bus is heading for is within R (the stop's side view would take over the camera)
   function targetNear(R) {
     const B = Bs(), w = W(), st = B && B.target; if (!st || !w.bayOf) return false;
-    const bay = safe(() => w.bayOf(st)); return !!(bay && Math.hypot(bay.x - B.pos.x, bay.z - B.pos.z) < R);
+    const bay = safe(() => w.bayOf(st)); return !!(bay && hypot2(bay.x - B.pos.x, bay.z - B.pos.z) < R);
   }
   // the bus builder's BB.bus.holdArrival(seconds): delays settling into the next bay while an event plays
   const holdable = () => { const B = Bs(); return !!(B && typeof B.holdArrival === 'function'); };
   function holdArrival(sec) { const B = Bs(); if (holdable()) safe(() => B.holdArrival(Math.min(8, sec))); }
   // straight-line distance to the bay the bus is heading for (Infinity: none)
-  function targetDist() { const B = Bs(), w = W(), st = B && B.target; if (!st || !w.bayOf) return Infinity; const bay = safe(() => w.bayOf(st)); return bay ? Math.hypot(bay.x - B.pos.x, bay.z - B.pos.z) : Infinity; }
+  function targetDist() { const B = Bs(), w = W(), st = B && B.target; if (!st || !w.bayOf) return Infinity; const bay = safe(() => w.bayOf(st)); return bay ? hypot2(bay.x - B.pos.x, bay.z - B.pos.z) : Infinity; }
   const pullingIn = () => { const B = Bs(); return !!(B && (B.atStop || (B.isSettling && B.isSettling()))); };
   // may a new event start?
   function canStart() {
@@ -122,7 +123,7 @@
     } catch (e) { return null; }
   }
   // how loud something at (x, z) is for the bus (0..1)
-  function near(x, z, R = 110) { const B = Bs(); if (!B || !B.front) return 0; return clamp(1 - Math.hypot(x - B.pos.x, z - B.pos.z) / R, 0, 1); }
+  function near(x, z, R = 110) { const B = Bs(); if (!B || !B.front) return 0; return clamp(1 - hypot2(x - B.pos.x, z - B.pos.z) / R, 0, 1); }
   // Original two-tone calls (not copies of real sirens): a soft doorbell-like pair for the fire truck, a fifth for the
   // ambulance, a bouncy up-and-down chirp for the police car. Each returns how long one call lasts.
   const SIREN = {
@@ -578,14 +579,14 @@
   function dropVehicle(v) { if (v && v.g.parent) v.g.parent.remove(v.g); }
   // the bus's two ends (front carriage, rear carriage) in world space
   function busPts() { const B = Bs(); return B && B.front ? [B.front.position, B.rear ? B.rear.position : B.front.position] : []; }
-  function nearBus(x, z, r) { for (const p of busPts()) if (Math.hypot(p.x - x, p.z - z) < r) return true; return false; }
+  function nearBus(x, z, r) { for (const p of busPts()) if (hypot2(p.x - x, p.z - z) < r) return true; return false; }
   // (x, z) within r of the bus's centre line (front carriage to rear carriage, plus a little beyond each end)
   function overlapsBus(x, z, r) {
     const pts = busPts(); if (pts.length < 2) return false;
     const a = pts[0], b = pts[1], B = Bs(), fx = Math.sin(B.heading), fz = Math.cos(B.heading);
     const ax = a.x + fx * 3.5, az = a.z + fz * 3.5, bx = b.x - (a.x - b.x === 0 && a.z - b.z === 0 ? fx * 3.5 : 0), bz = b.z - (a.x - b.x === 0 && a.z - b.z === 0 ? fz * 3.5 : 0);
     const dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz || 1, t = clamp(((x - ax) * dx + (z - az) * dz) / l2, -0.15, 1.15);
-    return Math.hypot(x - (ax + dx * t), z - (az + dz * t)) < r;
+    return hypot2(x - (ax + dx * t), z - (az + dz * t)) < r;
   }
 
   // ---------- roads: routes along the graph ----------
@@ -594,10 +595,10 @@
   function routeDirAt(x, z) {   // (findPark/buildingsAhead also stop short of the target bay)                    // the ribbon's direction just past the point nearest (x, z), or null
     const pts = Bs() && Bs().route; if (!pts || pts.length < 3) return null;
     let bi = -1, bd = 18;
-    for (let i = 0; i < pts.length; i++) { const d = Math.hypot(pts[i].x - x, pts[i].z - z); if (d < bd) { bd = d; bi = i; } }
+    for (let i = 0; i < pts.length; i++) { const d = hypot2(pts[i].x - x, pts[i].z - z); if (d < bd) { bd = d; bi = i; } }
     if (bi < 0) return null;
-    let j = bi, acc = 0; while (j < pts.length - 1 && acc < 14) { acc += Math.hypot(pts[j + 1].x - pts[j].x, pts[j + 1].z - pts[j].z); j++; }
-    const dx = pts[j].x - x, dz = pts[j].z - z, l = Math.hypot(dx, dz); return l > 3 ? { x: dx / l, z: dz / l } : null;
+    let j = bi, acc = 0; while (j < pts.length - 1 && acc < 14) { acc += hypot2(pts[j + 1].x - pts[j].x, pts[j + 1].z - pts[j].z); j++; }
+    const dx = pts[j].x - x, dz = pts[j].z - z, l = hypot2(dx, dz); return l > 3 ? { x: dx / l, z: dz / l } : null;
   }
   function walk(e, s, dir, L, guide) {
     const segs = []; let rem = L;
@@ -615,7 +616,7 @@
         if (id === e.id) continue;
         const e2 = W().edge(id); if (!e2 || e2.kind === 'yard') continue;
         const d2 = e2.a === nodeId ? 1 : -1, q = W().pointAt(e2, d2 > 0 ? Math.min(6, e2.length) : Math.max(0, e2.length - 6));
-        const qx = q.x - n.x, qz = q.z - n.z, ql = Math.hypot(qx, qz) || 1, dot = (hx * qx + hz * qz) / ql;
+        const qx = q.x - n.x, qz = q.z - n.z, ql = hypot2(qx, qz) || 1, dot = (hx * qx + hz * qz) / ql;
         if (dot > bestDot) { bestDot = dot; best = { e: e2, dir: d2 }; }
       }
       if (!best) break;
@@ -639,14 +640,14 @@
     const raw = [];
     for (const segs of segLists) for (const sg of segs) for (const p of segPts(sg)) {
       const q = raw[raw.length - 1];
-      if (!q || Math.hypot(p.x - q.x, p.z - q.z) > 0.3) raw.push(p);
+      if (!q || hypot2(p.x - q.x, p.z - q.z) > 0.3) raw.push(p);
     }
     if (raw.length < 2) return null;
     const fl = [raw[0]];
     for (let i = 1; i < raw.length - 1; i++) {
       const a = raw[i - 1], v = raw[i], c = raw[i + 1];
-      let ux = v.x - a.x, uz = v.z - a.z; const l1 = Math.hypot(ux, uz) || 1; ux /= l1; uz /= l1;
-      let wx = c.x - v.x, wz = c.z - v.z; const l2 = Math.hypot(wx, wz) || 1; wx /= l2; wz /= l2;
+      let ux = v.x - a.x, uz = v.z - a.z; const l1 = hypot2(ux, uz) || 1; ux /= l1; uz /= l1;
+      let wx = c.x - v.x, wz = c.z - v.z; const l2 = hypot2(wx, wz) || 1; wx /= l2; wz /= l2;
       const th = Math.acos(clamp(ux * wx + uz * wz, -1, 1));
       if (th < 0.2) { fl.push(v); continue; }
       const T = Math.min(18, l1 * 0.45, l2 * 0.45);
@@ -659,7 +660,7 @@
     fl.push(raw[raw.length - 1]);
     const pts = [fl[0]];
     for (let i = 1; i < fl.length; i++) {
-      const a = pts[pts.length - 1], b = fl[i], l = Math.hypot(b.x - a.x, b.z - a.z);
+      const a = pts[pts.length - 1], b = fl[i], l = hypot2(b.x - a.x, b.z - a.z);
       if (l < 0.2) continue;
       const n = Math.ceil(l / 3);
       for (let k = 1; k <= n; k++) pts.push({ x: a.x + (b.x - a.x) * k / n, z: a.z + (b.z - a.z) * k / n, half: k === n ? b.half : a.half });
@@ -667,8 +668,8 @@
     const cum = [0];
     for (let i = 0; i < pts.length; i++) {
       const p = pts[i], a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
-      let tx = b.x - a.x, tz = b.z - a.z; const l = Math.hypot(tx, tz) || 1; p.tx = tx / l; p.tz = tz / l;
-      if (i) cum.push(cum[i - 1] + Math.hypot(p.x - pts[i - 1].x, p.z - pts[i - 1].z));
+      let tx = b.x - a.x, tz = b.z - a.z; const l = hypot2(tx, tz) || 1; p.tx = tx / l; p.tz = tz / l;
+      if (i) cum.push(cum[i - 1] + hypot2(p.x - pts[i - 1].x, p.z - pts[i - 1].z));
     }
     const r = { pts, cum, len: cum[cum.length - 1], _i: 1 };
     r.at = (d) => routeAt(r, d);
@@ -681,7 +682,7 @@
     while (i > 1 && r.cum[i - 1] > d) i--;
     r._i = i;
     const a = r.pts[i - 1], b = r.pts[i], l = r.cum[i] - r.cum[i - 1] || 1, t = (d - r.cum[i - 1]) / l;
-    let tx = a.tx + (b.tx - a.tx) * t, tz = a.tz + (b.tz - a.tz) * t; const n = Math.hypot(tx, tz) || 1; tx /= n; tz /= n;
+    let tx = a.tx + (b.tx - a.tx) * t, tz = a.tz + (b.tz - a.tz) * t; const n = hypot2(tx, tz) || 1; tx /= n; tz /= n;
     return { x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t, tx, tz, lx: tz, lz: -tx, half: a.half + (b.half - a.half) * t };
   }
   // nearest point of a route (between distances d0..d1) to (x, z): {d, lat (+ = left of travel), half, dist}
@@ -690,7 +691,7 @@
     for (let i = 1; i < r.pts.length; i++) {
       if (r.cum[i] < d0 || r.cum[i - 1] > d1) continue;
       const a = r.pts[i - 1], b = r.pts[i], dx = b.x - a.x, dz = b.z - a.z, l2 = dx * dx + dz * dz || 1;
-      const t = clamp(((x - a.x) * dx + (z - a.z) * dz) / l2, 0, 1), qx = a.x + dx * t, qz = a.z + dz * t, dd = Math.hypot(x - qx, z - qz);
+      const t = clamp(((x - a.x) * dx + (z - a.z) * dz) / l2, 0, 1), qx = a.x + dx * t, qz = a.z + dz * t, dd = hypot2(x - qx, z - qz);
       if (!best || dd < best.dist) {
         const l = Math.sqrt(l2), lx = dz / l, lz = -dx / l;
         best = { d: r.cum[i - 1] + t * l, lat: (x - qx) * lx + (z - qz) * lz, half: a.half, dist: dd };
@@ -741,16 +742,16 @@
     for (const st of stopList()) {
       if (st.minor && st !== tgt) continue;       // events may pass beside the little stops the bus isn't going to
       const R = 18;
-      if (st.pos && Math.hypot(st.pos.x - x, st.pos.z - z) < R) return false;
-      const bay = w.bayOf ? safe(() => w.bayOf(st)) : null; if (bay && Math.hypot(bay.x - x, bay.z - z) < R) return false;
+      if (st.pos && hypot2(st.pos.x - x, st.pos.z - z) < R) return false;
+      const bay = w.bayOf ? safe(() => w.bayOf(st)) : null; if (bay && hypot2(bay.x - x, bay.z - z) < R) return false;
     }
     if (w.inDepotYard && w.inDepotYard(x, z)) return false;
     for (const n of w.roads.nodes) {           // clear of junction boxes (the widest road there, plus room to turn)
       if (n.edges.length < 3) continue;
       const hh = Math.max(...n.edges.map((id) => { const e = w.edge(id); return (e && e.half) || 9.2; }));
-      if (Math.hypot(n.x - x, n.z - z) < hh + 5) return false;
+      if (hypot2(n.x - x, n.z - z) < hh + 5) return false;
     }
-    for (const zb of zebras()) if (Math.hypot(zb.x - x, zb.z - z) < 12) return false;
+    for (const zb of zebras()) if (hypot2(zb.x - x, zb.z - z) < 12) return false;
     if (w.pushOut) { const q = w.pushOut(x, z, rad); if (q.hit > 0.15) return false; }
     return true;
   }
@@ -844,7 +845,7 @@
   let frT = 0;
   function inView(x, y, z, maxD = 100) {
     const cam = BB.camera; if (!cam) return false;
-    if (Math.hypot(x - cam.position.x, z - cam.position.z) > maxD) return false;
+    if (hypot2(x - cam.position.x, z - cam.position.z) > maxD) return false;
     return _fr.containsPoint(_v3.set(x, y, z));
   }
   function updateFrustum() { const cam = BB.camera; if (!cam) return; cam.updateMatrixWorld(); _pm.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse); _fr.setFromProjectionMatrix(_pm); }
@@ -985,8 +986,8 @@
   // ---------- helpers for events ----------
   const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
   const seenNow = () => !!(E.current && E.current.seen);     // the child has had a good look at this event
-  const busNear = (x, z, r) => { const B = Bs(); return !!(B && B.front && Math.hypot(B.pos.x - x, B.pos.z - z) < r); };
-  const busDist = (x, z) => { const B = Bs(); return B && B.front ? Math.hypot(B.pos.x - x, B.pos.z - z) : 1e9; };
+  const busNear = (x, z, r) => { const B = Bs(); return !!(B && B.front && hypot2(B.pos.x - x, B.pos.z - z) < r); };
+  const busDist = (x, z) => { const B = Bs(); return B && B.front ? hypot2(B.pos.x - x, B.pos.z - z) : 1e9; };
   function nearStop(ids, R) { for (const st of stopList()) if (ids.indexOf(st.id) >= 0 && st.pos && busNear(st.pos.x, st.pos.z, R)) return st; return null; }
   // candidate buildings (box colliders) on the far side of an oncoming route, `aheadMin..aheadMax` in front of the bus
   const aheadOf = (r, d) => (r.sign > 0 ? d - r.bus : r.bus - d);
@@ -1009,7 +1010,7 @@
     const cs = c.cos != null ? c.cos : Math.cos(c.ry || 0), sn = c.sin != null ? c.sin : Math.sin(c.ry || 0);
     const dx = x - c.x, dz = z - c.z, lx = dx * cs - dz * sn, lz = dx * sn + dz * cs;
     let qx = clamp(lx, -c.hw, c.hw), qz = clamp(lz, -c.hd, c.hd);
-    const ox = lx - qx, oz = lz - qz, ol = Math.hypot(ox, oz) || 1;
+    const ox = lx - qx, oz = lz - qz, ol = hypot2(ox, oz) || 1;
     qx += ox / ol * out; qz += oz / ol * out;
     return V3(c.x + qx * cs + qz * sn, y, c.z - qx * sn + qz * cs);
   }
@@ -1023,7 +1024,7 @@
     for (const k of w.colliders || []) {
       if (k.r == null || k.r < 0.5) continue;
       const t = ((k.x - c.x) * dx + (k.z - c.z) * dz) / L2; if (t < 0.12 || t > 0.97) continue;
-      if (Math.hypot(k.x - (c.x + dx * t), k.z - (c.z + dz * t)) < k.r + 0.5) return true;
+      if (hypot2(k.x - (c.x + dx * t), k.z - (c.z + dz * t)) < k.r + 0.5) return true;
     }
     return false;
   }
@@ -1112,7 +1113,7 @@
             if (dr.arrived) {
               st = 'out'; t = 0;
               for (const k of [-2.2, 0, 2.2]) {
-                const a = local(dr, v.w / 2 + 0.6, k), dir = { x: src.x - a.x, z: src.z - a.z }, dl = Math.hypot(dir.x, dir.z) || 1;
+                const a = local(dr, v.w / 2 + 0.6, k), dir = { x: src.x - a.x, z: src.z - a.z }, dl = hypot2(dir.x, dir.z) || 1;
                 const stand = Math.min(4.5, Math.max(1.5, dl - 4));
                 crew.push({ x: a.x, z: a.z, sx: a.x, sz: a.z, tx: a.x + dir.x / dl * stand + rand(-0.4, 0.4), tz: a.z + dir.z / dl * stand, h: Math.atan2(dir.x, dir.z) });
               }
@@ -1131,7 +1132,7 @@
               for (const f of crew) {
                 const nz = { x: f.x + Math.sin(f.h) * 1.0, y: 1.36, z: f.z + Math.cos(f.h) * 1.0 };
                 const tx = (fire > 0.15 ? src.x : roof.x) + rand(-1, 1), ty = (fire > 0.15 ? src.y : roof.y) + rand(-0.8, 0.8), tz = src.z + rand(-1, 1);
-                const dist = Math.hypot(tx - nz.x, tz - nz.z), T = clamp(dist / 11, 0.5, 1.6), g = 9;
+                const dist = hypot2(tx - nz.x, tz - nz.z), T = clamp(dist / 11, 0.5, 1.6), g = 9;
                 emit({ x: nz.x, y: nz.y, z: nz.z, vx: (tx - nz.x) / T, vy: (ty - nz.y + 0.5 * g * T * T) / T, vz: (tz - nz.z) / T, grav: g, life: T, size: 0.32, size1: 0.55, color: '#9fd8ff', alpha: 0.85, fin: 0.02 });
               }
             }
@@ -1467,7 +1468,7 @@
           } else if (st === 'walk' || st === 'back') {
             const a = local(dr, v.w / 2 + 0.5, -1.6), tgt = st === 'walk' ? { x: door.x + (trips ? 0.7 : -0.7) * Math.cos(dr.h), z: door.z - (trips ? 0.7 : -0.7) * Math.sin(dr.h) } : a;
             const from = st === 'walk' ? { x: man.sx, z: man.sz } : { x: man.sx, z: man.sz };
-            const dist = Math.hypot(tgt.x - from.x, tgt.z - from.z), u = clamp(t * 1.4 / Math.max(1, dist), 0, 1);
+            const dist = hypot2(tgt.x - from.x, tgt.z - from.z), u = clamp(t * 1.4 / Math.max(1, dist), 0, 1);
             man.x = from.x + (tgt.x - from.x) * u; man.z = from.z + (tgt.z - from.z) * u; man.h = Math.atan2(tgt.x - from.x, tgt.z - from.z);
             if (u >= 1) {
               if (st === 'walk') {
@@ -1582,7 +1583,7 @@
       const p = r.at(dz), half = p.half, side = Math.random() < 0.5 ? 1 : -1;
       // across the road: from one pavement (left of the bus's travel * side) to the other
       const A0 = { x: p.x + p.lx * side * (half + 3), z: p.z + p.lz * side * (half + 3) }, A1 = { x: p.x - p.lx * side * (half + 3), z: p.z - p.lz * side * (half + 3) };
-      const h = Math.atan2(A1.x - A0.x, A1.z - A0.z), L = Math.hypot(A1.x - A0.x, A1.z - A0.z), sp = 2.3;
+      const h = Math.atan2(A1.x - A0.x, A1.z - A0.z), L = hypot2(A1.x - A0.x, A1.z - A0.z), sp = 2.3;
       const fam = []; { let s0 = 0; for (const pup of [false, true, true, false]) { fam.push({ pup, s: s0, across: false, seed: Math.random() * 6 }); s0 -= pup ? 3.4 : 4.6; } }
       const stripes = own ? zebraDecal(p.x, p.z, Math.atan2(p.tx, p.tz), half) : null;
       let t = 0, counted = 0, prompted = false, waited = false, wasSlow = false, endT = 0;
@@ -1800,7 +1801,7 @@
           pos.x = a2.x + (b2.x - a2.x) * u; pos.y = a2.y + (b2.y - a2.y) * u; pos.z = a2.z + (b2.z - a2.z) * u;
           const ht = Math.atan2(b2.x - a2.x, b2.z - a2.z), dh = wrapA(ht - h) * Math.min(1, dt * 1.2);
           h += dh; bank += (clamp(-dh / Math.max(dt, 1e-3) * 0.8, -0.4, 0.4) - bank) * Math.min(1, dt * 2);
-          const pitch = leg === LAST && land ? 0 : -Math.atan2(b2.y - a2.y, Math.hypot(b2.x - a2.x, b2.z - a2.z)) * 0.6 - (leg === LAST - 1 && u > 0.8 ? 0.06 : 0);
+          const pitch = leg === LAST && land ? 0 : -Math.atan2(b2.y - a2.y, hypot2(b2.x - a2.x, b2.z - a2.z)) * 0.6 - (leg === LAST - 1 && u > 0.8 ? 0.06 : 0);
           look.set(pos.x, pos.y, pos.z);
           g.position.set(pos.x, pos.y, pos.z); g.rotation.set(0, 0, 0); g.rotation.order = 'YXZ'; g.rotation.y = h; g.rotation.x = pitch; g.rotation.z = bank;
           const k = clamp(1 - Math.hypot(pos.x - Bs().pos.x, pos.y, pos.z - Bs().pos.z) / 220, 0, 1);

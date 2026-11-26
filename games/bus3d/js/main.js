@@ -98,9 +98,11 @@
     let last = performance.now();
     function frame(now) {
       requestAnimationFrame(frame);
-      if (BB.held) { last = now; return; }
-      const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
+      if (BB.held) { last = now; adaptQuality(-1); return; }
+      const raw = now - last;
+      const dt = Math.min(0.05, Math.max(0, raw / 1000));
       last = now;
+      adaptQuality(raw);
       try { BB.update(dt); } catch (e) { console.error(e); }
       try { BB.render(); } catch (e) { console.error(e); }
     }
@@ -109,10 +111,29 @@
     if (BB.HUB) hubSetup();
   }
 
+  // Smooth on older iPads: the sharpest screens draw ~4 million pixels a frame. When frames keep coming slowly (below
+  // ~40 a second for about 3 s of play), the game draws at a slightly lower resolution (2 -> 1.6 -> 1.3 -> 1 pixel per
+  // screen point; hardly visible on a tablet), and steps back up after a long smooth spell (at most a few times, so it
+  // never see-saws). Pauses, hidden pages and the first seconds (shaders compiling) don't count.
+  const DPR_STEPS = [2, 1.6, 1.3, 1];
+  let dprStep = 0, slowT = 0, fastT = 0, ema = 16.7, ups = 0, warm = 4;
+  const deviceDpr = () => Math.min(window.devicePixelRatio || 1, BB.cfg.pixelRatioCap);
+  function adaptQuality(ms) {
+    if (ms < 0 || ms > 1000) { fastT = 0; return; }          // (held, hidden, or a long one-off pause)
+    if (warm > 0) { warm -= ms / 1000; return; }
+    ema += (Math.min(ms, 100) - ema) * 0.06;
+    const s = ms / 1000;
+    slowT = ema > 25 ? slowT + s : Math.max(0, slowT - s);
+    fastT = ema < 14 ? fastT + s : 0;
+    if (slowT > 3 && dprStep < DPR_STEPS.length - 1 && DPR_STEPS[dprStep + 1] < deviceDpr()) { dprStep++; changed(); }
+    else if (fastT > 25 && dprStep > 0 && ups < 2) { dprStep--; ups++; changed(); }
+    function changed() { slowT = fastT = 0; ema = 16.7; warm = 1; resize(); }
+  }
+
   function resize() {
     const w = window.innerWidth, h = window.innerHeight;
-    // pixel ratio can change (zoom, moving to another screen); cap it at 2
-    const dpr = Math.min(window.devicePixelRatio || 1, BB.cfg.pixelRatioCap);
+    // pixel ratio can change (zoom, moving to another screen); capped at 2, and lower while frames are slow (above)
+    const dpr = Math.min(deviceDpr(), DPR_STEPS[dprStep]);
     if (BB.renderer.getPixelRatio() !== dpr) BB.renderer.setPixelRatio(dpr);
     BB.renderer.setSize(w, h);
     const aspect = w / Math.max(1, h);

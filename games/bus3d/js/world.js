@@ -6,6 +6,7 @@
    Exposes BB.world = { scene, roads:{nodes,edges}, stops, depot, update(dt), ...helpers }. */
 (function () {
   'use strict';
+  const hypot2 = (a, b) => Math.sqrt(a * a + b * b);   // (Math.hypot is slow and makes garbage on every call)
   const BB = window.BB, P = BB.P, C = BB.cfg;
   // Dual carriageways: two lanes each way (about 4.2 m each). The blocks grow with the roads so the buildings keep
   // their size. These go into the shared config (bus.js reads lane/roadHalf too): kerb lane centre 6.7 from the
@@ -126,14 +127,14 @@
   }
   function addEdge(a, b, points) {
     const e = { id: 'e' + W.roads.edges.length, a: a.id, b: b.id, points, length: 0, cum: [0] };
-    for (let i = 1; i < points.length; i++) { e.length += Math.hypot(points[i].x - points[i - 1].x, points[i].z - points[i - 1].z); e.cum.push(e.length); }
+    for (let i = 1; i < points.length; i++) { e.length += hypot2(points[i].x - points[i - 1].x, points[i].z - points[i - 1].z); e.cum.push(e.length); }
     a.edges.push(e.id); b.edges.push(e.id);
     edgeById[e.id] = e; W.roads.edges.push(e); return e;
   }
   const straight = (a, b) => addEdge(a, b, [{ x: a.x, z: a.z }, { x: b.x, z: b.z }]);
   // Quarter arc around (cx, cz) from node a to node b.
   function arc(a, b, cx, cz) {
-    const r = Math.hypot(a.x - cx, a.z - cz);
+    const r = hypot2(a.x - cx, a.z - cz);
     let a0 = Math.atan2(a.z - cz, a.x - cx), a1 = Math.atan2(b.z - cz, b.x - cx);
     let d = a1 - a0; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
     const pts = [], n = 14;
@@ -206,14 +207,14 @@
     const src = dir > 0 ? e.points : e.points.slice().reverse();
     const pts = offsetLine(src, C.lane);
     const cum = [0];
-    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z));
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + hypot2(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z));
     return (laneCache[key] = { pts, cum, len: cum[cum.length - 1], edge: e, dir });
   };
   function offsetLine(src, off) {
     const out = [];
     for (let i = 0; i < src.length; i++) {
       const a = src[Math.max(0, i - 1)], b = src[Math.min(src.length - 1, i + 1)];
-      let dx = b.x - a.x, dz = b.z - a.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
+      let dx = b.x - a.x, dz = b.z - a.z; const l = hypot2(dx, dz) || 1; dx /= l; dz /= l;
       out.push({ x: src[i].x + dz * off, z: src[i].z - dx * off });   // left of travel = (dz, -dx)
     }
     return out;
@@ -323,7 +324,7 @@
   W.sceneSpot = function (tag, nx, nz) {
     let list = W.sceneSpots.filter((sp) => !tag || sp.tags.indexOf(tag) >= 0);
     if (!list.length) list = W.sceneSpots.slice();
-    if (nx != null) { list = list.filter((sp) => Math.hypot(sp.pos.x - nx, sp.pos.z - nz) > 70).concat(list.filter((sp) => Math.hypot(sp.pos.x - nx, sp.pos.z - nz) <= 70)); return list[Math.floor(Math.random() * Math.min(3, list.length))]; }
+    if (nx != null) { list = list.filter((sp) => hypot2(sp.pos.x - nx, sp.pos.z - nz) > 70).concat(list.filter((sp) => hypot2(sp.pos.x - nx, sp.pos.z - nz) <= 70)); return list[Math.floor(Math.random() * Math.min(3, list.length))]; }
     return list[Math.floor(Math.random() * list.length)];
   };
   // Turn any target {pos:{x,z}, heading, kind} (or {x, z, heading}) into a bay on the nearest road's kerb lane, in
@@ -337,7 +338,7 @@
       if (e.kind === 'yard') continue;
       for (let i = 1; i < e.points.length; i++) {
         const a = e.points[i - 1], c = e.points[i], dx = c.x - a.x, dz = c.z - a.z, l2 = dx * dx + dz * dz || 1;
-        const t = BB.clamp(((x - a.x) * dx + (z - a.z) * dz) / l2, 0, 1), d = Math.hypot(a.x + dx * t - x, a.z + dz * t - z);
+        const t = BB.clamp(((x - a.x) * dx + (z - a.z) * dz) / l2, 0, 1), d = hypot2(a.x + dx * t - x, a.z + dz * t - z);
         if (d < bd) { bd = d; best = { e, s: e.cum[i - 1] + t * Math.sqrt(l2) }; }
       }
     }
@@ -449,7 +450,7 @@
           const a = e.points[i - 1], c = e.points[i], dx = c.x - a.x, dz = c.z - a.z, l2 = dx * dx + dz * dz || 1;
           if (Math.min(a.x, c.x) - x > 30 || x - Math.max(a.x, c.x) > 30 || Math.min(a.z, c.z) - z > 30 || z - Math.max(a.z, c.z) > 30) continue;
           const t = BB.clamp(((x - a.x) * dx + (z - a.z) * dz) / l2, 0, 1);
-          if (Math.hypot(a.x + dx * t - x, a.z + dz * t - z) < (e.half || RH) + 0.6) return true;
+          if (hypot2(a.x + dx * t - x, a.z + dz * t - z) < (e.half || RH) + 0.6) return true;
         }
       }
       return false;
@@ -613,7 +614,7 @@
   const COLS = W.colliders = [], CELL = 16, grid = new Map();
   const ckey = (i, j) => i * 1000 + j;
   function addCol(c) {
-    const R = c.r != null ? c.r : Math.hypot(c.hw, c.hd);
+    const R = c.r != null ? c.r : hypot2(c.hw, c.hd);
     c.R = R; if (c.ry != null) { c.cos = Math.cos(c.ry); c.sin = Math.sin(c.ry); }
     COLS.push(c);
     for (let i = Math.floor((c.x - R) / CELL); i <= Math.floor((c.x + R) / CELL); i++)
@@ -644,24 +645,25 @@
   W.MAP_R = 260;                               // (old: the bus stayed in a circle; now W.BOUNDS)
   // Push a circle (x,z,r) out of everything it overlaps. Returns {x, z, hit} (hit = how far it was pushed).
   const _push = { x: 0, z: 0, hit: 0 };
+  let pushStamp = 0;                           // (marks colliders already handled this call: no new array each call)
   W.pushOut = function (x, z, r) {
     let hit = 0;
-    const seen = [];
+    const stamp = ++pushStamp;
     for (let pass = 0; pass < 2; pass++) {
       const i = Math.floor(x / CELL), j = Math.floor(z / CELL);
       for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) {
         const list = grid.get(ckey(i + di, j + dj)); if (!list) continue;
         for (const c of list) {
-          if (c.sightOnly || (pass === 0 && seen.indexOf(c) >= 0)) continue; seen.push(c);
+          if (c.sightOnly || (pass === 0 && c._ps === stamp)) continue; c._ps = stamp;
           const dx = x - c.x, dz = z - c.z;
           if (dx * dx + dz * dz > (c.R + r) * (c.R + r)) continue;
           if (c.r != null) {
-            const d = Math.hypot(dx, dz), m = c.r + r - d;
+            const d = hypot2(dx, dz), m = c.r + r - d;
             if (m > 0) { const ux = d > 1e-4 ? dx / d : 1, uz = d > 1e-4 ? dz / d : 0; x += ux * m; z += uz * m; hit += m; }
           } else {
             const lx = dx * c.cos - dz * c.sin, lz = dx * c.sin + dz * c.cos;      // into the box's frame
             const qx = BB.clamp(lx, -c.hw, c.hw), qz = BB.clamp(lz, -c.hd, c.hd);
-            let ox = lx - qx, oz = lz - qz, d = Math.hypot(ox, oz), px, pz, m;
+            let ox = lx - qx, oz = lz - qz, d = hypot2(ox, oz), px, pz, m;
             if (d > 1e-4) { m = r - d; if (m <= 0) continue; px = ox / d * m; pz = oz / d * m; }
             else {                                                                 // centre inside: out by the nearest side
               const ex = c.hw - Math.abs(lx), ez = c.hd - Math.abs(lz);
@@ -696,7 +698,7 @@
   // (they are thin). Trees and lamp posts are left out: they fade instead. Used by the cameras.
   const _seen = new Set();
   W.blocksSight = function (x0, y0, z0, x1, y1, z1) {
-    const L = Math.hypot(x1 - x0, z1 - z0), n = Math.max(4, Math.ceil(L));
+    const L = hypot2(x1 - x0, z1 - z0), n = Math.max(4, Math.ceil(L));
     _seen.clear();
     for (let k = 1; k < n; k++) {
       const t = k / n, x = x0 + (x1 - x0) * t, z = z0 + (z1 - z0) * t, y = y0 + (y1 - y0) * t;
@@ -1092,7 +1094,7 @@
   function buildRainbow() {
     const geo = new THREE.RingGeometry(150, 175, 48, 7, 0, Math.PI), cols = ['#b58cff', '#6f8fff', '#5fc6ff', '#7ddc7a', '#ffe066', '#ffab4a', '#ff6b6b'];
     const pos = geo.attributes.position, col = [], c = new THREE.Color();
-    for (let i = 0; i < pos.count; i++) { const rr0 = Math.hypot(pos.getX(i), pos.getY(i)); c.set(cols[Math.min(6, Math.floor((rr0 - 150) / 25 * 7))]); col.push(c.r, c.g, c.b); }
+    for (let i = 0; i < pos.count; i++) { const rr0 = hypot2(pos.getX(i), pos.getY(i)); c.set(cols[Math.min(6, Math.floor((rr0 - 150) / 25 * 7))]); col.push(c.r, c.g, c.b); }
     geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
     const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, depthWrite: false, fog: false, side: THREE.DoubleSide }));
     m.name = 'rainbow'; m.visible = false; m.renderOrder = -9; m.frustumCulled = false;
@@ -1157,7 +1159,7 @@
       if (e.kind === 'highway') {                            // a low concrete barrier down the middle
         b.strip(mid, -0.45, 0.45, ROAD_Y + 0.01, '#d9d2c6');
         for (let k = 0; k < mid.length - 1; k++) {
-          const a = mid[k], c = mid[k + 1], l = Math.hypot(c.x - a.x, c.z - a.z);
+          const a = mid[k], c = mid[k + 1], l = hypot2(c.x - a.x, c.z - a.z);
           b.box(0.5, 0.8, l, '#e6e0d5', (a.x + c.x) / 2, 0, (a.z + c.z) / 2, Math.atan2(c.x - a.x, c.z - a.z));
         }
       } else { b.strip(mid, 0.12, 0.3, ROAD_Y + 0.008, '#f3d27a'); b.strip(mid, -0.3, -0.12, ROAD_Y + 0.008, '#f3d27a'); }
@@ -1165,7 +1167,7 @@
       const sides = e.kind === 'town' ? [] : [1, -1];
       if (e.kind === 'town' && e.points.length > 2 || ['n10-n20', 'n20-n10', 'n31-n32', 'n32-n31', 'n23-n13', 'n13-n23', 'n02-n01', 'n01-n02'].includes(e.a + '-' + e.b)) {
         const pm = W.pointAt(e, e.length / 2), lx = pm.dz, lz = -pm.dx;
-        sides.push(Math.hypot(pm.x + lx * 12, pm.z + lz * 12) > Math.hypot(pm.x, pm.z) ? 1 : -1);
+        sides.push(hypot2(pm.x + lx * 12, pm.z + lz * 12) > hypot2(pm.x, pm.z) ? 1 : -1);
       }
       const ps = subPts(e, h0, e.length - h1);
       for (const sd of sides) {
@@ -1235,7 +1237,7 @@
     kind = kind || (rnd() < 0.55 ? 'rain' : rnd() < 0.8 ? 'round' : 'flame');
     const col = rpick(TREE_GREENS);
     if (inCamSpot(x + FRAME.x, z + FRAME.z)) return;   // keep the stop and garage camera views clear
-    if (Math.hypot(x + FRAME.x, z + FRAME.z) < 200) W.addCircle(x, z, 0.9 * s);
+    if (hypot2(x + FRAME.x, z + FRAME.z) < 200) W.addCircle(x, z, 0.9 * s);
     b.disc(2.6 * s, 7, P.grassDark, x + 0.6, y0 + 0.02, z + 0.5, 1, 0.8);       // soft shadow patch
     if (TREES) b = TREES;                     // trees go in their own mesh: hidden whole when they block the view
     const p0 = propStart(b);
@@ -1270,7 +1272,7 @@
     }
     return out;
   })();
-  function inCamSpot(x, z) { for (const [cx, cz, r] of CAM_SPOTS) if (Math.hypot(x - cx, z - cz) < r) return true; return false; }
+  function inCamSpot(x, z) { for (const [cx, cz, r] of CAM_SPOTS) if (hypot2(x - cx, z - cz) < r) return true; return false; }
   // Is (x,z) clear of roads (and stops)? Used when scattering things.
   function clearOfRoads(x, z, margin) {
     for (const e of W.roads.edges) {
@@ -1278,10 +1280,10 @@
         const a = e.points[i - 1], c = e.points[i];
         const dx = c.x - a.x, dz = c.z - a.z, l2 = dx * dx + dz * dz;
         const t = BB.clamp(((x - a.x) * dx + (z - a.z) * dz) / l2, 0, 1);
-        if (Math.hypot(a.x + dx * t - x, a.z + dz * t - z) < margin - RH + (e.half || RH)) return false;
+        if (hypot2(a.x + dx * t - x, a.z + dz * t - z) < margin - RH + (e.half || RH)) return false;
       }
     }
-    for (const st of allBays()) if (Math.hypot(st.pos.x - x, st.pos.z - z) < 7) return false;
+    for (const st of allBays()) if (hypot2(st.pos.x - x, st.pos.z - z) < 7) return false;
     if (W.inDepotYard(x, z) || inReserved(x, z)) return false;
     return true;
   }
@@ -1298,9 +1300,9 @@
           if (Math.abs(z - VIADUCT_Z) < RH + 4 && Math.abs(x) < 210) continue;
           if (inDepotYard(x, z)) continue;
           if (!clearOfRoads(x, z, RH + 1)) continue;
-          if (allBays().some((st) => Math.hypot(st.pos.x - x, st.pos.z - z) < 9)) continue;
+          if (allBays().some((st) => hypot2(st.pos.x - x, st.pos.z - z) < 9)) continue;
           if (x < -S - 2 && x > -S - 20 && Math.abs(z) < 20) continue;      // keep the shophouse fronts clear
-          tree(b, x, z, Math.hypot(x, z) > 74 ? 0.2 : 0.27, 'round', 0.8);
+          tree(b, x, z, hypot2(x, z) > 74 ? 0.2 : 0.27, 'round', 0.8);
         }
       }
     }
@@ -1855,8 +1857,8 @@
   function busNear(x, z, r) {
     const B = BB.bus;
     if (!B || !B.front) return false;
-    for (const o of [B.front.position, B.rear.position]) if (Math.hypot(o.x - x, o.z - z) < r + 3) return true;
-    return false;
+    const a = B.front.position, b = B.rear.position, R = (r + 3) * (r + 3);
+    return (a.x - x) * (a.x - x) + (a.z - z) * (a.z - z) < R || (b.x - x) * (b.x - x) + (b.z - z) * (b.z - z) < R;
   }
   // Cars glide along the expressway (east on the north side, west on the south side: drive on the left), keep a
   // gap to the car ahead, wait for the bus if it is in their lane just ahead, and fade in and out at the ends.
@@ -1865,7 +1867,7 @@
     for (let i = 0; i < CAR_N; i++) {
       const c = carState[i];
       let v = c.v;
-      for (const o of carState) if (o !== c && o.dir === c.dir && o.lane === c.lane) {
+      for (let oi = 0; oi < CAR_N; oi++) { const o = carState[oi]; if (o === c || o.dir !== c.dir || o.lane !== c.lane) continue;
         const gap = (((o.s - c.s) * c.dir) % span + span) % span;
         if (gap > 0 && gap < 12) v = Math.min(v, o.v * (gap / 12));
       }
@@ -1924,7 +1926,7 @@
         const p = W.pointAt(e, s), side = k % 2 ? 1 : -1;
         const x = p.x + p.dz * side * (e.half + 0.7), z = p.z - p.dx * side * (e.half + 0.7);
         if (inDepotYard(x, z)) continue;
-        if (allBays().some((st) => Math.hypot(st.pos.x - x, st.pos.z - z) < 8)) continue;
+        if (allBays().some((st) => hypot2(st.pos.x - x, st.pos.z - z) < 8)) continue;
         if (!clearOfRoads(x, z, RH + 0.4)) continue;
         lamp(x, z, Math.atan2(-p.dz * side, p.dx * side));
       }
@@ -2105,7 +2107,7 @@
       if (name === 'elevatedRoad' && Array.isArray(info.path) && !x && !z && !ry) {        // its deck, for the cameras
         const P2 = info.path, hw = (info.width || 9) / 2;
         for (let i = 1; i < P2.length; i += 2) {
-          const a = P2[i - 1], c = P2[Math.min(P2.length - 1, i + 1)], len = Math.hypot(c.x - a.x, c.z - a.z);
+          const a = P2[i - 1], c = P2[Math.min(P2.length - 1, i + 1)], len = hypot2(c.x - a.x, c.z - a.z);
           if (len < 0.1 || Math.max(a.y, c.y) < 1) continue;
           addCol({ x: (a.x + c.x) / 2, z: (a.z + c.z) / 2, hw, hd: len / 2 + 0.3, ry: Math.atan2(c.x - a.x, c.z - a.z), y0: Math.min(a.y, c.y) - 1.4, top: Math.max(a.y, c.y) + 1.2, sightOnly: true, deck: Math.min(a.y, c.y) > 2.5 });
         }
@@ -2143,7 +2145,7 @@
     b.box(Y.x1 - Y.x0, 0.03, Y.z1 - Y.z0, '#d6cec1', cx, 0.005, cz);                       // the yard's concrete
     // fence round the yard (low, so the cameras look over it), open at the two gates
     const fence = (x0, z0, x1, z1) => {
-      const len = Math.hypot(x1 - x0, z1 - z0), ry = Math.atan2(x1 - x0, z1 - z0), mx = (x0 + x1) / 2, mz = (z0 + z1) / 2;
+      const len = hypot2(x1 - x0, z1 - z0), ry = Math.atan2(x1 - x0, z1 - z0), mx = (x0 + x1) / 2, mz = (z0 + z1) / 2;
       b.box(0.12, 1.5, len, '#5aa848', mx, 0, mz, ry); b.box(0.16, 0.12, len, '#3f8a3a', mx, 1.5, mz, ry);
       for (let k = 0; k <= Math.floor(len / 4); k++) { const t = k / Math.max(1, Math.floor(len / 4)); b.box(0.18, 1.7, 0.18, '#3f8a3a', x0 + (x1 - x0) * t, 0, z0 + (z1 - z0) * t); }
       W.addBox(mx, mz, Math.abs(x1 - x0) / 2 + 0.2, Math.abs(z1 - z0) / 2 + 0.2, 0, 1.4);
@@ -2257,7 +2259,7 @@
     for (let k = 0; k <= 40; k++) { const a = -Math.PI / 2 + k / 40 * Math.PI * 1.6; deck.push({ x: cx + Math.cos(a) * R0, z: cz + Math.sin(a) * R0, y: 2 + 7 * Math.min(1, k / 18) }); }
     const ramp = LMP('elevatedRoad', 0, 0, 0, deck.map((p) => ({ x: p.x, z: p.z })).concat([{ x: cx + 60, z: cz }, { x: cx + 124, z: cz }]), { height: 9, lanes: 2, rampIn: 40, pillarEvery: 18 });
     for (let k = 0; k < deck.length - 1 && !ramp; k++) {
-      const p = deck[k], q2 = deck[k + 1], len = Math.hypot(q2.x - p.x, q2.z - p.z) + 0.2, ry = Math.atan2(q2.x - p.x, q2.z - p.z);
+      const p = deck[k], q2 = deck[k + 1], len = hypot2(q2.x - p.x, q2.z - p.z) + 0.2, ry = Math.atan2(q2.x - p.x, q2.z - p.z);
       b.box(7, 0.8, len, '#e6dfd3', (p.x + q2.x) / 2, (p.y + q2.y) / 2, (p.z + q2.z) / 2, ry);
       b.box(7.4, 0.7, len, '#7b7480', (p.x + q2.x) / 2, (p.y + q2.y) / 2 + 0.8, (p.z + q2.z) / 2, ry);
       if (k % 4 === 0) { b.cyl(0.8, 0.9, p.y, 8, '#e3dacd', p.x, 0, p.z); W.addCircle(p.x, p.z, 0.9, p.y); }
@@ -2485,7 +2487,7 @@
     if (LMP('observationWheel', WX, WZ, 0, { radius: 23 })) return;
     b.at(WX, 0, WZ, 0, (q) => {
       for (const s2 of [-1, 1]) for (const zz of [-5, 5]) {
-        const lx = s2 * 14, len = Math.hypot(14, HUB), ang = Math.atan2(14, HUB);
+        const lx = s2 * 14, len = hypot2(14, HUB), ang = Math.atan2(14, HUB);
         q.box(1.0, len, 1.0, '#e9e2d6', lx / 2, HUB / 2 - len / 2, zz * 0.6, 0, 0, s2 * ang);
       }
       q.add(new THREE.CylinderGeometry(1.2, 1.2, 9, 10), '#d8cfc2', 0, HUB, -1, 0, Math.PI / 2);
@@ -2604,7 +2606,7 @@
       const corner = (lx, lz) => ({ x: B.x + lx * c + lz * s2, z: B.z - lx * s2 + lz * c });
       const hl = B.len / 2 + 0.3, hd = B.dep / 2 + 0.3, pts = [corner(-hl, -hd), corner(hl, -hd), corner(hl, hd), corner(-hl, hd), corner(-hl, -hd)];
       for (let k = 0; k < 4; k++) {
-        const a = pts[k], b2 = pts[k + 1], n = Math.max(2, Math.floor(Math.hypot(b2.x - a.x, b2.z - a.z) / 1.6));
+        const a = pts[k], b2 = pts[k + 1], n = Math.max(2, Math.floor(hypot2(b2.x - a.x, b2.z - a.z) / 1.6));
         for (let j = 0; j < n; j++) light(a.x + (b2.x - a.x) * j / n, B.H + 0.4, a.z + (b2.z - a.z) * j / n, i++);
       }
     }
@@ -2657,7 +2659,7 @@
     if (sky && BB.camera) sky.position.copy(BB.camera.position);
     if (rain && rain.visible && BB.camera) { rain.material.uniforms.uTime.value = clock; rain.material.uniforms.uCam.value.copy(BB.camera.position); }
     if (rainbow && rainbow.visible && BB.camera) {
-      const sd = skyU.sunDir.value, l = Math.hypot(sd.x, sd.z) || 1, cp = BB.camera.position;
+      const sd = skyU.sunDir.value, l = hypot2(sd.x, sd.z) || 1, cp = BB.camera.position;
       rainbow.position.set(cp.x - sd.x / l * 300, -30, cp.z - sd.z / l * 300);
       rainbow.lookAt(cp.x, -30, cp.z);
     }
@@ -2665,7 +2667,7 @@
     if (wheelRim) wheelRim.rotation.z += dt * 0.07;
     if (planes) updatePlanes(dt);
     if (boomN && Bs && Bs.front) {                 // the boom gates lift for the bus
-      const near = (zg) => Math.hypot(Bs.front.position.x - 42, Bs.front.position.z - zg) < 26 || Math.hypot(Bs.rear.position.x - 42, Bs.rear.position.z - zg) < 22;
+      const near = (zg) => hypot2(Bs.front.position.x - 42, Bs.front.position.z - zg) < 26 || hypot2(Bs.rear.position.x - 42, Bs.rear.position.z - zg) < 22;
       for (const [m, zg, sg] of [[boomN, 128, 1], [boomS, 166, -1]]) {
         if (m.userData.lm) { m.userData.setOpen(near(zg) ? 1 : 0); continue; }
         const want = near(zg) ? 1.35 : 0; m.userData.a = (m.userData.a || 0) + BB.clamp(want - (m.userData.a || 0), -dt * 1.6, dt * 1.6); m.rotation.x = sg * m.userData.a;
