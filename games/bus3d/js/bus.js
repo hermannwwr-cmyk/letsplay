@@ -396,6 +396,7 @@
   B.raiseLadder = function (on) { if (!extras.ladder) return false; partW.ladder = on ? 1 : 0; return true; };
   B.openHatch = function (on) { if (!extras.hatch) return false; partW.hatch = on ? 1 : 0; return true; };
   B.raiseBoom = function (on) { if (!extras.boom) return false; partW.boom = on ? 1 : 0; return true; };   // (tow truck)
+  B.setBoom = function (t) { if (!extras.boom) return false; partW.boom = BB.clamp(+t || 0, 0, 1); return true; };   // (wound up bit by bit: the winch, jobs.js)
   B.hookOn = function (obj) {
     const hk = extras.hook;
     if (!hk || !hk.isObject3D) return false;

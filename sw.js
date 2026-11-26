@@ -22,6 +22,7 @@ const CORE = [
   './games/bus3d/js/fleet.js',
   './games/bus3d/js/world.js',
   './games/bus3d/js/bus.js',
+  './games/bus3d/js/hands.js',
   './games/bus3d/js/jobs.js',
   './games/bus3d/js/depot.js',
   './games/bus3d/js/ui.js',
