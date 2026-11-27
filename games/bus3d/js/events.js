@@ -793,8 +793,13 @@
     }
     pose(d = this.d, off = this.off) { const p = this.r.at(d); return { x: p.x + p.lx * off, z: p.z + p.lz * off, h: Math.atan2(p.tx, p.tz), p }; }
     busAhead(sgn) {
-      const hl = this.v.len / 2;
-      for (const k of [1.2, 3.5, 6.5]) { const q = this.pose(this.d + sgn * (hl + k)); if (nearBus(q.x, q.z, 3.1)) return true; }
+      const hl = this.v.len / 2, w = W();
+      for (const k of [1.2, 3.5, 6.5]) {
+        const q = this.pose(this.d + sgn * (hl + k));
+        if (nearBus(q.x, q.z, 3.1)) return true;
+        // (and one of the town's little cars just ahead: it is pulling over or about to move on, so wait a moment)
+        if (k < 6 && w.townCarNear && w.townCarNear(q.x, q.z, 2.6)) return true;
+      }
       return false;
     }
     get arrived() { return this.target != null && Math.abs(this.target - this.d) < 0.05 && Math.abs(this.sp) < 0.05; }
@@ -807,6 +812,12 @@
       }
       this.blocked = this.yieldBus && want !== 0 && this.busAhead(Math.sign(want));
       if (this.blocked) want = 0;
+      // a town car further along its way: come up behind it gently (in time to stop), it will move over or on
+      else if (want !== 0) {
+        const w = W(), sg = Math.sign(want), hl = this.v.len / 2, reach = hl + 4 + this.sp * this.sp / 9;
+        // (looked for along the route only when a town car is anywhere that near at all)
+        if (w.townCarNear && this.x != null && w.townCarNear(this.x, this.z, reach + 2)) for (let k = hl + 2; k < reach; k += 2) { const q = this.pose(this.d + sg * k); if (w.townCarNear(q.x, q.z, 2.4)) { want = sg * Math.min(Math.abs(want), Math.sqrt(2 * 4.5 * Math.max(0, k - hl - 3))); break; } }
+      }
       this.wait = this.blocked ? this.wait + dt : 0;
       const speedingUp = Math.abs(want) > Math.abs(this.sp) && (Math.sign(want) === Math.sign(this.sp) || Math.abs(this.sp) < 0.05);
       const acc = speedingUp ? 3.4 : 6.5;
