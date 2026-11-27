@@ -1,12 +1,14 @@
 /* Little Bus Captain: the home screen, the HUD and the other screens (DOM over the canvas, inside #ui).
    Home screen (the game starts here): "Little Bus Captain" lettering, the child's bus parked at its garage with the
    camera swinging gently round it, ONE big Play button (to the garage), the family strip (status picture and the
-   buses here now) and, in hub mode, the all-games button with its "Home" tag (to the app's launcher).
+   buses here now), the Book tile, the wish card (the ride being saved up for, with its coin bar) and, in hub mode,
+   the all-games button with its "Home" tag (to the app's launcher).
    HUD: every button is a paper tile with a picture and a word under it, spoken on tap (BB.icon pictures, Fredoka).
    Driving is kept clear so the road shows (the owner asked for fewer buttons): a small top bar with Home, one tile
    for coins and the fuel dial, Next stop (the stop's picture and progress dots) and, in hub mode, the shared clock
-   chip, then Garage and Sound; at the bottom only the steering wheel (tap its middle to honk) and the Go / Back
-   pedals, plus Turn around or Wash when they're needed. Music and the lane helper are in the garage's Settings, and
+   chip, then Garage and Sound; at the bottom only the steering wheel (turn it by the rim, or push from its middle;
+   tap its middle to honk) and the Go / Back pedals, plus Turn around or Wash when they're needed. The Go pedal glows
+   when the bus has stood still for a while, and backing up beeps. Music and the lane helper are in the garage's Settings, and
    the fire engine's and ambulance's sirens switch themselves on and off with their jobs.
    Home goes back to the home screen (hub and standalone alike); with a trip in progress a kind "Go home?" card asks
    first, and the job waits (phase 'home') until Play and Drive. Also toasts, coins, confetti, a fade for the tow, the
@@ -53,7 +55,7 @@
   .bbu-mid { flex: 1; min-width: 0; display: flex; justify-content: center; align-items: flex-start; gap: 12px; }
   .bbu-b .row canvas { width: var(--ic); height: var(--ic); flex: none; }
   .bbu-cash .row b { font-size: calc(var(--ic) * .8); line-height: 1; min-width: .6em; text-align: left; color: #3a2a3c; }
-  .bbu-cash.bump { animation: bbu-bump .5s; }
+  .bbu-cash.bump, .bbu-job.bump { animation: bbu-bump .5s; }
   @keyframes bbu-bump { 40% { transform: scale(1.14); } }
   /* the fuel dial: always exactly 2 : 1 (a true half circle; this beats the tiles' square .row canvas rule) */
   .bbu-b.bbu-cash .row canvas.fuel { width: calc(var(--ic) * 1.7); height: calc(var(--ic) * .85); display: block; }
@@ -129,6 +131,7 @@
   .ctl-wheel .bbu-wheel, .ctl-wheel .bbu-ped { display: block; }
   .bbu-wheel { position: absolute; left: calc(var(--sl) + 6px); bottom: var(--sb); width: var(--wh); height: var(--wh); border-radius: 50%;
     pointer-events: auto; touch-action: none; }
+  .bbu-wheel { transition: transform .12s ease-out; } .bbu-wheel.grab { transform: scale(1.05); }   /* (held: it swells a little, "got it") */
   .bbu-wheel .rot { position: absolute; inset: 0; transition: transform .05s linear; }
   .bbu-wheel.honk svg { animation: bbu-honk .3s ease-out; }
   @keyframes bbu-honk { 40% { transform: scale(.94); } }
@@ -143,7 +146,7 @@
   .bbu-ped.back { right: calc(var(--sr) + 6px + var(--pgw) + 14px); width: var(--pbw); height: var(--pbh); border-radius: 24px;
     background: linear-gradient(#ffd27a, #f5a23d 55%, #d98226); box-shadow: inset -4px -5px 0 rgba(0,0,0,.1), 0 6px 0 #a8601a, 0 8px 14px rgba(0,0,0,.12); }
   .bbu-ped.down { transform: translateY(6px); } .bbu-ped.go.down { box-shadow: 0 2px 0 #24702d; } .bbu-ped.back.down { box-shadow: 0 1px 0 #a8601a; }
-  .bbu-ped.go.nudge { animation: bbu-pednudge 1.4s ease-in-out infinite; }
+  .bbu-ped.go.nudge, .bbu-ped.go.idle { animation: bbu-pednudge 1.4s ease-in-out infinite; }
   @keyframes bbu-pednudge { 50% { box-shadow: 0 8px 0 #24702d, 0 0 0 14px rgba(255,212,92,.55); } }
   .ctl-wheel .bbu-uturn { right: calc(var(--sr) + 6px + (var(--pgw) - var(--dt) - 14px) / 2); bottom: calc(var(--sb) + var(--pgh) + 16px); }
   .ctl-wheel.lefty .bbu-wheel { left: auto; right: calc(var(--sr) + 6px); }
@@ -192,6 +195,26 @@
   @keyframes bbu-wiggle { 20% { rotate: -3deg; } 40% { rotate: 3deg; } 60% { rotate: -2deg; } 80% { rotate: 1deg; } }
   .bbu-fam { position: absolute; top: var(--st); right: var(--sr); pointer-events: none !important; }
   .bbu-title .bbu-bookbtn { position: absolute; left: var(--sl); bottom: var(--sb); }
+  /* the home screen's wish (bottom right): the ride being saved up for, a bar that fills with the coins and how many
+     more it takes (a green tick once there are enough). The square picture canvas has an empty band above and below
+     its 4 : 3 picture: the negative margins tuck those away. */
+  .bbu-title .bbu-wish { position: absolute; right: var(--sr); bottom: var(--sb); height: auto; padding: 5px 12px 9px; gap: 5px; --wp: 112px;
+    animation: bbu-pop .4s cubic-bezier(.2,1.5,.5,1); }
+  .bbu-wish > canvas.ride { width: var(--wp); height: var(--wp); margin: calc(var(--wp) * -.125) 0; }
+  .bbu-wish .row { height: auto; gap: 6px; }
+  .bbu-wish .bar { width: calc(var(--wp) * .62); height: 13px; border-radius: 7px; background: #eadfca; overflow: hidden; box-shadow: inset 0 2px 0 rgba(120,80,40,.12); }
+  .bbu-wish .bar i { display: block; height: 100%; width: 0; min-width: 6px; border-radius: 7px; background: #ffb81f; transition: width 1s ease-out; }
+  .bbu-wish .row canvas { width: 24px; height: 24px; margin-right: -3px; }
+  .bbu-wish .row b { font: 700 22px/1 ${BB.FONT}; color: #9a5d00; }
+  .bbu-wish .ok { width: 26px; height: 26px; border-radius: 50%; flex: none; background: #19a79b url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 12.5l4 4 8-9' stroke='white' stroke-width='3.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/80% no-repeat; }
+  .bbu-wish.ready { border-color: #19a79b; box-shadow: inset -4px -5px 0 rgba(25,167,155,.2), 0 4px 0 rgba(20,110,100,.25); }
+  .bbu-wish.ready .bar i { background: #5cb85c; }
+  @media (max-height: 520px) { .bbu-title .bbu-wish { --wp: 84px; padding: 4px 9px 7px; gap: 4px; } .bbu-wish .bar { height: 11px; }
+    .bbu-wish .row canvas { width: 20px; height: 20px; } .bbu-wish .row b { font-size: 18px; } .bbu-wish .ok { width: 22px; height: 22px; } }
+  /* (a narrow, upright window, e.g. the hub's "Play anyway" in iPad Split View: a smaller card, and in the narrowest
+     ones the card and the Book tile sit above the Play button instead of beside it) */
+  @media (max-width: 640px) { .bbu-title .bbu-wish { --wp: 84px; padding: 4px 9px 7px; } }
+  @media (max-width: 480px) { .bbu-title .bbu-wish, .bbu-title .bbu-bookbtn { bottom: calc(var(--sb) + 126px); } }
   /* the spotter book: two paper pages, a sticker per find (grey "?" outlines for the rest) */
   .bbu-book { position: absolute; inset: 0; z-index: 59; background: rgba(40,30,50,.4); display: flex; align-items: center; justify-content: center;
     pointer-events: auto; animation: bbu-fadein .2s; padding: var(--st) var(--sr) var(--sb) var(--sl); box-sizing: border-box; --sk: 92px; --skl: 14px; }
@@ -312,7 +335,7 @@
     .bbu-tip { bottom: calc(var(--cb) + var(--joy) / 4); }
     .bbu-tip.wheelhand { bottom: calc(var(--cb) + var(--wh) * .65); } .bbu-tip.pedalhand { bottom: calc(var(--cb) + var(--pgh) / 4); }
     .bbu-ped .lb { font-size: calc(var(--lb) + 3px); }
-    .bbu-ped.go.nudge { animation-name: bbu-pednudge-s; }
+    .bbu-ped.go.nudge, .bbu-ped.go.idle { animation-name: bbu-pednudge-s; }
   }
   @keyframes bbu-pednudge-s { 50% { box-shadow: 0 8px 0 #24702d, 0 0 0 9px rgba(255,212,92,.55); } }
   `);
@@ -353,7 +376,7 @@
   U.setIcon = function (b, icon) { const old = b.querySelector('canvas, svg'); const nu = BB.iconEl(icon, 128); if (old) b.replaceChild(nu, old); else b.prepend(nu); };
 
   let uturnBtn, washBtn, facing = false, driving = true, tips = [];
-  let hud, cashEl, fuelCv, jobEl, jobPic, jobDots, wheelEl, wheelRot, pedGo, pedBack, titleEl, soundBtn, exitBtn, homeBtn, garageBtn, playBtn, famEl;
+  let hud, cashEl, fuelCv, jobEl, jobPic, jobDots, wheelEl, wheelRot, pedGo, pedBack, titleEl, soundBtn, exitBtn, homeBtn, garageBtn, playBtn, famEl, wishEl;
 
   U.init = function () {
     U.root = document.getElementById('ui');
@@ -395,11 +418,15 @@
     BB.on('sound:changed', syncSound); syncSound();
 
     // driving: the steering wheel and the Go / Back pedals (the only controls: the owner chose them over a joystick)
-    // the steering wheel: drag round it (the wheel turns with the finger's angle, up to about 135 degrees each way,
-    // and eases back to the middle when let go), and the Go and Back pedals (hold)
+    // The steering wheel takes a finger two ways, and eases back to the middle when let go:
+    //  - held by its rim it is a real wheel: it turns with the finger's angle, up to about 135 degrees each way;
+    //  - pushed from its middle (where a thumb lands first, and where the angle means little) it works like a stick:
+    //    the wheel turns the way the finger goes, left or right, all the way by the time the finger is at the rim.
+    //    (Before, a push straight out from the middle did nothing at all.)
+    // A quick tap on the red middle is still the horn. The Go and Back pedals are held.
     wheelEl = BB.el('div', 'bbu-wheel', hud); wheelRot = BB.el('div', 'rot', wheelEl, WHEEL_SVG);
     wheelEl.setAttribute('aria-label', 'steering wheel');
-    let wheelId = null, lastA = 0, turned = 0, downT = 0, inHub = false;
+    let wheelId = null, lastA = 0, turned = 0, downT = 0, inHub = false, push = false, downX = 0, downY = 0, rot0 = 0;
     const angOf = (e) => { const r = wheelEl.getBoundingClientRect(); return Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2)) * 180 / Math.PI; };
     wheelEl.addEventListener('pointerdown', (e) => {
       e.preventDefault(); if (wheelId != null) return;
@@ -407,21 +434,32 @@
       lastA = angOf(e); wheel.drag = true;
       const r = wheelEl.getBoundingClientRect(), dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
       turned = 0; downT = performance.now(); inHub = Math.hypot(dx, dy) < r.width * 0.3;     // the red middle (with the horn)
+      push = inHub; downX = e.clientX; downY = e.clientY; rot0 = wheel.rot;
+      wheelEl.classList.add('grab');
     });
     wheelEl.addEventListener('pointermove', (e) => {
       if (e.pointerId !== wheelId) return;
-      const a = angOf(e); let d = a - lastA; while (d > 180) d -= 360; while (d < -180) d += 360; lastA = a;
-      if (inHub) { const r = wheelEl.getBoundingClientRect(); if (Math.hypot(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2)) < r.width * 0.3) return; inHub = false; }
-      turned += Math.abs(d);
-      wheel.rot = BB.clamp(wheel.rot + d, -135, 135); showWheel();
+      if (push) {
+        // (the first few pixels are a tap's wobble: the horn, not a turn)
+        if (inHub && Math.hypot(e.clientX - downX, e.clientY - downY) < 9) return;
+        inHub = false;
+        const w = wheelEl.getBoundingClientRect().width || 1;
+        wheel.rot = BB.clamp(rot0 + (e.clientX - downX) / (w * 0.5) * 135, -135, 135);
+      } else {
+        const a = angOf(e); let d = a - lastA; while (d > 180) d -= 360; while (d < -180) d += 360; lastA = a;
+        turned += Math.abs(d);
+        wheel.rot = BB.clamp(wheel.rot + d, -135, 135);
+      }
+      showWheel();
       if (Math.abs(wheel.rot) > 25) hideTip('wheelhand');
       applyInput();
     });
     // a quick tap on the wheel's red middle (not a turn) honks the horn
     const wheelUp = (e) => {
       if (e.pointerId !== wheelId) return; wheelId = null; wheel.drag = false;
+      wheelEl.classList.remove('grab');
       if (e.type === 'pointerup' && inHub && turned < 12 && performance.now() - downT < 600) honk();
-      inHub = false;
+      inHub = false; push = false;
     };
     for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) wheelEl.addEventListener(ev, wheelUp);
     wheelEl.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -473,6 +511,8 @@
     BB.tap(playBtn, () => U.play());
     famEl = BB.el('div', 'bbu-fam', titleEl);
     U.btn(titleEl, 'book', 'Book', () => U.openBook(), 'bbu-bookbtn');
+    wishEl = BB.el('button', 'bbu-b bbu-wish', titleEl); wishEl.type = 'button'; wishEl.style.display = 'none';
+    BB.tap(wishEl, () => wishTap());
     const snow = BB.el('div', 'bbu-snow', titleEl);
     for (let i = 0; i < 14; i++) {        // (twinkling sparkles in the sky, not snow)
       const f = BB.el('i', '', snow), sz = 9 + Math.random() * 9;
@@ -690,6 +730,7 @@
   const JOB_WORD = { fire: 'Fire!', ambulance: 'Ambulance', icecream: 'Ice cream', tow: 'Tow' };
   const JOB_PIC = { fire: 'fire', ambulance: 'medic', icecream: 'icecream', tow: 'tow', taxi: 'taxi' };
   const JOB_WORD_TAXI = 'Taxi';
+  let jobKey = '';
   function renderJob() {
     const job = BB.jobs.current, t = BB.bus.target;
     if (!t && !job) { jobEl.style.visibility = 'hidden'; return; }
@@ -706,7 +747,11 @@
     jobDots.innerHTML = '';
     // going to the garage: just its picture; on a job, a dot per stop
     if (job && !wash && !(t && t.id === 'depot')) job.stops.forEach((s, i) => BB.el('i', i < job.index ? 'done' : i === job.index ? 'now' : '', jobDots));
-    jobEl.querySelector('.lb').textContent = wash ? 'Wash' : depot ? 'Garage' : (job && JOB_WORD[KIND_OF[job.kind] || KIND_OF[job.vehicle] || U.rideKind()]) || (vk === 'taxi' ? JOB_WORD_TAXI : 'Next stop');
+    const word = wash ? 'Wash' : depot ? 'Garage' : (job && JOB_WORD[KIND_OF[job.kind] || KIND_OF[job.vehicle] || U.rideKind()]) || (vk === 'taxi' ? JOB_WORD_TAXI : 'Next stop');
+    jobEl.querySelector('.lb').textContent = word;
+    // somewhere new to go: the tile gives a little pop, so the eye finds the new picture
+    const key = word + '|' + (pic || '') + '|' + (stop ? stop.id : '') + '|' + (job ? job.index : '');
+    if (key !== jobKey) { jobKey = key; if (hud && !hud.classList.contains('off')) { jobEl.classList.remove('bump'); void jobEl.offsetWidth; jobEl.classList.add('bump'); } }
   }
 
   // ---------- Home ----------
@@ -785,6 +830,7 @@
     for (const k in pedals) pedals[k] = false;
     for (const b of [pedGo, pedBack]) if (b) { b.classList.remove('down'); b._ptrs.clear(); }
     wheel.drag = false;                   // (the wheel itself eases back to the middle in U.update)
+    if (wheelEl) wheelEl.classList.remove('grab');
     try { applyInput(); } catch (e) { /* bus not built yet */ }
   };
   U.input = () => { const c = current(); return { throttle: c.throttle, steer: c.steer, go: c.throttle > 0.25, back: c.throttle < -0.25, left: c.steer < -0.3, right: c.steer > 0.3 }; };
@@ -827,7 +873,7 @@
     U.closeAsk(); U.releaseAll(); U.hideTips();
     titleEl.style.display = ''; U.root.classList.add('home'); hud.classList.add('off'); U.showExit(true);
     try { if (BB.bus.placeAtDepot) BB.bus.placeAtDepot('title'); else BB.bus.setCamera('title'); } catch (e) { console.error(e); }
-    syncFam();
+    syncFam(); showWish();
     if (opts.say !== false) BB.say(U.homeWelcome());
     homeCalls = 0; if (homeIdle) BB.cancelLater(homeIdle); homeIdle = BB.later(12000, homeNudge);
     BB.emit('home:open');
@@ -837,6 +883,35 @@
     if (!U.titleShown() || BB.bedtime || homeCalls >= 2) return;
     if (!BB.speaking()) { homeCalls++; playBtn.classList.remove('call'); void playBtn.offsetWidth; playBtn.classList.add('call'); BB.say('Tap Play to go to your garage!'); }
     homeIdle = BB.later(homeCalls ? 18000 : 4000, homeNudge);
+  }
+  // The wish on the home screen: the ride the child is saving up for (BB.depot.wish(): the locked ride tapped last in
+  // the garage, or the cheapest one not bought yet), with a bar that fills as the coins come in. A tap says how many
+  // more coins it takes, or that there are enough (and Play gives a wiggle: the garage is that way). No card once
+  // every ride is theirs. Nothing here may ever keep the home screen from opening, hence the try/catch.
+  function showWish() {
+    if (!wishEl) return;
+    let w = null; try { w = BB.depot.wish && BB.depot.wish(); } catch (e) { console.error(e); }
+    wishEl.style.display = 'none'; wishEl.innerHTML = '';
+    if (!w) return;
+    try {
+      const src = w.pic(), c = document.createElement('canvas'); c.width = src.width; c.height = src.height; c.getContext('2d').drawImage(src, 0, 0);
+      c.className = 'ride'; wishEl.appendChild(c);
+      const row = BB.el('span', 'row', wishEl), fill = BB.el('i', '', BB.el('span', 'bar', row));
+      if (w.need > 0) { row.appendChild(BB.iconEl('coin', 64)); BB.el('b', '', row, String(w.need)); } else BB.el('span', 'ok', row);
+      wishEl.classList.toggle('ready', w.need <= 0);
+      wishEl.setAttribute('aria-label', w.need > 0 ? `${w.need} more coins for the ${w.name}` : `Enough coins for the ${w.name}`);
+      wishEl.style.display = '';
+      const share = Math.round(100 * BB.clamp((w.price - w.need) / w.price, 0, 1));
+      requestAnimationFrame(() => requestAnimationFrame(() => { fill.style.width = share + '%'; }));   // (the bar fills up as the screen opens)
+    } catch (e) { console.error(e); wishEl.style.display = 'none'; }
+  }
+  function wishTap() {
+    let w = null; try { w = BB.depot.wish && BB.depot.wish(); } catch (e) { /* none */ }
+    if (!w) return;
+    BB.sfx.pop();
+    if (w.need > 0) { BB.say(`${w.need} more ${w.need === 1 ? 'coin' : 'coins'} for the ${w.name}!`); return; }
+    BB.say(`You have enough coins for the ${w.name}! It is in the garage!`);
+    playBtn.classList.remove('call'); void playBtn.offsetWidth; playBtn.classList.add('call');
   }
   U.hideHome = function () { titleEl.style.display = 'none'; U.root.classList.remove('home'); U.showExit(false); if (homeIdle) { BB.cancelLater(homeIdle); homeIdle = null; } };
   // Play: to the garage. A job that was waiting (Home in the middle of one) carries on after Drive.
@@ -1099,11 +1174,27 @@
     x.beginPath(); x.moveTo(cx, cy); x.lineTo(cx + Math.cos(a) * (R - 6), cy + Math.sin(a) * (R - 6)); x.stroke();
     x.fillStyle = '#f26b5b'; x.beginPath(); x.arc(cx, cy, 6, 0, Math.PI * 2); x.fill();
   }
+  // Two small cues while driving (both on the game clock, so they stand still on a hold):
+  //  - the bus could go but has stood still with no foot on a pedal for a few seconds: the Go pedal glows, so a child
+  //    who can't read (or missed the words) sees what to press next;
+  //  - backing up beeps softly, like a real bus (and tells the ears that the orange pedal goes backwards).
+  let idleGo = 0, goGlow = false, backBeep = 0;
+  function driveCues(dt) {
+    const B = BB.bus;
+    const can = driving && hud && !hud.classList.contains('off') && !askEl && !bookEl && !BB.bedtime && B.camMode === 'chase' && !B.atStop && !B.locked && !B.noFuel && !B.doorsOpen;
+    const foot = pedals.go || pedals.back || keys.go || keys.back;
+    idleGo = can && !foot && Math.abs(B.speed) < 0.3 ? idleGo + dt : 0;
+    const glow = idleGo > 4;
+    if (glow !== goGlow) { goGlow = glow; if (pedGo) pedGo.classList.toggle('idle', glow); }
+    if (can && (pedals.back || keys.back) && B.speed < -0.6) { backBeep -= dt; if (backBeep <= 0) { backBeep = 0.64; BB.sfx.backBeep(); } }
+    else backBeep = 0;
+  }
   U.update = function (dt) {
     if (!wheel.drag && wheel.rot !== 0) {            // the wheel eases back to the middle
       wheel.rot = Math.abs(wheel.rot) < 0.5 ? 0 : wheel.rot * Math.max(0, 1 - (dt || 0.016) * 7);
       showWheel(); applyInput();
     }
+    driveCues(dt || 0.016);
     const f = BB.bus.fuel;
     needle = needle < 0 ? f : needle + (f - needle) * Math.min(1, (dt || 0.016) * 3);
     const low = f <= BB.cfg.fuelLow;

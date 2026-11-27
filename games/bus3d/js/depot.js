@@ -519,7 +519,8 @@
   D.hop = () => { hopV = 7; };
 
   // ---------- the garage screen (DOM) ----------
-  // A paper panel on the right with three big labelled sections: My ride (the ride, colour, number), Shop (Stickers,
+  // A paper panel on the right with three big labelled sections: My ride (the rides, four to a row; the paint pots in
+  // one row; the bus number: all three show without scrolling on a tablet), Shop (Stickers,
   // Lights, Bumpers, Wheels, Extras) and Settings (which side the pedals go, lane helper, music, Christmas).
   // Tiles have a picture and a word; unowned ones a price chip; the chosen one a teal rim and a tick; one being tried
   // on glows, with a green "tap again to buy" chip. Over the 3D view, top left: Coins and Fuel (filled free on every
@@ -593,6 +594,35 @@
   @keyframes bbd-buy { 50% { transform: scale(1.16); } }
   .bbd-tile.preview .bbd-price::before { content: ''; width: 18px; height: 18px; margin-right: 2px;
     background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 12.5l4 4 8-9' stroke='white' stroke-width='3.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat; }
+  /* My ride: four rides to a row (two rows hold all eight) with their pictures in true shape (the square canvas
+     has an empty band above and below its 4 : 3 picture, cut away here), then the paint pots all in ONE row, so the
+     colours show without scrolling on a tablet, then the bus number */
+  #ui { --rp: 92px; --pp: 50px; --ph: 88px; }
+  .bbd-tiles.rides { width: 100%; column-gap: 10px; } .bbd-tiles.pots { width: 100%; column-gap: 8px; }
+  .bbd-tiles.rides .bbd-tile { width: calc((100% - 30px) / 4); }
+  .bbd-tiles.rides .bbd-tile canvas { width: var(--rp); height: var(--rp); max-width: 92%; margin: calc(var(--rp) * -.125) 0; object-fit: contain; }
+  .bbd-tiles.rides .bbd-tile .lb { font-size: calc(var(--tlb) - 1px); letter-spacing: -.2px; }
+  /* (the padlock and the price chip keep to their own tile, so neighbours' chips and padlocks never run together) */
+  .bbd-tiles.rides .bbd-tile.locked::before { left: -4px; } .bbd-tiles.rides .bbd-price { right: -5px; }
+  .bbd-tiles.rides .bbd-tile.preview .bbd-price { right: -8px; }
+  /* (the wish: its picture gives the saving-up bar a little room, so the bar never sits on the ride's name) */
+  .bbd-tiles.rides .bbd-tile.wish { padding-bottom: 14px; }
+  .bbd-tiles.rides .bbd-tile.wish canvas { width: calc(var(--rp) - 10px); height: calc(var(--rp) - 10px); margin: calc((var(--rp) - 10px) * -.125) 0; }
+  .bbd-tiles.pots .bbd-tile { width: calc((100% - (var(--n, 6) - 1) * 8px) / var(--n, 6)); min-width: 50px; height: var(--ph); border-radius: 20px; }
+  .bbd-tiles.pots .bbd-tile canvas { width: var(--pp); height: var(--pp); }
+  .bbd-tiles.pots .bbd-tile .lb { font-size: calc(var(--tlb) - 1px); }
+  .bbd-tiles.pots .bbd-price { font-size: 15px; line-height: 20px; padding: 0 5px 0 1px; top: -9px; right: -7px; } .bbd-tiles.pots .bbd-price canvas { width: 16px; height: 16px; }
+  .bbd-tiles.pots .bbd-tile.preview .bbd-price { font-size: 19px; line-height: 26px; padding: 0 7px 0 3px; top: -13px; right: -9px; }
+  .bbd-tiles.pots .bbd-tile.preview .bbd-price canvas { width: 20px; height: 20px; } .bbd-tiles.pots .bbd-tile.preview .bbd-price::before { width: 15px; height: 15px; }
+  .bbd-tiles.pots .bbd-tile.on::after { width: 26px; height: 26px; top: -9px; right: -8px; }
+  @media not all and (min-height: 700px) and (min-width: 1000px) { #ui { --rp: 78px; --pp: 44px; --ph: 80px; } }
+  @media (max-height: 560px) { #ui { --rp: 62px; --pp: 36px; --ph: 68px; } .bbd-tiles.rides .bbd-tile .lb { font-size: 12px; } }
+  @media (max-height: 340px) { #ui { --rp: 54px; --pp: 32px; --ph: 62px; } }
+  /* (a narrow panel, the smallest phones: three rides to a row, so "Double-decker" still fits under its picture) */
+  @media (max-width: 760px) { .bbd-tiles.rides .bbd-tile { width: calc((100% - 20px) / 3); } .bbd-tiles.rides .bbd-tile .lb { font-size: 12px; } }
+  /* the bus number: one low tile, the plate and its word side by side */
+  .bbd-tile.plate { flex-direction: row; width: auto; height: calc(var(--th) * .64); padding: 3px 16px 5px 8px; gap: 10px; }
+  .bbd-tile.plate canvas { width: calc(var(--tic) * 1.15); height: calc(var(--tic) * .9); object-fit: cover; }
   .bbd-wishbar { position: absolute; left: 9px; right: 9px; bottom: 4px; height: 7px; border-radius: 4px; background: #eadfca; overflow: hidden; }
   .bbd-wishbar i { display: block; height: 100%; min-width: 4px; border-radius: 4px; background: #ffb81f; }
   .bbd-tile.wish { padding-bottom: 9px; }
@@ -861,7 +891,7 @@
 
   // a tile: a picture and its word, plus a price chip (not owned yet), a tick (chosen) or a glow (being tried on)
   function tile(parent, picCanvas, opts) {
-    const t = BB.el('button', 'bbd-tile' + (opts.on ? ' on' : '') + (opts.preview ? ' preview' : '') + (opts.wide ? ' wide' : '') + (opts.big ? ' big' : '') + (opts.locked ? ' locked' : ''), parent);
+    const t = BB.el('button', 'bbd-tile' + (opts.on ? ' on' : '') + (opts.preview ? ' preview' : '') + (opts.wide ? ' wide' : '') + (opts.big ? ' big' : '') + (opts.plate ? ' plate' : '') + (opts.locked ? ' locked' : ''), parent);
     t.type = 'button';
     t.appendChild(cv(picCanvas));
     if (opts.label) { BB.el('span', 'lb', t, opts.label); t.setAttribute('aria-label', opts.label); }
@@ -873,10 +903,10 @@
     return t;
   }
   // a heading for a group of tiles: a little picture and a word
-  function sec(icon, word, full) {
+  function sec(icon, word, full, kind) {
     const g = BB.el('div', 'bbd-grp' + (full ? ' full' : ''), bodyEl);
     const d = BB.el('div', 'bbd-sec', g); d.appendChild(BB.iconEl(icon, 64)); BB.el('span', '', d, word);
-    return BB.el('div', 'bbd-tiles', g);
+    return BB.el('div', 'bbd-tiles' + (kind ? ' ' + kind : ''), g);
   }
   // the lane helper: a bus between two lane lines, with a sparkle when it is on
   const assistPic = (on) => BB.icon(on ? 'helperOn' : 'helper', 128);
@@ -997,12 +1027,12 @@
         BB.tap(h, () => BB.say('Your bus is dusty! The bus wash is next to the garage. A wash costs 3 coins.'));
       }
       // (a) the ride: the buses are free to switch; the other rides are tried on with one tap and bought with a second
-      let box = sec('mybus', 'Ride');
+      let box = sec('mybus', 'Ride', true, 'rides');
       fleetTypes().sort((a, b) => (VEH_PRICE[a.id] || 0) - (VEH_PRICE[b.id] || 0)).forEach((t) => {   // (buses first, then by price)
         const own = ownsVeh(t.id), price = VEH_PRICE[t.id] || 0, name = TYPE_SAY[t.id] || t.name;
         const wish = !own && D.wish();
         tile(box, typePic(t.id), { saved: wish && wish.id === t.id ? D.cash / price : null, i: n++, on: curType() === t.id && !(preview && preview.kind === 'vehicle'), preview: isPrev('vehicle', t.id), locked: !own,
-          price: own ? 0 : price, wide: true, label: TYPE_WORD[t.id] || t.name, tap: (el) => {
+          price: own ? 0 : price, label: TYPE_WORD[t.id] || t.name, tap: (el) => {
             if (own) {
               if (preview) setPreview(null);
               if (curType() === t.id) { BB.say(name + '!'); renderBody(); return; }
@@ -1026,13 +1056,9 @@
             BB.later(700, () => renderBody());
           } });
       });
-      // (c) the bus number (next to the rides when there is room; buses only: the other rides have no route sign)
-      if (isBusKind(curType())) {
-        box = sec('number', 'Number');
-        tile(box, platePic(S.routeNo), { i: n++, wide: true, label: 'Change', tap: () => openPad() });
-      }
-      // (b) the colour: the bus's own; the other rides keep one each (save.vehiclePaint), or their classic colours
-      box = sec('colour', 'Colour', true);
+      // (b) the colour, straight after the rides (the first thing a child wants to change, and the first thing a few
+      // coins can buy): the bus's own; the other rides keep one each (save.vehiclePaint), or their classic colours
+      box = sec('colour', 'Colour', true, 'pots');
       const vt = curType(), veh = !isRideBus(vt), chosen = veh ? S.vehiclePaint[vt] || null : S.paint;
       const classic = veh && BB.fleet && BB.fleet.PAINT && BB.fleet.PAINT[vt];
       if (veh) tile(box, paintPic(typeof classic === 'string' ? classic : '#ef4b3c'), { i: n++, on: !chosen && !preview, label: 'Classic', tap: () => {
@@ -1052,6 +1078,12 @@
           BB.later(700, paintChanged);
         } });
       });
+      box.style.setProperty('--n', String(box.children.length));
+      // (c) the bus number (buses only: the other rides have no route sign)
+      if (isBusKind(curType())) {
+        box = sec('number', 'Number');
+        tile(box, platePic(S.routeNo), { i: n++, plate: true, label: 'Change', tap: () => openPad() });
+      }
     } else if (tab === 'settings') {
       // (the steering wheel and pedals are the only controls: just which side the pedals go)
       let box = sec(S.leftHand ? 'handL' : 'handR', 'Pedals on');

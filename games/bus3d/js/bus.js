@@ -1655,12 +1655,18 @@
       if (!stopCam || stopCam.key !== key) stopCam = planStopCam(st, key);
       camPos.copy(stopCam.pos); camLook.copy(stopCam.look);
     } else {
-      // chase: behind and above the front carriage, trailing its heading smoothly
+      // chase: behind and above the ride, trailing its heading smoothly
       camH += wrapA(h - camH) * Math.min(1, dt * 2.2);
       const wide = BB.camera.aspect > 1.9;
       // (a little lower and looking further ahead than before, so more of the road shows: the owner asked for more view)
-      let back = (wide ? 20 : 19.5) + Math.max(0, B.speed) * 0.25 + 3 * BB.smooth(boostK);
-      let up = wide ? 11 : 10;
+      // The view fits the ride. It is set from the ride's tail and nose, not from the front carriage's middle: the
+      // camera sits the same way behind the tail of every bus (so a bendy bus shows whole, tail lamps and all, instead
+      // of being cut off at the bottom of the screen) and looks the same way past its nose. Small rides (a taxi is
+      // half a bus long) are seen from closer and lower by the same share, so they aren't a speck on the road.
+      const half = totalLen() / 2, tail = frontOff() + half, nose = half - frontOff();
+      const fit = BB.clamp(0.7 + 0.3 * (half * 2 - 5) / 5.8, 0.7, 1);
+      let back = tail + ((wide ? 14.6 : 14.1) + Math.max(0, B.speed) * 0.25) * fit + 3 * BB.smooth(boostK);
+      let up = (wide ? 11 : 10) * fit;
       // a look at something (B.lookAt): swing round toward it (up to ~65 degrees) and tilt up for things in the sky
       let ch = camH, lk = null;
       const kL = look && look.target ? BB.smooth(lookK) : 0;
@@ -1669,7 +1675,7 @@
         const az = Math.atan2(lk.x - fx, lk.z - fz), dA = BB.clamp(wrapA(az - camH), -1.15, 1.15);
         ch = camH + dA * 0.75 * kL;
         const high = BB.clamp((lk.y - 6) / 30, 0, 1);
-        up -= (4.5 * high + 1.0) * kL; back += 3 * kL;
+        up -= (4.5 * high + 1.0) * kL * fit; back += 3 * kL;
       }
       const f = fwdOf(ch);
       // pull in a little if the camera would be inside a building
@@ -1680,8 +1686,9 @@
       }
       camPos.set(fx - f.x * back, up, fz - f.z * back);
       // (under the MRT viaduct the camera is kept low, so it looks down more there and the deck stays out of view)
-      const ahead = underViaduct(fx, fz) || underViaduct(camPos.x, camPos.z) ? (wide ? 2 : 5) : (wide ? 7 : 11);
-      camLook.set(fx + f.x * ahead, ahead > 5 ? 0.6 : 0, fz + f.z * ahead);
+      const under = underViaduct(fx, fz) || underViaduct(camPos.x, camPos.z);
+      const ahead = nose + (under ? (wide ? -3.4 : -0.4) : (wide ? 1.6 : 5.6)) * fit;
+      camLook.set(fx + f.x * ahead, under ? 0 : 0.6, fz + f.z * ahead);
       if (kL > 0) {
         // look part of the way toward it (the bus stays in the picture), never higher than 20 up
         const w = 0.55 * kL;
