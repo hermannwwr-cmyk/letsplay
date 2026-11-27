@@ -165,6 +165,17 @@
     v.set(Math.abs(d.userData.x) + 0.35, 0, d.userData.z); return d.parent.localToWorld(v);
   };
   B.isSettling = () => !!settle;
+  // The corners of the vehicle's body in the world (the front carriage: where the cab, the door and the hatch are):
+  // the box a "tap the fire engine" ring goes round on screen (hands.js). Fills and returns `out` (8 points).
+  B.bodyBox = function (out) {
+    const hb = M ? M.height : 3, n = 8;
+    for (let i = 0; i < n; i++) {
+      const v = out[i] || (out[i] = new THREE.Vector3());
+      v.set(i & 1 ? 1.25 : -1.25, i & 2 ? hb : 0.15, i & 4 ? LF / 2 : -LF / 2);
+      B.front.localToWorld(v);
+    }
+    return out;
+  };
   // B.holdArrival(seconds): for up to 8 s the bus won't settle into its target bay (it rolls on slowly, the bay keeps
   // glowing), e.g. while an event plays; B.holdArrival(0) releases it. Game clock (hold-aware). Ignored at a stop.
   let arrivalHold = 0;
@@ -1303,20 +1314,22 @@
       const q = B.seats[i];
       heads.push(lw(q.x, q.y + 1.0, q.z)); req.push(lw(q.x, q.y + 2.25, q.z), lw(q.x, q.y - 0.4, q.z));
     }
-    if (!NS) {                                                                // a vehicle with no seats: its whole body
+    // (a close-up, st.frameClose, shows just the scene's own points: the smoky windows the child aims the water at)
+    const close = !!(st && st.frameClose && Array.isArray(st.frame) && st.frame.length);
+    if (!NS && !close) {                                                      // a vehicle with no seats: its whole body
       const Hb0 = M ? M.height : 3, tl = ART ? -(HITCH + R_CTR + LR / 2) : -LF / 2;
       for (const z of [LF / 2, tl]) req.push(lw(1.2, 0, z), lw(1.2, Hb0, z), lw(-1.2, Hb0, z));
     }
     // a job's scene: world points that must show too (firefighters, the hooked car, the ice cream queue)
     if (st && Array.isArray(st.frame) && st.frame.length) {
       for (const q of st.frame) if (q) req.push(new THREE.Vector3(+q.x || 0, (+q.y || 0) + g0, +q.z || 0));
-      // (and the whole vehicle, nose to tail, so a scene never crops it)
+      // (and the whole vehicle, nose to tail, so a scene never crops it; not in a close-up)
       const Hw = M ? M.height : 3, tw = ART ? -(HITCH + R_CTR + LR / 2) : -LF / 2;
-      for (const z of [LF / 2 + 0.3, tw - 0.3]) req.push(lw(1.3, 0.1, z), lw(1.3, Hw + 0.2, z));
+      if (!close) for (const z of [LF / 2 + 0.3, tw - 0.3]) req.push(lw(1.3, 0.1, z), lw(1.3, Hw + 0.2, z));
     }
     const iDoor = req.length;
     const dl = M ? M.doorLocal : { x: 1.6, z: LF / 2 - 1 };
-    req.push(lw(dl.x, 0, dl.z), lw(dl.x, 2.5, dl.z));
+    if (!close) req.push(lw(dl.x, 0, dl.z), lw(dl.x, 2.5, dl.z));
     // the exit door in the front carriage's frame (a bendy's is on the rear carriage, straight behind at the bay)
     let ex = { x: dl.x, z: dl.z };
     const d1 = doors[1] || doors[0];
@@ -1328,13 +1341,25 @@
         B.rear.worldToLocal(_p); ex = { x: _p.x, z: _p.z - (HITCH + R_CTR) };
       } else { B.front.worldToLocal(_p); ex = { x: _p.x, z: _p.z }; }
     }
-    req.push(lw(ex.x, 0, ex.z), lw(ex.x, 2.5, ex.z));
-    req.push(lw(0.6, 0.3, LF / 2 + 0.35), lw(0.6, 2.8, LF / 2 + 0.35));     // the nose too (clear of the card on small phones)
+    if (!close) {
+      req.push(lw(ex.x, 0, ex.z), lw(ex.x, 2.5, ex.z));
+      req.push(lw(0.6, 0.3, LF / 2 + 0.35), lw(0.6, 2.8, LF / 2 + 0.35));   // the nose too (clear of the card on small phones)
+    }
+    // friends waiting at the stop (jobs.js, st.queue = how many places long their row is): the strip of pavement
+    // they stand on must show too. On a tablet the row runs ahead of the front door, beside the nose (the bus moves
+    // over to the right; its tail may be cut); on a phone it runs in front of the bus from the door back, below the
+    // seated friends (the bus moves up a little in its column).
+    const nq = NS > 0 && st && !close ? Math.min(4, st.queue | 0) : 0;
+    if (nq > 0) {
+      const Q = B.QUEUE;
+      if ((innerHeight > 520) !== stripFlip) { const z = dl.z + 0.5 + nq * Q.step; req.push(lw(dl.x + Q.side, 0.8, z), lw(dl.x + Q.side, 2.4, z)); }
+      else req.push(lw(dl.x + Q.out, 0, dl.z + 0.9), lw(dl.x + Q.out, 0, dl.z - 0.6 - nq * Q.step * 1.2));
+    }
     for (const al of [1.2, -1.6]) wave.push(lw(ex.x + 2.6, 0, ex.z + al), lw(ex.x + 2.6, 2.3, ex.z + al));
     const cam = BB.camera, R = stopFrameRect(), Wd = innerWidth, Hd = innerHeight;
     // a job's scene on a small phone (the scene must fit in the column beside the card): a wider view, so the camera
     // can stand nearer (fewer buildings between) and still fit the vehicle and the props
-    const sceneFov = st && Array.isArray(st.frame) && st.frame.length && innerWidth <= 700 ? 68 : null;
+    const sceneFov = st && Array.isArray(st.frame) && st.frame.length && innerWidth <= 700 ? 68 : wideLens ? Math.min(68, baseFov() + 14) : null;
     fitCam.fov = sceneFov || baseFov(); fitCam.aspect = cam.aspect; fitCam.updateProjectionMatrix();
     const aw = Math.max(80, R.x1 - R.x0), ah = Math.max(80, R.y1 - R.y0), rx = (R.x0 + R.x1) / 2, ry = (R.y0 + R.y1) / 2;
     const tanV = Math.tan(THREE.MathUtils.degToRad(fitCam.fov) / 2);
@@ -1382,7 +1407,7 @@
     function plan(yaw, pitch, minD, withWave) {
       const dReq = fitD(yaw, pitch, req);
       let pts = req, d = dReq;
-      if (withWave) {                          // the waving spot (and the whole bus) too, if the heads stay 36 px apart
+      if (withWave && !nq && !close) {         // the waving spot (and the whole bus) too, if the heads stay 36 px apart (not with a queue: its strip comes first, and nobody gets off; not in a close-up)
         // (on a tablet the people come first: the whole bus only when it costs next to nothing, else its tail may be cut)
         const lim = low ? dReq * 1.18 : Math.max(dReq * 1.08, spacingD(yaw, pitch));
         for (const more of [all, reqWave]) { const dm = fitD(yaw, pitch, more); if (dm <= lim) { pts = more; d = dm; break; } }
@@ -1404,7 +1429,7 @@
       }
       return mn;
     }
-    const mid = lw(0, 2.2, -frontOff());
+    const mid = close ? null : lw(0, 2.2, -frontOff());
     const checks = [heads[0], heads[4], heads[heads.length - 1], req[iDoor], req[iDoor + 1], req[iDoor + 2], req[iDoor + 3], mid].filter(Boolean);
     // a scene: nothing solid in front of its props or either end of the vehicle either
     if (st && Array.isArray(st.frame) && st.frame.length) for (let i = 2 * NS; i < iDoor; i += 2) checks.push(req[i]);
@@ -1439,7 +1464,8 @@
     const D2R = Math.PI / 180;
     // [yaw, pitch, nearest distance]: not too close first (people on the pavement would loom large), then closer;
     // then a little along the kerb; then higher up, looking down over the building in the way
-    const far = Hd <= 520 ? 9 : 12, near = Hd <= 520 ? 7.5 : 9.5, cands = [];
+    // (a close-up may stand as near as its points fit: the windows the child aims at should be big)
+    const far = close ? 5 : wideLens ? 8 : Hd <= 520 ? 9 : 12, near = close ? 5 : wideLens ? 6.5 : Hd <= 520 ? 7.5 : 9.5, cands = [];
     for (const pitch of [15, 22, 30, 38]) cands.push([0, pitch, far, true]);
     for (const pitch of [15, 22, 30, 38]) cands.push([0, pitch, near, true]);
     for (const pitch of [15, 22, 30, 38]) cands.push([0, pitch, near, false]);
@@ -1460,7 +1486,10 @@
     // with the most room between the heads (a steeper look lifts the far row above the near one)
     let pick = null, best = null;
     const sceneFrame = !!(st && Array.isArray(st.frame) && st.frame.length);
+    // (a scene of little things in two rows, st.framePitch: from no lower than that, or the far row hides behind the near one)
+    const minPitch = st && +st.framePitch || 0;
     for (const [yaw, pitch, md, wv] of cands) {
+      if (pitch < minPitch) continue;
       const p = plan(yaw * D2R, pitch * D2R, md, wv);
       if (!clear(p)) { const n = hidden(p); if (!leastHidden || n < leastHidden.n) leastHidden = { p, n }; continue; }   // (no clear view at all: the one that hides the least)
       if (p.gap >= 34 || sceneFrame) { pick = p; break; }       // (a scene counts its props, not heads: the first clear view)
@@ -1651,8 +1680,7 @@
       // from this bus's seats and doors and the screen space beside the question card, then held still.
       // (planned once as the bus starts pulling in, for its parked pose: not again the moment it stops, which was a
       // second costly plan of the very same view)
-      const st = B.atStop || (settle && settle.stop), key = st.id + '|' + B.type + '|' + innerWidth + 'x' + innerHeight + '|' + (st.frameKey || (st.frame ? st.frame.length : 0));
-      if (!stopCam || stopCam.key !== key) stopCam = planStopCam(st, key);
+      planned(B.atStop || (settle && settle.stop));
       camPos.copy(stopCam.pos); camLook.copy(stopCam.look);
     } else {
       // chase: behind and above the front carriage, trailing its heading smoothly
@@ -1692,6 +1720,37 @@
     camPos.y = Math.min(camPos.y, maxUp);
     if (!((B.atStop || settle) && mode === 'chase')) clearSight(m, maxUp);
   }
+  // the stop view for stop st, planned when it isn't yet (or when the screen, the bus or what must show has changed)
+  function planned(st) {
+    const key = st.id + '|' + B.type + '|' + innerWidth + 'x' + innerHeight + '|' + (st.frameKey || (st.frame ? st.frame.length : 0)) + '|' + (st.queue | 0);
+    if (!stopCam || stopCam.key !== key) {
+      stopCam = planStopCam(st, key);
+      // (a queue's strip of pavement that only fits in a steep view from high up, because the camera would have to
+      // stand back inside a building to see it from low down: the strip on the bus's other side, ahead of the nose
+      // on a phone, in front of the bus on a tablet (jobs.js tries both), or else a wider lens, so the camera can
+      // stand nearer, when that view looks from much lower)
+      for (let alt = 0; alt < 2 && (st.queue | 0) > 0 && pitchOf(stopCam) > 40; alt++) {
+        if (alt) wideLens = true; else stripFlip = true;
+        try { const p0 = planStopCam(st, key); if (pitchOf(p0) <= pitchOf(stopCam) - 12) stopCam = p0; } finally { stripFlip = wideLens = false; }
+      }
+    }
+    return stopCam;
+  }
+  let stripFlip = false, wideLens = false;
+  const pitchOf = (p) => Math.atan2(p.pos.y - p.look.y, hypot2(p.look.x - p.pos.x, p.look.z - p.pos.z)) * 57.3;
+  // Where the stop camera will stand once it has settled: { pos, look, fov } (null away from a stop). jobs.js lays
+  // the people out on screen with it, so they are right even while the camera is still swinging round.
+  const viewOut = { pos: null, look: null, fov: 50 };
+  B.stopView = function () {
+    const st = B.atStop || (settle && settle.stop);
+    if (!st || B.camMode !== 'chase') return null;
+    const p = planned(st);
+    viewOut.pos = p.pos; viewOut.look = p.look; viewOut.fov = p.fov || baseFov();
+    return viewOut;
+  };
+  // the room the plan leaves for a queue: `side` out from the door for a row ahead of it (tablets), `out` for a row
+  // in front of the bus (phones), about `step` a place
+  B.QUEUE = { out: 4.4, side: 2.2, step: 1.0 };
   function snapCamera() { camH = h; desiredCamera(0); BB.camera.position.copy(camPos); curLook.copy(camLook); BB.camera.lookAt(curLook); }
   const curLook = new THREE.Vector3();
   // Smooth the camera in polar coordinates round the bus (angle, distance, height), so a change of view swings

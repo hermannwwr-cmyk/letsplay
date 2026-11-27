@@ -308,8 +308,11 @@
   // Put the people for the next question at the stop's shelter, in a little queue facing the road.
   function setWaiting(stop, q) {
     clearWaiting();
+    if (stop) stop.queue = 0;
     if (!stop || !q) return;
     const pre = Math.max(0, q.pre), total = pre + (q.kind === 'add' ? q.k : 0);
+    // (the stop view leaves the queue its strip of pavement, bus.js: so many places long)
+    stop.queue = total ? Math.min(4, Math.max(q.kind === 'add' ? q.k : 1, Math.ceil(total / 2))) : 0;
     const friendAt = q.friend && q.kind === 'add' ? total - 1 : -1;
     for (let i = 0; i < total; i++) {
       let style = i < pre ? q.preStyle : q.style;
@@ -329,6 +332,8 @@
   }
   // Walk a person to a point at a gentle pace. Resolves on arrival.
   function walkTo(m, to, speed = 3.3, opts = {}) {
+    // (someone already on their way somewhere else changes course: never two walks pulling at one person)
+    for (let i = J.walkers.length - 1; i >= 0; i--) if (J.walkers[i].m === m) { const w = J.walkers[i]; J.walkers.splice(i, 1); if (w.done) w.done(); }
     return new Promise((resolve) => {
       const from = m.position.clone(), dist = hypot2(to.x - from.x, to.z - from.z);
       J.walkers.push({ m, from, to: to.clone(), t: 0, dur: Math.max(0.35, dist / speed), done: resolve, shrink: !!opts.shrink });
@@ -372,6 +377,16 @@
       walkAway(m);
     });
   }
+  // The camera as it will stand at this stop (BB.bus.stopView(): the planned view), so people are placed for the
+  // picture the child will see, not for a camera still swinging round from behind the bus.
+  const qCam = new THREE.PerspectiveCamera(50, 1, 0.5, 900);
+  function viewCam() {
+    const v = typeof BB.bus.stopView === 'function' ? BB.bus.stopView() : null, cam = BB.camera;
+    if (!v || !v.pos) return cam;
+    qCam.fov = v.fov || cam.fov; qCam.aspect = cam.aspect; qCam.near = cam.near; qCam.far = cam.far; qCam.updateProjectionMatrix();
+    qCam.position.copy(v.pos); qCam.lookAt(v.look); qCam.updateMatrixWorld(true);
+    return qCam;
+  }
   // A spot on the pavement for the k-th person who got off: in view of the stop camera, clear of the seats (so the
   // count on the bus stays readable) and of the question card, nearest the exit door first. Works for every bus
   // type and screen size because it is worked out on screen; falls back to a spot next to the exit door.
@@ -380,7 +395,7 @@
   // door (front) or the exit door. With no card yet, the card's usual place is kept clear.
   function freeSpot(taken, front, fallback) {
     try {
-      const W = innerWidth, H = innerHeight, cam = BB.camera;
+      const W = innerWidth, H = innerHeight, cam = viewCam();
       const proj = (p) => { const q = p.clone().project(cam); return q.z > 1 ? null : [(q.x + 1) / 2 * W, (1 - q.y) / 2 * H]; };
       // the seats' box on screen (with a margin)
       let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
@@ -397,30 +412,93 @@
       const cands = [];
       // (along the whole bus and a little past both ends: when the stop view is close and cuts the tail off, there is
       // still room in front of the nose; the nearest spot to the door wins)
-      for (const out of [2.4, 3.4, 1.6, 4.4]) {
-        for (let along = Math.max(span + 4, 6); along >= span - (front ? 24 : 14); along -= 0.9) {   // (the queue may stand well back on a small screen, where the card covers the door: every friend must be seen, they are tapped aboard)
-          const p = kerbSpot(out, along, false);
-          const foot = proj(p), head = proj(new THREE.Vector3(p.x, p.y + 2.3, p.z));
-          if (!foot || !head) continue;
-          const r = [Math.min(foot[0], head[0]) - 18, head[1] - 50, Math.max(foot[0], head[0]) + 18, foot[1]];
-          if (r[0] < 10 || r[2] > W - 10 || r[1] < 60 || r[3] > H - 4) continue;
-          if (hit(r, seatBox) || (cr && hit(r, [cr.left, cr.top, cr.right, cr.bottom]))) continue;
-          if (taken.some((t) => t.distanceTo(p) < 0.85)) continue;
-          cands.push({ p, d: Math.abs(along - span) + (out - 2.4) * (out - 2.4) });
+      // dip = how much of a person may be hidden by the card: their shoes; or, where the view is so close that the
+      // whole pavement lies behind the card, their legs (better than standing in front of a seated friend)
+      for (const dip of [0.14, 0.5]) {
+        for (const out of [2.4, 3.4, 1.6, 4.4]) {
+          for (let along = Math.max(span + 4, 6); along >= span - (front ? 24 : 14); along -= 0.9) {   // (the queue may stand well back on a small screen, where the card covers the door: every friend must be seen, they are tapped aboard)
+            const p = kerbSpot(out, along, false);
+            const foot = proj(p), head = proj(new THREE.Vector3(p.x, p.y + 2.3, p.z));
+            if (!foot || !head) continue;
+            const tall = foot[1] - head[1];
+            if (tall > H * 0.45) continue;                        // (nobody looms huge in the foreground)
+            const r = [Math.min(foot[0], head[0]) - 18, head[1] - 50, Math.max(foot[0], head[0]) + 18, foot[1] - tall * dip];
+            if (r[0] < 10 || r[2] > W - 10 || r[1] < 60 || r[3] > H - 4) continue;
+            if (hit(r, seatBox) || (cr && hit(r, [cr.left, cr.top, cr.right, cr.bottom]))) continue;
+            if (taken.some((t) => t.distanceTo(p) < 0.85)) continue;
+            cands.push({ p, d: Math.abs(along - span) + (out - 2.4) * (out - 2.4) });
+          }
         }
+        if (cands.length) break;
       }
       if (!cands.length) return fallback;
       cands.sort((a, b) => a.d - b.d);
       return cands[0].p;
     } catch (e) { return fallback; }
   }
-  // At arrival the queue steps up to spots the stop camera sees, nearest the front door, and faces the bus.
-  function queueIntoView() {
-    const taken = [];
+  // The queue: a tidy row on the pavement where the stop view shows every one of them, nobody in front of a seated
+  // friend (the count on the bus stays readable), nobody under the card or cut by the screen's edge. On a tablet (the
+  // card along the bottom) the row runs ahead of the front door, beside the bus's nose; on a phone (the card on the
+  // left) in front of the bus from its door back, heads below the seated friends' laps. bus.js leaves that strip of
+  // pavement room in the stop view (stop.queue). minPx = the room each one needs on screen: the tap ring when they
+  // are to be waved aboard (so the rings never overlap), less for a plain queue; a long queue stands two deep.
+  // Returns n spots, or null when no such row fits (the nearest free spots are used instead).
+  function queueRow(n, minPx) {
+    const W = innerWidth, H = innerHeight, cam = viewCam(), phone = H <= 520;
+    const pr = (p, dy) => { _v.set(p.x, p.y + dy, p.z).project(cam); return _v.z > 1 ? null : [(_v.x + 1) / 2 * W, (1 - _v.y) / 2 * H]; };
+    // the seated friends on screen: across the row, and down to their laps
+    let sx0 = 1e9, sx1 = -1e9, sy1 = -1e9;
+    for (let i = 0; i < 10; i++) {
+      const q = pr(BB.bus.seatWorld(i, new THREE.Vector3()), 0.35);
+      if (q) { sx0 = Math.min(sx0, q[0]); sx1 = Math.max(sx1, q[0]); sy1 = Math.max(sy1, q[1]); }
+    }
+    const c = document.querySelector('.bbq');
+    const cr = c ? c.getBoundingClientRect() : phone ? { left: 0, top: 0, right: 345, bottom: H } : { left: W / 2 - 440, top: H - 240, right: W / 2 + 440, bottom: H };
+    const half = Math.max(22, minPx / 2), x0 = (phone ? cr.right : 0) + half + 4, x1 = W - half - 4;
+    let dip = 0.14;       // how much of a person the card may hide: a toe; or, in a very close view, their legs
+    const ok = (p) => {
+      const foot = pr(p, 0), head = pr(p, 2.3);
+      if (!foot || !head) return false;
+      const tall = foot[1] - head[1];
+      if (tall > H * 0.45 || foot[0] < x0 || foot[0] > x1 || head[0] < x0 || head[0] > x1 || head[1] < 70 || foot[1] - tall * dip > H - 3) return false;
+      if (!phone && foot[0] + half > cr.left && foot[0] - half < cr.right && foot[1] - tall * dip > cr.top) return false;
+      return !(head[0] > sx0 - 36 && head[0] < sx1 + 36 && head[1] - Math.max(5, tall * 0.05) < sy1);       // not in front of a seated friend
+    };
+    for (dip of [0.14, 0.5]) for (const rows of n > 4 ? [1, 2] : [1]) {
+      for (const dir of phone ? [-1, 1] : [1, -1]) {
+        for (const out of dir > 0 ? [2.0, 2.4, 1.6, 2.8, 3.2] : [2.8, 3.1, 3.4, 3.7, 4.0, 4.4, 4.8, 5.2]) {
+          const a = pr(kerbSpot(out, 0, false), 0), b = pr(kerbSpot(out, 1, false), 0);
+          if (!a || !b) continue;
+          const step = Math.max(0.9, (minPx + 4) / Math.max(1, hypot2(a[0] - b[0], a[1] - b[1])));
+          for (const lead of [0.35, 0.9, 1.6, 2.4]) {
+            const spots = [];
+            for (let i = 0; i < n; i++) {
+              const r = i % rows, col = (i - r) / rows;
+              const p = kerbSpot(out + r * 1.05, lead + dir * (col * step + r * step * 0.5), false);
+              if (!ok(p)) break;
+              spots.push(p);
+            }
+            if (spots.length === n) return spots;
+          }
+        }
+      }
+    }
+    return null;
+  }
+  // The people waiting take their places in the queue and face the door. spread = they are about to be waved
+  // aboard with a tap each: every one gets room for a ring of their own.
+  function queueUp(spread) {
+    const n = J.waiting.length; if (!n) return;
+    const T = BB.hands && BB.hands.size ? BB.hands.size() : 84;
+    let row = null;
+    for (const px of spread ? [T + 4, T * 0.8, T * 0.62, 44] : [50, 40]) { row = queueRow(n, px); if (row) break; }
+    const taken = [], f = doorFrame(false), face = Math.atan2(f.ox, f.oz);
     J.waiting.forEach((m, i) => {
-      const p = freeSpot(taken, true, kerbSpot(1.6 + (i % 2) * 0.5, 1.2 + i * 0.9, false));
+      const p = row ? row[i] : freeSpot(taken, true, kerbSpot(1.6 + (i % 2) * 0.5, 1.2 + i * 0.9, false));
       taken.push(p); m.userData.spot = p;
-      walkTo(m, p, 3.8).then(() => { const d = doorOut(); m.rotation.y = Math.atan2(d.x - m.position.x, d.z - m.position.z); });
+      if (hypot2(p.x - m.position.x, p.z - m.position.z) < 0.15) return;
+      // (they wait facing us, so their faces show; a tapped friend turns and walks to the door)
+      walkTo(m, p, 3.8).then(() => { if (J.waiting.includes(m)) m.rotation.y = face; });
     });
   }
   // a party friend's balloon floats up out of their hand and pops in a little burst (onPop once per group)
@@ -1053,7 +1131,10 @@
     const alive = () => g === stopGen && J.phase === 'stop' && !BB.bedtime;
     await wait(250);                          // the stop camera settles about 1 s after arrival
     if (!alive()) return;
-    queueIntoView();
+    // friends who will be waved aboard with a tap each stand well apart (room for a ring each): at once when nobody
+    // gets on first, else when those have got on and the queue moves up to the door
+    const tapOn = !!BB.hands && q.kind === 'add' && q.k > 0;
+    queueUp(tapOn && !(q.pre > 0));
     await wait(350);
     if (!alive()) return;
     // a passenger friend in the queue waves and says hello (met for the first time: added to the friends list)
@@ -1072,6 +1153,7 @@
       const pre = J.waiting.filter((m) => m.userData.pre);
       J.waiting = J.waiting.filter((m) => !m.userData.pre);
       await Promise.all([say(helloLine()), boardPeople(pre)]);
+      if (alive() && tapOn) queueUp(true);
     } else if (q.pre < 0) {
       await alightPeople(-q.pre);
     }
@@ -1104,11 +1186,12 @@
     if (BB.hands && q.k > 0 && (q.kind !== 'add' || J.waiting.length)) {
       let done;
       if (q.kind === 'add') {
-        const list = J.waiting.slice();
-        done = await BB.hands.run({ kind: 'tap', count: list.length, say: `Tap ${pl(list.length, 'friend', 'friends')} to get on!`, hint: 'Tap a friend to wave them on!',
-          targets: list.map((m) => (out) => { out.copy(m.position); out.y = GROUND + 1.25; return out; }),
-          bubble: (j, idx, out) => { out.copy(list[idx].position); out.y = GROUND + 2.3; },
-          act: (j, idx) => { const m = list[idx]; J.waiting = J.waiting.filter((x) => x !== m); return boardOne(m, onSeat); } });
+        const list = J.waiting.slice(), tall = (m) => (m.userData.look && m.userData.look.kid ? 0.72 : 1);
+        done = await BB.hands.run({ kind: 'tap', count: list.length, say: `Tap ${pl(list.length, 'friend', 'friends')} to get on!`, hint: 'Tap a friend!',
+          targets: list.map((m) => (out) => { out.copy(m.position); out.y = GROUND + 1.3 * tall(m); return out; }),
+          bubble: (j, idx, out) => { out.copy(list[idx].position); out.y = GROUND + 2.3 * tall(list[idx]); },
+          // (a happy hop as they set off for the door)
+          act: (j, idx) => { const m = list[idx]; J.waiting = J.waiting.filter((x) => x !== m); m.userData.jump = 0.5; m.userData.jumpDelay = 0; return boardOne(m, onSeat); } });
       } else {
         const n = q.n;
         done = await BB.hands.run({ kind: 'tap', count: q.k, ordered: true, say: `Tap ${pl(q.k, 'friend', 'friends')} to say goodbye!`, hint: 'Tap the glowing friend!',
@@ -1817,7 +1900,7 @@
       const g = legGen, alive = () => g === legGen && !BB.bedtime && !!J.current && J.phase !== 'home';
       (async () => {
         buildCard(q); J.question = q;
-        if (q.scene) { try { q.scene.show(q.n); if (q.scene.prep) q.scene.prep(q); scnFrame(q.scene.points(Math.max(q.n, q.kind === 'add' ? q.n + q.k : q.n))); } catch (e) { console.error(e); } }
+        if (q.scene) { try { q.scene.show(q.n); if (q.scene.prep) q.scene.prep(q); scnFrame(q.scene.points(Math.max(q.n, q.kind === 'add' ? q.n + q.k : q.n)), q.scene.close, q.scene.top, q.scene.pitch); } catch (e) { console.error(e); } }
         await wait(350); if (!alive()) return;
         for (let i = 0; i < q.n; i++) light(i, true);
         showSum('n1'); litSum('n1');
@@ -1944,16 +2027,20 @@
     SCN.items = []; SCN.extra = []; SCN.tick = null; SCN.dry = false;
     if (BB.hands) BB.hands.stop();
     if (BB.water) BB.water.clear();
-    if (SCN.target) { delete SCN.target.frame; delete SCN.target.frameKey; delete SCN.target.blockers; SCN.target = null; vcall(['reframe']); }
+    if (SCN.target) { delete SCN.target.frame; delete SCN.target.frameKey; delete SCN.target.frameClose; delete SCN.target.framePitch; delete SCN.target.blockers; SCN.target = null; vcall(['reframe']); }
     SCN.blockers = [];
   }
   J._scnClear = scnClear;
   // ask the scene camera to show these world points too
-  function scnFrame(pts) {
+  // (close = a close-up of just these points, up to `top` high: the vehicle itself may then be out of the picture;
+  // pitch = the least the camera looks down, in degrees: two rows of little things on a tray both show from above)
+  function scnFrame(pts, close, top, pitch) {
     const job = J.current, t = job && job.legs && job.legs[job.index] && job.legs[job.index].to;
     if (!t || !pts.length) return;
-    t.frame = pts.map((p) => ({ x: p.x, y: 0, z: p.z })).concat(pts.map((p) => ({ x: p.x, y: 2.4, z: p.z })));
+    t.frame = pts.map((p) => ({ x: p.x, y: 0, z: p.z })).concat(pts.map((p) => ({ x: p.x, y: top || 2.4, z: p.z })));
     t.frameKey = 'scn' + (++frameNo);
+    t.frameClose = !!close;
+    t.framePitch = +pitch || 0;
     t.blockers = (SCN.blockers || []).slice();      // the scene's big props: the camera mustn't look past them (bus.js)
     SCN.target = t;
     vcall(['reframe']);
@@ -1967,13 +2054,44 @@
     const a = m.position.clone();
     return tween(dur, (t) => { m.position.lerpVectors(a, to, t); m.position.y = a.y + (to.y - a.y) * t + Math.sin(t * Math.PI) * h; });
   }
+  // Things the child will touch one by one (the bags still to come, the children waiting for a teddy) need room for
+  // a ring each: where the planned view shows a row of them closer together than that, they step apart along their
+  // own line, as far as the screen has room (where it hasn't, the moment shows one ring at a time: hands.js).
+  const _q2 = new THREE.Vector3();
+  function spreadRow(list) {
+    if (list.length < 2 || !BB.hands || !BB.hands.size) return;
+    const T = BB.hands.size() + 4, cam = viewCam(), W = innerWidth, H = innerHeight;
+    const px = (p) => { _v.copy(p).project(cam); return (_v.x + 1) / 2 * W; }, py = () => (1 - _v.y) / 2 * H;
+    const a = list[0].position;
+    let mn = 1e9;
+    for (let i = 1; i < list.length; i++) { const x1 = px(list[i].position), y1 = py(), x0 = px(list[i - 1].position), y0 = py(); mn = Math.min(mn, hypot2(x1 - x0, y1 - y0)); }
+    if (mn >= T) return;
+    let f = Math.min(2.6, T / Math.max(8, mn));
+    // (not off the screen, not behind the card on a phone)
+    const c = document.querySelector('.bbq'), cr = c ? c.getBoundingClientRect() : null;
+    const x0 = (H <= 520 ? (cr ? cr.right : 345) : 0) + T / 2 + 2, x1 = W - T / 2 - 2;
+    for (let tries = 0; tries < 8 && f > 1.03; tries++) {
+      let fits = true;
+      for (let i = 1; i < list.length && fits; i++) { const p = list[i].position; const x = px(_q2.set(a.x + (p.x - a.x) * f, p.y, a.z + (p.z - a.z) * f)); if (x < x0 || x > x1) fits = false; }
+      if (fits) break;
+      f = 1 + (f - 1) * 0.75;
+    }
+    if (f <= 1.03) return;
+    for (let i = 1; i < list.length; i++) {
+      const m = list[i], bx = m.position.x, bz = m.position.z, tx = a.x + (bx - a.x) * f, tz = a.z + (bz - a.z) * f;
+      tween(0.3, (t) => { m.position.x = bx + (tx - bx) * t; m.position.z = bz + (tz - bz) * t; });
+    }
+  }
+  // "Tap the fire engine", "tap the van": the whole vehicle is the target (its body's box on screen), and the hand
+  // taps the spot the things come out of
+  const rideTarget = (at) => (typeof BB.bus.bodyBox === 'function' ? { at: (out) => out.copy(at), box: BB.bus.bodyBox([]) } : (out) => out.copy(at));
   // the things taken away are the last k: target t is thing n - 1 - t
   const lastOnes = (q, pos, dy) => Array.from({ length: q.k }, (_, t) => { const p = pos(q.n - 1 - t).clone(); p.y += dy; return (out) => out.copy(p); });
   function yardScene(lot = 'the yard') {
     const G = sceneGeos(), slot = tray(3.8, -1.5, 2.5, 4.6);
     const make = (i, pop) => scnMesh(G.cars[i % 5], slot(i), slot.face, pop);
-    // the cars still to come wait in a short queue just ahead of the spaces
-    const queue = (j) => kerbSpot(3.8 + Math.floor(j / 3) * 4.6, 1.5 + (j % 3) * 2.3, false);
+    // the cars still to come wait side by side in a little block just ahead of the spaces, well apart (a ring each)
+    const queue = (j) => kerbSpot(3.8 + Math.floor(j / 2) * 4.6, 2.6 + (j % 2) * 2.7, false);
     let coming = [];
     const S = {
       show(n) { while (SCN.items.length < n) SCN.items.push(make(SCN.items.length, false)); },
@@ -1990,13 +2108,12 @@
       prep(q) {
         coming = [];
         if (q.kind !== 'add') return;
-        for (let j = 0; j < q.k; j++) { const m = make(q.n + j, true); m.position.copy(queue(j)); m.rotation.y = Math.atan2(-slot.f.fx, -slot.f.fz); coming.push(m); SCN.extra.push(m); }
+        for (let j = 0; j < q.k; j++) { const m = make(q.n + j, true); m.position.copy(queue(j)); coming.push(m); SCN.extra.push(m); }
       },
       hands(q, step) {
         if (q.kind === 'add') {
-          const drop = slot(q.n);
-          return { kind: 'drag', count: q.k, plane: GROUND, say: `Drive ${pl(q.k, 'more car', 'more cars')} into ${lot}!`, hint: 'Tap a car, or drag it to the green ring!',
-            targets: coming.map((m) => (out) => { out.copy(m.position); out.y += 0.8; return out; }), drop: (out) => out.copy(drop),
+          return { kind: 'drag', count: q.k, plane: GROUND, say: `Park ${pl(q.k, 'more car', 'more cars')}!`, hint: 'Tap a car, or pull it to the green ring!',
+            targets: coming.map((m) => (out) => { out.copy(m.position); out.y += 0.8; return out; }), drop: (out, idx) => out.copy(slot(q.n + Math.max(0, idx))),
             drag: (idx, p) => { if (p) coming[idx].position.set(p.x, GROUND, p.z); },
             bubble: (j, idx, out) => { out.copy(slot(q.n + idx)); out.y += 1.9; },
             act: (j, idx) => {
@@ -2006,12 +2123,12 @@
               return tween(0.8, (t) => { const e = 1 - (1 - t) * (1 - t); m.position.lerpVectors(a, to, e); if (t >= 1) m.rotation.y = slot.face; });
             } };
         }
-        return { kind: 'tap', count: q.k, say: `Tap ${pl(q.k, 'car', 'cars')} to send ${plural(q.k, 'it', 'them')} home!`, hint: 'Tap a glowing car!',
+        return { kind: 'tap', count: q.k, say: `Tap ${pl(q.k, 'car', 'cars')} to send ${plural(q.k, 'it', 'them')} home!`, hint: 'Tap a car!',
           targets: lastOnes(q, slot, 0.8), act: (j, t) => { const i = q.n - 1 - t; step(i); S.remove(i); } };
       },
       // (the cars stand between the camera and the truck: the camera looks over them, not through them)
       points: (c) => { const pts = Array.from({ length: Math.max(1, c) }, (_, i) => slot(i)); SCN.blockers = pts.map((p) => ({ x: p.x, z: p.z, hw: 0.95, hd: 1.9, ry: slot.face, y0: 0, top: GROUND + 1.75 }));
-        return pts.concat(pts.map((p) => p.clone().add(new THREE.Vector3(slot.f.ox * 1.9, 0, slot.f.oz * 1.9))), coming.map((m) => m.position.clone().add(new THREE.Vector3(slot.f.fx * 2.2, 0, slot.f.fz * 2.2)))); },   // (and their far ends)
+        return pts.concat(pts.map((p) => p.clone().add(new THREE.Vector3(slot.f.ox * 1.9, 0, slot.f.oz * 1.9))), coming.map((m) => m.position.clone().add(new THREE.Vector3(slot.f.fx * 1.2 + slot.f.ox * 1.9, 0, slot.f.fz * 1.2 + slot.f.oz * 1.9)))); },   // (and their far ends)
     };
     return S;
   }
@@ -2022,15 +2139,21 @@
     const pile = (j) => kerbSpot(3.2 + Math.floor(j / 5) * 1.0, 1.0 + (j % 5) * 1.0, false);
     let coming = [];
     const S = {
+      pitch: 28,          // (looked at from above enough that the far row shows over the near one)
       show(n) { while (SCN.items.length < n) SCN.items.push(make(SCN.items.length, false)); },
       add(i) {          // swung from the family into the boot
         const m = make(i, false), to = slot(i); m.position.copy(from); SCN.items[i] = m;
         tween(0.7, (t) => { m.position.lerpVectors(from, to, t); m.position.y = GROUND + Math.sin(t * Math.PI) * 1.6; });
       },
-      remove(i) {       // lifted out onto the pavement
+      remove(i) {       // carried home: lifted out onto the pavement, then it hops off along it and is gone (so the
+                        // bags left by the taxi are the only ones there to count)
         const m = SCN.items[i]; if (!m) return; SCN.items[i] = null; SCN.extra.push(m);
-        const a = m.position.clone(), to = a.clone().add(new THREE.Vector3(slot.f.ox * 2.2, 0, slot.f.oz * 2.2));
-        tween(0.6, (t) => { m.position.lerpVectors(a, to, t); m.position.y = GROUND + Math.sin(t * Math.PI) * 1.0; });
+        const a = m.position.clone(), to = a.clone().add(new THREE.Vector3(slot.f.ox * 1.8, 0, slot.f.oz * 1.8));
+        const away = to.clone().add(new THREE.Vector3(slot.f.ox * 2.5 - slot.f.fx * 4, 0, slot.f.oz * 2.5 - slot.f.fz * 4));
+        return tween(0.55, (t) => { m.position.lerpVectors(a, to, t); m.position.y = GROUND + Math.sin(t * Math.PI) * 1.0; })
+          .then(() => wait(250))
+          .then(() => tween(0.75, (t) => { m.position.lerpVectors(to, away, t); m.position.y = GROUND + Math.abs(Math.sin(t * Math.PI * 3)) * 0.35; m.scale.setScalar(Math.max(0.01, 1 - t * t)); }))
+          .then(() => { SCN.extra = SCN.extra.filter((x) => x !== m); scnDrop(m); });
       },
       prep(q) {
         coming = [];
@@ -2039,14 +2162,14 @@
       },
       hands(q, step) {
         if (q.kind === 'add') {
-          const drop = slot(q.n); drop.y += 0.4;
-          return { kind: 'drag', count: q.k, plane: GROUND + 0.4, say: `Put ${pl(q.k, 'more bag', 'more bags')} by the taxi!`, hint: 'Tap a bag, or drag it to the green ring!',
-            targets: coming.map((m) => (out) => { out.copy(m.position); out.y += 0.4; return out; }), drop: (out) => out.copy(drop),
+          spreadRow(coming);
+          return { kind: 'drag', count: q.k, plane: GROUND + 0.4, say: `Put ${pl(q.k, 'more bag', 'more bags')} by the taxi!`, hint: 'Tap a bag, or pull it to the green ring!',
+            targets: coming.map((m) => (out) => { out.copy(m.position); out.y += 0.4; return out; }), drop: (out, idx) => { out.copy(slot(q.n + Math.max(0, idx))); out.y += 0.4; return out; },
             drag: (idx, p) => { if (p) coming[idx].position.set(p.x, GROUND + 0.45, p.z); },
             bubble: (j, idx, out) => { out.copy(slot(q.n + idx)); out.y += 1.0; },
             act: (j, idx) => { const m = coming[idx], i = q.n + idx; SCN.extra = SCN.extra.filter((x) => x !== m); SCN.items[i] = m; step(i); return scnHop(m, slot(i), 1.2, 0.55); } };
         }
-        return { kind: 'tap', count: q.k, say: `Tap ${pl(q.k, 'bag', 'bags')} to carry home!`, hint: 'Tap a glowing bag!',
+        return { kind: 'tap', count: q.k, say: `Tap ${pl(q.k, 'bag', 'bags')} to carry home!`, hint: 'Tap the glowing bag!',
           targets: lastOnes(q, slot, 0.4), act: (j, t) => { const i = q.n - 1 - t; step(i); S.remove(i); } };
       },
       points: (c) => Array.from({ length: Math.max(1, c) }, (_, i) => slot(i)).concat([from], coming.map((m) => m.position.clone())),
@@ -2064,6 +2187,7 @@
     const pile = (j) => kerbSpot(3.1 + Math.floor(j / 5) * 0.9, 0.5 + (j % 5) * 0.9, false);
     let coming = [], kids = [];
     const S = {
+      pitch: 28,          // (looked at from above enough that the far row shows over the near one)
       show(n) { while (SCN.items.length < n) SCN.items.push(make(SCN.items.length, false)); },
       add(i) { SCN.items[i] = make(i, true); },
       remove(i, kid) {       // a teddy hops off to a child
@@ -2081,22 +2205,23 @@
         clearWaiting();
         for (let j = 0; j < q.k; j++) {
           const m = person(BB.randInt(0, 7), { kid: true });
-          m.position.copy(kerbSpot(3.0 + (j % 2) * 0.9, 1.0 + j * 0.85, false)); m.rotation.y = slot.face; m.userData.seed = Math.random() * 6;
+          m.position.copy(kerbSpot(3.1, 1.0 + j * 1.15, false)); m.rotation.y = slot.face; m.userData.seed = Math.random() * 6;   // one row, well apart
           J.waiting.push(m); kids.push(m);
         }
       },
       hands(q, step) {
         if (q.kind === 'add') {
-          const drop = slot(q.n);
-          return { kind: 'drag', count: q.k, plane: GROUND + 0.4, say: `Pop ${pl(q.k, 'more teddy bear', 'more teddy bears')} into the kit!`, hint: 'Tap a teddy bear, or drag it to the green ring!',
-            targets: coming.map((m) => (out) => { out.copy(m.position); out.y += 0.5; return out; }), drop: (out) => out.copy(drop),
+          spreadRow(coming);
+          return { kind: 'drag', count: q.k, plane: GROUND + 0.4, say: `Put ${pl(q.k, 'more teddy bear', 'more teddy bears')} in the kit!`, hint: 'Tap a teddy bear, or pull it to the green ring!',
+            targets: coming.map((m) => (out) => { out.copy(m.position); out.y += 0.5; return out; }), drop: (out, idx) => out.copy(slot(q.n + Math.max(0, idx))),
             drag: (idx, p) => { if (p) coming[idx].position.set(p.x, GROUND + 0.4, p.z); },
             bubble: (j, idx, out) => { out.copy(slot(q.n + idx)); out.y += 1.2; },
             act: (j, idx) => { const m = coming[idx], i = q.n + idx; SCN.extra = SCN.extra.filter((x) => x !== m); SCN.items[i] = m; step(i); return scnHop(m, slot(i), 1.1, 0.55); } };
         }
-        return { kind: 'tap', count: q.k, say: plural(q.k, 'Tap the child to give a teddy bear!', 'Tap each child to give a teddy bear!'), hint: 'Tap a waving child!',
-          targets: kids.map((m) => (out) => { out.copy(m.position); out.y = GROUND + 1.0; return out; }),
-          bubble: (j, t, out) => { out.copy(kids[t].position); out.y = GROUND + 2.0; },
+        spreadRow(kids);
+        return { kind: 'tap', count: q.k, say: `Tap ${pl(q.k, 'child', 'children')} to give a teddy bear!`, hint: 'Tap a child!',
+          targets: kids.map((m) => (out) => { out.copy(m.position); out.y = GROUND + 0.95; return out; }),
+          bubble: (j, t, out) => { out.copy(kids[t].position); out.y = GROUND + 1.75; },
           act: (j, t) => { const i = q.n - 1 - j; step(i); return S.remove(i, kids[t]); } };
       },
       points: (c) => Array.from({ length: Math.max(1, c) }, (_, i) => slot(i)).concat(coming.map((m) => m.position.clone()), kids.map((m) => m.position.clone())),
@@ -2115,6 +2240,7 @@
     const hatchP = new THREE.Vector3(slot.f.d.x + slot.f.ox * 0.2, GROUND + 1.55, slot.f.d.z + slot.f.oz * 0.2);   // the serving hatch
     let served = 0;
     const S = {
+      pitch: 28,          // (looked at from above enough that the far row shows over the near one)
       show(n) { while (SCN.items.length < n) SCN.items.push(make(SCN.items.length, false)); },
       add(i) { SCN.items[i] = make(i, true); },
       remove(i) {
@@ -2127,13 +2253,13 @@
       hands(q, step) {
         if (q.kind === 'add') {       // each tap on the van makes one more: it comes out of the hatch and hops onto the stand
           return { kind: 'tap', count: q.k, repeat: true, say: `Tap the van to make ${pl(q.k, 'more ice cream', 'more ice creams')}!`, hint: 'Tap the ice cream van!',
-            targets: [(out) => out.copy(hatchP)],
+            targets: [rideTarget(hatchP)],
             bubble: (j, idx, out) => { out.copy(slot(q.n + j)); out.y += 1.2; },
             act: (j) => { const i = q.n + j, m = make(i, true); m.position.copy(hatchP); SCN.items[i] = m; step(i); jingle(); return scnHop(m, slot(i), 0.9, 0.6); } };
         }
         // one ice cream for each child in the queue
         const kidP = new THREE.Vector3();
-        return { kind: 'drag', count: q.k, plane: GROUND + 0.9, say: plural(q.k, 'Give the child an ice cream!', 'Give each child an ice cream!'), hint: 'Tap an ice cream, or drag it to a child!',
+        return { kind: 'drag', count: q.k, plane: GROUND + 0.9, say: `Give ${pl(q.k, 'child', 'children')} an ice cream!`, hint: 'Tap an ice cream, or pull it to a child!',
           targets: lastOnes(q, slot, 0.45),
           drop: (out) => { const kid = J.waiting[Math.min(served, J.waiting.length - 1)]; if (kid) { kidP.copy(kid.position); kidP.y = GROUND + 1.1; } return out.copy(kidP); },
           drag: (t, p) => { const m = SCN.items[q.n - 1 - t]; if (m && p) m.position.set(p.x, GROUND + 0.9, p.z); },
@@ -2246,7 +2372,7 @@
         hands(q, step) {          // each tap on the engine calls one more firefighter out: they run to their place and spray
           const doorP = new THREE.Vector3(f.d.x + f.ox * 0.3, GROUND + 1.5, f.d.z + f.oz * 0.3), from = new THREE.Vector3(f.d.x + f.ox * 0.8, GROUND, f.d.z + f.oz * 0.8);
           return { kind: 'tap', count: q.k, repeat: true, say: `Tap the fire engine to call ${pl(q.k, 'more firefighter', 'more firefighters')}!`, hint: 'Tap the fire engine!',
-            targets: [(out) => out.copy(doorP)],
+            targets: [rideTarget(doorP)],
             bubble: (j, idx, out) => { out.copy(slots[q.n + j]); out.y += 2.9; },
             act: (j) => {
               const i = q.n + j, m = fighter(i, true); m.position.copy(from); SCN.items[i] = m; step(i);
@@ -2263,13 +2389,24 @@
         prep() {},
         hands(q, step) {          // the child points the water at the glowing windows
           aimQ = q; restAt(Math.max(0, ready.indexOf(true)), aimP);
-          return { kind: 'aim', count: q.k, say: `Spray ${pl(q.k, 'window', 'windows')}! Point the water at the glowing ${plural(q.k, 'one', 'ones')}!`, hint: 'Touch a glowing window!',
+          return { kind: 'aim', count: q.k, say: `Spray ${pl(q.k, 'smoky window', 'smoky windows')}!`, hint: 'Touch a glowing window!',
             targets: Array.from({ length: q.k }, (_, t) => (out) => out.copy(wins[q.n - 1 - t])),
-            aim: (x, y) => { const p = BB.hands.ray(x, y).intersectPlane(wall, _a); if (p) { clampAim(p); aimOn = true; } },
+            // (a finger near a glowing window means that window: the water goes right onto it, so a small finger on a
+            // small screen needn't be exact; anywhere else the water just follows the finger)
+            aim: (x, y) => {
+              const p = BB.hands.ray(x, y).intersectPlane(wall, _a); if (!p) return;
+              let best = -1, bd = 0.95 * 0.95;
+              for (let t = 0; t < q.k; t++) { const i = q.n - 1 - t; if (!(want[i] > 0)) continue; const d = p.distanceToSquared(wins[i]); if (d < bd) { bd = d; best = i; } }
+              if (best >= 0) aimP.copy(wins[best]); else clampAim(p);
+              aimOn = true;
+            },
             auto: (t) => { aimP.copy(wins[q.n - 1 - t]); aimOn = true; },
             act: (j, t) => { const i = q.n - 1 - t; want[i] = 0; step(i); BB.sfx.whoosh(); } };
         },
-        points: () => ends.concat(slots.filter((s, i) => ready[i])),
+        // a close-up of the kiosk: the windows are what is counted and sprayed here, so they are shown as big as the
+        // screen allows (the firefighters and the engine are beside it, as far as the picture reaches)
+        close: true, top: 4.4,
+        points: () => ends,
       },
       // the water sweeps over the windows still smoking, one after another
       async sweep(ok) {
