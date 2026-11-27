@@ -1287,9 +1287,11 @@
     const col = rpick(TREE_GREENS);
     if (inCamSpot(x + FRAME.x, z + FRAME.z)) return;   // keep the stop and garage camera views clear
     if (hypot2(x + FRAME.x, z + FRAME.z) < 200) W.addCircle(x, z, 0.9 * s);
-    b.disc(2.6 * s, 7, P.grassDark, x + 0.6, y0 + 0.02, z + 0.5, 1, 0.8);       // soft shadow patch
     if (TREES) b = TREES;                     // trees go in their own mesh: hidden whole when they block the view
     const p0 = propStart(b);
+    // (its soft shadow patch is part of it, so a tree hidden for the stop's side view leaves no green patch behind
+    // on the pavement)
+    b.disc(2.6 * s, 7, P.grassDark, x + 0.6, y0 + 0.02, z + 0.5, 1, 0.8);
     if (kind === 'rain') {                    // Singapore rain tree: a wide umbrella crown
       b.cyl(0.32 * s, 0.5 * s, 3.4 * s, 5, P.woodDark, x, y0, z);
       b.ball(3.2 * s, col, x, y0 + 4.6 * s, z, 0, 1.35, 0.5, 1.35);
@@ -1388,7 +1390,7 @@
   function buildMeadow(b) {
     const DISC = new THREE.CircleGeometry(1, 6); DISC.rotateX(-Math.PI / 2);
     const BUD = new THREE.ConeGeometry(1, 1, 3, 1, true), BUSH = new THREE.OctahedronGeometry(1, 0);   // (kept very cheap: 3 and 8 triangles)
-    const PATCH = [light(P.grass, 0.13), light(P.grass, 0.2), '#69b553', '#7fc862'];
+    const PATCH = [light(P.grass, 0.13), light(P.grass, 0.2), '#69b553', '#7fc862'], bays = allBays();
     let n = 0;
     for (const e of W.roads.edges) {
       if (e.kind === 'yard') continue;
@@ -1401,8 +1403,13 @@
           if (z > SZ + 8 || !clearOfRoads(x, z, RH + 4.4) || W.pushOut(x, z, 1.6).hit > 0.001 || inCamSpot(x, z)) continue;
           const y = W.groundY(x, z) ? 0.27 : 0, k = drnd(); n++;
           if (k < 0.46) {                                        // a paler or deeper scrap of grass
-            const r = dr(1.8, 4.6);
-            b.add(DISC, dpick(PATCH), x, y + 0.03, z, dr(0, 3.1), 0, 0, r * dr(1, 1.7), 1, r);
+            // (never over the paving: a scrap near the road is made smaller, or left out, so that it stays 3.3 clear
+            // of the road's edge and well clear of a stop's paving, since it is drawn a little above the ground)
+            let r = dr(1.8, 4.6);
+            const col = dpick(PATCH), rot = dr(0, 3.1), sx = dr(1, 1.7);
+            const clear = (q) => { if (!clearOfRoads(x, z, RH + 3.3 + q * sx)) return false; for (const st of bays) if (hypot2(st.pos.x - x, st.pos.z - z) < 9 + q * sx) return false; return true; };
+            while (r > 1 && !clear(r)) r *= 0.8;
+            if (r > 1) b.add(DISC, col, x, y + 0.03, z, rot, 0, 0, r * sx, 1, r);
           } else if (k < 0.8 || off < e.half + 11) {             // a clump of flowers in one or two colours
             const c1 = dpick(PETALS), c2 = drnd() < 0.5 ? c1 : dpick(PETALS), m = 3 + Math.floor(drnd() * 3);
             for (let i = 0; i < m; i++) {
@@ -2830,7 +2837,8 @@
   const BUSG = { ok: false, p: new Float32Array(8), mx: 0, mz: 0, fx: 0, fz: 1, speed: 0, calm: false, calmT: 9, tx: 0, tz: 0, tr: 0, ex: 0, ez: 0, er: 0, tow: false };
   // The camera's view along the ground: where it stands, which way it looks and how wide (a wedge), and how fast it is
   // turning (`spin`, smoothed) or how long it has stood still (`still`).
-  const CAMG = { ok: false, x: 0, y: 10, z: 0, fx: 0, fz: 1, cosW: 0, flat: false, yaw: 0, spin: 0, still: 0 };
+  // (cosW: the wedge with a margin, for what is drawn; cosR: the picture itself, a little wider for a walker's size)
+  const CAMG = { ok: false, x: 0, y: 10, z: 0, fx: 0, fz: 1, cosW: 0, cosR: 0, flat: false, yaw: 0, spin: 0, still: 0 };
   function camGeom(dt) {
     const cam = BB.camera, V = CAMG;
     V.ok = !!cam; if (!cam) return;
@@ -2841,7 +2849,13 @@
     V.spin += (rate - V.spin) * Math.min(1, dt * 12);
     V.still = rate < 0.05 && moved < 0.02 + dt * 0.3 ? V.still + dt : 0;
     V.yaw = yaw; V.x = px; V.y = cam.position.y; V.z = pz; V.fx = fx; V.fz = fz;
-    V.cosW = Math.cos(Math.min(1.45, Math.atan(Math.tan(cam.fov * Math.PI / 360) * cam.aspect) + 0.2));
+    const half = Math.atan(Math.tan(cam.fov * Math.PI / 360) * cam.aspect);
+    V.cosW = Math.cos(Math.min(1.45, half + 0.2)); V.cosR = Math.cos(Math.min(1.45, half + 0.06));
+  }
+  // Is (x, z) in the picture itself (not just near its edge), as far as anybody is drawn?
+  function inPicture(x, z) {
+    const V = CAMG, dx = x - V.x, dz = z - V.z, d = hypot2(dx, dz);
+    return d < 125 && (!V.flat || dx * V.fx + dz * V.fz > V.cosR * d);
   }
   // Can the camera see the ground at (x, z)? (anything nearer than `near` counts as seen)
   function inSight(x, z, near) {
@@ -2875,16 +2889,18 @@
     }
     G.mx = (p[0] + p[6]) / 2; G.mz = (p[1] + p[7]) / 2; G.fx = fX; G.fz = fZ; G.speed = +B.speed || 0;
     G.tow = B.type === 'tow';
-    // a stop, a scene, the tow or the wash in progress (and the goodnight in hub mode): the side view must show only
-    // the people the question is about
+    // a stop, a scene, the tow or the wash in progress (the goodnight at a stop too): the side view must show only the
+    // people the question is about
     const J = BB.jobs, wasCalm = G.calm;
-    G.calm = !!(B.atStop || (B.isSettling && B.isSettling()) || (J && J.phase === 'tow') || B.inWash || BB.bedtime);
+    // (only with the driving camera: not in the garage or on the home screen, in the workshop at the depot)
+    G.calm = !!((B.atStop || (B.isSettling && B.isSettling()) || (J && J.phase === 'tow') || B.inWash) && B.camMode === 'chase' && !B.inWorkshop);
     G.calmT = G.calm ? 0 : wasCalm ? 0 : G.calmT + dt;
-    // the bay the bus is heading for (people wait there, a scene may be staged on its kerb)
-    const tg = B.target;
+    // the bay the bus is heading for (people wait there, a scene may be staged on its kerb), and the one it stands at
+    // until it drives off again (the people getting off walk away there; the side view looks at it)
+    const tg = B.target && B.target.pos ? B.target : B.atStop && B.atStop.pos ? B.atStop : null;
     // (a stop's queue stands along the kerb for up to 12 units: nobody strolls near it, so the people waiting are
     //  easy to tell apart and to count)
-    if (tg && tg.pos) { G.tx = tg.pos.x; G.tz = tg.pos.z; G.tr = tg.kind === 'scene' || tg.place ? 24 : 20; } else G.tr = 0;
+    if (tg) { G.tx = tg.pos.x; G.tz = tg.pos.z; G.tr = tg.kind === 'scene' || tg.place ? 24 : 20; } else G.tr = 0;
     stopView(); svPlan(); eventGeom(dt); friendGeom(dt);
   }
 
@@ -2920,15 +2936,16 @@
   }
   // Which bits of pavement that view will really show: in its wedge and not behind a building, as seen from where its
   // camera will stand (two spots, for the different buses and screens). Each stretch of pavement near the stop is
-  // sampled every 3 units, a few stretches a frame, once per stop; walkers only keep out of the bits it shows (a
-  // stretch not looked at yet counts as all in view). svVis[stretch]: undefined (not yet), null (none), or spans
-  // [s0, s1, s0, s1...] along it.
-  const svVis = [], svQueue = [];
+  // sampled every 3 units, once per stop, a few looks a frame (at most SV_LOOKS sight lines, so it never costs more
+  // than about a tenth of a millisecond on a frame); walkers only keep out of the bits it shows (a stretch not looked
+  // at yet counts as all in view). svVis[stretch]: undefined (not yet), null (none), or spans [s0, s1, s0, s1...].
+  const svVis = [], svQueue = [], SV_LOOKS = 14;
+  const svCur = { gi: -1, s: 0, open: -1, spans: null };
   let svFor = null;
   function svPlan() {
     if (!SV.ok) return;
     if (svFor !== SV.st) {
-      svFor = SV.st; svQueue.length = 0;
+      svFor = SV.st; svQueue.length = 0; svCur.gi = -1;
       for (let gi = 0; gi < folkSegs.length; gi++) {
         svVis[gi] = undefined;
         const g = folkSegs[gi]; if (hypot2(g.cx - SV.ax, g.cz - SV.az) < 150 + g.r) svQueue.push(gi);
@@ -2937,27 +2954,27 @@
     // (the camera stands 10-12 back at 4.5-9 high; a scene's further back: looked from a little higher than that, and
     //  from 3.5 out, so a wall right behind where it will stand doesn't count)
     const scene = SV.st && (SV.st.kind === 'scene' || SV.st.place), back = scene ? 18 : 11, sx = -SV.nx, sz = -SV.nz;
-    for (let k = 0; k < 6 && svQueue.length; k++) {
-      const gi = svQueue.pop(), g = folkSegs[gi], spans = [];
-      let open = -1;
-      for (let s = 0; ; s += 3) {
-        const end = s > g.len;
-        let vis = false;
-        if (!end) {
-          const q = lineAt(g.line, s), x = q.x, z = q.z;
-          if (inStopView(x, z)) {
-            for (let e = 0; e < 2 && !vis; e++) {
-              const al = e ? 6.5 : 1.5, ex = SV.bx + sx * back + SV.ux * al, ez = SV.bz + sz * back + SV.uz * al;
-              const l = hypot2(x - ex, z - ez), t = l > 4 ? 3.5 / l : 0;
-              vis = !W.blocksSight(ex + (x - ex) * t, 9 + (2.1 - 9) * t, ez + (z - ez) * t, x, 2.1, z);
-            }
+    let looks = SV_LOOKS, samples = 80;
+    while (looks > 0 && samples > 0) {
+      if (svCur.gi < 0) { if (!svQueue.length) return; svCur.gi = svQueue.pop(); svCur.s = 0; svCur.open = -1; svCur.spans = []; }
+      const gi = svCur.gi, g = folkSegs[gi], spans = svCur.spans;
+      const s = svCur.s, end = s > g.len;
+      let vis = false;
+      samples--;
+      if (!end) {
+        const q = lineAt(g.line, s), x = q.x, z = q.z;
+        if (inStopView(x, z)) {
+          for (let e = 0; e < 2 && !vis; e++) {
+            const al = e ? 6.5 : 1.5, ex = SV.bx + sx * back + SV.ux * al, ez = SV.bz + sz * back + SV.uz * al;
+            const l = hypot2(x - ex, z - ez), t = l > 4 ? 3.5 / l : 0;
+            looks--;
+            vis = !W.blocksSight(ex + (x - ex) * t, 9 + (2.1 - 9) * t, ez + (z - ez) * t, x, 2.1, z);
           }
         }
-        if (vis && open < 0) open = s;
-        if (!vis && open >= 0) { spans.push(open - 3, s); open = -1; }   // (3 either side of the samples seen)
-        if (end) break;
       }
-      svVis[gi] = spans.length ? spans : null;
+      if (vis && svCur.open < 0) svCur.open = s;
+      if (!vis && svCur.open >= 0) { spans.push(svCur.open - 3, s); svCur.open = -1; }   // (3 either side of the samples seen)
+      if (end) { svVis[gi] = spans.length ? spans : null; svCur.gi = -1; } else svCur.s = s + 3;
     }
   }
   // Will the stop's side view show a walker at (x, z), at s along stretch gi?
@@ -2970,29 +2987,50 @@
   }
 
   // A town event on the ground (a parade, the otters, a kiosk, a fire engine...): where its things are and how they
-  // move, so walkers and cars keep out of their way. Looked up four times a second.
-  const EVN = 10, EVP = { n: 0, x: new Float32Array(EVN), z: new Float32Array(EVN), vx: new Float32Array(EVN), vz: new Float32Array(EVN) };
+  // move, so walkers and cars keep out of their way. Looked up four times a second and moved on along their way in
+  // between. Its vehicles (a fire engine, the rubbish truck...) are a line along their length (`hl` either side of
+  // the middle, along their heading `ax, az`), not a point, so a car keeps clear of either end.
+  const EVN = 10, EVP = { n: 0, x: new Float32Array(EVN), z: new Float32Array(EVN), vx: new Float32Array(EVN), vz: new Float32Array(EVN),
+    px: new Float32Array(EVN), pz: new Float32Array(EVN), hl: new Float32Array(EVN), ax: new Float32Array(EVN), az: new Float32Array(EVN) };
+  const EV_CARS = { fireTruck: 1, ambulance: 1, police: 1, brokenCar: 1, towTruck: 1, iceCream: 1, milkVan: 1, rubbishTruck: 1 };
   let evT = 0, evAge = 0;
   function eventGeom(dt) {
     const G = BUSG;
     evAge += dt;
-    if ((evT -= dt) > 0) return;
+    if ((evT -= dt) > 0) {
+      const ag = Math.min(evAge, 0.3);
+      for (let k = 0; k < EVP.n; k++) { EVP.x[k] = EVP.px[k] + EVP.vx[k] * ag; EVP.z[k] = EVP.pz[k] + EVP.vz[k] * ag; }
+      return;
+    }
     evT = 0.25;
     const ev = BB.events && BB.events.current, n0 = EVP.n, span = Math.max(0.05, evAge);
     let n = 0; evAge = 0; G.er = 0;
-    const add = (x, z) => {
+    const add = (x, z, len, h) => {
       if (n >= EVN || !(x === x) || !(z === z)) return;
       // (the same thing as last time, by its place in the list: how fast it moves)
-      if (n < n0 && hypot2(x - EVP.x[n], z - EVP.z[n]) < 12) { EVP.vx[n] = (x - EVP.x[n]) / span; EVP.vz[n] = (z - EVP.z[n]) / span; } else { EVP.vx[n] = 0; EVP.vz[n] = 0; }
-      EVP.x[n] = x; EVP.z[n] = z; n++;
+      const same = n < n0 && hypot2(x - EVP.px[n], z - EVP.pz[n]) < 12;
+      if (same) { EVP.vx[n] = (x - EVP.px[n]) / span; EVP.vz[n] = (z - EVP.pz[n]) / span; } else { EVP.vx[n] = 0; EVP.vz[n] = 0; }
+      // (a vehicle: which way it lies, from its heading)
+      const lies = len > 0 && typeof h === 'number' && h === h;
+      EVP.ax[n] = lies ? Math.sin(h) : 0; EVP.az[n] = lies ? Math.cos(h) : 0;
+      EVP.hl[n] = lies ? Math.min(6, len / 2) : 0;
+      EVP.x[n] = EVP.px[n] = x; EVP.z[n] = EVP.pz[n] = z; n++;
     };
     if (ev && ev.id !== 'fireworks' && ev.id !== 'plane') {
-      try { const a = ev.at && ev.at(); if (a) { G.ex = a.x; G.ez = a.z; G.er = 26; add(a.x, a.z); } } catch (e) { /* no place */ }
-      try { const sp = ev.spots && ev.spots(); if (sp) for (let k = 0; k < sp.length; k++) { const q = sp[k]; if (q) add(+q[1], +q[3]); } } catch (e) { /* no spots */ }
+      try { const a = ev.at && ev.at(); if (a) { G.ex = a.x; G.ez = a.z; G.er = 26; add(a.x, a.z, 0, null); } } catch (e) { /* no place */ }
+      try { const sp = ev.spots && ev.spots(); if (sp) for (let k = 0; k < sp.length; k++) { const q = sp[k]; if (q) add(+q[1], +q[3], EV_CARS[q[0]] ? +q[6] || 0 : 0, q[8]); } } catch (e) { /* no spots */ }
     }
     EVP.n = n;
   }
-  const nearEvent = (x, z, r) => { for (let k = 0; k < EVP.n; k++) if (hypot2(EVP.x[k] - x, EVP.z[k] - z) < r) return true; return false; };
+  // how far (x, z) is from event thing k (along its length, for a vehicle), and the nearest point of it (_ep)
+  const _ep = { x: 0, z: 0 };
+  function evDist(k, x, z) {
+    const hl = EVP.hl[k], cx = EVP.x[k], cz = EVP.z[k];
+    if (hl > 0) { const a = BB.clamp((x - cx) * EVP.ax[k] + (z - cz) * EVP.az[k], -hl, hl); _ep.x = cx + EVP.ax[k] * a; _ep.z = cz + EVP.az[k] * a; }
+    else { _ep.x = cx; _ep.z = cz; }
+    return hypot2(x - _ep.x, z - _ep.z);
+  }
+  const nearEvent = (x, z, r) => { for (let k = 0; k < EVP.n; k++) if (evDist(k, x, z) < r) return true; return false; };
 
   // Friends' rides (playing together): where each one is and which way it is going (from its last two places heard),
   // as a straight line from its nose to well behind it (long enough for a bendy bus). Looked up twice a second and
@@ -3049,8 +3087,13 @@
   // ---------- townsfolk: people strolling along the pavements ----------
   // Every stretch of pavement that is free to walk (clear of buildings, shelters and the yard) has a few people on it,
   // about one every 10 units in the town, every 13 in old town and by the sea, fewer on the other outer roads. They
-  // go round in a loop: out along the kerb-side lane of the pavement and back along the other, so they never walk
-  // through each other, and where each one is follows from the clock (and a turn now and then, see below) alone.
+  // go round in a loop: out along the kerb-side lane of the pavement and back along the other, and where each one is
+  // follows from the clock, plus how long it has stood still (`lag`). Nobody ever walks into, or through, somebody
+  // ahead in the same lane: a walker comes up behind them, slows down and stands a step behind until there is room
+  // (a waver, someone waiting to turn round); one who turns round only steps into the other lane where there is room
+  // there, else waits a moment for the people in it to pass; and a hurry (catching up after a wave, getting out of a
+  // place to keep clear) stops a few steps behind the next one. Someone who isn't out (gone home, or stepped out of
+  // sight) never holds anybody up, gets out of their way unseen, and only comes back where there is room.
   // Only the ones the camera can see are drawn (one instanced mesh, FOLK_MAX at most), with legs and arms swinging
   // in the vertex shader.
   // They notice the bus: as it drives past, someone stops, turns and waves (children give a little hop), and when the
@@ -3152,7 +3195,7 @@
   function buildFolk() {
     const bays = W.stops.map((st) => ({ x: st.pos.x, z: st.pos.z, r: st.minor ? 5 : 8.5 }));
     bays.push({ x: W.places.fireStation.pos.x, z: W.places.fireStation.pos.z, r: 15 }, { x: W.places.clinic.pos.x, z: W.places.clinic.pos.z, r: 5 });
-    const slots = [];
+    const slots = [], runs = [];
     for (const e of W.roads.edges) {
       if (e.kind !== 'town' && e.kind !== 'outer') continue;
       if (/^A[JP]/.test(e.a) || /^A[JP]/.test(e.b)) continue;                       // (not round the airport's drop-off loop)
@@ -3165,28 +3208,59 @@
           let ok = false;
           if (!end) { const p = W.pointAt(e, s); ok = walkable(p.x + p.dz * off, p.z - p.dx * off, p.dz, -p.dx, bays); }
           if (ok && run < 0) run = s;
-          if (!ok && run >= 0) {
-            const a = run, c = s - 1; run = -1;
-            if (c - a >= 14) {
-              const line = flatLine(offsetLine(subPts(e, a, c), off)), mid = lineAt(line, line.len / 2), mx = mid.x, mz = mid.z;
-              const lively = e.kind === 'town' || mx < -175 || mz > 170;            // the town, old town, the seaside
-              const n = Math.max(1, Math.round(line.len / (e.kind === 'town' ? 10 : lively ? 13 : 24)));
-              const seg = { line, len: line.len, y: W.groundY(mx, mz) > 0 ? 0.25 : 0.2, sd, v: lr(1.15, 1.6), cx: mx, cz: mz, r: line.len / 2 + 2, i0: slots.length, n };
-              const ph0 = lrnd();
-              for (let k = 0; k < n; k++) slots.push({ seg: folkSegs.length, phase: ((k + ph0 + lr(-0.2, 0.2)) / n) * 2 * line.len });
-              folkSegs.push(seg);
-            }
-          }
+          if (!ok && run >= 0) { if (s - 1 - run >= 14) runs.push({ e, a: run, c: s - 1, off, sd, pts: null }); run = -1; }
           if (end) break;
         }
       }
+    }
+    // Where two stretches meet (round a corner, across a side street), the end of one is kept 3.5 from the other, so
+    // the people turning round at its end never stand in the other stretch's people (each stretch's people keep a step
+    // apart, but they don't know about the next stretch's).
+    // (an edge's own point just after the start or before the end is left out: two points that close, with their
+    // different turns, would put a little backward kink in the line once it is moved out onto the pavement, and the
+    // people there would walk back over the same spot)
+    const tidy = (pts) => {
+      const out = [pts[0]], last = pts[pts.length - 1];
+      for (let i = 1; i < pts.length - 1; i++) { const q = out[out.length - 1]; if (hypot2(pts[i].x - q.x, pts[i].z - q.z) >= 2 && hypot2(pts[i].x - last.x, pts[i].z - last.z) >= 2) out.push(pts[i]); }
+      out.push(last);
+      return out;
+    };
+    const runPts = (r) => r.pts || (r.pts = offsetLine(tidy(subPts(r.e, r.a, r.c)), r.off));
+    const runEnd = (r, s) => { const p = W.pointAt(r.e, s); return { x: p.x + p.dz * r.off, z: p.z - p.dx * r.off }; };
+    const nearRun = (q, x, z, m) => {
+      const pt = runPts(q);
+      for (let i = 1; i < pt.length; i++) if (segD(x, z, pt[i - 1].x, pt[i - 1].z, pt[i].x, pt[i].z) < m) return true;
+      return false;
+    };
+    for (const r of runs) for (let end = 0; end < 2; end++) {
+      for (let k = 0; k < 10 && r.c - r.a >= 14; k++) {
+        const p = runEnd(r, end ? r.c : r.a);
+        let clash = false;
+        for (const q of runs) if (q !== r && q.c - q.a >= 14 && hypot2(q.e.points[0].x - p.x, q.e.points[0].z - p.z) < q.e.length + 20 && nearRun(q, p.x, p.z, 3.5)) { clash = true; break; }
+        if (!clash) break;
+        if (end) r.c -= 1; else r.a += 1;
+        r.pts = null;
+      }
+    }
+    for (const r of runs) {
+      if (r.c - r.a < 14) continue;
+      const e = r.e, line = flatLine(runPts(r)), mid = lineAt(line, line.len / 2), mx = mid.x, mz = mid.z;
+      const lively = e.kind === 'town' || mx < -175 || mz > 170;            // the town, old town, the seaside
+      const n = Math.max(1, Math.round(line.len / (e.kind === 'town' ? 10 : lively ? 13 : 24)));
+      const seg = { line, len: line.len, y: W.groundY(mx, mz) > 0 ? 0.25 : 0.2, sd: r.sd, v: lr(1.15, 1.6), cx: mx, cz: mz, r: line.len / 2 + 2, i0: slots.length, n };
+      const ph0 = lrnd();
+      for (let k = 0; k < n; k++) slots.push({ seg: folkSegs.length, phase: ((k + ph0 + lr(-0.2, 0.2)) / n) * 2 * line.len });
+      folkSegs.push(seg);
     }
     const NS = slots.length, f32 = () => new Float32Array(NS);
     FS = { n: NS, seg: new Uint16Array(NS), phase: f32(), hash: f32(), kid: new Uint8Array(NS), shirt: new Uint8Array(NS), skin: new Uint8Array(NS), hair: new Uint8Array(NS), brolly: f32(),
       lag: f32(), waveT: f32(), cool: f32(), hop: f32(), wv: f32(), vis: f32(), here: new Uint8Array(NS),
       // the turn round at a clear place's edge (lateral place and heading eased, a little wait before the next one),
       // the frame each was last in view, and whether it was last found hidden behind something
-      lw: f32(), hd: f32(), tb: f32(), seenF: new Uint32Array(NS), occ: new Uint8Array(NS), occAt: f32() };
+      lw: f32(), hd: f32(), tb: f32(), seenF: new Uint32Array(NS), occ: new Uint8Array(NS), occAt: f32(),
+      // where on the loop each one is this frame, how much it has stopped to let somebody ahead get on (0 walking,
+      // 1 standing), and whether it is waiting for room in the other lane to turn round
+      u: f32(), st: f32(), hold: new Uint8Array(NS) };
     for (let i = 0; i < NS; i++) {
       FS.seg[i] = slots[i].seg; FS.phase[i] = slots[i].phase; FS.hash[i] = lrnd(); FS.kid[i] = lrnd() < 0.3 ? 1 : 0;
       FS.shirt[i] = Math.floor(lrnd() * SHIRTS.length); FS.skin[i] = Math.floor(lrnd() * SKINS.length); FS.hair[i] = Math.floor(lrnd() * HAIRS.length);
@@ -3206,7 +3280,7 @@
     const G = BUSG;
     if (!G.ok) return here;
     if (busDist(x, z) < 2.3 || (frN && friendDist(x, z) < 2.4)) return -1;
-    for (let k = 0; k < EVP.n; k++) if (hypot2(EVP.x[k] - x, EVP.z[k] - z) < 2.2) return -1;
+    for (let k = 0; k < EVP.n; k++) if (evDist(k, x, z) < 2.2) return -1;
     if (!here) return 0;
     if (G.tr > 0 && hypot2(x - G.tx, z - G.tz) < G.tr) return 0;
     if (G.er > 0 && hypot2(x - G.ex, z - G.ez) < G.er) return 0;
@@ -3240,25 +3314,57 @@
     folkU.uRain.value += BB.clamp(rainUp - folkU.uRain.value, -dt * 1.2, dt * 1.6);
     const awake = 1 - 0.62 * night - 0.3 * wx.storm;                                // who is out and about
     // The camera swinging round to or from a stop's side view: the picture moves so fast that somebody stepping out
-    // of it (or back in) isn't noticed. And if the side view has stood still a moment (0.3 s) with somebody still in it who
-    // shouldn't be, they go then (a last resort, hardly ever needed).
-    const swing = V.spin > 0.55 && (G.calm || G.calmT < 2.5), lastCall = G.calm && V.still > 0.3;
+    // of it (or back in) isn't noticed. On the way round to the side view everybody it sweeps over steps out (it
+    // comes to rest within a few degrees of where it last swung fast, so whatever it will show has been swept, even
+    // where the guess of that view was wrong); once it slows down, nobody walks into the picture (they turn round at
+    // its edge). And if the side view has stood still a moment (0.3 s) with somebody still in it who shouldn't be,
+    // they go then (a last resort, hardly ever needed).
+    const swing = V.spin > 0.55 && (G.calm || G.calmT < 2.5), sweep = swing && G.calm, lastCall = G.calm && V.still > 0.3;
     const im = folk.instanceMatrix.array, A = folk.geometry.attributes, aS = A.iShirt.array, aK = A.iSkin.array, aH = A.iHair.array, aA = A.iAnim.array;
     const T = 0.9, R = folkR;
     let n = 0, over = false;
+    const halfW = Math.acos(BB.clamp(cosW, -1, 1));
     for (let gi = 0, gl = folkSegs.length; gi < gl; gi++) {
-      const g = folkSegs[gi];
-      if (hypot2(g.cx - cx, g.cz - cz) > R + g.r) continue;
-      const L = g.len, loop = 2 * L;
-      for (let i = g.i0, iEnd = g.i0 + g.n; i < iEnd; i++) {
-        // waving: stand still while the arm is up, then hurry a little to be back in step
+      const g = folkSegs[gi], gx = g.cx - cx, gz = g.cz - cz, gd = hypot2(gx, gz);
+      if (gd > R + g.r) continue;
+      // (a stretch wholly outside the camera's wedge: nobody on it is placed, except the quarter looked at this frame)
+      const segOut = flat && gd > g.r + 9 && halfW + Math.asin(g.r / gd) < Math.PI && (gx * fx + gz * fz) < gd * Math.cos(halfW + Math.asin(g.r / gd));
+      const L = g.len, loop = 2 * L, i0 = g.i0, iEnd = g.i0 + g.n;
+      // where everybody on this stretch is on its loop, before anyone's step changes this frame
+      for (let i = i0; i < iEnd; i++) { const u0 = ((folkClock - FS.lag[i]) * g.v + FS.phase[i]) % loop; FS.u[i] = u0 < 0 ? u0 + loop : u0; }
+      for (let i = i0; i < iEnd; i++) {
+        // the nearest walker who is out (vis > 0) ahead on the loop (in this lane, going this way), and behind; for one
+        // who isn't out, the nearest ahead whether out or not (so the ones out of sight never bunch up either, and
+        // never come back out together in one spot)
+        const ui = FS.u[i], out = FS.vis[i] > 0;
+        let ahead = loop, behind = loop;
+        for (let j = i0; j < iEnd; j++) {
+          if (j === i) continue;
+          const oj = FS.vis[j] > 0;
+          if (!oj && out) continue;
+          let dj = FS.u[j] - ui; if (dj < 0) dj += loop;
+          if ((dj > 0 || j < i) && dj < ahead) ahead = dj;                   // (side by side: the lower number is ahead)
+          if (!oj) continue;
+          const bj = dj > 0 ? loop - dj : 0; if ((dj > 0 || j > i) && bj < behind) behind = bj;
+        }
+        // waving: stand still while the arm is up. Coming up behind somebody: slow down, and stand a step behind them
+        // (also while waiting for room to turn round). One who isn't out falls back, or hurries ahead, unseen.
         let wv = FS.wv[i];
         if (FS.waveT[i] > 0) { FS.waveT[i] -= dt; wv = Math.min(1, wv + dt * 5); } else if (wv > 0) wv = Math.max(0, wv - dt * 4);
         FS.wv[i] = wv;
-        if (wv > 0) FS.lag[i] += dt * wv; else if (FS.lag[i] > 0) FS.lag[i] = Math.max(0, FS.lag[i] - dt * 0.45);
+        let stT = ahead < 2.6 ? Math.min(1, (2.6 - ahead) / 1.1) : 0;
+        if (FS.hold[i]) { stT = 1; FS.hold[i] = 0; }
+        if (!out) stT = ahead < 2.6 && ahead <= behind ? 1 : 0;
+        const st = FS.st[i] + BB.clamp(stT - FS.st[i], -dt * 3, dt * 5), stop = wv > st ? wv : st;
+        FS.st[i] = st;
+        // (then a little hurry to be back in step, but never into the one ahead)
+        if (stop > 0) FS.lag[i] += dt * stop;
+        else if (FS.lag[i] > 0 && ahead > 3.2) FS.lag[i] = Math.max(0, FS.lag[i] - dt * 0.45 * Math.min(1, (ahead - 3.2) / 3));
+        if (!out && stT === 0 && behind < 2.6) FS.lag[i] -= dt * 1.2;
         if (FS.cool[i] > 0) FS.cool[i] -= dt;
         if (FS.tb[i] > 0) FS.tb[i] -= dt;
         if (FS.hop[i] < 1) FS.hop[i] += dt;
+        if (segOut && ((i + frame) & 3) !== 0) continue;
         // where on the loop: out along the kerb half (w = 0), back along the other half (w = 1), a turn at each end
         let u = ((folkClock - FS.lag[i]) * g.v + FS.phase[i]) % loop; if (u < 0) u += loop;
         let w, turn;
@@ -3272,22 +3378,30 @@
         const dx = px - cx, dz = pz - cz, d = hypot2(dx, dz);
         if (d > R || (flat && d > 9 && dx * fx + dz * fz < cosW * d)) {
           // out of sight: people go home and come out again, and step out of (or back into) a place to keep clear
+          // (looked at every fourth frame, a quarter of them each frame: nobody sees them meanwhile)
+          if (((i + frame) & 3) !== 0) continue;
           FS.here[i] = FS.hash[i] < awake ? 1 : 0;
           const lt = FOLK_HALF * (2 * ws - 1) * g.sd;
-          FS.vis[i] = folkWant(FS.here[i], px + pdz * lt, pz - pdx * lt, gi, sAt) > 0 ? 1 : 0;
+          // (and back out only where there is room, and at a stop not where its side view looks)
+          const ox = px + pdz * lt, oz = pz - pdx * lt;
+          FS.vis[i] = folkWant(FS.here[i], ox, oz, gi, sAt) > 0 && (out || (ahead > 2.2 && behind > 2.2)) && !(G.calm && inPicture(ox, oz)) ? 1 : 0;
           continue;
         }
         // in view: a turn round eases across (place and heading), from where they were if they were in view last frame
         if (FS.seenF[i] !== frame - 1) { FS.lw[i] = ws; FS.hd[i] = walkH; }
-        else { FS.lw[i] += BB.clamp(ws - FS.lw[i], -dt * 1.5, dt * 1.5); FS.hd[i] += BB.clamp(wrapPi(walkH - FS.hd[i]), -dt * 4.5, dt * 4.5); }
+        else { FS.lw[i] += BB.clamp(ws - FS.lw[i], -dt * 3, dt * 3); FS.hd[i] += BB.clamp(wrapPi(walkH - FS.hd[i]), -dt * 4.5, dt * 4.5); }
         FS.seenF[i] = frame;
         const lat = FOLK_HALF * (2 * FS.lw[i] - 1) * g.sd, x = px + pdz * lat, z = pz - pdx * lat;
         // in plain view nobody pops in or out: a change waits until they're hidden (behind a building or the bus), or
         // for the camera's swing at a stop; only the bus (or a friend's ride, or an event's vehicle) right on top of
         // them sends them away at once
         let want = folkWant(FS.here[i], x, z, gi, sAt);
+        // (at a stop nobody is wanted in the picture: swept out as the camera swings round to it, and afterwards anybody
+        // behind a building in it goes while hidden, so nobody steps out from behind one into the view)
+        if (want > 0 && G.calm && (sweep || inPicture(x, z))) want = 0;
         // (the side view has come to rest: anybody it really shows, not hidden behind something, must go after all)
         if (want > 0 && lastCall && SV.on && !folkHidden(i, x, z)) want = 0;
+        if (want > 0 && !out && (ahead < 2.2 || behind < 2.2)) want = 0;         // (back only where there is room)
         let vis = FS.vis[i];
         if (want < 0) vis = Math.max(0, vis - dt * 6);
         else if (vis !== want) {
@@ -3307,10 +3421,23 @@
             const d0 = hypot2(x - SV.bx, z - SV.bz);
             if (d0 < 70) { if (walkerInView(gi, sAt, x, z)) { inside = true; back = hypot2(ax - SV.bx, az - SV.bz) < d0; } else back = walkerInView(gi, sAt + sg * 1.6, ax, az); }
           }
+          // (at a stop, once the camera has slowed down: the edge of its picture)
+          if (!back && G.calm && !swing && !inPicture(x, z) && inPicture(ax, az)) back = true;
           // (and a town event's things coming along the pavement, the otters or a runaway trolley: make way for them)
-          for (let k = 0; k < EVP.n && !back; k++) { const d0 = hypot2(x - EVP.x[k], z - EVP.z[k]); if (d0 < 7 && hypot2(ax - EVP.x[k], az - EVP.z[k]) < d0) back = true; }
-          if (back && FS.tb[i] <= 0) { FS.phase[i] = ((FS.phase[i] + loop - 2 * u) % loop + loop) % loop; FS.tb[i] = 2.5; }
-          if (inside) FS.lag[i] -= dt * 0.8;
+          for (let k = 0; k < EVP.n && !back; k++) { const d0 = evDist(k, x, z); if (d0 < 7 && evDist(k, ax, az) < d0) back = true; }
+          if (back && FS.tb[i] <= 0) {
+            // (turning round: into the other lane at the same spot, only where there is room in it; else wait there a
+            // moment for the people in that lane to go by)
+            const ut = loop - u;
+            let room = true;
+            for (let j = i0; j < iEnd && room; j++) {
+              if (j === i || !(FS.vis[j] > 0)) continue;
+              let dj = Math.abs(FS.u[j] - ut); if (dj > L) dj = loop - dj;
+              if (dj < 2.6) room = false;
+            }
+            if (room) { FS.phase[i] = ((FS.phase[i] + loop - 2 * u) % loop + loop) % loop; FS.tb[i] = 2.5; } else FS.hold[i] = 1;
+          }
+          if (inside && ahead > 3.2) FS.lag[i] -= dt * 0.8 * Math.min(1, (ahead - 3.2) / 2);
         }
         const fade = BB.clamp((R - d) / 14, 0, 1), sc = vis * fade * (FS.kid[i] ? 0.72 : 1);
         if (sc < 0.03) continue;
@@ -3333,7 +3460,7 @@
         q = FS.skin[i] * 3; aK[n * 3] = FCOL.skin[q]; aK[n * 3 + 1] = FCOL.skin[q + 1]; aK[n * 3 + 2] = FCOL.skin[q + 2];
         q = FS.hair[i] * 3; aH[n * 3] = FCOL.hair[q]; aH[n * 3 + 1] = FCOL.hair[q + 1]; aH[n * 3 + 2] = FCOL.hair[q + 2];
         // (the stride follows the walker's own clock, so a turn round never jolts the legs)
-        aA[n * 4] = ((folkClock - FS.lag[i]) * g.v + FS.hash[i] * 40) * 3.1; aA[n * 4 + 1] = 1 - wv; aA[n * 4 + 2] = wv * (2.55 + 0.4 * Math.sin(folkClock * 11 + i)); aA[n * 4 + 3] = FS.brolly[i];
+        aA[n * 4] = ((folkClock - FS.lag[i]) * g.v + FS.hash[i] * 40) * 3.1; aA[n * 4 + 1] = 1 - stop; aA[n * 4 + 2] = wv * (2.55 + 0.4 * Math.sin(folkClock * 11 + i)); aA[n * 4 + 3] = FS.brolly[i];
         folkShown[n] = i;
         n++;
       }
@@ -3486,14 +3613,15 @@
         const md = hypot2(G.mx - c.x, G.mz - c.z), seen = carSeen(c.x, c.z);
         // driven into by the bus, a friend's ride or an event's vehicle: whisked away, even in view
         let hit = busDist(c.x, c.z) < 2.6 || (frN > 0 && friendDist(c.x, c.z) < 2.8);
-        for (let k = 0; k < EVP.n && !hit; k++) if (hypot2(EVP.x[k] - c.x, EVP.z[k] - c.z) < 3.2) hit = true;
+        for (let k = 0; k < EVP.n && !hit; k++) if (evDist(k, c.x, c.z) < (EVP.hl[k] > 0 ? 2.6 : 3.2)) hit = true;
         // off the street (to come back somewhere else), only while nobody can see it: left far behind, near a stop in
         // progress, near a town event, or stuck a long time; and the tow truck's stop view (it counts cars) keeps clear
-        // of town cars, going in the camera's swing if it must
-        const towView = G.calm && G.tow && SV.ok && inStopView(c.x, c.z);
+        // of town cars near the truck, going in the camera's swing if they must (one far off in the haze, small behind
+        // everything, just drives on)
+        const towView = G.calm && G.tow && md < 100 && ((SV.ok && inStopView(c.x, c.z)) || (swing && seen));
         const off = !seen && (md > CAR_FAR || c.stuck > 20 || c.still > 25 || towView || (G.calm && md < 75) ||
           (md > 125 && (c.x - V.x) * V.fx + (c.z - V.z) * V.fz < -10) || (EVP.n > 0 && nearEvent(c.x, c.z, 38)));
-        if (hit || off || (towView && (swing || lastCall))) { c.gone = true; c.wait = 0; if (off) c.sc = 0; carMatrix(i, c); continue; }
+        if (hit || off || (towView && (swing || (lastCall && md < 75)))) { c.gone = true; c.wait = 0; if (off) c.sc = 0; carMatrix(i, c); continue; }
         // the bus and friends' rides: in my lane ahead (keep well back, out of the chase camera's sight), coming up
         // behind (keep ahead of it), near the junction I'm coming to (wait for it, unless we simply go the same way)
         for (let k = -1; k < frN; k++) {
@@ -3511,13 +3639,18 @@
           }
           if (beh && gapA > 30) want = Math.min(16, Math.max(want, o.speed + 2.5));
           if (beh) behind = true;
-          if (atLine && !beh && hypot2(o.mx - L.nx, o.mz - L.nz) < 31 + L.box && !(c.straight && Math.abs(same) > 0.8)) wait = true;
+          // (not for the bus standing at a stop clear of the junction: it stays put, by the kerb, and nobody would wait
+          // for a bus that isn't moving)
+          const parked = k < 0 && G.calm && Math.abs(G.speed) < 0.3 && lineD(G.p, L.nx, L.nz) > L.box + 3;
+          if (atLine && !beh && !parked && hypot2(o.mx - L.nx, o.mz - L.nz) < 31 + L.box && !(c.straight && Math.abs(same) > 0.8)) wait = true;
         }
         // a town event's things: one in the road just ahead, wait behind it; something fast coming up behind in my
         // lane (an ambulance, a police car): pull over to the kerb and stop until it has gone by
         for (let k = 0; k < EVP.n; k++) {
-          const rx = EVP.x[k] - c.x, rz = EVP.z[k] - c.z, al = rx * fX + rz * fZ, la = rx * lX + rz * lZ;
-          if (al > -2 && al < 30 && Math.abs(la) < 3.6) want = Math.min(want, c.v0 * BB.clamp((al - 9) / 8, 0, 1));
+          // (a vehicle by its nearest end, and well back from it: the rubbish truck backs up to its bins)
+          evDist(k, c.x, c.z);
+          const rx = _ep.x - c.x, rz = _ep.z - c.z, al = rx * fX + rz * fZ, la = rx * lX + rz * lZ;
+          if (al > -2 && al < 30 && Math.abs(la) < 3.6) want = Math.min(want, c.v0 * BB.clamp((al - (EVP.hl[k] > 0 ? 10 : 9)) / 8, 0, 1));
           else if (al < -1 && al > -34 && Math.abs(la + c.lat) < 3 && (al > -14 || EVP.vx[k] * fX + EVP.vz[k] * fZ > c.v + 1.5)) makeWay = true;
         }
       }

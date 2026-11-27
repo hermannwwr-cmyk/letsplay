@@ -71,6 +71,14 @@
   // the bus builder's BB.bus.holdArrival(seconds): delays settling into the next bay while an event plays
   const holdable = () => { const B = Bs(); return !!(B && typeof B.holdArrival === 'function'); };
   function holdArrival(sec) { const B = Bs(); if (holdable()) safe(() => B.holdArrival(Math.min(8, sec))); }
+  // is the bus over its bay's middle (or past it), lined up with it either way round, with the arrival held?
+  function inBay() {
+    const B = Bs(), w = W(), st = B && B.target;
+    if (!st || !w.bayOf || !(B.arrivalHeld && B.arrivalHeld())) return false;
+    const bay = safe(() => w.bayOf(st)); if (!bay || !bay.fwd || !bay.side) return false;
+    const dx = B.pos.x - bay.x, dz = B.pos.z - bay.z, way = Math.cos(B.heading - bay.heading) >= 0 ? 1 : -1;
+    return (dx * bay.fwd.x + dz * bay.fwd.z) * way > 2 && Math.abs(dx * bay.side.x + dz * bay.side.z) < 6;
+  }
   // straight-line distance to the bay the bus is heading for (Infinity: none)
   function targetDist() { const B = Bs(), w = W(), st = B && B.target; if (!st || !w.bayOf) return Infinity; const bay = safe(() => w.bayOf(st)); return bay ? hypot2(bay.x - B.pos.x, bay.z - B.pos.z) : Infinity; }
   const pullingIn = () => { const B = Bs(); return !!(B && (B.atStop || (B.isSettling && B.isSettling()))); };
@@ -1106,7 +1114,7 @@
       const crew = [];                       // {x, z, tx, tz, h}
       v.setLights(true);
       const me = {
-        id: 'fire', spots: () => [['fireTruck', dr.x, 0, dr.z, 3.8, 'Oh! Smoke! Here comes the fire truck!', v.len], ['smoke', src.x, src.y, src.z, 7, 'Oh! Smoke! Here comes the fire truck!', 4]], at: () => src,
+        id: 'fire', spots: () => [['fireTruck', dr.x, 0, dr.z, 3.8, 'Oh! Smoke! Here comes the fire truck!', v.len, undefined, dr.h], ['smoke', src.x, src.y, src.z, 7, 'Oh! Smoke! Here comes the fire truck!', 4]], at: () => src,
         update(dt) {
           t += dt; flash(v, dt);
           // smoke (grey, turning to white steam as the fire goes out), and a few orange flickers at first
@@ -1191,7 +1199,7 @@
       v.setLights(true);
       let lastGap = r.bus, sirenT = 0, prompted = false, promptSp = 0, promptLat = 0, promptT = 0, madeWay = false, passed = false, passT = 0, said = false, t = 0, waitAll = 0, swapped = false;
       return {
-        id: 'ambulance', spots: () => [['ambulance', dr.x, 0, dr.z, 3.6, null, v.len]],
+        id: 'ambulance', spots: () => [['ambulance', dr.x, 0, dr.z, 3.6, null, v.len, undefined, dr.h]],
         update(dt) {
           t += dt; flash(v, dt, 5);
           let B = Bs(), bp = project(r, B.pos.x, B.pos.z, dr.d - 20, dr.d + 90);
@@ -1260,7 +1268,7 @@
       if (balloon) { const kd = d0 + 26; const p = r.at(kd); kid = { x: p.x + p.lx * (pav(kd) + 0.6), z: p.z + p.lz * (pav(kd) + 0.6), h: Math.atan2(-p.lx, -p.lz), has: false }; }
       const itemPos = () => { const p = r.at(item.d); return { x: p.x + p.lx * item.off, z: p.z + p.lz * item.off, h: Math.atan2(p.tx, p.tz) }; };
       return {
-        id: 'police', spots: () => [['police', dr.x, 0, dr.z, 2.3, balloon ? 'Oh! A balloon is floating away! The police car is coming to help!' : 'Oh! A runaway trolley! The police car is coming to help!', v.len]], at: () => { const q = itemPos(); return V3(q.x, 2, q.z); },
+        id: 'police', spots: () => [['police', dr.x, 0, dr.z, 2.3, balloon ? 'Oh! A balloon is floating away! The police car is coming to help!' : 'Oh! A runaway trolley! The police car is coming to help!', v.len, undefined, dr.h]], at: () => { const q = itemPos(); return V3(q.x, 2, q.z); },
         update(dt) {
           t += dt; flash(v, dt, 5);
           if (st === 'chase') {
@@ -1329,7 +1337,7 @@
       let st = 'wait', t = 0, steamT = 0, tickT = 0, hook = 0, man = null, saidT = false, leaveT = 0;
       { const a = local(cdr, car.w / 2 + 1.0, 1.0); man = { x: a.x, z: a.z, h: cdr.h + Math.PI }; }
       return {
-        id: 'breakdown', spots: () => [['brokenCar', cdr.x, 0, cdr.z, 2.2, 'Oh no! That car broke down. Here comes the tow truck!', car.len], ['towTruck', tdr.x, 0, tdr.z, 3.2, null, tow.len]], at: () => V3(cdr.x, 2, cdr.z),
+        id: 'breakdown', spots: () => [['brokenCar', cdr.x, 0, cdr.z, 2.2, 'Oh no! That car broke down. Here comes the tow truck!', car.len, undefined, cdr.h], ['towTruck', tdr.x, 0, tdr.z, 3.2, null, tow.len, undefined, tdr.h]], at: () => V3(cdr.x, 2, cdr.z),
         update(dt) {
           t += dt; flash(car, dt, 2.2); flash(tow, dt, 3);
           if ((tickT -= dt) <= 0) { tickT = 0.45; SND.tick(0.5 * near(cdr.x, cdr.z, 60)); }
@@ -1390,7 +1398,7 @@
       const kids = looks.map((lk, i) => { const kd = qd(i), p = r.at(kd), o = qo; return { lk, x: p.x + p.lx * o, z: p.z + p.lz * o, h: Math.atan2(r.sign * p.tx, r.sign * p.tz), cone: false, seed: Math.random() * 6 }; });
       let st = 'come', t = 0, jingleT = 0, serveT = 2, served = 0, offered = false, toldNear = false, parkedT = 0, leaveT = 0;
       const me = {
-        id: 'iceCream', spots: () => [['iceCream', dr.x, 0, dr.z, 5, 'Ice cream! Stop near the truck for a treat!', v.len]], at: () => V3(dr.x, 4, dr.z),
+        id: 'iceCream', spots: () => [['iceCream', dr.x, 0, dr.z, 5, 'Ice cream! Stop near the truck for a treat!', v.len, undefined, dr.h]], at: () => V3(dr.x, 4, dr.z),
         update(dt) {
           t += dt; flash(v, dt, 2);
           if ((jingleT -= dt) <= 0) { jingleT = st === 'park' ? 12 : 8; const k = near(dr.x, dr.z, 110); if (k > 0) SND.jingle(0.4 + 0.6 * k); }
@@ -1470,7 +1478,7 @@
       let st = 'come', t = 0, man = null, trips = 0, carrying = false, leaveT = 0;
       const crates = [];                                           // {x, z, h, name, n}
       const me = {
-        id: 'milk', spots: () => [['milkVan', dr.x, 0, dr.z, 2.8, 'Good morning! Here comes the milk van!', v.len]], at: () => V3(door.x, 2.5, door.z),
+        id: 'milk', spots: () => [['milkVan', dr.x, 0, dr.z, 2.8, 'Good morning! Here comes the milk van!', v.len, undefined, dr.h]], at: () => V3(door.x, 2.5, door.z),
         update(dt) {
           t += dt;
           if (st === 'come') {
@@ -1535,7 +1543,7 @@
       for (let i = 0; i < nb; i++) { const bd = d - v.len / 2 - 1.4 - i * 1.0, p = r.at(bd), o = off + v.w / 2 + 0.2; bins.push({ x: p.x + p.lx * o, z: p.z + p.lz * o, hx: p.x + p.lx * o, hz: p.z + p.lz * o, y: 0, tip: 0, h: Math.atan2(p.tx, p.tz) }); }
       let st = 'come', t = 0, beepT = 0, bi = 0, leaveT = 0, man = null;
       return {
-        id: 'rubbish', spots: () => [['rubbishTruck', dr.x, 0, dr.z, 4, 'Here comes the rubbish truck!', v.len]], at: () => V3(dr.x, 3, dr.z),
+        id: 'rubbish', spots: () => [['rubbishTruck', dr.x, 0, dr.z, 4, 'Here comes the rubbish truck!', v.len, undefined, dr.h]], at: () => V3(dr.x, 3, dr.z),
         update(dt) {
           t += dt; flash(v, dt, 2.5);
           if (st === 'come') {
@@ -1933,6 +1941,9 @@
     begin(ch.id, ch.pl);
     gap = rand(40, 60);
   }
+  // An event's spots() lists the things to spot: [id, x, y, z, height, intro line, size, top share, heading]; a road
+  // vehicle gives its length as the size and its heading last (world.js keeps the town's walkers and cars clear of its
+  // whole length).
   function spotting(dt) {
     const c = E.current; if (!c || !c.spots) return;
     if ((frT -= dt) > 0) return;
@@ -1973,10 +1984,13 @@
         const keep = safe(() => c.update(dt));
         const a = c.at ? safe(() => c.at()) : null;
         if (a && !busNear(a.x, a.z, 260)) c.far += dt; else c.far = 0;
+        // (held only while the bus is still coming in: once it has reached its bay it may park, so it never creeps on
+        // through the bay and out of it with Go held, and has to go round the block)
         if (clock - c.t0 < 25 && !c.doneTalk && targetNear(55)) {
-          if (holdable()) { if (!c.held || clock - c.held > 6) { c.held = clock; holdArrival(8); } }
+          if (holdable()) { if ((!c.held || clock - c.held > 6) && !targetNear(14)) { c.held = clock; holdArrival(8); } }
           else if (!c.heldUntil) c.heldUntil = clock + 8;
         }
+        if (c.held && inBay()) { c.held = -99; holdArrival(0); }
         if (c.heldUntil && clock < c.heldUntil && targetNear(45) && !targetNear(16) && !jobBusy()) {
           const B = Bs(); if (B.speed > 3) B.speed = Math.max(3, B.speed - dt * 5);   // (no holdArrival yet: a slow roll in)
         }
