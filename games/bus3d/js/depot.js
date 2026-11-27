@@ -520,7 +520,7 @@
 
   // ---------- the garage screen (DOM) ----------
   // A paper panel on the right with three big labelled sections: My ride (the rides, four to a row; the paint pots in
-  // one row; the bus number: all three show without scrolling on a tablet), Shop (Stickers,
+  // one row, or two tidy rows on a narrow panel; the bus number: all three show without scrolling on a tablet), Shop (Stickers,
   // Lights, Bumpers, Wheels, Extras) and Settings (which side the pedals go, lane helper, music, Christmas).
   // Tiles have a picture and a word; unowned ones a price chip; the chosen one a teal rim and a tick; one being tried
   // on glows, with a green "tap again to buy" chip. Over the 3D view, top left: Coins and Fuel (filled free on every
@@ -595,29 +595,37 @@
   .bbd-tile.preview .bbd-price::before { content: ''; width: 18px; height: 18px; margin-right: 2px;
     background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 12.5l4 4 8-9' stroke='white' stroke-width='3.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat; }
   /* My ride: four rides to a row (two rows hold all eight) with their pictures in true shape (the square canvas
-     has an empty band above and below its 4 : 3 picture, cut away here), then the paint pots all in ONE row, so the
-     colours show without scrolling on a tablet, then the bus number */
-  #ui { --rp: 92px; --pp: 50px; --ph: 88px; }
-  .bbd-tiles.rides { width: 100%; column-gap: 10px; } .bbd-tiles.pots { width: 100%; column-gap: 8px; }
+     has an empty band above and below its 4 : 3 picture, cut away here), then the paint pots, then the bus number.
+     The pots are all in ONE row when each can be at least 56 px wide (tablets, bigger phones), so the colours show
+     without scrolling on a tablet; on a narrower panel they make two tidy rows (3 + 3, or 4 + 3 with "Classic":
+     fitPots() sets --n, the pots to a row), never one pot left over on a row of its own. The paint ball hangs low
+     in its tile and the price tag sits on the tile's top right corner above it, so a tag never covers its colour
+     (--ph, --pp and the word's size are chosen so that the ball starts 14 px below the tile's top edge). */
+  #ui { --rp: 92px; --pp: 48px; --ph: 88px; }
+  .bbd-tiles.rides { width: 100%; column-gap: 10px; }
+  .bbd-tiles.pots { width: 100%; gap: 16px 8px; margin-top: 4px; }
   .bbd-tiles.rides .bbd-tile { width: calc((100% - 30px) / 4); }
   .bbd-tiles.rides .bbd-tile canvas { width: var(--rp); height: var(--rp); max-width: 92%; margin: calc(var(--rp) * -.125) 0; object-fit: contain; }
   .bbd-tiles.rides .bbd-tile .lb { font-size: calc(var(--tlb) - 1px); letter-spacing: -.2px; }
   /* (the padlock and the price chip keep to their own tile, so neighbours' chips and padlocks never run together) */
   .bbd-tiles.rides .bbd-tile.locked::before { left: -4px; } .bbd-tiles.rides .bbd-price { right: -5px; }
-  .bbd-tiles.rides .bbd-tile.preview .bbd-price { right: -8px; }
+  .bbd-tiles.rides .bbd-tile.preview .bbd-price { right: -6px; transform-origin: 100% 100%; }
   /* (the wish: its picture gives the saving-up bar a little room, so the bar never sits on the ride's name) */
   .bbd-tiles.rides .bbd-tile.wish { padding-bottom: 14px; }
   .bbd-tiles.rides .bbd-tile.wish canvas { width: calc(var(--rp) - 10px); height: calc(var(--rp) - 10px); margin: calc((var(--rp) - 10px) * -.125) 0; }
-  .bbd-tiles.pots .bbd-tile { width: calc((100% - (var(--n, 6) - 1) * 8px) / var(--n, 6)); min-width: 50px; height: var(--ph); border-radius: 20px; }
+  .bbd-tiles.pots .bbd-tile { width: calc((100% - (var(--n, 6) - 1) * 8px) / var(--n, 6) - .2px); min-width: 56px; height: var(--ph); border-radius: 20px;
+    justify-content: flex-end; padding-top: 0; }
   .bbd-tiles.pots .bbd-tile canvas { width: var(--pp); height: var(--pp); }
   .bbd-tiles.pots .bbd-tile .lb { font-size: calc(var(--tlb) - 1px); }
-  .bbd-tiles.pots .bbd-price { font-size: 15px; line-height: 20px; padding: 0 5px 0 1px; top: -9px; right: -7px; } .bbd-tiles.pots .bbd-price canvas { width: 16px; height: 16px; }
-  .bbd-tiles.pots .bbd-tile.preview .bbd-price { font-size: 19px; line-height: 26px; padding: 0 7px 0 3px; top: -13px; right: -9px; }
-  .bbd-tiles.pots .bbd-tile.preview .bbd-price canvas { width: 20px; height: 20px; } .bbd-tiles.pots .bbd-tile.preview .bbd-price::before { width: 15px; height: 15px; }
-  .bbd-tiles.pots .bbd-tile.on::after { width: 26px; height: 26px; top: -9px; right: -8px; }
-  @media not all and (min-height: 700px) and (min-width: 1000px) { #ui { --rp: 78px; --pp: 44px; --ph: 80px; } }
-  @media (max-height: 560px) { #ui { --rp: 62px; --pp: 36px; --ph: 68px; } .bbd-tiles.rides .bbd-tile .lb { font-size: 12px; } }
-  @media (max-height: 340px) { #ui { --rp: 54px; --pp: 32px; --ph: 62px; } }
+  .bbd-tiles.pots .bbd-price { font-size: 15px; line-height: 20px; padding: 0 5px 0 1px; top: -13px; right: -5px; } .bbd-tiles.pots .bbd-price canvas { width: 16px; height: 16px; }
+  /* (trying a colour on: the green "tap again" tag stays above the ball too, and swells up and inwards, away from
+     the ball and from the panel's edge, so the last pot's tag is never cut off) */
+  .bbd-tiles.pots .bbd-tile.preview .bbd-price { font-size: 17px; line-height: 22px; padding: 0 6px 0 3px; top: -16px; right: -6px; transform-origin: 100% 100%; }
+  .bbd-tiles.pots .bbd-tile.preview .bbd-price canvas { width: 18px; height: 18px; } .bbd-tiles.pots .bbd-tile.preview .bbd-price::before { width: 14px; height: 14px; }
+  .bbd-tiles.pots .bbd-tile.on::after { width: 26px; height: 26px; top: -11px; right: -6px; }
+  @media not all and (min-height: 700px) and (min-width: 1000px) { #ui { --rp: 78px; --pp: 44px; --ph: 84px; } }
+  @media (max-height: 560px) { #ui { --rp: 62px; --pp: 42px; --ph: 80px; } .bbd-tiles.rides .bbd-tile .lb { font-size: 12px; } }
+  @media (max-height: 340px) { #ui { --rp: 54px; --pp: 36px; --ph: 74px; } }
   /* (a narrow panel, the smallest phones: three rides to a row, so "Double-decker" still fits under its picture) */
   @media (max-width: 760px) { .bbd-tiles.rides .bbd-tile { width: calc((100% - 20px) / 3); } .bbd-tiles.rides .bbd-tile .lb { font-size: 12px; } }
   /* the bus number: one low tile, the plate and its word side by side */
@@ -752,6 +760,10 @@
     .bbd-tiles { gap: 15px 9px; } .bbd-body { padding-top: 13px; }
     .bbd-tile.locked::before { width: 22px; height: 22px; top: -8px; left: -7px; }
     .bbd-price { font-size: 15px; line-height: 20px; padding: 0 5px 0 1px; top: -9px; right: -7px; } .bbd-price canvas { width: 16px; height: 16px; }
+    /* (trying something on: a smaller green tag, lifted above the tile so it doesn't hide the picture, and swelling
+       up and inwards, so it is never cut off at the panel's edge or run into the padlock) */
+    .bbd-tile.preview .bbd-price { font-size: 18px; line-height: 24px; padding: 0 7px 0 3px; top: -15px; right: -6px; transform-origin: 100% 100%; }
+    .bbd-tile.preview .bbd-price canvas { width: 20px; height: 20px; } .bbd-tile.preview .bbd-price::before { width: 15px; height: 15px; }
   }
   @media (max-height: 340px) { #ui { --tw: 60px; --th: 72px; --tic: 38px; } .bbd-body { gap: 6px 10px; } .bbd-tiles { gap: 8px; } }`);
 
@@ -961,6 +973,15 @@
   }
   function closePad() { if (padEl) { padEl.remove(); padEl = null; camTo(camFor()); } }
 
+  // The paint pots: all in one row when each can be at least 56 px wide, else two rows that share them out evenly
+  // (3 + 3, or 4 + 3). Measured from the panel itself, so a notch or a narrow window is counted too.
+  const POT_MIN = 56, POT_GAP = 8;
+  function fitPots() {
+    const box = bodyEl && bodyEl.querySelector('.bbd-tiles.pots'); if (!box) return;
+    const n = box.children.length, w = box.clientWidth; if (!n) return;
+    const one = !w || (w - (n - 1) * POT_GAP) / n >= POT_MIN;
+    box.style.setProperty('--n', String(one ? n : Math.ceil(n / 2)));
+  }
   // the fade at the bottom of the tiles only while there is more to scroll to
   let moreEl = null;
   function syncMore() {
@@ -1078,7 +1099,7 @@
           BB.later(700, paintChanged);
         } });
       });
-      box.style.setProperty('--n', String(box.children.length));
+      fitPots();
       // (c) the bus number (buses only: the other rides have no route sign)
       if (isBusKind(curType())) {
         box = sec('number', 'Number');
@@ -1303,7 +1324,7 @@
   D.render = () => { if (panel) renderBody(); };
   D.tab = () => tab;
   D.setTab = (id, sub) => { if (!panel) return; if (sub) shopTab = sub; setTab(id, true); };
-  BB.on('resize', () => BB.later(50, syncMore));
+  BB.on('resize', () => BB.later(50, () => { fitPots(); syncMore(); }));
   BB.on('cash:changed', () => { if (cashSpan) cashSpan.textContent = String(D.cash); });
   BB.on('xmas:changed', () => { if (panel && tab !== 'settings') renderBody(); });
   D.init = function () { /* the 3D props are built once the bus exists (D.afterBus) */ };

@@ -8,7 +8,8 @@
    for coins and the fuel dial, Next stop (the stop's picture and progress dots) and, in hub mode, the shared clock
    chip, then Garage and Sound; at the bottom only the steering wheel (turn it by the rim, or push from its middle;
    tap its middle to honk) and the Go / Back pedals, plus Turn around or Wash when they're needed. The Go pedal glows
-   when the bus has stood still for a while, and backing up beeps. Music and the lane helper are in the garage's Settings, and
+   when the bus has stood still for a while with nothing happening on the road, and backing up beeps. Music and the
+   lane helper are in the garage's Settings, and
    the fire engine's and ambulance's sirens switch themselves on and off with their jobs.
    Home goes back to the home screen (hub and standalone alike); with a trip in progress a kind "Go home?" card asks
    first, and the job waits (phase 'home') until Play and Drive. Also toasts, coins, confetti, a fade for the tow, the
@@ -146,8 +147,15 @@
   .bbu-ped.back { right: calc(var(--sr) + 6px + var(--pgw) + 14px); width: var(--pbw); height: var(--pbh); border-radius: 24px;
     background: linear-gradient(#ffd27a, #f5a23d 55%, #d98226); box-shadow: inset -4px -5px 0 rgba(0,0,0,.1), 0 6px 0 #a8601a, 0 8px 14px rgba(0,0,0,.12); }
   .bbu-ped.down { transform: translateY(6px); } .bbu-ped.go.down { box-shadow: 0 2px 0 #24702d; } .bbu-ped.back.down { box-shadow: 0 1px 0 #a8601a; }
+  /* "press me": a ring grows round the Go pedal and its arrow bobs. The ring is white next to the pedal, then gold
+     with a deeper amber rim, so it shows on every ground (grey road, pale pavement, sand, grass). The shadow lists
+     match the pedal's own, shadow for shadow, so the ring swells smoothly instead of blinking. */
   .bbu-ped.go.nudge, .bbu-ped.go.idle { animation: bbu-pednudge 1.4s ease-in-out infinite; }
-  @keyframes bbu-pednudge { 50% { box-shadow: 0 8px 0 #24702d, 0 0 0 14px rgba(255,212,92,.55); } }
+  .bbu-ped.go.nudge svg, .bbu-ped.go.idle svg { animation: bbu-pedarrow 1.4s ease-in-out infinite; }
+  @keyframes bbu-pedarrow { 50% { transform: translateY(-6%); } }
+  @keyframes bbu-pednudge {
+    0%, 100% { box-shadow: inset -5px -6px 0 rgba(0,0,0,.1), 0 8px 0 #24702d, 0 0 0 0 #fff, 0 0 0 0 #ffb81f, 0 0 0 0 rgba(176,104,0,.7), 0 10px 18px rgba(0,0,0,.15); }
+    50% { box-shadow: inset -5px -6px 0 rgba(0,0,0,.1), 0 8px 0 #24702d, 0 0 0 4px #fff, 0 0 0 13px #ffb81f, 0 0 0 15.5px rgba(176,104,0,.7), 0 10px 18px rgba(0,0,0,.15); } }
   .ctl-wheel .bbu-uturn { right: calc(var(--sr) + 6px + (var(--pgw) - var(--dt) - 14px) / 2); bottom: calc(var(--sb) + var(--pgh) + 16px); }
   .ctl-wheel.lefty .bbu-wheel { left: auto; right: calc(var(--sr) + 6px); }
   .ctl-wheel.lefty .bbu-ped.go { right: auto; left: calc(var(--sl) + 6px); }
@@ -337,7 +345,9 @@
     .bbu-ped .lb { font-size: calc(var(--lb) + 3px); }
     .bbu-ped.go.nudge, .bbu-ped.go.idle { animation-name: bbu-pednudge-s; }
   }
-  @keyframes bbu-pednudge-s { 50% { box-shadow: 0 8px 0 #24702d, 0 0 0 9px rgba(255,212,92,.55); } }
+  @keyframes bbu-pednudge-s {
+    0%, 100% { box-shadow: inset -5px -6px 0 rgba(0,0,0,.1), 0 8px 0 #24702d, 0 0 0 0 #fff, 0 0 0 0 #ffb81f, 0 0 0 0 rgba(176,104,0,.7), 0 10px 18px rgba(0,0,0,.15); }
+    50% { box-shadow: inset -5px -6px 0 rgba(0,0,0,.1), 0 8px 0 #24702d, 0 0 0 3px #fff, 0 0 0 9px #ffb81f, 0 0 0 11px rgba(176,104,0,.7), 0 10px 18px rgba(0,0,0,.15); } }
   `);
 
   function darkHex(c, t = 0.22) { return BB.dark ? BB.dark(c, t) : c; }
@@ -419,47 +429,103 @@
 
     // driving: the steering wheel and the Go / Back pedals (the only controls: the owner chose them over a joystick)
     // The steering wheel takes a finger two ways, and eases back to the middle when let go:
-    //  - held by its rim it is a real wheel: it turns with the finger's angle, up to about 135 degrees each way;
-    //  - pushed from its middle (where a thumb lands first, and where the angle means little) it works like a stick:
-    //    the wheel turns the way the finger goes, left or right, all the way by the time the finger is at the rim.
-    //    (Before, a push straight out from the middle did nothing at all.)
-    // A quick tap on the red middle is still the horn. The Go and Back pedals are held.
+    //  - held by its rim it is a real wheel ('wheel' below): it turns with the finger's angle, up to about 135
+    //    degrees each way;
+    //  - pushed from its middle (where a thumb lands first, and where the angle means little) it works like a stick
+    //    ('push'): the wheel turns the way the finger goes, left or right, from nothing (a tap's wobble is left out)
+    //    to all the way when the finger has gone a little over one wheel-radius, and it is straight again when the
+    //    finger is back where it began.
+    // The two hand over, so the wheel never swings back by itself: a push that goes on round the wheel, the way the
+    // wheel is already turning, carries on as a real wheel from where it stands (it keeps turning that way); back in
+    // the middle it is a stick again.
+    // The horn is the red middle: a short press there honks, decided when the finger lifts, so a little slide
+    // doesn't spoil it. The Go and Back pedals are held.
     wheelEl = BB.el('div', 'bbu-wheel', hud); wheelRot = BB.el('div', 'rot', wheelEl, WHEEL_SVG);
     wheelEl.setAttribute('aria-label', 'steering wheel');
-    let wheelId = null, lastA = 0, turned = 0, downT = 0, inHub = false, push = false, downX = 0, downY = 0, rot0 = 0;
-    const angOf = (e) => { const r = wheelEl.getBoundingClientRect(); return Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2)) * 180 / Math.PI; };
+    // Shares of the wheel's radius (the picture: the red horn out to 0.34, the spokes to 0.73, then the rim):
+    // MID: a press that starts inside it is a push, and may be the horn (the horn's old reach); RED: the red horn,
+    // with a finger's margin; OUT: far enough out for the way round to mean something; CORE: back in the middle.
+    // STEER_PX: a push steers once the finger has gone this far sideways, and from nothing (the way there doesn't
+    // count). ROUND / EASE: a push becomes a real wheel once the finger has gone this far round (along the way, a
+    // share of the radius) the way the wheel turns, while the stick eased off by less than EASE of that.
+    // The horn: a press under TAP_MS that slid less than TAP_PX, or never left the red horn; or one under PRESS_MS
+    // that barely moved (STILL_PX) or never left the red horn.
+    const MID = 0.6, RED = 0.42, OUT = 0.45, CORE = 0.3, STEER_PX = 9, ROUND = 0.2, EASE = 0.7;
+    const TAP_MS = 350, TAP_PX = 24, PRESS_MS = 700, STILL_PX = 12;
+    const wp = { x: 0, y: 0, R: 1 };
+    const wheelAt = (e) => {            // the finger, measured from the wheel's middle
+      const r = wheelEl.getBoundingClientRect();
+      wp.x = e.clientX - (r.left + r.width / 2); wp.y = e.clientY - (r.top + r.height / 2); wp.R = (wheelEl.offsetWidth || r.width || 2) / 2;
+      return wp;
+    };
+    let wheelId = null, mode = '', began = '', inHub = false, onRed = false, downT = 0, downX = 0, downY = 0, far = 0;
+    let px = 0, py = 0, anchorX = 0, anchorRot = 0, dead = 0, homeRot = 0, arc = 0, peak = 0, peakSg = 0;
+    // the stick: the wheel's angle for a finger at x (from the anchor; the first `dead` pixels either way are still)
+    const stickRot = (x, R) => { const d = x - anchorX, a = Math.abs(d) - dead; return BB.clamp(anchorRot + (a > 0 ? (d < 0 ? -a : a) : 0) / R * 135, -135, 135); };
     wheelEl.addEventListener('pointerdown', (e) => {
       e.preventDefault(); if (wheelId != null) return;
       wheelId = e.pointerId; try { wheelEl.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
-      lastA = angOf(e); wheel.drag = true;
-      const r = wheelEl.getBoundingClientRect(), dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
-      turned = 0; downT = performance.now(); inHub = Math.hypot(dx, dy) < r.width * 0.3;     // the red middle (with the horn)
-      push = inHub; downX = e.clientX; downY = e.clientY; rot0 = wheel.rot;
+      const p = wheelAt(e), r = Math.hypot(p.x, p.y);
+      wheel.drag = true; wheel.to = null; px = p.x; py = p.y;
+      downT = e.timeStamp || performance.now(); downX = e.clientX; downY = e.clientY; far = 0;
+      inHub = r < p.R * MID; onRed = r < p.R * RED;
+      began = mode = inHub ? 'push' : 'wheel';
+      anchorX = downX; anchorRot = homeRot = wheel.rot; dead = STEER_PX; arc = 0; peak = 0; peakSg = 0;
       wheelEl.classList.add('grab');
     });
     wheelEl.addEventListener('pointermove', (e) => {
       if (e.pointerId !== wheelId) return;
-      if (push) {
-        // (the first few pixels are a tap's wobble: the horn, not a turn)
-        if (inHub && Math.hypot(e.clientX - downX, e.clientY - downY) < 9) return;
-        inHub = false;
-        const w = wheelEl.getBoundingClientRect().width || 1;
-        wheel.rot = BB.clamp(rot0 + (e.clientX - downX) / (w * 0.5) * 135, -135, 135);
+      const p = wheelAt(e), x = p.x, y = p.y, R = p.R, r = Math.hypot(x, y), r0 = Math.hypot(px, py);
+      const travel = Math.hypot(e.clientX - downX, e.clientY - downY); if (travel > far) far = travel;
+      if (r >= R * MID) inHub = false;                 // out of the middle: a turn, not the horn
+      if (r >= R * RED) onRed = false;
+      // How far round the middle the finger went since the last time (degrees, clockwise = to the right), and the
+      // nearest this move came to the middle (a share of the radius): next to the middle the angle means nothing
+      // (a finger crossing it would flip the wheel right over), so it fades out there.
+      let dA = (Math.atan2(y, x) - Math.atan2(py, px)) * 180 / Math.PI; while (dA > 180) dA -= 360; while (dA < -180) dA += 360;
+      const sx = x - px, sy = y - py, len2 = sx * sx + sy * sy, t = len2 > 0 ? BB.clamp(-(px * sx + py * sy) / len2, 0, 1) : 0;
+      const near = Math.hypot(px + sx * t, py + sy * t) / R;
+      if (mode === 'push') {
+        const to = stickRot(e.clientX, R), a = Math.abs(to), sg = Math.sign(to);
+        if (wheel.to != null) wheel.to = to; else wheel.rot = to;
+        // Going on round? Counted from the last time the stick went further: how far the finger has gone round the
+        // way the wheel turns (arc, in pixels) against how far the stick eased off meanwhile (in the finger's
+        // pixels). A finger going on round, out at the side, eases the stick off only a little, so from there it is
+        // a real wheel. A finger coming back, or sliding along under the middle, eases off at least as much as it
+        // goes round, so it stays a stick (going back the way it came straightens the wheel, as it should).
+        if (a >= peak || (sg && sg !== peakSg)) { peak = a; peakSg = sg || peakSg; arc = 0; }
+        else if (r >= R * OUT && near >= CORE) {
+          arc += (peakSg || Math.sign(dA)) * dA * Math.PI / 180 * (r + r0) / 2;
+          if (arc > R * ROUND && (peak - a) / 135 * R < arc * EASE) { mode = 'wheel'; wheel.to = null; }
+        }
       } else {
-        const a = angOf(e); let d = a - lastA; while (d > 180) d -= 360; while (d < -180) d += 360; lastA = a;
-        turned += Math.abs(d);
-        wheel.rot = BB.clamp(wheel.rot + d, -135, 135);
+        wheel.rot = BB.clamp(wheel.rot + dA * BB.smooth((near - 0.1) / 0.15), -135, 135);
+        if (r < R * CORE) {
+          // Back in the middle: a stick again. A press that began as a push goes back to being that same stick (the
+          // wheel settles to where the finger is, see U.update); one that began on the rim keeps the wheel as it
+          // stands and pushes on from there.
+          mode = 'push'; arc = 0; peak = 0; peakSg = 0;
+          if (began === 'push') { anchorX = downX; anchorRot = homeRot; dead = STEER_PX; wheel.to = stickRot(e.clientX, R); }
+          else { anchorX = e.clientX; anchorRot = wheel.rot; dead = 0; }
+        }
       }
+      px = x; py = y;
       showWheel();
       if (Math.abs(wheel.rot) > 25) hideTip('wheelhand');
       applyInput();
     });
-    // a quick tap on the wheel's red middle (not a turn) honks the horn
+    // The horn: a press that began on the wheel's middle and never left it honks when the finger lifts: a quick one
+    // that slid only a little (or stayed on the red horn), or a slower one that hardly moved (or stayed on the red
+    // horn and slid only a little). A longer slide is a turn, not the horn. Any small turn begun meanwhile eases
+    // away by itself. (The events' own times are used, so a busy frame between finger down and finger up doesn't
+    // make a quick tap look like a long one.)
     const wheelUp = (e) => {
-      if (e.pointerId !== wheelId) return; wheelId = null; wheel.drag = false;
+      if (e.pointerId !== wheelId) return; wheelId = null; wheel.drag = false; wheel.to = null;
       wheelEl.classList.remove('grab');
-      if (e.type === 'pointerup' && inHub && turned < 12 && performance.now() - downT < 600) honk();
-      inHub = false; push = false;
+      const held = (e.timeStamp || performance.now()) - downT;
+      const horn = held < TAP_MS ? far < TAP_PX || onRed : held < PRESS_MS && (far < STILL_PX || (onRed && far < TAP_PX));
+      if (e.type === 'pointerup' && inHub && horn) honk();
+      inHub = onRed = false; mode = '';
     };
     for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) wheelEl.addEventListener(ev, wheelUp);
     wheelEl.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -811,7 +877,7 @@
   // {analog: true, throttle: -1..1, steer: -1..1} plus the old booleans (thresholds) for a bus without analog support;
   // no input object at all: GO falls back to BB.bus.go().
   // Wheel layout: steer = wheel angle / 135 degrees, throttle = GO ? 1 : reverse ? -0.7 : 0.
-  const keys = {}, pedals = {}, wheel = { rot: 0, drag: false };
+  const keys = {}, pedals = {}, wheel = { rot: 0, drag: false, to: null };   // (to: where a held wheel is settling to, see U.update)
   function current() {
     const throttle = keys.go ? 1 : keys.back ? -1 : pedals.go ? 1 : pedals.back ? -0.7 : 0;
     const steer = keys.left && !keys.right ? -1 : keys.right && !keys.left ? 1 : wheel.rot / 135;
@@ -829,7 +895,7 @@
     for (const k in keys) keys[k] = false;
     for (const k in pedals) pedals[k] = false;
     for (const b of [pedGo, pedBack]) if (b) { b.classList.remove('down'); b._ptrs.clear(); }
-    wheel.drag = false;                   // (the wheel itself eases back to the middle in U.update)
+    wheel.drag = false; wheel.to = null;  // (the wheel itself eases back to the middle in U.update)
     if (wheelEl) wheelEl.classList.remove('grab');
     try { applyInput(); } catch (e) { /* bus not built yet */ }
   };
@@ -1176,14 +1242,17 @@
   }
   // Two small cues while driving (both on the game clock, so they stand still on a hold):
   //  - the bus could go but has stood still with no foot on a pedal for a few seconds: the Go pedal glows, so a child
-  //    who can't read (or missed the words) sees what to press next;
+  //    who can't read (or missed the words) sees what to press next. Never while something is happening on the road
+  //    (BB.events: "Stop! Let the otters cross!", "Make way!"): waiting is the right thing then, and the few seconds
+  //    start again once it is over;
   //  - backing up beeps softly, like a real bus (and tells the ears that the orange pedal goes backwards).
   let idleGo = 0, goGlow = false, backBeep = 0;
   function driveCues(dt) {
     const B = BB.bus;
     const can = driving && hud && !hud.classList.contains('off') && !askEl && !bookEl && !BB.bedtime && B.camMode === 'chase' && !B.atStop && !B.locked && !B.noFuel && !B.doorsOpen;
     const foot = pedals.go || pedals.back || keys.go || keys.back;
-    idleGo = can && !foot && Math.abs(B.speed) < 0.3 ? idleGo + dt : 0;
+    const show = BB.events && BB.events.active && BB.events.active();
+    idleGo = can && !foot && !show && Math.abs(B.speed) < 0.3 ? idleGo + dt : 0;
     const glow = idleGo > 4;
     if (glow !== goGlow) { goGlow = glow; if (pedGo) pedGo.classList.toggle('idle', glow); }
     if (can && (pedals.back || keys.back) && B.speed < -0.6) { backBeep -= dt; if (backBeep <= 0) { backBeep = 0.64; BB.sfx.backBeep(); } }
@@ -1192,6 +1261,10 @@
   U.update = function (dt) {
     if (!wheel.drag && wheel.rot !== 0) {            // the wheel eases back to the middle
       wheel.rot = Math.abs(wheel.rot) < 0.5 ? 0 : wheel.rot * Math.max(0, 1 - (dt || 0.016) * 7);
+      showWheel(); applyInput();
+    } else if (wheel.drag && wheel.to != null) {     // a held wheel going back to being a stick settles to the finger
+      wheel.rot += (wheel.to - wheel.rot) * Math.min(1, (dt || 0.016) * 10);
+      if (Math.abs(wheel.to - wheel.rot) < 1) { wheel.rot = wheel.to; wheel.to = null; }
       showWheel(); applyInput();
     }
     driveCues(dt || 0.016);
