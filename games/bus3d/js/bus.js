@@ -1349,7 +1349,7 @@
     // they stand on must show too. On a tablet the row runs ahead of the front door, beside the nose (the bus moves
     // over to the right; its tail may be cut); on a phone it runs in front of the bus from the door back, below the
     // seated friends (the bus moves up a little in its column).
-    const nq = NS > 0 && st && !close ? Math.min(4, st.queue | 0) : 0;
+    const nq = NS > 0 && st && !close && !noQueue ? Math.min(4, st.queue | 0) : 0;
     if (nq > 0) {
       const Q = B.QUEUE;
       if ((innerHeight > 520) !== stripFlip) { const z = dl.z + 0.5 + nq * Q.step; req.push(lw(dl.x + Q.side, 0.8, z), lw(dl.x + Q.side, 2.4, z)); }
@@ -1382,7 +1382,8 @@
         right.setFromMatrixColumn(fitCam.matrixWorld, 0); up.setFromMatrixColumn(fitCam.matrixWorld, 1);
         // (tablets, card along the bottom: the bus stands just above the card instead of in the middle of the free
         // space, so there is no empty band of road between the people and their pictures on the card)
-        const cy = low ? Math.max(ry, R.y1 - 26 - bx.h / 2) : ry;
+        // (a job's scene on a tablet too: the vehicle and its things just above the card, not floating mid-sky)
+        const cy = Hd > 520 ? Math.max(ry, R.y1 - 26 - bx.h / 2) : ry;
         const mx = -((rx - (bx.x0 + bx.x1) / 2) * u), my = (cy - (bx.y0 + bx.y1) / 2) * u;
         fitCam.position.addScaledVector(right, mx).addScaledVector(up, my); look.addScaledVector(right, mx).addScaledVector(up, my);
         if (fitCam.position.y < g0 + 1.3) { const dy = g0 + 1.3 - fitCam.position.y; fitCam.position.y += dy; look.y += dy; }
@@ -1465,7 +1466,8 @@
     // [yaw, pitch, nearest distance]: not too close first (people on the pavement would loom large), then closer;
     // then a little along the kerb; then higher up, looking down over the building in the way
     // (a close-up may stand as near as its points fit: the windows the child aims at should be big)
-    const far = close ? 5 : wideLens ? 8 : Hd <= 520 ? 9 : 12, near = close ? 5 : wideLens ? 6.5 : Hd <= 520 ? 7.5 : 9.5, cands = [];
+    // (a job's scene: its little things, bags or teddies, are what is counted, so the nearer spot first)
+    const near = close ? 5 : wideLens ? 6.5 : Hd <= 520 ? 7.5 : 9.5, far = close ? 5 : wideLens ? 8 : st && Array.isArray(st.frame) && st.frame.length ? near : Hd <= 520 ? 9 : 12, cands = [];
     for (const pitch of [15, 22, 30, 38]) cands.push([0, pitch, far, true]);
     for (const pitch of [15, 22, 30, 38]) cands.push([0, pitch, near, true]);
     for (const pitch of [15, 22, 30, 38]) cands.push([0, pitch, near, false]);
@@ -1724,19 +1726,27 @@
   function planned(st) {
     const key = st.id + '|' + B.type + '|' + innerWidth + 'x' + innerHeight + '|' + (st.frameKey || (st.frame ? st.frame.length : 0)) + '|' + (st.queue | 0);
     if (!stopCam || stopCam.key !== key) {
-      stopCam = planStopCam(st, key);
-      // (a queue's strip of pavement that only fits in a steep view from high up, because the camera would have to
-      // stand back inside a building to see it from low down: the strip on the bus's other side, ahead of the nose
-      // on a phone, in front of the bus on a tablet (jobs.js tries both), or else a wider lens, so the camera can
-      // stand nearer, when that view looks from much lower)
-      for (let alt = 0; alt < 2 && (st.queue | 0) > 0 && pitchOf(stopCam) > 40; alt++) {
-        if (alt) wideLens = true; else stripFlip = true;
-        try { const p0 = planStopCam(st, key); if (pitchOf(p0) <= pitchOf(stopCam) - 12) stopCam = p0; } finally { stripFlip = wideLens = false; }
+      let p = planStopCam(st, key);
+      // A queue's strip of pavement must never cost a steep view from high up (where a building stands right behind
+      // the pavement, the camera would have to stand back inside it to see the strip from low down). Never more than
+      // a little steeper than the view without the queue: else the strip on the bus's other side (jobs.js tries both),
+      // then a wider lens (the camera can stand nearer), and failing that the view without the queue (jobs.js then
+      // finds the friends free spots in it).
+      if ((st.queue | 0) > 0) {
+        let p0 = null;
+        noQueue = true; try { p0 = planStopCam(st, key); } finally { noQueue = false; }
+        const lim = Math.max(pitchOf(p0) + 4, 24);
+        for (let alt = 0; alt < 2 && pitchOf(p) > lim; alt++) {
+          if (alt) wideLens = true; else stripFlip = true;
+          try { const p1 = planStopCam(st, key); if (pitchOf(p1) < pitchOf(p)) p = p1; } finally { stripFlip = wideLens = false; }
+        }
+        if (pitchOf(p) > lim) p = p0;
       }
+      stopCam = p;
     }
     return stopCam;
   }
-  let stripFlip = false, wideLens = false;
+  let stripFlip = false, wideLens = false, noQueue = false;
   const pitchOf = (p) => Math.atan2(p.pos.y - p.look.y, hypot2(p.look.x - p.pos.x, p.look.z - p.pos.z)) * 57.3;
   // Where the stop camera will stand once it has settled: { pos, look, fov } (null away from a stop). jobs.js lays
   // the people out on screen with it, so they are right even while the camera is still swinging round.

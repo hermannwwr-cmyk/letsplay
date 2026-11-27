@@ -5,15 +5,21 @@
    moment; this file draws it and helps. One look for every ride:
      the ring      a chunky honey ring on what to touch: 88 px (66 on phones), never two overlapping: when the things
                    stand a ring apart each wears its own, else only the next one does (the others can still be
-                   touched: the thing nearest the finger is the one meant); a whole vehicle wears it round its box
+                   touched: the thing nearest the finger is the one meant); a whole vehicle wears it round its box;
+                   a person wears it lying flat round their feet, like a spotlight on the pavement, so the person
+                   stays in full view (the whole person is the place to touch)
      the hand      a paper hand that shows the gesture from the first moment: it taps (with a ripple), carries a thing
                    along a dotted path to the drop place, slides from window to window, or goes round the winch
      the drop      a dashed teal ring with a little arrow: where a dragged thing goes (it lights up under the finger)
      the bubble    the number of each thing done, counted aloud with a little note that climbs
    Every touch gets an answer: a pop of paper stars, the note, the number; a touch that missed makes the nearest
    ring wiggle and brings the hand to it (after two misses the hint is said, after four the game does one).
-   One finger only (a second finger is ignored), and a quick double tap counts once. Nothing can be done wrong:
-   a drag let go anywhere, or a plain tap, still lands. And it never blocks:
+   A touch that reaches a thing holds it, one at a time (a new one lets the old one go, and that one counts or
+   lands); a touch on nothing holds nothing, so a thumb resting on the screen's edge (holding the tablet) never gets
+   in another finger's way and never stops the waiting clock. A press held still counts (a tap after 0.6 s, a thing
+   in the hand lands after 1.5 s, or 3 s once it has been carried), and a quick double tap counts once. Aiming and
+   the winch: the newest finger steers. Nothing can be done wrong: a drag let go anywhere, or a plain tap, still
+   lands. And it never blocks:
      no finger for HINT_AT seconds (after the invitation) -> the hint line is spoken and the hand grows
      no finger for AUTO_AT seconds  -> the game does the next one itself, then one more every AUTO_GAP seconds
    The waiting is counted in game time (H.update(dt)), so it stands still on a hold or a hidden page.
@@ -24,10 +30,14 @@
      kind    'tap' | 'drag' | 'aim' | 'crank'
      count   how many actions (tap, drag, aim), ignored for crank
      targets one per thing to touch: fn(out) -> world point, or { at: fn(out), box: [world points] } for a whole big
-             thing (the ring goes round its box on screen: "tap the fire engine"); `repeat: true` = one target tapped
+             thing (the ring goes round its box on screen: "tap the fire engine"), or { at: fn(out), feet: fn(out) }
+             for a person (at = their middle, where the hand taps; the ring lies round their feet; the whole person,
+             feet to head, takes the finger); `repeat: true` = one target tapped
              `count` times; `ordered: true` = the things go in list order whichever one is touched (one ring, on the
              next one; a touch anywhere on the group counts, also where one has just gone)
-     drop    fn(out, idx) -> world point of the place thing idx (the one carried, else the next one) goes (drag)
+     drop    fn(out, idx, j) -> world point of the place thing idx (the one carried, else the next one) goes as the
+             j-th one (drag; things fill their places in order, whichever one is carried); dropFlat: true = that
+             point is a person's feet (the drop place lies flat round them)
      act(j, idx, auto)   the j-th action (0-based) on target idx; may return a promise the moment waits for
      drag(idx, point)    the finger carries target idx over the ground (point = null when it lets go)
      aim(x, y)           the finger points at a screen spot (aim); the scene calls BB.hands.hit(idx) when it is hit
@@ -58,12 +68,14 @@
   .bbh-t { position: absolute; width: var(--w, var(--t)); height: var(--h, var(--t)); left: calc(var(--w, var(--t)) / -2); top: calc(var(--h, var(--t)) / -2);
     border-radius: 50%; opacity: 0; transform: scale(.5); transition: opacity .18s, transform .28s cubic-bezier(.2,1.6,.5,1); }
   .bbh-t.box { border-radius: 30px; }
+  .bbh-t.foot { --w: calc(var(--t) * .92); --h: calc(var(--t) * .4); }
   .bbh-t.ring { opacity: 1; transform: none; }
   .bbh-t i { position: absolute; inset: 0; border-radius: inherit; box-sizing: border-box; border: var(--rim) solid #ffd45c;
     background: radial-gradient(closest-side, rgba(255,236,170,0) 70%, rgba(255,224,120,.22) 100%);
     box-shadow: 0 0 0 3px #f2a516, 0 0 14px 6px rgba(255,184,31,.55), inset 0 0 0 3px #fff6e0, inset 0 0 8px 2px rgba(255,214,92,.4);
     animation: bbh-pulse .85s ease-in-out infinite alternate; }
   .bbh-t.box i { background: none; animation-name: bbh-pulse-box; }
+  .bbh-t.foot i { background: radial-gradient(closest-side, rgba(255,236,170,.32), rgba(255,224,120,.12) 75%, rgba(255,224,120,0) 100%); }
   @keyframes bbh-pulse { from { transform: scale(.92); } to { transform: scale(1.04); } }
   @keyframes bbh-pulse-box { from { transform: scale(.97); } to { transform: scale(1.02); } }
   .bbh.hint .bbh-t i { animation-duration: .5s; }
@@ -78,6 +90,9 @@
     background: #19a79b; clip-path: polygon(0 0, 100% 0, 50% 100%); animation: bbh-bob .6s ease-in-out infinite alternate; }
   @keyframes bbh-bob { to { transform: translateY(calc(var(--t) * .1)); } }
   .bbh-drop.near { border-style: solid; background: rgba(150,232,218,.5); animation: none; transform: scale(1.14); }
+  /* a person to give the thing to: the drop place lies flat round their feet, so they stay in view */
+  .bbh-drop.flat { height: calc(var(--t) * .5); top: calc(var(--t) * -.25); }
+  .bbh-drop.flat::after { display: none; }
   /* the dotted path from the thing to the drop place, and its arrowhead */
   .bbh-dot { position: absolute; width: 18px; height: 18px; left: -9px; top: -9px; border-radius: 50%; background: #fff6e0; box-shadow: 0 0 0 4px #19a79b, 0 3px 0 4px rgba(18,122,113,.35);
     animation: bbh-march 1.2s linear infinite; }
@@ -204,19 +219,52 @@
   // second, never every frame). A thing that stands under the card gets its ring at the card's edge, within reach.
   function measure(c) {
     const T = tsize();
-    if (T !== c.T && c.kind !== 'aim') for (const t of c.targets) if (!t.box) t.w = t.h = T;      // (the screen was turned or resized)
+    if (T !== c.T && c.kind !== 'aim') for (const t of c.targets) if (!t.box) { t.w = t.feet ? T * 0.92 : T; t.h = t.feet ? T * 0.4 : T; if (t.feet) t.el.style.removeProperty('--w'); }   // (the screen was turned or resized)
     c.T = T; c.phone = innerHeight <= 520; c.topY = c.phone ? 58 : 78;
+    if (c.kind === 'aim') aimSize(c);
+    feetSize(c);
     const k = document.querySelector('.bbq:not(.out)');
     c.card = !!k;
     if (k) { const r = k.getBoundingClientRect(); c.cl = r.left - 4; c.ct = r.top - 4; c.cr = r.right + 4; c.cb = r.bottom + 4; }
     if (c.crank) { const r = c.crank.getBoundingClientRect(); c.kx = r.left + r.width / 2; c.ky = r.top + r.height / 2; c.kw = r.width; }
   }
-  function keep(c, s, r) {
-    const Wd = innerWidth, Hd = innerHeight, top = c.topY + r * 0.6;
-    s.x = BB.clamp(s.x, r + 4, Wd - r - 4); s.y = BB.clamp(s.y, top, Hd - r - 4);
-    if (c.card && s.x + r > c.cl && s.x - r < c.cr && s.y + r > c.ct && s.y - r < c.cb) {
-      if (c.phone) s.x = Math.min(Wd - r - 4, c.cr + r); else s.y = Math.max(top, c.ct - r);
+  function keep(c, s, r, ry) {
+    if (ry == null) ry = r;
+    const Wd = innerWidth, Hd = innerHeight, top = c.topY + ry * 0.6;
+    s.x = BB.clamp(s.x, r + 4, Wd - r - 4); s.y = BB.clamp(s.y, top, Hd - ry - 4);
+    if (c.card && s.x + r > c.cl && s.x - r < c.cr && s.y + ry > c.ct && s.y - ry < c.cb) {
+      if (c.phone) s.x = Math.min(Wd - r - 4, c.cr + r); else s.y = Math.max(top, c.ct - ry);
     }
+  }
+  // rings lying round people's feet: a little narrower where the people stand close together (as narrow as three
+  // quarters of a ring), so each one still wears their own (their reach stays the whole person)
+  function feetSize(c) {
+    let mn = 1e9, any = false;
+    for (let i = 0; i < c.targets.length; i++) {
+      const a = c.targets[i]; if (!a.feet || a.used || !a.seen) continue; any = true;
+      for (let j = i + 1; j < c.targets.length; j++) { const b = c.targets[j]; if (b.feet && !b.used && b.seen && Math.abs(a.sy - b.sy) < a.h) mn = Math.min(mn, Math.abs(a.sx - b.sx)); }
+    }
+    if (!any) return;
+    const w = Math.round(BB.clamp(mn * 0.96, c.T * 0.72, c.T * 0.92));
+    for (let i = 0; i < c.targets.length; i++) {
+      const t = c.targets[i]; if (!t.feet || Math.abs(t.w - w) < 1) continue;
+      t.w = w; t.el.style.setProperty('--w', w + 'px');
+    }
+  }
+  // aiming: the rings only mark the windows (the whole view takes the finger), as big as their spacing on screen
+  // allows; worked out again twice a second (the camera may still be swinging round, the screen may be turned)
+  function aimSize(c) {
+    let g = c.T;
+    for (let i = 0; i < c.targets.length; i++) {
+      const a = c.targets[i]; a.at(a.p); if (!proj(a.p, _s)) continue;
+      const ax = _s.x, ay = _s.y;
+      for (let j = i + 1; j < c.targets.length; j++) { const b = c.targets[j]; b.at(b.p); if (proj(b.p, _s)) g = Math.min(g, hypot2(ax - _s.x, ay - _s.y) * 0.94); }
+    }
+    g = Math.round(Math.max(40, g));
+    if (Math.abs(g - c.aimT) < 2) return;
+    c.aimT = g;
+    if (layer) layer.style.setProperty('--t', g + 'px');
+    for (let i = 0; i < c.targets.length; i++) c.targets[i].w = c.targets[i].h = g;
   }
   // a whole big thing (the fire engine, the ice cream van): the ring goes round its box on screen
   function projBox(c, t) {
@@ -236,11 +284,18 @@
     t.ax = t.sx; t.ay = t.sy;
     if (t.at) { t.at(t.p); if (proj(t.p, _s)) { t.ax = BB.clamp(_s.x, t.sx - w / 2 + 24, t.sx + w / 2 - 24); t.ay = BB.clamp(_s.y, t.sy - h / 2 + 24, t.sy + h / 2 - 24); } }
   }
-  // 0 in the middle of a target .. 1 at the edge of its reach (a generous third beyond the ring)
+  // 0 in the middle of a target .. 1 at the edge of its reach (a generous third beyond the ring; a person: anywhere
+  // from their feet to the top of their head, and a good half ring either side)
   function reach(t, x, y) {
     if (t.box) return hypot2(Math.max(0, Math.abs(x - t.sx) - t.w / 2), Math.max(0, Math.abs(y - t.sy) - t.h / 2)) / 20;
+    if (t.feet) {
+      const ax = t.sx, ay = t.sy + t.h * 0.3, bx = t.tx, by = t.ty, vx = bx - ax, vy = by - ay, l2 = vx * vx + vy * vy || 1;
+      const u = BB.clamp(((x - ax) * vx + (y - ay) * vy) / l2, 0, 1);
+      return hypot2(x - ax - vx * u, y - ay - vy * u) / (c0T * 0.62);
+    }
     return hypot2(x - t.hx, y - t.hy) / (t.w * 0.66);
   }
+  let c0T = 88;              // (the ring size of the moment on now: a person's reach)
   // the next thing to touch: the one the child last reached for, else the first in the list
   function next(c) {
     if (c.focus >= 0 && !c.targets[c.focus].used) return c.focus;
@@ -275,6 +330,8 @@
       for (let j = i + 1; j < n; j++) {
         const u = c.targets[j];
         if (u.used || !u.seen) continue;
+        // (rings lying flat round two people's feet: apart when they don't overlap, side by side or one behind)
+        if (t.feet && u.feet) { if (Math.abs(t.sx - u.sx) < (t.w + u.w) / 2 * 0.96 && Math.abs(t.sy - u.sy) < (t.h + u.h) / 2 * 0.96) return false; continue; }
         if (hypot2(t.sx - u.sx, t.sy - u.sy) < lim) return false;
       }
     }
@@ -311,21 +368,26 @@
     if (cur !== c || c.done >= c.count) return;
     const t = c.targets[idx];
     if (t && !c.o.repeat) { if (t.used) return; t.used = true; t.ring = false; t.el.classList.remove('ring', 'held'); }
+    if (c.grab === idx && c.pid != null) release(c);   // (the game did the very thing a finger was holding: let it go)
     const j = c.done++;
     c.idle = auto ? AUTO_AT - AUTO_GAP : 0;
     c.misses = 0; c.focus = -1;
     c.quietUntil = performance.now() + 240;            // (a quick double tap counts once)
-    if (t) { burst(c, t.follow ? t.fx : t.box ? t.ax : t.sx, t.follow ? t.fy : t.box ? t.ay : t.sy); t.follow = false; }
+    if (t) { burst(c, t.follow ? t.fx : t.box ? t.ax : t.hx, t.follow ? t.fy : t.box ? t.ay : t.hy); t.follow = false; }
     bubble(c, j, idx);
     note(j);
     count(c, j + 1);
     let r = null;
     try { r = c.o.act ? c.o.act(j, idx, !!auto) : null; } catch (e) { console.error(e); }
+    c.heldT = 0;
     if (r && typeof r.then === 'function') c.pending.push(r.catch((e) => console.error(e)));
     if (c.done >= c.count) finish(c, true);
   }
   // a touch that missed: no "wrong", just a little wiggle of the nearest ring, and the hand goes there
   function miss(c, x, y) {
+    const now = performance.now();
+    if (now - c.missAt < 250) return;                  // (a palm's several touches at once: one miss)
+    c.missAt = now;
     c.misses++; c.since = 9;
     soft(523, 0); soft(659, 0.07);
     const i = nearest(c, x, y);
@@ -351,11 +413,18 @@
     c.done2 = done;
     Promise.all(c.pending).then(() => c.resolve(!c.stopped));
   }
-  // the finger lets go (or the touch is taken away): a thing in the hand lands, a plain tap counts
-  function letGo(c, moved, act) {
-    const i = c.grab; c.grab = -1; c.pid = null; c.down = false;
+  // forget the finger (without landing or counting anything)
+  function release(c) {
+    const i = c.grab; c.grab = -1; c.pid = null; c.down = false; c.heldT = 0;
     if (c.crank) c.crank.classList.remove('held');
-    if (c.ignore) { c.ignore = false; return; }           // (a touch on nothing: the hand stays, pointing)
+    if (i >= 0 && c.targets[i]) { const t = c.targets[i]; t.el.classList.remove('held'); t.follow = false; }
+    c.dragging = null;
+    if (c.drop && c.near) { c.near = false; c.drop.firstChild.classList.remove('near'); }
+  }
+  // the finger lets go: a thing in the hand lands, a plain tap counts (act), or neither
+  function letGo(c, moved, act) {
+    const i = c.grab; c.grab = -1; c.pid = null; c.down = false; c.heldT = 0;
+    if (c.crank) c.crank.classList.remove('held');
     c.since = 0;
     if (i < 0) return;
     const t = c.targets[i]; if (!t) return;
@@ -371,46 +440,66 @@
       const kind = o.kind || 'tap';
       const c = cur = { o, kind, count: Math.max(1, o.count | 0), done: 0, idle: 0, hinted: false, targets: [], bubbles: [], pending: [], dots: [], resolve, ended: false,
         closing: null, hand: null, drop: null, pad: null, crank: null, dragging: null, t: 0, p: 0, shared: !!(o.ordered || o.repeat), pid: null, down: false, grab: -1,
-        moved: false, ignore: false, since: 9, misses: 0, focus: -1, quietUntil: 0, inviting: !!o.say, nums: 0, safeT: 0, pose: '', near: false, ang: 0,
+        moved: false, since: 9, misses: 0, missAt: 0, focus: -1, quietUntil: 0, inviting: !!o.say, nums: 0, safeT: 0, pose: '', near: false, ang: 0,
+        heldT: 0, mx: 0, my: 0, ix: 0, iy: 0, lx: 0, ly: 0, turned: 0, autoOn: false, autoIdx: -1,
         T: tsize(), phone: false, topY: 78, card: false, cl: 0, ct: 0, cr: 0, cb: 0, kx: 0, ky: 0, kw: 0, dx: 0, dy: 0, dropOn: false, pathOn: false, px0: 0, py0: 0, px1: 0, py1: 0, aimT: 0 };
       const L = root();
       L.className = 'bbh ' + kind;
       L.style.removeProperty('--t');
-      // the whole view takes the finger (the HUD and the card sit on top and keep their own taps): one finger at a
-      // time, the nearest thing in reach, and a touch on nothing is noticed too
+      // The whole view takes the finger (the HUD and the card sit on top and keep their own taps). A touch that
+      // reaches a thing holds it, one at a time: a new one lets the old one go (it counts, or lands). A touch on
+      // nothing holds nothing (the nearest ring wiggles), so a thumb resting on the edge of the screen, holding the
+      // tablet, never gets in another finger's way. Aiming: the newest finger steers.
       c.pad = BB.el('div', 'bbh-pad', L);
-      const aim = (e) => { c.idle = 0; c.misses = 0; try { o.aim(e.clientX, e.clientY); } catch (err) { console.error(err); } };
+      const steer = (x, y) => { c.lx = x; c.ly = y; try { o.aim(x, y); } catch (err) { console.error(err); } };
+      const busy = () => { c.idle = 0; c.misses = 0; c.autoOn = false; c.autoIdx = -1; };     // (a finger at work: the game's help waits)
       c.pad.addEventListener('pointerdown', (e) => {
         if (cur !== c || c.ended) return;
         e.preventDefault();
-        if (c.pid != null) return;                       // one finger only
-        c.pid = e.pointerId; c.down = true; c.ignore = false; c.grab = -1; c.moved = false; c.sx0 = e.clientX; c.sy0 = e.clientY;
+        const x = e.clientX, y = e.clientY;
+        if (kind === 'aim') {
+          c.pid = e.pointerId; c.down = true; c.ix = x; c.iy = y;
+          try { c.pad.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+          busy(); steer(x, y); return;
+        }
+        if (performance.now() < c.quietUntil) return;       // (a quick double tap counts once)
+        let i = kind === 'crank' ? -1 : pick(c, x, y);
+        if (i < 0) { miss(c, x, y); return; }
+        if (c.pid != null) {                                // another finger holds a thing: that one counts or lands first
+          letGo(c, c.moved, true);
+          if (cur !== c || c.ended) return;
+          i = pick(c, x, y); if (i < 0) return;
+        }
+        c.pid = e.pointerId; c.down = true; c.grab = i; c.moved = false; c.heldT = 0; c.sx0 = c.mx = x; c.sy0 = c.my = y;
         try { c.pad.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
-        if (kind === 'aim') { aim(e); return; }
-        if (performance.now() < c.quietUntil) { c.ignore = true; return; }
-        const i = kind === 'crank' ? -1 : pick(c, e.clientX, e.clientY);
-        if (i < 0) { c.ignore = true; miss(c, e.clientX, e.clientY); return; }
-        c.grab = i; c.idle = 0;
+        busy();
         const t = c.targets[i];
         t.el.classList.add('held'); soft(784, 0);
         if (kind === 'drag') {
-          c.dragging = t; t.fx = e.clientX; t.fy = e.clientY;
+          c.dragging = t; t.fx = x; t.fy = y;
           // (the thing never flies off to the horizon: it stays within a fair way of where it is going)
           c.far = 8;
-          if (c.drop) { t.at(t.p); o.drop(c.dropP, i); c.far = Math.max(8, 1.6 * hypot2(t.p.x - c.dropP.x, t.p.z - c.dropP.z)); }
+          if (c.drop) { t.at(t.p); o.drop(c.dropP, i, c.done); c.far = Math.max(8, 1.6 * hypot2(t.p.x - c.dropP.x, t.p.z - c.dropP.z)); }
         }
       });
       c.pad.addEventListener('pointermove', (e) => {
         if (e.pointerId !== c.pid || cur !== c || c.ended) return;
-        if (kind === 'aim') { aim(e); return; }
-        if (c.ignore || c.grab < 0 || kind !== 'drag') return;
-        if (!c.moved && Math.abs(e.clientX - c.sx0) + Math.abs(e.clientY - c.sy0) > 8) c.moved = true;
+        const x = e.clientX, y = e.clientY;
+        if (kind === 'aim') {
+          // (a finger held still trembles a little: that steers nothing and doesn't keep the game's help waiting)
+          const far = hypot2(x - c.ix, y - c.iy) > 14;
+          if (far) { c.ix = x; c.iy = y; busy(); }
+          if ((far || !c.autoOn) && hypot2(x - c.lx, y - c.ly) >= 3) steer(x, y);
+          return;
+        }
+        if (c.grab < 0 || kind !== 'drag') return;
+        if (!c.moved && Math.abs(x - c.sx0) + Math.abs(y - c.sy0) > 8) c.moved = true;
         if (!c.moved) return;
-        c.idle = 0;
-        const t = c.targets[c.grab], g = ground(e.clientX, e.clientY, o.plane || 0, _hit);
+        if (hypot2(x - c.mx, y - c.my) > 4) { c.mx = x; c.my = y; c.heldT = 0; c.idle = 0; }
+        const t = c.targets[c.grab], g = ground(x, y, o.plane || 0, _hit);
         if (g && c.drop) { const ddx = g.x - c.dropP.x, ddz = g.z - c.dropP.z, dl = hypot2(ddx, ddz); if (dl > c.far) { g.x = c.dropP.x + ddx / dl * c.far; g.z = c.dropP.z + ddz / dl * c.far; } }
         if (g && o.drag) { try { o.drag(c.grab, g); } catch (err) { console.error(err); } }
-        t.fx = e.clientX; t.fy = e.clientY; t.follow = true;
+        t.fx = x; t.fy = y; t.follow = true;
       });
       const up = (e) => { if (e.pointerId !== c.pid) return; unlock(); const moved = c.moved; letGo(c, moved, kind !== 'aim' && (e.type === 'pointerup' || moved)); };
       c.pad.addEventListener('pointerup', up); c.pad.addEventListener('pointercancel', up);
@@ -432,11 +521,13 @@
           }
         };
         c.turnBy = turn;
+        // the newest finger on the wheel turns it (a thumb resting on it, or anywhere else, never blocks another)
         c.crank.addEventListener('pointerdown', (e) => {
           e.preventDefault();
-          if (c.pid != null) return;
+          if (cur !== c || c.ended) return;
+          if (c.pid != null) release(c);
           measure(c);
-          c.pid = e.pointerId; c.down = true; c.ignore = false; c.grab = -1; c.last = angle(e); c.moved = 0; c.idle = 0; c.misses = 0;
+          c.pid = e.pointerId; c.down = true; c.grab = -1; c.last = angle(e); c.moved = 0; c.turned = 0; c.idle = 0; c.misses = 0;
           c.crank.classList.add('held');
           try { c.crank.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
         });
@@ -444,7 +535,9 @@
           if (e.pointerId !== c.pid || !c.down) return;
           const a = angle(e); let d = a - c.last; c.last = a;
           if (d > Math.PI) d -= Math.PI * 2; else if (d < -Math.PI) d += Math.PI * 2;
-          c.moved += Math.abs(d); c.idle = 0; c.autoOn = false;
+          c.moved += Math.abs(d);
+          // (only real turning keeps the game's help waiting: not a finger that just rests on the wheel)
+          c.turned += Math.abs(d); if (c.turned > 0.25) { c.turned = 0; c.idle = 0; c.autoOn = false; }
           turn(d);
         });
         const cup = (e) => {
@@ -456,12 +549,13 @@
         c.crank.addEventListener('pointerup', cup); c.crank.addEventListener('pointercancel', cup);
       }
       (o.targets || []).forEach((tg) => {
-        const fn = typeof tg === 'function', a = anchor(), el = BB.el('div', 'bbh-t' + (!fn && tg.box ? ' box' : ''), a, '<i></i>');
-        c.targets.push({ at: fn ? tg : tg.at || null, box: fn ? null : tg.box || null, a, el, used: false, ring: false, seen: false, follow: false, p: new THREE.Vector3(),
-          sx: 0, sy: 0, hx: 0, hy: 0, ax: 0, ay: 0, fx: 0, fy: 0, w: c.T, h: c.T });
+        const fn = typeof tg === 'function', box = fn ? null : tg.box || null, feet = fn ? null : tg.feet || null;
+        const a = anchor(), el = BB.el('div', 'bbh-t' + (box ? ' box' : feet ? ' foot' : ''), a, '<i></i>');
+        c.targets.push({ at: fn ? tg : tg.at || null, box, feet, a, el, used: false, ring: false, seen: false, follow: false, p: new THREE.Vector3(), q: feet ? new THREE.Vector3() : null,
+          sx: 0, sy: 0, hx: 0, hy: 0, tx: 0, ty: 0, ax: 0, ay: 0, fx: 0, fy: 0, w: feet ? c.T * 0.92 : c.T, h: feet ? c.T * 0.4 : c.T });
       });
       if (kind === 'drag' && o.drop) {
-        c.drop = anchor(); BB.el('div', 'bbh-drop', c.drop); c.dropP = new THREE.Vector3();
+        c.drop = anchor(); BB.el('div', 'bbh-drop' + (o.dropFlat ? ' flat' : ''), c.drop); c.dropP = new THREE.Vector3();
         for (let i = 0; i < 6; i++) { const d = anchor(); BB.el('div', i < 5 ? 'bbh-dot' : 'bbh-arrow', d, i < 5 ? null : '<b></b>'); if (i < 5) d.firstChild.style.animationDelay = (i * 0.15 - 1.2).toFixed(2) + 's'; d._on = false; d.style.display = 'none'; c.dots.push(d); }
       }
       c.hand = anchor(); c.handEl = BB.el('div', 'bbh-hand', c.hand, HAND);
@@ -475,11 +569,11 @@
   H.active = () => !!(cur && !cur.ended);
   H.stop = function () { const c = cur; if (!c) return; if (c.ended) { c.stopped = true; if (c.done2) c.done2(); c.closing = null; cur = null; return; } finish(c, false); };
   // (a hold, or the page hidden, takes the finger away: whatever it held stays where it is, ready to be touched again)
-  BB.on('held', (d) => { const c = cur; if (d && d.on && c && !c.ended && c.pid != null) letGo(c, c.kind === 'drag' && !!c.moved, false); });
+  BB.on('held', (d) => { const c = cur; if (d && d.on && c && !c.ended && c.pid != null) { if (c.kind === 'drag' && c.moved && c.grab >= 0 && c.o.drag) { try { c.o.drag(c.grab, null); } catch (e) { console.error(e); } } release(c); } });
   H.state = function () {
     const c = cur; if (!c || c.ended) return { on: false };
     return { on: true, kind: c.kind, done: c.done, count: c.count, idle: +c.idle.toFixed(2), hinted: c.hinted, p: +c.p.toFixed(3), misses: c.misses, size: c.T,
-      targets: c.targets.map((t) => ({ used: t.used, x: t.sx, y: t.sy, w: t.w, h: t.h, on: t.seen, ring: t.ring })),
+      targets: c.targets.map((t) => ({ used: t.used, x: t.sx, y: t.sy, hx: t.hx, hy: t.hy, w: t.w, h: t.h, on: t.seen, ring: t.ring, person: !!t.feet })),
       drop: c.drop ? { x: c.dx, y: c.dy } : null, crank: c.crank ? { x: c.kx, y: c.ky, r: c.kw / 2 } : null };
   };
 
@@ -552,20 +646,30 @@
     c.t += dt; c.since += dt;
     if ((c.safeT -= dt) <= 0) { c.safeT = 0.5; measure(c); }
     const o = c.o, nx = next(c);
+    c0T = c.T;
+    // a press held still counts too: a tap after 0.6 s, a thing in the hand lands after 1.5 s (3 s once it has been
+    // carried somewhere), so a finger or a thumb resting on a thing never keeps the moment waiting (game time)
+    if (c.grab >= 0 && c.pid != null && (c.kind === 'tap' || c.kind === 'drag')) {
+      c.heldT += dt;
+      if (c.heldT >= (c.kind === 'tap' ? 0.6 : c.moved ? 3 : 1.5)) { letGo(c, c.moved, true); if (c.ended || cur !== c) return; }
+    }
     // where every thing is on screen
     for (let i = 0; i < c.targets.length; i++) {
       const t = c.targets[i]; if (t.used) continue;
       if (t.box) projBox(c, t);
-      else { t.at(t.p); t.seen = proj(t.p, _s); if (t.seen) { keep(c, _s, t.w / 2); t.sx = _s.x; t.sy = _s.y; } }
+      else if (t.feet) {
+        // a person: the ring at their feet, the hand at their middle, their head as high again
+        t.at(t.p); t.feet(t.q);
+        t.seen = proj(t.p, _s);
+        const bx = _s.x, by = _s.y;
+        if (t.seen && proj(t.q, _s)) {
+          t.tx = 2 * bx - _s.x; t.ty = 2 * by - _s.y;
+          keep(c, _s, t.w / 2, t.h / 2); t.sx = _s.x; t.sy = _s.y;
+          if (!t.follow) { t.hx = bx; t.hy = by; }
+        } else t.seen = false;
+        continue;
+      } else { t.at(t.p); t.seen = proj(t.p, _s); if (t.seen) { keep(c, _s, t.w / 2); t.sx = _s.x; t.sy = _s.y; } }
       if (!t.follow) { t.hx = t.sx; t.hy = t.sy; }
-    }
-    // aiming: the rings are only marks (the whole view is the pad), as big as the windows' spacing allows
-    if (c.kind === 'aim' && !c.aimT) {
-      let g = c.T;
-      for (let i = 0; i < c.targets.length; i++) for (let j = i + 1; j < c.targets.length; j++) { const a = c.targets[i], b = c.targets[j]; if (a.seen && b.seen) g = Math.min(g, hypot2(a.sx - b.sx, a.sy - b.sy) * 0.94); }
-      c.aimT = Math.max(40, g);
-      layer.style.setProperty('--t', c.aimT.toFixed(0) + 'px');
-      for (let i = 0; i < c.targets.length; i++) c.targets[i].w = c.targets[i].h = c.aimT;
     }
     // the rings: always on the next thing; on the others too when they all stand well apart (never two overlapping)
     // (while a thing is carried, only it wears its ring: the drop place is what matters then)
@@ -579,15 +683,17 @@
       else place(t.a, t.sx, t.sy, t.seen);
     }
     if (c.drop) {
-      o.drop(c.dropP, carried ? c.targets.indexOf(carried) : nx); c.dropOn = proj(c.dropP, _s);
-      if (c.dropOn) { keep(c, _s, c.T * 0.6); c.dx = _s.x; c.dy = _s.y; }
+      o.drop(c.dropP, carried ? c.targets.indexOf(carried) : nx, c.done); c.dropOn = proj(c.dropP, _s);
+      if (c.dropOn) { keep(c, _s, c.T * 0.6, o.dropFlat ? c.T * 0.25 : c.T * 0.6); c.dx = _s.x; c.dy = _s.y; }
       place(c.drop, c.dx, c.dy, c.dropOn);
-      const near = !!(c.dragging && c.dragging.follow && hypot2(c.dragging.fx - c.dx, c.dragging.fy - c.dy) < c.T);
+      const near = !!(c.dragging && c.dragging.follow && (hypot2(c.dragging.fx - c.dx, c.dragging.fy - c.dy) < c.T ||
+        (o.dropFlat && Math.abs(c.dragging.fx - c.dx) < c.T * 0.7 && c.dragging.fy < c.dy && c.dragging.fy > c.dy - c.T * 1.8)));
       if (near !== c.near) { c.near = near; c.drop.firstChild.classList.toggle('near', near); }
     }
     gesture(c, nx);
-    // waiting for a finger: a hint, then the game helps
-    if (asking() || c.down || c.dragging) return;
+    // waiting for a finger: a hint, then the game helps (a finger at work keeps setting the clock back; one that just
+    // rests somewhere doesn't stop it)
+    if (asking()) return;
     if (c.inviting && c.t < 7) return;                  // (the waiting starts when the invitation has been said)
     c.idle += dt;
     if (!c.hinted && c.idle >= HINT_AT) {
