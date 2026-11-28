@@ -4,7 +4,7 @@
 // Bump APP_VERSION on every release (any change to index.html, games/ or icons/), so the new files are
 // fetched and the old copy is dropped. Keep it the same as APP_VERSION in index.html, and add a line
 // for it to CHANGELOG there (the hub shows "Version N" and "What's new" to grown-ups).
-const APP_VERSION = 17;
+const APP_VERSION = 18;
 const VERSION = 'lets-play-v' + APP_VERSION;
 const FONTS = 'lets-play-fonts';            // the bus game's Google Font, cached the first time it loads
 
