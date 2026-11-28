@@ -13,13 +13,16 @@
      the drop      a dashed teal ring with a little arrow: where a dragged thing goes (it lights up under the finger)
      the bubble    the number of each thing done, counted aloud with a little note that climbs
    Every touch gets an answer: a pop of paper stars, the note, the number; a touch that missed makes the nearest
-   ring wiggle and brings the hand to it (after two misses the hint is said, after four the game does one).
+   ring wiggle and brings the hand to it (after two near misses the hint is said, after four the game does one; a
+   touch at the very edge of the screen, a thumb gripping the tablet, is not a miss at all and does nothing).
    A touch that reaches a thing holds it, one at a time (a new one lets the old one go, and that one counts or
    lands); a touch on nothing holds nothing, so a thumb resting on the screen's edge (holding the tablet) never gets
    in another finger's way and never stops the waiting clock. A press held still counts (a tap after 0.6 s, a thing
-   in the hand lands after 1.5 s, or 3 s once it has been carried), and a quick double tap counts once. Aiming and
-   the winch: the newest finger steers. Nothing can be done wrong: a drag let go anywhere, or a plain tap, still
-   lands. And it never blocks:
+   in the hand lands after 1.5 s, or 3 s once it has been carried; real time), and a quick double tap counts once.
+   Aiming and the winch: the finger that moves steers (a thumb landing at the screen's edge never takes over from a
+   finger; a new finger takes over at once when the steering one is such a thumb or has kept still a moment, else
+   when it moves itself). Nothing can be done wrong: a drag let go anywhere, or a plain tap, still lands. And it
+   never blocks:
      no finger for HINT_AT seconds (after the invitation) -> the hint line is spoken and the hand grows
      no finger for AUTO_AT seconds  -> the game does the next one itself, then one more every AUTO_GAP seconds
    The waiting is counted in game time (H.update(dt)), so it stands still on a hold or a hidden page.
@@ -44,7 +47,8 @@
      auto(idx)           aim only: point at target idx by itself
      turn(p)             crank only: the winch is at p (0..1)
      say, hint           the spoken invitation and the later hint
-     bubble(j, idx, out) world point of the number bubble (default: the target)
+     bubble(j, idx, out) world point of the number bubble (default: the target); bubbleFollow: true = asked again
+                         every frame, so the number rides along with a thing that moves off (a friend walking to the door)
    BB.hands.stop() ends the moment at once. BB.hands.size() = the ring size in CSS px (for laying things out).
    BB.hands.state() is read by nothing in the game (tools only).
 
@@ -349,7 +353,7 @@
     BB.later(700, () => a.remove());
   }
   function bubble(c, j, idx) {
-    const a = anchor(), b = { a, p: new THREE.Vector3(), t: 0 };
+    const a = anchor(), b = { a, p: new THREE.Vector3(), t: 0, j, idx };
     BB.el('div', 'bbh-bub', a, String(j + 1));
     const t = c.targets[idx];
     if (c.o.bubble) c.o.bubble(j, idx, b.p); else if (t && t.at) t.at(b.p); else if (t && t.box) b.p.copy(t.box[0]);
@@ -383,16 +387,27 @@
     if (r && typeof r.then === 'function') c.pending.push(r.catch((e) => console.error(e)));
     if (c.done >= c.count) finish(c, true);
   }
-  // a touch that missed: no "wrong", just a little wiggle of the nearest ring, and the hand goes there
+  // a touch that missed: no "wrong", just a little wiggle of the nearest ring, and the hand goes there. A touch at
+  // the very edge of the screen (a thumb gripping the tablet, landing again each time it shifts) is no miss at all:
+  // nothing happens. Only near misses (within a couple of rings of a thing) bring the hint, or the game's help, early.
+  // (the screen's very edge, where a thumb holding the tablet rests)
+  const atEdge = (x, y) => { const e = Math.max(44, innerWidth * 0.055); return x < e || x > innerWidth - e || y > innerHeight - 30; };
   function miss(c, x, y) {
+    if (atEdge(x, y)) return;
     const now = performance.now();
     if (now - c.missAt < 250) return;                  // (a palm's several touches at once: one miss)
     c.missAt = now;
-    c.misses++; c.since = 9;
+    c.since = 9;
     soft(523, 0); soft(659, 0.07);
     const i = nearest(c, x, y);
-    if (i >= 0) { if (!c.shared) c.focus = i; const t = c.targets[i]; t.ring = true; t.el.classList.add('ring'); again(t.el, 'nudge'); }
-    else if (c.crank) again(c.crank, 'nudge');
+    let d = 1e9;
+    if (i >= 0) {
+      if (!c.shared) c.focus = i;
+      const t = c.targets[i]; t.ring = true; t.el.classList.add('ring'); again(t.el, 'nudge');
+      d = t.box ? hypot2(Math.max(0, Math.abs(x - t.sx) - t.w / 2), Math.max(0, Math.abs(y - t.sy) - t.h / 2)) : hypot2(x - t.hx, y - t.hy);
+    } else if (c.crank) { again(c.crank, 'nudge'); d = hypot2(x - c.kx, y - c.ky) - c.kw / 2; }
+    if (d > c.T * 2.5) return;
+    c.misses++;
     if (c.misses >= 4) c.idle = Math.max(c.idle, AUTO_AT);              // the game shows how: it does one
     else if (c.misses >= 2 && !c.hinted) c.idle = Math.max(c.idle, HINT_AT);
   }
@@ -441,7 +456,7 @@
       const c = cur = { o, kind, count: Math.max(1, o.count | 0), done: 0, idle: 0, hinted: false, targets: [], bubbles: [], pending: [], dots: [], resolve, ended: false,
         closing: null, hand: null, drop: null, pad: null, crank: null, dragging: null, t: 0, p: 0, shared: !!(o.ordered || o.repeat), pid: null, down: false, grab: -1,
         moved: false, since: 9, misses: 0, missAt: 0, focus: -1, quietUntil: 0, inviting: !!o.say, nums: 0, safeT: 0, pose: '', near: false, ang: 0,
-        heldT: 0, mx: 0, my: 0, ix: 0, iy: 0, lx: 0, ly: 0, turned: 0, autoOn: false, autoIdx: -1,
+        heldT: 0, heldAt: 0, fingers: {}, steerAt: 0, steerEdge: false, mx: 0, my: 0, ix: 0, iy: 0, lx: 0, ly: 0, turned: 0, autoOn: false, autoIdx: -1,
         T: tsize(), phone: false, topY: 78, card: false, cl: 0, ct: 0, cr: 0, cb: 0, kx: 0, ky: 0, kw: 0, dx: 0, dy: 0, dropOn: false, pathOn: false, px0: 0, py0: 0, px1: 0, py1: 0, aimT: 0 };
       const L = root();
       L.className = 'bbh ' + kind;
@@ -458,9 +473,14 @@
         e.preventDefault();
         const x = e.clientX, y = e.clientY;
         if (kind === 'aim') {
-          c.pid = e.pointerId; c.down = true; c.ix = x; c.iy = y;
+          // (the finger that moves steers: a new one takes over at once when no finger steers, when the one that
+          // does is a thumb at the screen's edge, or when it has kept still a moment; else as soon as it moves. A
+          // thumb landing at the edge to grip the tablet never pulls the water away from a finger)
+          const edge = atEdge(x, y);
+          c.fingers[e.pointerId] = { ox: x, oy: y, edge };
           try { c.pad.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
-          busy(); steer(x, y); return;
+          if (c.pid == null || (c.steerEdge && !edge) || (!edge && performance.now() - c.steerAt > 400)) takeAim(e.pointerId, x, y, edge);
+          return;
         }
         if (performance.now() < c.quietUntil) return;       // (a quick double tap counts once)
         let i = kind === 'crank' ? -1 : pick(c, x, y);
@@ -470,7 +490,7 @@
           if (cur !== c || c.ended) return;
           i = pick(c, x, y); if (i < 0) return;
         }
-        c.pid = e.pointerId; c.down = true; c.grab = i; c.moved = false; c.heldT = 0; c.sx0 = c.mx = x; c.sy0 = c.my = y;
+        c.pid = e.pointerId; c.down = true; c.grab = i; c.moved = false; c.heldT = 0; c.heldAt = performance.now(); c.sx0 = c.mx = x; c.sy0 = c.my = y;
         try { c.pad.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
         busy();
         const t = c.targets[i];
@@ -482,26 +502,33 @@
           if (c.drop) { t.at(t.p); o.drop(c.dropP, i, c.done); c.far = Math.max(8, 1.6 * hypot2(t.p.x - c.dropP.x, t.p.z - c.dropP.z)); }
         }
       });
+      // a finger taking over the aim (or the winch)
+      const takeAim = (id, x, y, edge) => { c.pid = id; c.down = true; c.ix = x; c.iy = y; c.steerEdge = !!edge; c.steerAt = edge ? 0 : performance.now(); busy(); steer(x, y); };
       c.pad.addEventListener('pointermove', (e) => {
+        if (kind === 'aim' && e.pointerId !== c.pid && cur === c && !c.ended) {
+          const fg = c.fingers[e.pointerId];
+          if (fg && hypot2(e.clientX - fg.ox, e.clientY - fg.oy) > (fg.edge ? 40 : 14)) takeAim(e.pointerId, e.clientX, e.clientY, false);
+          return;
+        }
         if (e.pointerId !== c.pid || cur !== c || c.ended) return;
         const x = e.clientX, y = e.clientY;
         if (kind === 'aim') {
           // (a finger held still trembles a little: that steers nothing and doesn't keep the game's help waiting)
           const far = hypot2(x - c.ix, y - c.iy) > 14;
-          if (far) { c.ix = x; c.iy = y; busy(); }
+          if (far) { c.ix = x; c.iy = y; busy(); c.steerAt = performance.now(); c.steerEdge = false; }
           if ((far || !c.autoOn) && hypot2(x - c.lx, y - c.ly) >= 3) steer(x, y);
           return;
         }
         if (c.grab < 0 || kind !== 'drag') return;
         if (!c.moved && Math.abs(x - c.sx0) + Math.abs(y - c.sy0) > 8) c.moved = true;
         if (!c.moved) return;
-        if (hypot2(x - c.mx, y - c.my) > 4) { c.mx = x; c.my = y; c.heldT = 0; c.idle = 0; }
+        if (hypot2(x - c.mx, y - c.my) > 4) { c.mx = x; c.my = y; c.heldAt = performance.now(); c.idle = 0; }
         const t = c.targets[c.grab], g = ground(x, y, o.plane || 0, _hit);
         if (g && c.drop) { const ddx = g.x - c.dropP.x, ddz = g.z - c.dropP.z, dl = hypot2(ddx, ddz); if (dl > c.far) { g.x = c.dropP.x + ddx / dl * c.far; g.z = c.dropP.z + ddz / dl * c.far; } }
         if (g && o.drag) { try { o.drag(c.grab, g); } catch (err) { console.error(err); } }
         t.fx = x; t.fy = y; t.follow = true;
       });
-      const up = (e) => { if (e.pointerId !== c.pid) return; unlock(); const moved = c.moved; letGo(c, moved, kind !== 'aim' && (e.type === 'pointerup' || moved)); };
+      const up = (e) => { delete c.fingers[e.pointerId]; if (e.pointerId !== c.pid) return; unlock(); const moved = c.moved; letGo(c, moved, kind !== 'aim' && (e.type === 'pointerup' || moved)); };
       c.pad.addEventListener('pointerup', up); c.pad.addEventListener('pointercancel', up);
       if (kind === 'crank') {
         c.count = 1;
@@ -521,26 +548,46 @@
           }
         };
         c.turnBy = turn;
-        // the newest finger on the wheel turns it (a thumb resting on it, or anywhere else, never blocks another)
+        // the finger that turns the wheel turns it: a new one takes over at once when the wheel is still, else as
+        // soon as it turns it a little (a thumb resting on the wheel, or anywhere else, never blocks another, and
+        // never takes it from a finger that is winding)
+        const grabWheel = (e, edge) => {
+          if (c.pid != null) release(c);
+          c.pid = e.pointerId; c.down = true; c.grab = -1; c.last = angle(e); c.moved = 0; c.turned = 0; c.idle = 0; c.misses = 0;
+          c.steerEdge = !!edge; c.steerAt = edge ? 0 : performance.now();
+          c.crank.classList.add('held');
+        };
         c.crank.addEventListener('pointerdown', (e) => {
           e.preventDefault();
           if (cur !== c || c.ended) return;
-          if (c.pid != null) release(c);
           measure(c);
-          c.pid = e.pointerId; c.down = true; c.grab = -1; c.last = angle(e); c.moved = 0; c.turned = 0; c.idle = 0; c.misses = 0;
-          c.crank.classList.add('held');
+          const edge = atEdge(e.clientX, e.clientY);
+          c.fingers[e.pointerId] = { a: angle(e), turn: 0 };
           try { c.crank.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+          if (c.pid == null || (c.steerEdge && !edge) || (!edge && performance.now() - c.steerAt > 400)) grabWheel(e, edge);
         });
         c.crank.addEventListener('pointermove', (e) => {
-          if (e.pointerId !== c.pid || !c.down) return;
+          // (by the hub of the wheel the angle swings wildly with the smallest tremble: that turns nothing)
+          const hub = hypot2(e.clientX - c.kx, e.clientY - c.ky) < Math.max(26, c.kw * 0.16);
+          if (e.pointerId !== c.pid) {
+            const fg = c.fingers[e.pointerId]; if (!fg || cur !== c || c.ended) return;
+            const a = angle(e); let d = a - fg.a; fg.a = a;
+            if (d > Math.PI) d -= Math.PI * 2; else if (d < -Math.PI) d += Math.PI * 2;
+            if (!hub) fg.turn += Math.abs(d);
+            if (fg.turn > 0.3) grabWheel(e, false);
+            return;
+          }
+          if (!c.down) return;
           const a = angle(e); let d = a - c.last; c.last = a;
           if (d > Math.PI) d -= Math.PI * 2; else if (d < -Math.PI) d += Math.PI * 2;
+          if (hub) d = 0;
           c.moved += Math.abs(d);
           // (only real turning keeps the game's help waiting: not a finger that just rests on the wheel)
-          c.turned += Math.abs(d); if (c.turned > 0.25) { c.turned = 0; c.idle = 0; c.autoOn = false; }
+          c.turned += Math.abs(d); if (c.turned > 0.25) { c.turned = 0; c.idle = 0; c.autoOn = false; c.steerAt = performance.now(); c.steerEdge = false; }
           turn(d);
         });
         const cup = (e) => {
+          delete c.fingers[e.pointerId];
           if (e.pointerId !== c.pid) return;
           const tap = e.type === 'pointerup' && c.moved < 0.15;
           unlock(); letGo(c, false, false);
@@ -574,7 +621,8 @@
     const c = cur; if (!c || c.ended) return { on: false };
     return { on: true, kind: c.kind, done: c.done, count: c.count, idle: +c.idle.toFixed(2), hinted: c.hinted, p: +c.p.toFixed(3), misses: c.misses, size: c.T,
       targets: c.targets.map((t) => ({ used: t.used, x: t.sx, y: t.sy, hx: t.hx, hy: t.hy, w: t.w, h: t.h, on: t.seen, ring: t.ring, person: !!t.feet })),
-      drop: c.drop ? { x: c.dx, y: c.dy } : null, crank: c.crank ? { x: c.kx, y: c.ky, r: c.kw / 2 } : null };
+      drop: c.drop ? { x: c.dx, y: c.dy } : null, crank: c.crank ? { x: c.kx, y: c.ky, r: c.kw / 2 } : null,
+      steer: c.kind === 'aim' && c.pid != null ? { id: c.pid, x: Math.round(c.lx), y: Math.round(c.ly) } : null };
   };
 
   function pose(c, p) { if (c.pose !== p) { c.pose = p; c.handEl.className = 'bbh-hand ' + p + (c.hinted ? ' big' : ''); } }
@@ -640,6 +688,7 @@
       b.t += dt;
       if (b.old && !b.faded && b.t > 0.9) { b.faded = true; b.a.firstChild.classList.add('old'); }
       if (b.faded && b.t > 1.6) { b.a.remove(); c.bubbles.splice(i, 1); continue; }
+      if (c.o.bubbleFollow && c.o.bubble) { try { c.o.bubble(b.j, b.idx, b.p); } catch (e) { /* keep where it was */ } }   // (over a friend walking to the door)
       { const on = proj(b.p, _s); place(b.a, BB.clamp(_s.x, 40, innerWidth - 40), Math.max(_s.y, innerHeight <= 520 ? 62 : 86), on); }   // (never off the edge)
     }
     if (c.ended) return;
@@ -648,9 +697,10 @@
     const o = c.o, nx = next(c);
     c0T = c.T;
     // a press held still counts too: a tap after 0.6 s, a thing in the hand lands after 1.5 s (3 s once it has been
-    // carried somewhere), so a finger or a thumb resting on a thing never keeps the moment waiting (game time)
+    // carried somewhere), so a finger or a thumb resting on a thing never keeps the moment waiting (real time: a hold
+    // or a hidden page lets the finger go anyway)
     if (c.grab >= 0 && c.pid != null && (c.kind === 'tap' || c.kind === 'drag')) {
-      c.heldT += dt;
+      c.heldT = (performance.now() - c.heldAt) / 1000;
       if (c.heldT >= (c.kind === 'tap' ? 0.6 : c.moved ? 3 : 1.5)) { letGo(c, c.moved, true); if (c.ended || cur !== c) return; }
     }
     // where every thing is on screen

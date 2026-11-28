@@ -1349,11 +1349,16 @@
     // they stand on must show too. On a tablet the row runs ahead of the front door, beside the nose (the bus moves
     // over to the right; its tail may be cut); on a phone it runs in front of the bus from the door back, below the
     // seated friends (the bus moves up a little in its column).
-    const nq = NS > 0 && st && !close && !noQueue ? Math.min(4, st.queue | 0) : 0;
+    const nq = NS > 0 && st && !close && !noQueue ? Math.min(4, st.queue | 0) : 0, feet = [];
     if (nq > 0) {
       const Q = B.QUEUE;
-      if ((innerHeight > 520) !== stripFlip) { const z = dl.z + 0.5 + nq * Q.step; req.push(lw(dl.x + Q.side, 0.8, z), lw(dl.x + Q.side, 2.4, z)); }
-      else req.push(lw(dl.x + Q.out, 0, dl.z + 0.9), lw(dl.x + Q.out, 0, dl.z - 0.6 - nq * Q.step * 1.2));
+      if ((innerHeight > 520) !== stripFlip) {
+        const z = dl.z + 0.5 + nq * Q.step; req.push(lw(dl.x + Q.side, 0.8, z), lw(dl.x + Q.side, 2.4, z));
+        feet.push(lw(dl.x + Q.side + 0.4, 0, dl.z + 0.5), lw(dl.x + Q.side + 0.4, 0, z));
+      } else {
+        req.push(lw(dl.x + Q.out, 0, dl.z + 0.9), lw(dl.x + Q.out, 0, dl.z - 0.6 - nq * Q.step * 1.2));
+        feet.push(req[req.length - 2], req[req.length - 1]);
+      }
     }
     for (const al of [1.2, -1.6]) wave.push(lw(ex.x + 2.6, 0, ex.z + al), lw(ex.x + 2.6, 2.3, ex.z + al));
     const cam = BB.camera, R = stopFrameRect(), Wd = innerWidth, Hd = innerHeight;
@@ -1383,7 +1388,10 @@
         // (tablets, card along the bottom: the bus stands just above the card instead of in the middle of the free
         // space, so there is no empty band of road between the people and their pictures on the card)
         // (a job's scene on a tablet too: the vehicle and its things just above the card, not floating mid-sky)
-        const cy = Hd > 520 ? Math.max(ry, R.y1 - 26 - bx.h / 2) : ry;
+        let cy = Hd > 520 ? Math.max(ry, R.y1 - 26 - bx.h / 2) : ry;
+        // (friends waiting on the pavement: their feet, with the ring lying round them, above the card or the
+        // screen's edge too, as far as the room above allows)
+        if (feet.length) { const fb = box(feet), over = fb.y1 + (cy - (bx.y0 + bx.y1) / 2) + 22 - R.y1; if (over > 0) cy -= Math.min(over, Math.max(0, cy - bx.h / 2 - R.y0)); }
         const mx = -((rx - (bx.x0 + bx.x1) / 2) * u), my = (cy - (bx.y0 + bx.y1) / 2) * u;
         fitCam.position.addScaledVector(right, mx).addScaledVector(up, my); look.addScaledVector(right, mx).addScaledVector(up, my);
         if (fitCam.position.y < g0 + 1.3) { const dy = g0 + 1.3 - fitCam.position.y; fitCam.position.y += dy; look.y += dy; }
@@ -1727,24 +1735,65 @@
     const key = st.id + '|' + B.type + '|' + innerWidth + 'x' + innerHeight + '|' + (st.frameKey || (st.frame ? st.frame.length : 0)) + '|' + (st.queue | 0);
     if (!stopCam || stopCam.key !== key) {
       let p = planStopCam(st, key);
-      // A queue's strip of pavement must never cost a steep view from high up (where a building stands right behind
-      // the pavement, the camera would have to stand back inside it to see the strip from low down). Never more than
-      // a little steeper than the view without the queue: else the strip on the bus's other side (jobs.js tries both),
-      // then a wider lens (the camera can stand nearer), and failing that the view without the queue (jobs.js then
-      // finds the friends free spots in it).
+      // Friends waiting to be tapped aboard (st.queue) must all be seen, each with room for a ring, feet in view, and
+      // big enough to tap: jobs.js says how well their row fits a view (BB.jobs.queueFit). Where the usual view is
+      // steep or the row doesn't fit it well, three more are tried: the row's strip of pavement on the bus's other
+      // side (jobs.js tries both sides), a wider lens (the camera stands nearer, so a building behind the pavement
+      // isn't in the way) and the view without the strip (and, if all are still steep, the other side with the wider
+      // lens). A view that hides some of the friends never wins over one that shows them all, however steep; among
+      // those that show them all, a lower look and bigger friends win.
+      const fitOf = (pl) => { try { return BB.jobs && typeof BB.jobs.queueFit === 'function' ? BB.jobs.queueFit(queueFrame(st, pl)) : null; } catch (e) { console.error(e); return null; } };
       if ((st.queue | 0) > 0) {
-        let p0 = null;
-        noQueue = true; try { p0 = planStopCam(st, key); } finally { noQueue = false; }
-        const lim = Math.max(pitchOf(p0) + 4, 24);
-        for (let alt = 0; alt < 2 && pitchOf(p) > lim; alt++) {
-          if (alt) wideLens = true; else stripFlip = true;
-          try { const p1 = planStopCam(st, key); if (pitchOf(p1) < pitchOf(p)) p = p1; } finally { stripFlip = wideLens = false; }
+        const opts = [{ p, q: fitOf(p), pitch: pitchOf(p), first: true }];
+        if (opts[0].q && (opts[0].q.fit < 3 || opts[0].pitch > 24)) {
+          for (const alt of ['flip', 'wide', 'none']) {
+            stripFlip = alt === 'flip'; wideLens = alt === 'wide'; noQueue = alt === 'none';
+            let p1 = null;
+            try { p1 = planStopCam(st, key); } finally { stripFlip = wideLens = noQueue = false; }
+            opts.push({ p: p1, q: fitOf(p1), pitch: pitchOf(p1), first: false });
+          }
         }
-        if (pitchOf(p) > lim) p = p0;
+        // how bad a view is, in degrees of looking down: all in a row with a ring each, feet in view (a little worse
+        // with smaller rings, or with toes cut by the card or the screen's edge), then friends shorter than about a
+        // sixth of the screen count as steeper; the usual view is kept unless another is clearly better
+        const want = innerHeight * 0.16;
+        const bad = (o) => {
+          const q = o.q; if (!q) return o.first ? 0 : 1e9;
+          if (q.fit < 2 && q.loose < 2) return (q.blind >= 2 ? 500 : 1000) - Math.max(q.fit, q.loose, q.blind) * 100 + o.pitch;   // (blind: a lamp post in front of someone)
+          let b = o.pitch - (o.first ? 8 : 0) + (q.fit >= 2 ? (q.fit === 2 ? 6 : 0) : 14 + (q.loose === 2 ? 6 : 0));
+          if (q.tall < want) b += (want - q.tall) / want * 40;
+          return b;
+        };
+        let best = opts[0]; for (const o of opts) if (bad(o) < bad(best)) best = o;
+        // (still looking down steeply: the strip on the other side with the wider lens too)
+        if (opts.length > 1 && best.pitch > 40) {
+          let p1 = null; stripFlip = wideLens = true;
+          try { p1 = planStopCam(st, key); } finally { stripFlip = wideLens = false; }
+          const o = { p: p1, q: fitOf(p1), pitch: pitchOf(p1), first: false }; opts.push(o);
+          if (bad(o) < bad(best)) best = o;
+        }
+        p = best.p;
       }
       stopCam = p;
     }
     return stopCam;
+  }
+  // The bus as it will stand at stop st once it has settled, seen from the planned view pl: for jobs.js to try the
+  // friends' row in that view (BB.jobs.queueFit) before the bus is there. { cam, seat(i, v), kerb(out, along) }
+  // (kerb: 'out' onto the pavement from the front door, 'along' the bus, as jobs.js's kerbSpot)
+  const qfCam = new THREE.PerspectiveCamera(50, 1, 0.5, 900);
+  function queueFrame(st, pl) {
+    const P0 = settle && settle.stop === st ? settle.to : { fx, fz, h };
+    const c = Math.cos(P0.h), s = Math.sin(P0.h), g0 = W().groundY(P0.fx, P0.fz), dl = M ? M.doorLocal : { x: 1.6, z: LF / 2 - 1 };
+    const lw = (v, lx, ly, lz) => v.set(P0.fx + c * lx + s * lz, ly + g0, P0.fz - s * lx + c * lz);
+    const cam = BB.camera;
+    qfCam.fov = pl.fov || baseFov(); qfCam.aspect = cam.aspect; qfCam.near = cam.near; qfCam.far = cam.far; qfCam.updateProjectionMatrix();
+    qfCam.position.copy(pl.pos); qfCam.lookAt(pl.look); qfCam.updateMatrixWorld(true);
+    return {
+      cam: qfCam, queue: st.queue | 0,
+      seat: (i, v) => { const q = B.seats[i] || B.seats[B.seats.length - 1]; return q ? lw(v, q.x, q.y, q.z) : lw(v, dl.x, 0, dl.z); },
+      kerb: (out, along) => { const v = lw(new THREE.Vector3(), dl.x + out, 0, dl.z + along); v.y = 0.25; return v; },
+    };
   }
   let stripFlip = false, wideLens = false, noQueue = false;
   const pitchOf = (p) => Math.atan2(p.pos.y - p.look.y, hypot2(p.look.x - p.pos.x, p.look.z - p.pos.z)) * 57.3;
