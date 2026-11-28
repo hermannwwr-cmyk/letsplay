@@ -406,7 +406,7 @@
       }
     }
   })();
-  // ---------- many more scene spots: about every 20 along the quiet roads ----------
+  // ---------- many more scene spots: about every 10 along the quiet roads (closer drives for the other rides) ----------
   // The special vehicles' jobs go about as far as a bus job (40-80 road units, ~7 s), so they need scene spots
   // everywhere, not just the six above. Along straight roads (not the yard, the airport drop-off
   // or under the viaduct), on each kerb, a plain spot about every 20, wherever its bay (about 13 behind the spot to 4
@@ -428,12 +428,12 @@
       if (Math.abs(a.z - g(1)) < 12 && Math.abs(b.z - g(1)) < 12 && Math.abs(a.x) < 200) continue;   // under the viaduct
       const lo = nodeClear(e.a, e) + 4, hi = e.length - nodeClear(e.b, e) - 4;
       if (hi < lo) continue;
-      const n = Math.max(1, Math.round((hi - lo) / 20) + 1);
+      const n = Math.max(1, Math.round((hi - lo) / 10) + 1);
       for (const dir of [1, -1]) {
         const bays = allBays().filter((q) => q.edge === e.id && q.dir === dir).map((q) => q.s);
         for (let i = 0; i < n; i++) {
           const sv = n === 1 ? (lo + hi) / 2 : lo + (hi - lo) * i / (n - 1);
-          if (bays.some((t) => { const d = (t - sv) * dir; return d > 0 ? d < 14 : -d < 19; })) continue;   // (d > 0: ahead)
+          if (bays.some((t) => { const d = (t - sv) * dir; return d > 0 ? d < 5 : -d < 11; })) continue;   // (d > 0: ahead)
           const p = W.pointAt(e, sv), lx = p.dz * dir, lz = -p.dx * dir;
           const sp = placeOnKerb({ id: 'scene' + (++k), name: 'here', say: 'here', pic: null, from: e.a, to: e.b, t: sv / e.length, toward: [p.x + lx * 30, p.z + lz * 30] });
           sp.kind = 'scene'; sp.tags = ['picnic', 'icecream', 'car']; sp.gen = true;

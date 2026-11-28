@@ -2225,8 +2225,8 @@
     // variety: with only a few that close (e.g. leaving the garage), a few a little nearer or further join in
     if (pool.length < 5) {
       // (leaving the garage yard everything is a few hundred units off: the few nearest from the gate then)
-      const near0 = (ranked.find((o) => o.d >= 25) || ranked[0]).d, far = Math.max(115, near0 + 120);
-      const more = ranked.filter((o) => o.d >= 25 && o.d <= far && pool.indexOf(o) < 0).sort((x, y) => Math.abs(x.d - 60) - Math.abs(y.d - 60));
+      const near0 = (ranked.find((o) => o.d >= 25) || ranked[0]).d, far = Math.max(80, near0 + 60);
+      const more = ranked.filter((o) => o.d >= 25 && o.d <= far && pool.indexOf(o) < 0).sort((x, y) => Math.abs(x.d - 40) - Math.abs(y.d - 40));
       pool = pool.concat(more.slice(0, 5 - pool.length));
     }
     if (!pool.length) pool = ranked.filter((o) => o.d >= 25).slice(0, 1);
@@ -2235,7 +2235,7 @@
     // (not a place with the same spoken name as the one just before: "the flats", then "the flats" again)
     const nm = (t) => t && ((t.say && t.say !== 'here') ? t.say : t.near);
     if (from && nm(from)) {
-      const dMin = Math.min(...pool.map((o) => o.d)), other = pool.filter((o) => nm(o.s) !== nm(from) && o.d <= dMin + 60);
+      const dMin = Math.min(...pool.map((o) => o.d)), other = pool.filter((o) => nm(o.s) !== nm(from) && o.d <= dMin + 30);
       if (other.length) pool = other;            // (none near with another name: the spoken line says "the next … stop")
     }
     const recent = recentLegs.slice(-Math.min(8, pool.length - (pool.length >= 4 ? 2 : 1)));   // (always leaves one or two to pick from)
