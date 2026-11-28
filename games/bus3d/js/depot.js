@@ -19,10 +19,11 @@
   const D = BB.depot = { cash: Math.max(0, BB.store.get('cash', 0) | 0), save: BB.save, isOpen: false };
   const S = BB.save;
 
-  D.add = function (n) {
+  // opts.quiet: no "+n" pop (the coins are shown flying in elsewhere; the counter waits for BB.ui.coinsLanded)
+  D.add = function (n, opts) {
     n = Math.max(0, n | 0); if (!n) return;
     D.cash += n; BB.store.set('cash', D.cash);
-    BB.emit('cash:changed', { cash: D.cash, delta: n });
+    BB.emit('cash:changed', { cash: D.cash, delta: n, quiet: !!(opts && opts.quiet) });
   };
   D.spend = function (n) {
     if (D.cash < n) return false;
@@ -96,6 +97,27 @@
     const price = VEH_PRICE[id];
     return { id, price, name: (TYPE_SAY[id] || id).toLowerCase(), need: Math.max(0, price - D.cash), pic: () => typePic(id) };
   };
+  // "You have enough coins for the taxi!" is good news, not a chant. It is said at most 4 times per ride (save.wishTold,
+  // kept across visits) and never twice within 2 minutes, wherever it comes from (the job done, the garage, the Garage
+  // tile); the gold glow on the Garage tile and the ride's tile shows it the rest of the time. Right after the job
+  // done or the Garage tile told it, the garage only says where the ride is, once. where: 'job' | 'garage' | 'tile'.
+  // Returns the line to say, or null.
+  let wishAt = -1e9, wishPoint = 0;
+  const WISH_TELLS = 4, WISH_GAP = 120000;
+  D.wishNews = function (where) {
+    const w = D.wish(); if (!w || w.need > 0) return null;
+    const now = performance.now(), told = S.wishTold[w.id] | 0;
+    if (told < WISH_TELLS && now - wishAt > WISH_GAP) {
+      S.wishTold[w.id] = told + 1; wishAt = now; wishPoint = where === 'garage' ? 0 : now; BB.saveNow();
+      return where === 'garage' ? `You have enough coins for the ${w.name}! Tap it to try it!`
+        : where === 'tile' ? `Your ${w.name} is waiting in the garage! Let's go!`
+          : `You have enough coins for the ${w.name}! It is in the garage!`;
+    }
+    if (where === 'garage' && wishPoint && now - wishPoint < 180000) { wishPoint = 0; return `There is the ${w.name}! Tap it to try it!`; }
+    return null;
+  };
+  // a ride's garage picture (the job-done tickets show the ride that did each job)
+  D.ridePic = (id) => typePic(id);
   const curType = () => S.busType || fleetTypes()[0].id;
   const DIGITS = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
   if (!S.paints.includes('green')) S.paints.unshift('green');
@@ -1244,15 +1266,15 @@
       if (fuelBtn) fuelBtn.classList.add('gone');
       panel.querySelector('.bbd-go').classList.add('start');
       BB.say(D.welcome());
-      const w = D.wish(); if (w && w.need <= 0) BB.say(`You have enough coins for the ${w.name}! Tap it to try it!`, { queue: true });
+      const wl = D.wishNews('garage'); if (wl) BB.say(wl, { queue: true });
       lastTap = performance.now(); calls = 0; if (!idleT) idleT = BB.later(1000, idleCheck);
       return;
     }
     // fuel is free: every visit fills the tank, with the pump's gurgle as a little show
     const low = BB.bus.fuel < 0.98;
     BB.say(low ? 'Welcome to the garage! Let\'s fill up the tank.' : 'Welcome to the garage! Make your bus beautiful!');
-    // enough coins for the wish: say where it is (its tile glows in My ride)
-    const w = D.wish(); if (w && w.need <= 0) BB.say(`You have enough coins for the ${w.name}! Tap it to try it!`, { queue: true });
+    // enough coins for the wish: say where it is (its tile glows in My ride), now and then (D.wishNews)
+    const wl = D.wishNews('garage'); if (wl) BB.say(wl, { queue: true });
     if (low) BB.later(900, () => { if (D.isOpen) fillUp(true); });
   };
   // opts.home: back to the home screen instead of driving off (a job in progress waits: jobs.js only picks it up when

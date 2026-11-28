@@ -65,6 +65,9 @@
   .bbu-b.wishready .wishpic { display: block; }
   .bbu-b .wishpic canvas { width: 100%; height: 100%; display: block; }
   @media (max-height: 520px) { .bbu-b .wishpic { width: 42px; height: 31px; top: calc(100% + 4px); } }
+  /* the friends' chips (net.js) hang below the top bar on the right: below the wish card while it shows */
+  #ui.wishup:not(.home) .bbn-friends { top: calc(var(--st) + var(--hudh, 80px) + 54px); }
+  @media (max-height: 520px) { #ui.wishup:not(.home) .bbn-friends { top: calc(var(--st) + var(--hudh, 80px) + 44px); } }
   .bbu-job .row canvas { width: var(--ic); height: var(--ic); }
   .bbu-job .dots { display: flex; gap: 5px; }
   .bbu-job .dots i { width: 15px; height: 15px; border-radius: 50%; background: #eadfca; border: 2px solid #d9b57f; box-sizing: border-box; }
@@ -216,7 +219,8 @@
   .bbu-book .stk canvas { filter: drop-shadow(0 3px 0 rgba(120,80,40,.25)); }
   .bbu-book .stk .q { box-sizing: border-box; border: 3px dashed #d0bfa0; border-radius: 22px; display: flex; align-items: center; justify-content: center;
     font: 700 calc(var(--sk) * .5)/1 ${BB.FONT}; color: #d0bfa0; background: rgba(255,255,255,.4); }
-  .bbu-book .stk .lb { min-height: 1.05em; white-space: nowrap; }
+  /* names wrap onto a second line where the stickers are small ("Grandpa / Lee"), so neighbours never run together */
+  .bbu-book .stk .lb { min-height: 1.05em; white-space: normal; max-width: calc(var(--sk) + 4px); overflow-wrap: normal; }
   .bbu-book .stk.pressed { transform: translateY(3px); }
   .bbu-book .stk.fresh canvas { animation: bbu-pop .5s cubic-bezier(.2,1.6,.5,1); }
   .bbu-book .x { position: absolute; z-index: 3; top: -18px; right: -18px; width: 64px; height: 64px; border: none; background: none; padding: 0; cursor: pointer;
@@ -389,8 +393,11 @@
     if (BB.HUB) mid.appendChild(U.makeClock());
     const right = BB.el('div', 'bbu-grp', top);
     garageBtn = U.btn(right, 'garage', 'Garage', () => {
-      const ph = BB.jobs.phase, w = wishReady();
-      if (ph === 'drive' || ph === 'done' || ph === 'stop' || ph === 'question') { BB.say(w ? `Your ${w.name} is waiting in the garage! Let's go!` : "Let's go to the garage!"); BB.jobs.goDepot('quiet'); }
+      const ph = BB.jobs.phase;
+      if (ph === 'drive' || ph === 'done' || ph === 'stop' || ph === 'question') {
+        let wl = null; try { wl = BB.depot.wishNews && BB.depot.wishNews('tile'); } catch (e) { wl = null; }   // (now and then, not every tap)
+        BB.say(wl || "Let's go to the garage!"); BB.jobs.goDepot('quiet');
+      }
       else if (ph === 'toDepot') BB.say("We're going to the garage!");
       else BB.say('Garage!');
     });
@@ -402,6 +409,7 @@
     U.syncWish = function () {
       const w = wishReady();
       garageBtn.classList.toggle('wishready', !!w);
+      U.root.classList.toggle('wishup', !!w);           // (friends' chips, net.js, move down past the little card)
       if (w && w.id !== wishId) {
         wishId = w.id; wishPic.innerHTML = '';
         try { const pc = w.pic(), c = document.createElement('canvas'); c.width = pc.width; c.height = pc.height; c.getContext('2d').drawImage(pc, 0, 0); wishPic.appendChild(c); } catch (e) { console.error(e); }
@@ -542,10 +550,15 @@
     BB.on('bus:bump', () => { const c = document.getElementById('c'); if (!c) return; c.classList.remove('bbu-wobble'); void c.offsetWidth; c.classList.add('bbu-wobble'); BB.sfx.pop(); });
 
     // events
+    // (quiet: the job's coins fly in from the job-done banner; the counter goes up as they land, U.coinsLanded)
+    const showCash = () => { cashEl.querySelector('b').textContent = String(BB.depot.cash); };
+    const bumpCash = () => { cashEl.classList.remove('bump'); void cashEl.offsetWidth; cashEl.classList.add('bump'); };
     BB.on('cash:changed', (d) => {
-      cashEl.querySelector('b').textContent = String(d.cash);
-      if (d.delta > 0) { cashEl.classList.remove('bump'); void cashEl.offsetWidth; cashEl.classList.add('bump'); U.coins(d.delta); }
+      if (d.quiet && d.delta > 0) { BB.later(2600, showCash); return; }
+      showCash();
+      if (d.delta > 0) { bumpCash(); U.coins(d.delta); }
     });
+    U.coinsLanded = () => { showCash(); bumpCash(); BB.sfx.coin(); };
     BB.on('job:new', () => renderJob());
     BB.on('job:target', () => { if (washRoute) washRoute = null; renderJob(); });   // (the job took over the way)
     BB.on('job:stopDone', () => renderJob());

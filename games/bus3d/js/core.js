@@ -65,6 +65,8 @@
     vehiclePaint: {},            // a colour per other ride ({fire: 'blue'}); none = its classic colours
     skill: null,                 // how the sums are going (jobs.js: 0-4.6, the level is its whole part); null = work it out from questions
     wish: null,                  // the ride the child is saving up for (depot.js: the locked ride they tapped last; none = the cheapest)
+    wishTold: {},                // how often "you have enough coins for the taxi" was said, per ride (depot.js: a few times, then only the glow)
+    stamps: [],                  // the ride that did each of the last jobs (jobs.js: the job-done tickets on the way to a trophy)
   });
   // Hats were sold in an earlier build; they're gone from the shop, and depot.js gives their coins back.
   const HAT_PRICES = { party: 5, flowers: 6, bunny: 8, crown: 10 };
@@ -91,6 +93,8 @@
       if (!s.vehiclePaint || typeof s.vehiclePaint !== 'object' || Array.isArray(s.vehiclePaint)) s.vehiclePaint = {};
       if (typeof s.skill !== 'number' || !isFinite(s.skill)) s.skill = null;
       if (typeof s.wish !== 'string') s.wish = null;
+      if (!s.wishTold || typeof s.wishTold !== 'object' || Array.isArray(s.wishTold)) s.wishTold = {};
+      s.stamps = (Array.isArray(s.stamps) ? s.stamps : []).filter((v) => typeof v === 'string').slice(-5);
     }
     return s;
   })();
