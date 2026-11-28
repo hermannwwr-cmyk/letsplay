@@ -348,6 +348,15 @@
   .clock.hub-clock.late { background: #ff9a2e; box-shadow: 0 0 0 2px #d9761a, var(--shadow); }
   .clock.hub-clock svg { width: 22px; height: 22px; flex: none; }
   .clock.hub-clock[hidden] { display: none; }
+  .clock.hub-clock { cursor: pointer; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: none; }
+  .clock.hub-clock.pressed { transform: scale(.95); }
+  /* hub mode: the ring that fills round the clock chip while a grown-up holds it (3 s = the app's admin panel) */
+  .hub-ring { position: fixed; z-index: 99; pointer-events: none; overflow: visible; }
+  .hub-ring rect { fill: none; stroke-width: 6; stroke-linecap: round; }
+  .hub-ring .bg { stroke: rgba(255,246,224,.85); opacity: 0; transition: opacity .1s .25s; }
+  .hub-ring .fg { stroke: #4fb659; stroke-dasharray: 100 120; stroke-dashoffset: 100; }
+  .hub-ring.hr-on .bg { opacity: 1; }
+  .hub-ring.hr-on .fg { stroke-dashoffset: 0; transition: stroke-dashoffset 2.75s linear .25s; }
   .stars { font-size: 20px; background: var(--card); border-radius: 14px; padding: 10px 12px; box-shadow: var(--shadow); white-space: nowrap; }
 
   /* Route strip: the line's first and last stations named at the two ends, and a close-up "window" of big dots
@@ -1035,7 +1044,8 @@
   let soundOn = HUB ? true : store.get("mrtSound", true);
   let musicOn = true; // hub mode only: the hub's music switch (standalone the music follows 🔊 alone)
   let hubPaused = false; // hub mode: the frame is about to be removed
-  const quiet = () => HUB && (hubPaused || document.visibilityState === "hidden"); // hub mode: no sound now
+  let hubHeld = false; // hub mode: the app's grown-up panel covers the game (nothing talks or plays meanwhile)
+  const quiet = () => HUB && (hubPaused || hubHeld || document.visibilityState === "hidden"); // hub mode: no sound now
 
   // ---- state ----
   const S = {
@@ -2668,6 +2678,35 @@
     hc.setAttribute("aria-label", "Back to all games");
     // on the bedtime end screen (or once time is up) it ends the day, like the train's own goodnight
     hc.onclick = () => (S.night || hubOut()) ? hubSleep() : toHub({ hub: "exit" });
+    // the clock chip is for grown-ups too: a tap asks the app for its settings ({hub:"settings"}, behind the
+    // times-table check), a press held 3 s for its admin panel ({hub:"admin"}, behind the PIN), with a ring
+    // filling round the chip meanwhile; the app then covers the game until Done
+    {
+      const c = $("clock");
+      let timer = 0, ring = null, down = null;
+      const end = () => { clearTimeout(timer); timer = 0; ring?.remove(); ring = null; c.classList.remove("pressed"); };
+      c.addEventListener("pointerdown", e => {
+        e.preventDefault(); end(); down = { x: e.clientX, y: e.clientY };
+        try { c.setPointerCapture(e.pointerId); } catch {}
+        c.classList.add("pressed");
+        const r = c.getBoundingClientRect(), g = 5, w = r.width + 2 * g, h = r.height + 2 * g;
+        ring = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        ring.setAttribute("class", "hub-ring"); ring.setAttribute("width", w + 8); ring.setAttribute("height", h + 8);
+        ring.style.left = (r.left - g - 4) + "px"; ring.style.top = (r.top - g - 4) + "px";
+        const rect = cls => `<rect class="${cls}" x="4" y="4" width="${w}" height="${h}" rx="${h / 2}" pathLength="100"/>`;
+        ring.innerHTML = rect("bg") + rect("fg");
+        document.body.appendChild(ring);
+        ring.getBoundingClientRect(); ring.classList.add("hr-on"); // fill from empty
+        timer = setTimeout(() => { timer = 0; down = null; end(); toHub({ hub: "admin" }); }, 3000);
+      });
+      c.addEventListener("pointermove", e => { if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 40) { down = null; end(); } });
+      c.addEventListener("pointerup", e => {
+        if (!down) return;
+        const d = down; down = null; end();
+        if (Math.hypot(e.clientX - d.x, e.clientY - d.y) <= 40) toHub({ hub: "settings" });
+      });
+      c.addEventListener("pointercancel", () => { down = null; end(); });
+    }
     addEventListener("message", e => {
       const d = e.data;
       if (e.source !== window.parent || !d || typeof d !== "object" || typeof d.hub !== "string") return;
@@ -2683,6 +2722,17 @@
         if (hubOut() && !S.night && !S.nightSoon) {
           if (scr === "home") goodnight();
           else if (scr === "end") { S.nightSoon = true; Promise.resolve(S.endSay).then(() => sleep(1200)).then(() => { S.nightSoon = false; if (document.body.dataset.screen === "end") goodnight(); }); }
+        }
+      } else if (d.hub === "hold") { // the app's grown-up panel (or another card) covers the game: hush, then carry on
+        const on = !!d.on;
+        if (on === hubHeld) return;
+        hubHeld = on;
+        if (on) { musicWas = music.playing(); music.stop(); hush(); try { ac?.suspend(); } catch {} }
+        else if (!hubPaused && document.visibilityState === "visible") {
+          if (ac && ac.state !== "running") ac.resume().catch(() => {});
+          if (musicWas) music.start();
+          // a question on screen whose reading was cut off: read it again
+          if (document.body.dataset.screen === "game" && document.querySelector("#answers .ans:not(.sans):not([disabled])")) setTimeout(() => { if (!quiet()) speakQ(); }, 300);
         }
       } else if (d.hub === "pause") { // the frame is about to go: silence everything and stop all timers
         hubPaused = true;

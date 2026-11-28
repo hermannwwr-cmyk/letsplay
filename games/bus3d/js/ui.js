@@ -96,6 +96,13 @@
   .bbu-clock .ic-moon, .bbu-clock.late .ic-clock { display: none; } .bbu-clock.late .ic-moon { display: block; }
   .bbu-clock.late { background: #ff9a2e; color: #fff; text-shadow: 0 2px 0 rgba(0,0,0,.2); box-shadow: inset -3px -4px 0 rgba(180,90,10,.35), 0 4px 0 rgba(0,0,0,.15); }
   .bbu-clock.hidden { display: none; }
+  .bbu-clock { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: none; }
+  /* the ring that fills round the clock chip while a grown-up holds it (3 s = the admin panel) */
+  .bbu-hring { position: fixed; z-index: 99; pointer-events: none; overflow: visible; }
+  .bbu-hring rect { fill: none; stroke-width: 6; stroke-linecap: round; }
+  .bbu-hring .bg { stroke: rgba(255,246,224,.85); }
+  .bbu-hring .fg { stroke: #4fb659; stroke-dasharray: 100 120; stroke-dashoffset: 100; }
+  .bbu-hring.hr-on .fg { stroke-dashoffset: 0; transition: stroke-dashoffset 2.75s linear .25s; }
   .bbu-top .bbu-clock { margin-top: calc((var(--bh) - 56px) / 2); }
   html.hub-sound-wait .bbu-snd { visibility: hidden; }
   /* goodnight */
@@ -1224,22 +1231,48 @@
     + '<svg class="ic-moon" viewBox="0 0 24 24" aria-hidden="true">'
     + '<path d="M15.5 3.2a9.3 9.3 0 1 0 5.6 13.7A7.6 7.6 0 0 1 15.5 3.2z" fill="#fff3b8"/>'
     + '<circle cx="9.5" cy="15.5" r="1.1" fill="#f2c94c"/><circle cx="13.5" cy="18.2" r=".8" fill="#f2c94c"/></svg>';
-  // A new clock chip element (the HUD has one, the garage another); all are kept up to date. A tap says the time left
-  // the same way the hub does (whole minutes rounded up; "less than a minute" in the last minute), at most every 3 s.
-  let clockSaid = 0;
+  // A new clock chip element (the HUD has one, the garage another); all are kept up to date. For grown-ups: a tap
+  // asks the hub for its settings ({hub:'settings'}, behind the times-table check), a press held 3 s for its admin
+  // panel ({hub:'admin'}, behind the PIN), with a ring filling round the chip meanwhile. The hub then covers and
+  // holds the game until Done.
   U.makeClock = function () {
     const c = BB.el('div', 'bbu-clock hidden', null, CLOCK_SVG + '<span class="t"></span>');
-    c.setAttribute('aria-label', 'Time left');
-    BB.tap(c, () => {
-      const H = BB.hub, now = performance.now();
-      if (!(H.limit > 0 && H.left != null) || now - clockSaid < 3000) return;
-      clockSaid = now;
-      const m = Math.ceil(H.left / 60);
-      BB.say(H.left <= 60 ? 'Less than a minute left!' : `${m} minutes left!`);
-    });
+    c.setAttribute('aria-label', 'Time left (grown-ups: tap for settings)');
+    clockPress(c);
     clocks.push(c); syncClock(true);
     return c;
   };
+  function clockPress(c) {
+    let timer = 0, ring = null, down = null;
+    const end = () => { clearTimeout(timer); timer = 0; if (ring) ring.remove(); ring = null; c.classList.remove('pressed'); };
+    c.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      end(); down = { x: e.clientX, y: e.clientY, id: e.pointerId };
+      try { c.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+      c.classList.add('pressed');
+      const r = c.getBoundingClientRect(), g = 5, w = r.width + 2 * g, h = r.height + 2 * g;
+      ring = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      ring.setAttribute('class', 'bbu-hring');
+      ring.setAttribute('width', w + 8); ring.setAttribute('height', h + 8);
+      ring.style.left = (r.left - g - 4) + 'px'; ring.style.top = (r.top - g - 4) + 'px';
+      const rect = (cls) => `<rect class="${cls}" x="4" y="4" width="${w}" height="${h}" rx="${h / 2}" pathLength="100"/>`;
+      ring.innerHTML = rect('bg') + rect('fg');
+      ring.querySelector('.bg').style.opacity = '0';
+      document.body.appendChild(ring);
+      ring.getBoundingClientRect();                   // start the fill from empty
+      ring.classList.add('hr-on');
+      setTimeout(() => { if (ring) ring.querySelector('.bg').style.opacity = '1'; }, 250);
+      timer = setTimeout(() => { timer = 0; down = null; end(); BB.hub.post({ hub: 'admin' }); }, 3000);
+    });
+    c.addEventListener('pointermove', (e) => { if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 40) { down = null; end(); } });
+    c.addEventListener('pointerup', (e) => {
+      if (!down) return;
+      const d = down; down = null; end();
+      BB.audio.unlock();
+      if (Math.hypot(e.clientX - d.x, e.clientY - d.y) <= 40) BB.hub.post({ hub: 'settings' });
+    });
+    c.addEventListener('pointercancel', () => { down = null; end(); });
+  }
   let clockKey = '';
   function syncClock(force) {
     const H = BB.hub, on = BB.HUB && H.limit > 0 && H.left != null;

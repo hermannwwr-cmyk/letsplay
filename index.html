@@ -88,6 +88,44 @@
     .vbtns { margin-top: 8px; } .vbtn { height: 46px; font-size: 19px; }
     .vx { right: 10px; top: 8px; }
   }
+  /* The admin panel (hold the time pill 3 s, then the PIN): every device, in the same paper look */
+  .acard { width: min(640px, calc(100% - 24px - var(--sal) - var(--sar))); max-height: calc(100% - 24px - var(--sat) - var(--sab)); }
+  .acard h2 { margin-bottom: 2px; }
+  .anet { font-size: 16px; margin-bottom: 4px; } .anet.ok { color: #2a7a2e; } .anet.off { color: #b0612a; }
+  .anet.nudge { animation: anudge .4s; }
+  @keyframes anudge { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+  .alist { padding: 4px 10px 10px; }
+  .adev { border-bottom: 2px dashed #ecd6ad; padding: 10px 2px 12px; }
+  .adev:last-child { border-bottom: 0; }
+  .adev.aall { background: #fff6e0; border: 2px solid #ecd6ad; border-radius: 16px; padding: 8px 10px 10px; margin: 8px 0 4px; }
+  .ahead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 40px; }
+  .adot { width: 14px; height: 14px; border-radius: 50%; background: #c9bba5; flex: none; box-shadow: inset -2px -2px 0 rgba(0,0,0,.12); }
+  .adot.on { background: #4fb659; }
+  .aname { font-size: 20px; font-weight: 700; color: #3a2a3c; }
+  input.aname { font: 700 20px "Fredoka", ui-rounded, system-ui, sans-serif; width: 9.5em; max-width: 52vw; height: 40px; box-sizing: border-box;
+    padding: 0 12px; border: 2.5px solid #e2c08d; border-radius: 14px; background: #fff; color: #3a2a3c;
+    -webkit-user-select: text; user-select: text; touch-action: manipulation; }
+  input.aname:focus { outline: none; border-color: #f39a1e; }
+  .atag { font-size: 15px; color: #a9875a; }
+  .ainfo { margin-left: auto; font-size: 17px; color: #6b5a4a; font-weight: 600; }
+  .aforget { font: 600 15px "Fredoka", ui-rounded, system-ui, sans-serif; color: #b0612a; background: none; border: 2px solid #ecd6ad;
+    border-radius: 12px; height: 34px; padding: 0 10px; cursor: pointer; }
+  .alims, .aacts { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .abtn { font: 700 19px "Fredoka", ui-rounded, system-ui, sans-serif; color: #fff; border: 0; border-radius: 16px; height: 48px;
+    min-width: 58px; padding: 0 12px; cursor: pointer; background: #cdb48a; box-shadow: 0 5px 0 #9f8659; margin-bottom: 5px;
+    text-shadow: 0 2px 0 rgba(0,0,0,.15); touch-action: manipulation; }
+  .alims .abtn { flex: 1 1 0; }
+  .aacts .abtn { flex: 1 1 160px; }
+  .abtn:active { transform: translateY(3px); box-shadow: 0 2px 0 #9f8659; }
+  .abtn.sel { background: #4fb659; box-shadow: 0 5px 0 #33853c; }
+  .abtn.plus { background: #ff9a2e; box-shadow: 0 5px 0 #c8711a; }
+  .abtn.again { background: #4f9df7; box-shadow: 0 5px 0 #2f74c4; }
+  .abtn:disabled { opacity: .45; cursor: default; transform: none; }
+  @media (max-height: 520px), (max-width: 430px) {
+    .acard { padding: 10px 12px 6px; } .acard h2 { font-size: 22px; } .anet { font-size: 14px; }
+    .abtn { height: 44px; font-size: 17px; min-width: 46px; padding: 0 8px; }
+    .aname, input.aname { font-size: 18px; } .ainfo { font-size: 15px; margin-left: 0; width: 100%; }
+  }
   @keyframes vspin { to { transform: rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) { #updToast .spin { animation-duration: 3s; } }
 </style>
@@ -108,6 +146,12 @@
   <h2 id="updTitle"></h2><div class="vsub" id="updSub"></div>
   <ul id="updList"></ul>
   <div class="vbtns" id="updBtns"></div>
+</div>
+<div id="admin" class="vcard acard" role="dialog" aria-label="All devices" hidden>
+  <button class="vx" id="adminX" aria-label="Close"></button>
+  <h2>All devices</h2><div class="vsub anet" id="adminNet"></div>
+  <div class="vlist alist" id="adminList"></div>
+  <div class="vbtns"><button class="vbtn" id="adminDone">Done</button></div>
 </div>
 <div id="updToast" hidden><span class="spin"></span><span id="updText">Updating…</span></div>
 <script>
@@ -1864,15 +1908,17 @@
     ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -r * 0.6); ctx.moveTo(0, 0); ctx.lineTo(r * 0.45, r * 0.2); ctx.stroke();
     ctx.restore();
   }
-  // ---- Top bar: a paper cog (grown-ups), a time pill, and a joined music | sound capsule ----
+  // ---- Top bar: a time pill (a tap opens the grown-up settings, a 3 s hold the admin panel) and a joined music | sound capsule ----
   const BAR_FILL = '#fff6e0', BAR_RIM = '#d9b57f', BAR_EDGE = '#e8d3a8', BAR_STRING = '#b08a5a';
-  const NUM_WORDS = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen', 'Twenty', 'Twenty-one', 'Twenty-two', 'Twenty-three', 'Twenty-four', 'Twenty-five', 'Twenty-six', 'Twenty-seven', 'Twenty-eight', 'Twenty-nine', 'Thirty'];
-  const numWord = n => NUM_WORDS[n] || String(n);
-  const pillTap = { at: -9, said: -1e9 };            // the pill's bounce (animation time), and when it last spoke (performance.now)
+  const pillTap = { at: -9 };                        // the pill's bounce (animation time)
+  // A press on the pill: let go before 3 s = the grown-up settings (behind the times-table check); held 3 s =
+  // the admin panel (behind the PIN). A ring fills round the pill while it is held. { t0 (performance.now), x, y, fired }
+  let pillPress = null, pillBox = null;
+  const HOLD_MS = 3000, RING_DELAY = 250;
   // Minutes left, the same everywhere: whole minutes rounded up, and "under 1 min" in the last minute.
   const LAST_MINUTE = 60;
   const fmtLeft = sec => sec <= LAST_MINUTE ? 'under 1 min' : `${Math.ceil(sec / 60)} min`;
-  const pillLabel = () => (playTime.limit ? fmtLeft(Math.max(0, playTime.left())) : '');
+  const pillLabel = () => (!playTime.limit ? 'No limit' : playTime.left() <= 0 ? 'Bedtime' : fmtLeft(playTime.left()));
   // where the bar sits, in CSS px (also used by the sleep card and the clouds to keep clear of it)
   let barCache = null, barKey = '';
   function barGeom() {
@@ -1884,16 +1930,13 @@
     const phone = Math.min(W, H) < 600, phoneLand = phone && W > H, strings = H >= 420;
     const edgeL = SAFE.l + (phoneLand ? 20 : 14), edgeR = SAFE.r + (phoneLand ? 20 : 12);
     const CH = 44, PH = 44, capTop = SAFE.t + (strings ? 18 : 12), cy = capTop + CH / 2;
-    const HW = 54, CW = 2 * HW, COG = 44;               // tap sizes: each capsule half, the cog
+    const HW = 54, CW = 2 * HW;                         // tap size of each capsule half
     const capR = W - edgeR, capL = capR - CW;
-    const pillX = edgeL + COG + 12;                     // 12 px between the cog's and the pill's tap areas
-    let pillW = 0;
-    if (playTime.limit && state.screen !== 'sleep') {
-      ctx.font = `700 ${phone ? 16 : 18}px ${FONT}`;
-      pillW = 12 + 2 * ((phone ? 7 : 8) + 6) + 8 + ctx.measureText(pillLabel()).width + 16;
-    }
-    return { phone, strings, edgeL, edgeR, CH, PH, capTop, cy, HW, CW, COG, capL, capR, pillX, pillW,
-      cogX: edgeL + COG / 2, bottom: capTop + CH, leftEnd: pillW ? pillX + pillW : edgeL + COG };
+    const pillX = edgeL + 4;                            // room for the hold ring round the pill
+    ctx.font = `700 ${phone ? 16 : 18}px ${FONT}`;
+    const pillW = Math.max(phone ? 104 : 116, 12 + 2 * ((phone ? 7 : 8) + 6) + 8 + ctx.measureText(pillLabel()).width + 16);
+    return { phone, strings, edgeL, edgeR, CH, PH, capTop, cy, HW, CW, capL, capR, pillX, pillW,
+      bottom: capTop + CH, leftEnd: pillX + pillW };
   }
   // clouds fade out where they would pass behind the bar
   function cloudClear(x, y, s) {
@@ -1906,16 +1949,6 @@
     ctx.fillStyle = BAR_FILL; ctx.fill(p);
     shadeEdge(p, 3, BAR_EDGE);
     rimOf(p, BAR_RIM, 2);
-  }
-  function cogPath(r) {
-    const p = new Path2D(), n = 8, ro = r, ri = r * 0.76;
-    for (let i = 0; i < n; i++) {
-      const a = i / n * Math.PI * 2, h = Math.PI / n;
-      const pts = [[a - h * 0.95, ri], [a - h * 0.42, ro], [a + h * 0.42, ro], [a + h * 0.95, ri]];
-      pts.forEach(([b, rad], j) => { const x = Math.cos(b) * rad, y = Math.sin(b) * rad; (i === 0 && j === 0) ? p.moveTo(x, y) : p.lineTo(x, y); });
-    }
-    p.closePath();
-    return p;
   }
   function barMoon(x, y, r, col) {                    // a crescent: the disc minus an offset bite
     const disc = new Path2D(); disc.arc(x, y, r, 0, Math.PI * 2);
@@ -1939,20 +1972,39 @@
     if (t < 0 || t >= 1) return 1;
     return t < 0.3 ? lerp(1, 0.92, t / 0.3) : t < 0.65 ? lerp(0.92, 1.05, (t - 0.3) / 0.35) : lerp(1.05, 1, (t - 0.65) / 0.35);
   }
-  function tapPill() {
-    pillTap.at = time;
-    const now = performance.now();                      // real time, so slow frames don't stretch the pause
-    if (now - pillTap.said < 3000) return;             // no chattering on repeat taps
-    pillTap.said = now;
-    const left = Math.max(0, playTime.left());
-    say(left <= LAST_MINUTE ? 'Less than one minute left! Almost bedtime.' : `${numWord(Math.ceil(left / 60))} minutes left!`);
+  // the pill's tap area (screen px): pressing it starts a pill press instead of a button
+  const inPill = (x, y, slack = 0) => !!pillBox && x >= pillBox.x - slack && x <= pillBox.x + pillBox.w + slack && y >= pillBox.y - slack && y <= pillBox.y + pillBox.h + slack;
+  function pillDown(x, y) { pillPress = { t0: performance.now(), x, y, fired: false }; pillTap.at = time; }
+  function pillUp(x, y) {
+    const p = pillPress; pillPress = null;
+    if (!p || p.fired) return;
+    if (inPill(x, y, 24)) { sfx.click(); openGate(); }
   }
-  function drawTimePill(G) {
-    const left = Math.max(0, playTime.left()), last = left <= LAST_MINUTE;
+  function pillTick() {                               // from update(): fires the admin panel after 3 s held
+    if (!pillPress || pillPress.fired) return;
+    if (modal || trans || rotateCard) { pillPress = null; return; }
+    if (performance.now() - pillPress.t0 >= HOLD_MS) { pillPress.fired = true; sfx.magic(); openPin(); }
+  }
+  const holdShare = p => p && !p.fired ? clamp01((performance.now() - p.t0 - RING_DELAY) / (HOLD_MS - RING_DELAY)) : 0;
+  // the ring that fills round the pill (a pill outline, a few px outside it) while it is held
+  function drawHoldRing(x, y, w, h, share) {
+    if (share <= 0) return;
+    const g = 5, X = x - g, Y = y - g, Wd = w + 2 * g, Hd = h + 2 * g, r = Hd / 2;
+    const p = new Path2D();                            // starts at the top middle and goes clockwise
+    p.moveTo(X + Wd / 2, Y); p.lineTo(X + Wd - r, Y); p.arc(X + Wd - r, Y + r, r, -Math.PI / 2, Math.PI / 2);
+    p.lineTo(X + r, Y + Hd); p.arc(X + r, Y + r, r, Math.PI / 2, Math.PI * 1.5); p.closePath();
+    const len = 2 * (Wd - Hd) + Math.PI * Hd;
+    ctx.save(); ctx.lineCap = 'round';
+    ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(255,246,224,.85)'; ctx.stroke(p);
+    ctx.setLineDash([len * share, len + 10]); ctx.lineWidth = 6; ctx.strokeStyle = '#4fb659'; ctx.stroke(p);
+    ctx.restore();
+  }
+  function drawTimePill(G, asleep) {
+    const left = Math.max(0, playTime.left()), last = !!playTime.limit && left <= LAST_MINUTE;
     const label = pillLabel(), fs = G.phone ? 16 : 18, ir = G.phone ? 7 : 8;
     const x = G.pillX, w = G.pillW, h = G.PH, y = G.cy - h / 2, iw = 2 * (ir + 6);
     const hitY = Math.min(y, G.cy - 26), hitH = Math.max(h, 52);
-    const pressed = hot(x, hitY, w, hitH) && pointer.down, k = pillBounce() * (pressed ? 0.95 : 1);
+    const pressed = !!pillPress && !pillPress.fired, k = pillBounce() * (pressed ? 0.95 : 1);
     ctx.save(); ctx.translate(x + w / 2, G.cy); ctx.scale(k, k); ctx.translate(-(x + w / 2), -G.cy);
     const p = rr(x, y, w, h, h / 2);
     if (last) {
@@ -1961,28 +2013,17 @@
     } else barPaper(p);
     const ix = x + 12 + iw / 2, iy = G.cy;
     if (last) barMoon(ix, iy, ir + 3, '#fff6e0');      // a tiny cream moon
-    else drawSkyDot(ix, iy, ir, playTime.share());
+    else drawSkyDot(ix, iy, ir, asleep ? 1 : playTime.share());
     text(label, ix + iw / 2 + 8, iy + 1, fs, last ? INK : GLYPH, null, 'left', 700);
     ctx.restore();
-    pushButton(x, hitY, w, hitH, tapPill);
+    drawHoldRing(x, y, w, h, holdShare(pillPress));
+    pillBox = { x: x - 4, y: hitY, w: w + 8, h: hitH };
   }
   function drawTopBar(asleep) {
     const G = barGeom();
     UI = { ox: 0, oy: 0, s: 1 };
-    // grown-up cog: borderless paper with a deeper rim and a soft shadow, so it holds on any background
-    {
-      const x = G.cogX, y = G.cy, r = 15, box = G.COG;
-      const pressed = hot(x - box / 2, y - box / 2, box, box) && pointer.down;
-      ctx.save(); ctx.translate(x, y + (pressed ? 1.5 : 0));
-      ctx.save(); ctx.shadowColor = 'rgba(50,30,20,.35)'; ctx.shadowBlur = 5; ctx.shadowOffsetY = 1.5;
-      ctx.fillStyle = '#f3dcae'; ctx.fill(cogPath(r)); ctx.restore();
-      solid(cogPath(r), '#f3dcae', { depth: 2.6, rim: 2, rimColor: '#a07a4a' });
-      circle(0, 0, r * 0.38, '#a07a4a'); circle(0, 0, r * 0.2, '#f3dcae');
-      ctx.restore();
-      pushButton(x - box / 2, y - box / 2, box, box, openGate);
-    }
-    // time pill: the sun-to-moon ring and the minutes left; a tap says them out loud
-    if (playTime.limit && !asleep) drawTimePill(G);
+    // time pill: the sun-to-moon ring and the minutes left; a tap opens the grown-up settings, a 3 s hold admin
+    drawTimePill(G, asleep);
     // music | sound: one solid paper capsule, hung from two short strings
     {
       const { capL, CW, CH, cy, HW } = G, y = cy - CH / 2, mid = capL + CW / 2;
@@ -2050,10 +2091,38 @@
   // =====================================================================
   //  The grown-up panel: a times-table check, then the play-time settings
   // =====================================================================
-  let modal = null; // { mode: 'gate' | 'settings', a, b, typed, shake }
+  // Opened from the time pill (launcher, sleep scene) or from a game's clock chip ({hub:'settings'} / {hub:'admin'}),
+  // when it covers the game (overGame: the game is held and no time is counted until Done).
+  let modal = null; // { mode: 'gate' | 'settings' | 'pin' | 'admin', a, b, typed, shake, overGame }
+  const ADMIN_PIN = '8888';                           // also ADMIN_PIN in relay/wrangler.toml; it keeps children out, nothing more
   function newSum() { modal.a = randInt(6, 9); modal.b = randInt(6, 9); modal.typed = ''; }
-  function openGate() { if (trans) return; modal = { mode: 'gate', typed: '', shake: 0 }; newSum(); }
+  function openGate() { if (trans || modal) return; modal = { mode: 'gate', typed: '', shake: 0 }; newSum(); coverGame(); }
+  function openPin() { if (trans || modal) return; modal = { mode: 'pin', typed: '', shake: 0 }; coverGame(); }
+  // a grown-up panel over a running game: hold the game, show the hub's canvas over it, count no time
+  function coverGame() {
+    if (state.screen !== 'game' || !frame) return;
+    modal.overGame = true;
+    holdGame(true);
+    document.body.classList.remove('playing'); document.body.classList.add('covering');
+    try { frame.blur(); window.focus(); } catch (e) { /* ignore */ }
+    wakeLoop();
+  }
+  function uncoverGame() {
+    if (state.screen !== 'game' || !frame || trans) return;
+    if (LANDSCAPE_ONLY[state.key] && isPortrait() && !state.anyway) { showOver(); return; }   // turned upright meanwhile
+    holdGame(false);
+    document.body.classList.add('playing'); document.body.classList.remove('covering');
+    try { frame.focus(); } catch (e) { /* ignore */ }
+    sendTime();                                       // a changed limit takes effect at once
+  }
+  function pinKey(k) {
+    if (k === 'back') { modal.typed = modal.typed.slice(0, -1); return; }
+    if (k !== 'ok') { if (modal.typed.length < 4) { modal.typed += k; sfx.click(); } if (modal.typed.length < 4) return; }
+    if (modal.typed === ADMIN_PIN) { modal.pin = modal.typed; modal.mode = 'admin'; sfx.yay(); openAdmin(modal.pin); }
+    else { modal.shake = 0.4; modal.typed = ''; sfx.nope(); }
+  }
   function gateKey(k) {
+    if (modal && modal.mode === 'pin') { pinKey(k); return; }
     if (!modal || modal.mode !== 'gate') return;
     if (k === 'back') modal.typed = modal.typed.slice(0, -1);
     else if (k === 'ok') {
@@ -2066,7 +2135,10 @@
     } else if (modal.typed.length < 2) { modal.typed += k; sfx.click(); }
   }
   function closeModal() {
+    const was = modal; if (!was) return;
     modal = null;
+    if (was.mode === 'admin') closeAdmin();
+    if (was.overGame) { uncoverGame(); return; }
     if (state.screen === 'sleep' && playTime.left() > 0) wake();
     else if (state.screen === 'launcher' && playTime.left() <= 0) goSleep();
   }
@@ -2084,8 +2156,9 @@
   function drawModal() {
     buttons = [];
     ctx.fillStyle = 'rgba(28,20,52,.55)'; ctx.fillRect(0, 0, W, H);
+    if (modal.mode === 'admin') return;               // the admin panel is a DOM card (#admin) over this
     const narrow = W < H * 0.9;
-    const pw = narrow ? 440 : 560, ph = modal.mode === 'gate' ? 476 : 556;
+    const pw = narrow ? 440 : 560, ph = modal.mode === 'gate' || modal.mode === 'pin' ? 476 : 556;
     const s = Math.min((W - SAFE.l - SAFE.r - 16) / pw, (H - SAFE.t - SAFE.b - 16) / (ph + 10), 1.5);
     UI = { ox: W / 2 - pw / 2 * s, oy: (H - ph * s) / 2, s };
     ctx.save(); ctx.translate(UI.ox, UI.oy); ctx.scale(s, s);
@@ -2095,12 +2168,24 @@
     solid(ell(kx, ky, 20, 20), P.paper, { depth: 0, rim: 2.5 });
     inkLine(3.5); ctx.beginPath(); ctx.moveTo(kx - 7, ky - 7); ctx.lineTo(kx + 7, ky + 7); ctx.moveTo(kx + 7, ky - 7); ctx.lineTo(kx - 7, ky + 7); ctx.stroke();
     pushButton(kx - 28, ky - 28, 56, 56, closeModal);
-    if (modal.mode === 'gate') {
-      text('For grown-ups', cx, 44, 34, P.woodDark, null);
+    if (modal.mode === 'pin') {
+      text('Admin', cx, 44, 34, P.woodDark, null);
       const sx = modal.shake > 0 ? Math.sin(time * 60) * 8 : 0;
-      text(`What is ${modal.a} × ${modal.b}?`, cx + sx, 96, 36, INK, null);
-      solid(rr(cx - 70, 124, 140, 56, 14), '#ffffff', { depth: 0, rim: 3, rimColor: P.tan });
-      text(modal.typed, cx, 154, 38, INK, null);
+      text('Enter the PIN', cx + sx, 96, 32, INK, null);
+      for (let i = 0; i < 4; i++) {                   // four places, a dot for each digit typed
+        const dx = cx + sx + (i - 1.5) * 52;
+        solid(rr(dx - 21, 128, 42, 48, 12), '#ffffff', { depth: 0, rim: 3, rimColor: P.tan });
+        if (i < modal.typed.length) circle(dx, 152, 9, INK);
+      }
+    }
+    if (modal.mode === 'gate' || modal.mode === 'pin') {
+      if (modal.mode === 'gate') {
+        text('For grown-ups', cx, 44, 34, P.woodDark, null);
+        const sx = modal.shake > 0 ? Math.sin(time * 60) * 8 : 0;
+        text(`What is ${modal.a} × ${modal.b}?`, cx + sx, 96, 36, INK, null);
+        solid(rr(cx - 70, 124, 140, 56, 14), '#ffffff', { depth: 0, rim: 3, rimColor: P.tan });
+        text(modal.typed, cx, 154, 38, INK, null);
+      }
       const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'back', '0', 'ok'];
       KEYS.forEach((k, i) => {
         const bx = cx + (i % 3 - 1) * 122, by = 222 + Math.floor(i / 3) * 66;
@@ -2114,16 +2199,16 @@
       const step = narrow ? 82 : 100, bw = narrow ? 74 : 88;
       LIMIT_CHOICES.forEach((m, i) => {
         const on = playTime.limit === m;
-        button(m ? `${m}` : 'Off', cx + (i - 2) * step, 148, bw, 52, on ? '#4fb659' : '#cdb48a', () => playTime.setLimit(m));
+        button(m ? `${m}` : 'Off', cx + (i - 2) * step, 148, bw, 52, on ? '#4fb659' : '#cdb48a', () => ownChange('limit', m));
       });
       text('minutes', cx, 190, 19, '#a9875a', null);
       text(`Played today: ${fmtMinutes(playTime.used())}`, cx, 228, 24, INK, null);
       if (playTime.limit) {
         const left = Math.max(0, playTime.left());
         text(left > 0 ? `Left today: ${fmtLeft(left)}` : 'No time left today', cx, 260, 24, left > 0 ? '#2a7a2e' : '#c0392b', null);
-        button('+5 min today', cx, 318, 320, 52, '#ff9a2e', () => playTime.addMinutes(5));
+        button('+5 min today', cx, 318, 320, 52, '#ff9a2e', () => ownChange('add', 5));
       }
-      button('Start today again', cx, 384, 320, 52, '#4f9df7', () => playTime.resetToday());
+      button('Start today again', cx, 384, 320, 52, '#4f9df7', () => ownChange('reset'));
       drawVersionChip(cx, 442);
       button('Done', cx, 506, 200, 52, '#4fb659', closeModal);
     }
@@ -2248,7 +2333,7 @@
       }
     } else if (state.anyway || !LANDSCAPE_ONLY[state.key] || !isPortrait()) {
       /* nothing to cover */
-    } else if (state.screen === 'game' && !trans) showOver();
+    } else if (state.screen === 'game' && !trans && !modal) showOver();
     else if (state.screen === 'opening' && trans && trans.kind === 'open' && (trans.phase === 'wait' || trans.phase === 'reveal')) openToOver();
   }
 
@@ -2379,6 +2464,10 @@
     }
     else if (m.hub === 'sound' && typeof m.mute === 'boolean' && typeof m.music === 'boolean') setSound(m.mute, m.music, true);
     else if (m.hub === 'exit') closeGame('exit');
+    else if ((m.hub === 'settings' || m.hub === 'admin') && state.screen === 'game' && !trans && !rotateCard && !modal) {
+      sfx.click();
+      if (m.hub === 'settings') openGate(); else { sfx.magic(); openPin(); }
+    }
     else if (m.hub === 'sleep') closeGame('sleep');
     else if (m.hub === 'stars' && state.key && Number.isFinite(Number(m.count))) {
       starsFromGame[state.key] = Math.max(0, Math.floor(Number(m.count))); save('hub-stars', starsFromGame); starCacheT = -1;
@@ -2894,7 +2983,7 @@
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     buttons = [];
     if (rotateCard && rotateCard.mode === 'over') { ctx.clearRect(0, 0, W, H); drawRotateCard(true); return; }
-    if (state.screen === 'game' && !trans) return;
+    if (state.screen === 'game' && !trans) { if (modal) { ctx.clearRect(0, 0, W, H); drawModal(); } return; }
     const cam = cameraFor();
     const col = (trans && IRIS_COL[trans.key]) || '#2a2150';
     if (cam.overGame) { ctx.clearRect(0, 0, W, H); drawIris(cam.iris, cam.ix, cam.iy, col); return; }
@@ -2921,12 +3010,12 @@
   }
   function drawSleepCard() {
     let size = L.title.size * 0.62;
-    const G = barGeom(), barL = G.edgeL + G.COG, barR = G.capL - 4;
+    const G = barGeom(), barL = G.leftEnd, barR = G.capL - 4;
     const fit = sz => { ctx.font = `700 ${sz}px ${FONT}`; return Math.min(W - 40, ctx.measureText('Time to sleep!').width + sz * 3); };
     let w = fit(size), h = size * 2.4;
     let x = W / 2 - w / 2;
     let y = L.title.y - h * 0.48;
-    // keep it below the gear and the music / sound buttons when it reaches under them (narrow phones)
+    // keep it below the time pill and the music / sound buttons when it reaches under them (narrow phones)
     if (x < barL || x + w > barR) y = Math.max(y, G.bottom + 20);
     // upright: the sleeping train's station sits right under the title, so the card shrinks to stay
     // above its roof (and the nightcap and z's)
@@ -2996,6 +3085,7 @@
       if (time - starCacheT > 2 || starCacheT < 0) { starCacheT = time; ORDER.forEach(k => { starCache[k] = starsFor(k); }); }
     }
     if (modal && modal.shake > 0) modal.shake -= dt;
+    pillTick();
     updateTransition(realDt);
     updateMusic();
   }
@@ -3120,8 +3210,11 @@
     e.preventDefault();
     initAudio();
     pointer.x = e.clientX; pointer.y = e.clientY; pointer.down = true;
+    pressedPlace = null; pressedOutside = false; pillPress = null;
+    if (!modal && !trans && !rotateCard && (state.screen === 'launcher' || state.screen === 'sleep') && inPill(e.clientX, e.clientY)) {
+      pressedButton = null; pillDown(e.clientX, e.clientY); return;
+    }
     pressedButton = hitButton(e.clientX, e.clientY);
-    pressedPlace = null; pressedOutside = false;
     if (pressedButton || modal || trans) return;
     if (rotateCard) { pressedOutside = rotateCard.mode === 'before' && outsideCard(e.clientX, e.clientY); return; }
     if (state.screen === 'launcher' || state.screen === 'sleep') {
@@ -3130,11 +3223,13 @@
     }
   });
   window.addEventListener('pointermove', e => { pointer.x = e.clientX; pointer.y = e.clientY;
+    if (pillPress && !pillPress.fired && Math.hypot(e.clientX - pillPress.x, e.clientY - pillPress.y) > 40) pillPress = null;
     if (L && !pointer.down) parTarget = ((e.clientX / W) - 0.5) * -14; });
   window.addEventListener('pointerup', e => {
     initAudio(true); inputSince = true;
     pointer.x = e.clientX; pointer.y = e.clientY; pointer.down = false;
     ORDER.forEach(k => { placeAnim[k].press = 0; });
+    if (pillPress) { pillUp(e.clientX, e.clientY); return; }
     if (pressedButton) {
       const b = hitButton(e.clientX, e.clientY);
       pressedButton = null;
@@ -3147,13 +3242,14 @@
       if (placeAt(e.clientX, e.clientY) === key) tapPlace(key);
     }
   });
-  window.addEventListener('pointercancel', () => { pointer.down = false; pressedButton = null; pressedPlace = null; pressedOutside = false; ORDER.forEach(k => { placeAnim[k].press = 0; }); });
+  window.addEventListener('pointercancel', () => { pointer.down = false; pressedButton = null; pillPress = null; pressedPlace = null; pressedOutside = false; ORDER.forEach(k => { placeAnim[k].press = 0; }); });
   window.addEventListener('touchend', () => initAudio(true), { passive: true });
   window.addEventListener('click', () => initAudio(true));
   window.addEventListener('keydown', e => {
     initAudio(true); inputSince = true;
     const k = e.key;
     if (verOpen()) { if (k === 'Escape' || k === 'Enter') { e.preventDefault(); closeVer(); } return; }
+    if (modal && modal.mode === 'admin') { if (k === 'Escape') closeModal(); return; }   // its name box takes the keys
     if (modal) {
       e.preventDefault();
       if (k === 'Escape') closeModal();
@@ -3169,6 +3265,7 @@
     else if (k === 'Enter' || k === ' ') { e.preventDefault(); tapPlace(ORDER[spotlight]); }
     else if (k === '1' || k === '2' || k === '3') tapPlace(ORDER[Number(k) - 1]);
     else if (k === 'm' || k === 'M') setSound(muted, !musicOn);
+    else if (k === 'g' || k === 'G') openGate();      // the grown-up settings, as a tap on the time pill
   });
 
   // =====================================================================
@@ -3195,7 +3292,338 @@
   resize();
   if (playTime.left() <= 0) { state.screen = 'sleep'; songKey = 'sleep'; skyPhase = 1; }
 
+  // =====================================================================
+  //  Shared play-time settings: every device running the live app joins ONE channel on the owner's relay
+  //  (relay/worker.js, /family/all; the owner's choice: anyone who opens the public app is part of it). The
+  //  relay keeps each device's name, settings and last status, so the admin panel (hold the time pill 3 s,
+  //  then the PIN) lists every device and changes any of them, at once when it is online and when it next
+  //  connects when it isn't. Each settings field carries the time it was changed ([value, ms]); a field only
+  //  changes for a newer one ("last change wins"), so an old offline device can't undo a newer change.
+  //  Fields: limit (minutes), extra ({day, n}: minutes added today), reset ({day}: "start today again").
+  //  Admin changes to other devices carry the PIN, which the relay checks; a device's own changes don't.
+  //  Connects only on https in a top-level page (the live app, never the claude.ai copies) or with a test
+  //  override ?relay=ws://127.0.0.1:8787. Offline or blocked, everything still works on this device.
+  //  Storage: hub-device {id, kind, name: [v, ts]}, hub-sync {limit, extra, reset: [v, ts]}.
+  // =====================================================================
+  const fam = (() => {
+    const RELAY = 'wss://bus-captain-rooms.hermannwwr.workers.dev';
+    const TEST = (location.search.match(/[?&]relay=(wss?:\/\/(?:127\.0\.0\.1|localhost)(?::\d{2,5})?)(?=[&#/]|$)/) || [])[1] || null;
+    let top = false; try { top = window.top === window; } catch (e) { top = false; }
+    const allowed = !!TEST || (location.protocol === 'https:' && top);
+    const URL_ = (TEST || RELAY) + '/family/all';
+    const kindNow = () => {
+      const ua = navigator.userAgent || '';
+      if (/iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return 'iPad';
+      if (/iPhone|iPod/.test(ua)) return 'iPhone';
+      if (/Android/.test(ua)) { try { return Math.min(screen.width, screen.height) >= 600 ? 'Tablet' : 'Phone'; } catch (e) { return 'Phone'; } }
+      return 'Computer';
+    };
+    const ABC = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+    const randomId = () => {
+      const b = new Uint8Array(12); try { crypto.getRandomValues(b); } catch (e) { for (let i = 0; i < 12; i++) b[i] = Math.random() * 256; }
+      return Array.from(b, x => ABC[x % ABC.length]).join('');
+    };
+    const cleanName = v => String(v || '').replace(/[^A-Za-z0-9 '.\-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 16).trim();
+    let me = load('hub-device', null);
+    if (!me || typeof me !== 'object' || !/^[A-Za-z0-9]{8,16}$/.test(me.id || '')) me = { id: randomId() };
+    me.kind = kindNow();
+    if (!Array.isArray(me.name) || !cleanName(me.name[0])) me.name = [me.kind + ' 1', 0];
+    save('hub-device', me);
+    const stamps = load('hub-sync', null) || {};
+    if (!Array.isArray(stamps.limit)) stamps.limit = [playTime.limit, 0];
+    const saveStamps = () => save('hub-sync', stamps);
+    const devs = new Map();                           // other devices (and our own record) as the relay last told us
+    let ws = null, status = allowed ? 'connecting' : 'off', retry = 2000, retryT = 0, pingT = 0, stT = 0, lastSt = '', lastStAt = 0;
+    let watching = null, watchT = 0, onChange = () => {}, badPin = false;
+    const now = () => Date.now();
+    const send = m => { if (ws && status === 'open') try { ws.send(JSON.stringify(m)); return true; } catch (e) { /* gone */ } return false; };
+    const ownFields = () => {
+      const f = { limit: stamps.limit };
+      if (stamps.extra) f.extra = [{ day: stamps.extra[0].day, n: Math.min(60, stamps.extra[0].n) }, stamps.extra[1]];
+      if (stamps.reset) f.reset = stamps.reset;
+      return f;
+    };
+    function statusNow() {
+      const r = playTime.today();
+      return { day: r.day, left: playTime.limit ? Math.min(7200, Math.max(0, Math.floor(playTime.left()))) : null, used: Math.min(86400, r.used),
+        limit: playTime.limit, extra: Math.min(60, Math.round(r.extra)), screen: ['launcher', 'game', 'sleep'].includes(state.screen) ? state.screen : 'other' };
+    }
+    function sendStatus(force) {
+      const st = statusNow(), k = JSON.stringify(st);
+      if (!force && (k === lastSt || now() - lastStAt < 2000)) return;
+      if (send({ t: 'st', st })) { lastSt = k; lastStAt = now(); }
+    }
+    function connect() {
+      if (!allowed || ws) return;
+      clearTimeout(retryT); retryT = 0;
+      if (typeof navigator.onLine === 'boolean' && !navigator.onLine) { status = 'down'; later(); return; }
+      status = 'connecting';
+      let s; try { s = new WebSocket(URL_); } catch (e) { status = 'down'; later(); return; }
+      ws = s;
+      s.onopen = () => {
+        if (ws !== s) return;
+        try { s.send(JSON.stringify({ t: 'hello', dev: me.id, kind: me.kind, name: me.name, s: ownFields(), st: statusNow() })); } catch (e) { /* ignore */ }
+      };
+      s.onmessage = e => { if (ws === s) { try { got(JSON.parse(e.data)); } catch (err) { /* bad message */ } } };
+      s.onclose = s.onerror = () => {
+        if (ws !== s) return;
+        ws = null; status = 'down'; clearInterval(pingT); clearInterval(stT); onChange();
+        later();
+      };
+    }
+    function later() {
+      clearTimeout(retryT);
+      retryT = setTimeout(() => { retryT = 0; connect(); }, retry);
+      retry = Math.min(60000, retry * 2);
+    }
+    function got(m) {
+      if (!m || typeof m !== 'object') return;
+      if (m.t === 'you' && m.rec) {
+        status = 'open'; retry = 2000; badPin = false;
+        clearInterval(pingT); pingT = setInterval(() => send({ t: 'ping' }), 25000);
+        clearInterval(stT); stT = setInterval(() => sendStatus(false), 20000);
+        take(m.rec);
+        if (watching) send({ t: 'watch', on: true, pin: watching });
+      } else if (m.t === 'dev' && m.rec) take(m.rec);
+      else if (m.t === 'list' && Array.isArray(m.devs)) { devs.clear(); m.devs.forEach(take); }
+      else if (m.t === 'gone' && m.id) { devs.delete(m.id); }
+      else if (m.t === 'poll') sendStatus(true);
+      else if (m.t === 'badpin') badPin = true;
+      onChange();
+    }
+    // a record from the relay; our own one may carry newer settings to apply here
+    function take(rec) {
+      if (!rec || typeof rec.id !== 'string' || !rec.s) return;
+      devs.set(rec.id, rec);
+      if (rec.id === me.id) applyOwn(rec);
+    }
+    const newer = (a, b) => Array.isArray(b) && (!a || b[1] > a[1]);
+    function applyOwn(rec) {
+      const s = rec.s, before = playTime.left();
+      let any = false;
+      if (Array.isArray(rec.name) && (rec.name[1] > me.name[1] || (me.name[1] === 0 && rec.name[1] === 0 && rec.name[0] !== me.name[0]))) {
+        const n = cleanName(rec.name[0]); if (n) { me.name = [n, rec.name[1]]; save('hub-device', me); }
+      }
+      const today = dayKey();
+      if (newer(stamps.reset, s.reset)) {
+        stamps.reset = s.reset; any = true;
+        if (s.reset[0].day === today) { const r = playTime.today(); r.used = 0; r.extra = 0; overTime = 0; playTime.save(); }
+      }
+      if (newer(stamps.extra, s.extra)) {
+        stamps.extra = s.extra; any = true;
+        if (s.extra[0].day === today) {
+          const r = playTime.today(), n = s.extra[0].n;
+          if (n > r.extra && playTime.limit && r.used > playTime.total()) r.used = playTime.total();   // added time is all to play
+          r.extra = n; playTime.save();
+        }
+      }
+      if (newer(stamps.limit, s.limit) && LIMIT_CHOICES.includes(s.limit[0])) { stamps.limit = s.limit; playTime.setLimit(s.limit[0]); any = true; }
+      if (!any) return;
+      saveStamps();
+      settingsChanged(before);
+      sendStatus(true);
+    }
+    // this device's own change (its settings panel, or the admin panel's row for it): applied here at once,
+    // stamped, and sent to the relay without the PIN
+    function own(kind, v) {
+      const t = now(), before = playTime.left(), f = {};
+      if (kind === 'limit') { playTime.setLimit(v); stamps.limit = f.limit = [v, t]; }
+      else if (kind === 'add') { playTime.addMinutes(v); const r = playTime.today(); stamps.extra = [{ day: r.day, n: r.extra }, t]; f.extra = [{ day: r.day, n: Math.min(60, r.extra) }, t]; }
+      else if (kind === 'reset') { playTime.resetToday(); overTime = 0; const d = dayKey(); stamps.reset = f.reset = [{ day: d }, t]; stamps.extra = f.extra = [{ day: d, n: 0 }, t]; }
+      saveStamps();
+      send({ t: 'set', to: me.id, f });
+      settingsChanged(before);
+      sendStatus(true);
+      onChange();
+    }
+    // the admin panel's change for another device or for all ('*'); needs the PIN and a connection.
+    // For all, this device takes it from the relay's answer (a moment later), so it is never counted twice.
+    function admin(to, kind, v, pin) {
+      if (to === me.id) { own(kind, v); return true; }
+      if (status !== 'open') { if (to === '*') own(kind, v); return false; }
+      const t = now(), d = dayKey();
+      let ok;
+      if (kind === 'add') ok = send({ t: 'add', to, n: v, day: d, ts: t, pin });
+      else if (kind === 'limit') ok = send({ t: 'set', to, pin, f: { limit: [v, t] } });
+      else ok = send({ t: 'set', to, pin, f: { reset: [{ day: d }, t], extra: [{ day: d, n: 0 }, t] } });
+      return ok;
+    }
+    function rename(v) {
+      const n = cleanName(v); if (!n || n === me.name[0]) return;
+      me.name = [n, now()]; save('hub-device', me);
+      send({ t: 'set', to: me.id, f: { name: me.name } });
+      onChange();
+    }
+    function watch(pin) {
+      watching = pin || null; badPin = false;
+      clearInterval(watchT);
+      if (!pin) { send({ t: 'watch', on: false }); return; }
+      if (status === 'open') send({ t: 'watch', on: true, pin });
+      else { devs.clear(); connect(); }
+      watchT = setInterval(() => { if (watching) send({ t: 'watch', on: true, pin: watching }); }, 10000);   // fresh minutes left
+    }
+    function forget(id, pin) { if (id !== me.id) { send({ t: 'forget', id, pin }); devs.delete(id); onChange(); } }
+    if (allowed) {
+      window.addEventListener('online', () => { retry = 2000; if (!ws) connect(); });
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) { if (!ws) { retry = 2000; connect(); } else sendStatus(true); } });
+    }
+    return {
+      connect, own, admin, rename, watch, forget, sendStatus,
+      get me() { return me; }, get devs() { return devs; }, get status() { return status; }, get allowed() { return allowed; },
+      get badPin() { return badPin; }, set onChange(fn) { onChange = fn; },
+    };
+  })();
+  function ownChange(kind, v) { fam.own(kind, v); }
+  // The play-time settings just changed (here, from the admin panel, or from another device): a running game
+  // gets a time message at once, the launcher goes to sleep if the time is used up, and the sleep scene wakes
+  // up if time was added (only when no grown-up panel is open: closing it does the same).
+  function settingsChanged(before) {
+    sendTime();
+    if (modal || trans) return;
+    const left = playTime.left();
+    if (state.screen === 'launcher' && left <= 0) goSleep();
+    else if (state.screen === 'sleep' && left > 0) wake(document.hidden || !(left > before));
+  }
+
+  // ---- The admin panel (a DOM card, so the list can scroll and names can be typed): every device with its
+  //      online dot, minutes left today and limit, and per device and for all: limit, +5 min today, start again ----
+  let adminPin = null;
+  function adminEl(id) { return document.getElementById(id); }
+  function openAdmin(pin) {
+    adminPin = pin;
+    adminEl('admin').hidden = false;
+    adminEl('adminList').textContent = ''; adminRows.clear();
+    fam.onChange = renderAdmin;
+    fam.watch(pin);
+    renderAdmin();
+  }
+  function closeAdmin() {
+    const inp = document.querySelector('#adminList input'); if (inp) { fam.rename(inp.value); inp.blur(); }
+    adminEl('admin').hidden = true;
+    fam.watch(null); fam.onChange = () => {}; adminPin = null;
+  }
+  const adminRows = new Map();
+  // minutes left and the limit a device has now, from its settings and its last status
+  function devView(r) {
+    if (r.id === fam.me.id) return { limit: playTime.limit, left: playTime.left(), extra: playTime.today().extra };
+    const today = dayKey(), s = r.s || {}, st = r.st;
+    const limit = s.limit ? s.limit[0] : (st ? st.limit : DEFAULT_LIMIT);
+    const extra = s.extra && s.extra[0].day === today ? s.extra[0].n : 0;
+    let used = st && st.day === today ? st.used : 0;
+    if (s.reset && s.reset[0].day === today && st && s.reset[1] > st.at - 30000) used = Math.min(used, Math.max(0, (Date.now() - s.reset[1]) / 1000));
+    const st0 = st && st.day === today && st.screen === 'game' && r.on ? (Date.now() - st.at) / 1000 : 0;   // still counting since that report
+    return { limit, extra, left: limit ? Math.max(0, (limit + extra) * 60 - used - st0) : Infinity };
+  }
+  const leftText = v => !v.limit ? 'No limit' : v.left <= 0 ? 'No time left today' : `${fmtLeft(v.left)} left`;
+  function adminControls(box, to) {
+    const row = document.createElement('div'); row.className = 'alims';
+    LIMIT_CHOICES.forEach(m => {
+      const b = document.createElement('button'); b.className = 'abtn lim'; b.dataset.min = m; b.textContent = m ? m : 'Off';
+      b.onclick = () => { sfx.click(); adminDo(to, 'limit', m); };
+      row.appendChild(b);
+    });
+    const row2 = document.createElement('div'); row2.className = 'aacts';
+    const plus = document.createElement('button'); plus.className = 'abtn plus'; plus.textContent = '+5 min today';
+    plus.onclick = () => { sfx.click(); adminDo(to, 'add', 5); };
+    const again = document.createElement('button'); again.className = 'abtn again'; again.textContent = 'Start today again';
+    again.onclick = () => { sfx.click(); adminDo(to, 'reset'); };
+    row2.append(plus, again);
+    box.append(row, row2);
+  }
+  function adminDo(to, kind, v) {
+    const r = to !== '*' && to !== fam.me.id ? fam.devs.get(to) : null;
+    const ok = fam.admin(to, kind, v, adminPin);
+    if (r && ok) {                                    // show it at once; the relay's answer follows
+      const t = Date.now(), d = dayKey();
+      if (kind === 'limit') r.s.limit = [v, t];
+      else if (kind === 'add') { const n = r.s.extra && r.s.extra[0].day === d ? r.s.extra[0].n : 0; r.s.extra = [{ day: d, n: Math.min(60, n + v) }, t]; }
+      else { r.s.reset = [{ day: d }, t]; r.s.extra = [{ day: d, n: 0 }, t]; }
+    }
+    if (!ok && to !== fam.me.id && to !== '*') { adminEl('adminNet').classList.add('nudge'); setTimeout(() => adminEl('adminNet').classList.remove('nudge'), 500); }
+    renderAdmin();
+  }
+  function adminRow(id) {
+    let row = adminRows.get(id);
+    if (row) return row;
+    const box = document.createElement('div'); box.className = 'adev'; box.dataset.id = id;
+    const head = document.createElement('div'); head.className = 'ahead';
+    const dot = document.createElement('span'); dot.className = 'adot';
+    const name = id === fam.me.id ? document.createElement('input') : document.createElement('span');
+    name.className = 'aname';
+    if (id === fam.me.id) {
+      Object.assign(name, { type: 'text', maxLength: 16, value: fam.me.name[0], spellcheck: false, autocomplete: 'off' });
+      name.setAttribute('aria-label', 'This device\'s name');
+      name.addEventListener('change', () => fam.rename(name.value));
+      name.addEventListener('keydown', e => { if (e.key === 'Enter') name.blur(); });
+    }
+    const tag = document.createElement('span'); tag.className = 'atag';
+    const info = document.createElement('span'); info.className = 'ainfo';
+    head.append(dot, name, tag, info);
+    box.appendChild(head);
+    adminControls(box, id);
+    if (id !== fam.me.id) {
+      const fg = document.createElement('button'); fg.className = 'aforget'; fg.textContent = 'Forget';
+      fg.onclick = () => { sfx.click(); fam.forget(id, adminPin); adminRows.get(id)?.box.remove(); adminRows.delete(id); renderAdmin(); };
+      head.appendChild(fg);
+      row = { box, dot, name, tag, info, fg };
+    } else row = { box, dot, name, tag, info };
+    adminRows.set(id, row);
+    return row;
+  }
+  function renderAdmin() {
+    if (!modal || modal.mode !== 'admin') return;
+    const list = adminEl('adminList'), st = fam.status, open = st === 'open';
+    const net = adminEl('adminNet');
+    net.className = 'vsub anet ' + (open ? 'ok' : 'off');
+    net.textContent = fam.badPin ? 'The other devices didn\'t accept the PIN. Changes work on this device only.'
+      : open ? `Connected: ${[...fam.devs.values()].filter(r => r.on).length || 1} online now`
+      : st === 'off' ? 'This copy can\'t reach the other devices. Changes work on this device only.'
+      : st === 'connecting' ? 'Looking for the other devices…'
+      : 'The devices can\'t be reached right now. Changes work on this device only.';
+    // "All devices" first, then this device, then the others (online first, then by name)
+    let all = adminRows.get('*');
+    if (!all) {
+      const box = document.createElement('div'); box.className = 'adev aall';
+      const head = document.createElement('div'); head.className = 'ahead';
+      const name = document.createElement('span'); name.className = 'aname'; name.textContent = 'All devices';
+      const info = document.createElement('span'); info.className = 'ainfo';
+      head.append(name, info); box.appendChild(head);
+      adminControls(box, '*');
+      all = { box, info }; adminRows.set('*', all);
+    }
+    const others = [...fam.devs.values()].filter(r => r.id !== fam.me.id)
+      .sort((a, b) => (b.on - a.on) || String(a.name && a.name[0]).localeCompare(String(b.name && b.name[0])));
+    const order = [all, adminRow(fam.me.id), ...others.map(r => adminRow(r.id))];
+    const views = [];
+    order.forEach((row, i) => { if (list.children[i] !== row.box) list.insertBefore(row.box, list.children[i] || null); });
+    for (const [id, row] of adminRows) if (id !== '*' && id !== fam.me.id && !fam.devs.has(id)) { row.box.remove(); adminRows.delete(id); }
+    const fill = (row, v, on, isMe) => {
+      row.dot.classList.toggle('on', on);
+      row.info.textContent = `${leftText(v)} · ${v.limit ? 'limit ' + v.limit : 'no limit'}`;
+      row.box.querySelectorAll('.lim').forEach(b => b.classList.toggle('sel', Number(b.dataset.min) === v.limit));
+      row.box.querySelector('.plus').disabled = !v.limit;
+      if (!isMe) row.box.querySelectorAll('button').forEach(b => { if (!b.classList.contains('aforget')) b.disabled = !open || (b.classList.contains('plus') && !v.limit); });
+      views.push(v.limit);
+    };
+    const mine = adminRows.get(fam.me.id), myV = devView({ id: fam.me.id });
+    fill(mine, myV, true, true);
+    mine.tag.textContent = '(this device)';
+    if (document.activeElement !== mine.name) mine.name.value = fam.me.name[0];
+    for (const r of others) {
+      const row = adminRows.get(r.id), v = devView(r);
+      fill(row, v, !!r.on, false);
+      row.name.textContent = (r.name && r.name[0]) || 'Device';
+      row.tag.textContent = r.on ? '' : 'offline';
+      row.fg.hidden = !!r.on;
+    }
+    // All: shows a limit only when every device has the same one
+    const same = views.every(l => l === views[0]) ? views[0] : null;
+    all.info.textContent = open ? `${views.length} device${views.length === 1 ? '' : 's'}` : 'this device only for now';
+    all.box.querySelectorAll('.lim').forEach(b => b.classList.toggle('sel', Number(b.dataset.min) === same));
+  }
+
   // Test hook
+  adminEl('adminDone').onclick = adminEl('adminX').onclick = () => { sfx.click(); closeModal(); };
   window.__hub = {
     // opens a game as a tap would (Grizzly and the bus ask to turn the device first when it is upright);
     // { anyway: true } skips that card
@@ -3213,7 +3641,7 @@
         modal: modal ? modal.mode : null, overTime, hello: state.hello || null, rotate: rotateCard ? rotateCard.mode : null, lastError: state.lastError };
     },
     playTime: { left: () => playTime.left(), used: () => playTime.used(), share: () => playTime.share(), get limit() { return playTime.limit; } },
-    get modal() { return modal ? { mode: modal.mode, answer: modal.a * modal.b } : null; },
+    get modal() { return modal ? { mode: modal.mode, answer: modal.a * modal.b, over: !!modal.overGame } : null; },
     layout() { return JSON.parse(JSON.stringify(L)); },
     buttons() { return buttons.map(b => ({ x: b.x, y: b.y, w: b.w, h: b.h })); },
     setUrl(key, url) { GAMES[key].url = url; },
@@ -3221,8 +3649,13 @@
     get audio() { return audio; },
     sky(phase) { skyOverride = phase; if (phase !== null) skyPhase = phase; },
     act(key) { doAct(key); },
+    settings() { openGate(); return !!modal; },       // as a tap on the time pill
+    admin() { openPin(); return !!modal; },           // as a 3 s hold on the time pill
+    pill() { return pillBox && { ...pillBox }; },
+    family() { return { status: fam.status, allowed: fam.allowed, me: { ...fam.me }, devs: [...fam.devs.values()].map(r => JSON.parse(JSON.stringify(r))) }; },
   };
   requestAnimationFrame(frameLoop);
+  fam.connect();
 
   // =====================================================================
   //  Versions: "What's new" (from the grown-up settings), a small "Updating…" note while the

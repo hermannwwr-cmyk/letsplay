@@ -6056,6 +6056,31 @@
     const label = left > 0 ? `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}` : 'Last go!';
     text(label, 14, 1, left > 0 ? 23 : 19, low ? '#c0560b' : INK, null);
     ctx.restore();
+    hubClockAt(cx - w / 2, cy - h / 2, w, h);
+  }
+  // Hub mode: the clock chips are for grown-ups too. A tap asks the app for its settings ({hub:'settings'},
+  // behind the times-table check), a press held 3 s for its admin panel ({hub:'admin'}, behind the PIN), with a
+  // ring filling round the chip meanwhile. The app then covers and holds the game until Done.
+  let hubClock = null, hubPress = null;               // the chip drawn this frame (logical px); the press on it
+  const HUB_HOLD = 3000, HUB_RING_DELAY = 250;
+  function hubClockAt(x, y, w, h) {
+    if (!HUB) return;
+    hubClock = { x, y, w, h };
+    const share = hubPress ? clamp01((performance.now() - hubPress.t0 - HUB_RING_DELAY) / (HUB_HOLD - HUB_RING_DELAY)) : 0;
+    if (share <= 0) return;
+    const g = 5, X = x - g, Y = y - g, Wd = w + 2 * g, Hd = h + 2 * g, r = Hd / 2;
+    const p = new Path2D();                                        // from the top middle, clockwise
+    p.moveTo(X + Wd / 2, Y); p.lineTo(X + Wd - r, Y); p.arc(X + Wd - r, Y + r, r, -Math.PI / 2, Math.PI / 2);
+    p.lineTo(X + r, Y + Hd); p.arc(X + r, Y + r, r, Math.PI / 2, Math.PI * 1.5); p.closePath();
+    const len = 2 * (Wd - Hd) + Math.PI * Hd;
+    ctx.save(); ctx.lineCap = 'round'; ctx.lineWidth = 6;
+    ctx.strokeStyle = 'rgba(255,246,224,.85)'; ctx.stroke(p);
+    ctx.setLineDash([len * share, len + 10]); ctx.strokeStyle = '#4fb659'; ctx.stroke(p);
+    ctx.restore();
+  }
+  const inHubClock = (p, slack = 8) => !!hubClock && p.x >= hubClock.x - slack && p.x <= hubClock.x + hubClock.w + slack && p.y >= hubClock.y - slack && p.y <= hubClock.y + hubClock.h + slack;
+  function hubClockTick() {
+    if (hubPress && performance.now() - hubPress.t0 >= HUB_HOLD) { hubPress = null; hubPost({ hub: 'admin' }); }
   }
   // Minutes left today, beside the gear on the menu.
   function drawMenuTime() {
@@ -6064,6 +6089,7 @@
     panel(70 + ox, 12, 118, 36, 18, P.cream, { depth: 4, rim: 2.5 });
     drawClockIcon(91 + ox, 30, 11, null);
     text(`${Math.ceil(playTime.left() / 60)} min`, 140 + ox, 31, 21, INK, null);
+    hubClockAt(70 + ox, 12, 118, 36);
   }
   // The grown-up gear (menu and sleep screen, where the home button would be).
   function drawGearButton(x, y) {
@@ -6194,6 +6220,8 @@
     e.preventDefault();
     initAudio();
     const p = toGame(e); pointer.x = p.x; pointer.y = p.y; pointer.down = true;
+    hubPress = null;
+    if (HUB && !modal && inHubClock(p)) { hubPress = { t0: performance.now(), x: p.x, y: p.y }; swipe.on = false; pressedButton = false; return; }
     Object.assign(swipe, { on: !modal && scene === S.menu && pageCount() > 1, x: p.x, y: p.y, moved: false });
     pressedButton = !!hitButton(p);
     if (pressedButton) return;
@@ -6202,6 +6230,7 @@
   });
   window.addEventListener('pointermove', e => {
     const p = toGame(e); pointer.x = p.x; pointer.y = p.y;
+    if (hubPress) { if (Math.hypot(p.x - hubPress.x, p.y - hubPress.y) > 40) hubPress = null; return; }
     if (pointer.down && swipe.on) {
       const dx = p.x - swipe.x;
       if (!swipe.moved && Math.abs(dx) > 14 && Math.abs(dx) > Math.abs(p.y - swipe.y)) swipe.moved = true;
@@ -6213,6 +6242,7 @@
     initAudio(true);
     const wasDown = pointer.down;
     pointer.down = false;
+    if (hubPress) { hubPress = null; if (inHubClock(toGame(e), 24)) { sfx.click(); hubPost({ hub: 'settings' }); } return; }
     if (wasDown && swipe.on && swipe.moved) {
       // a long enough swipe flips the page; a short one springs back
       swipe.on = false; pressedButton = false;
@@ -6231,7 +6261,7 @@
     if (b) { sfx.click(); b.action(); }
   });
   window.addEventListener('pointercancel', () => {
-    pointer.down = false; pressedButton = false;
+    pointer.down = false; pressedButton = false; hubPress = null;
     if (swipe.on) { swipe.on = false; menuSlide = menuDrag; menuDrag = 0; }
   });
   // Extra unlock points for iOS, which treats touchend and click as real gestures.
@@ -6295,7 +6325,7 @@
     updateMusic();
   }
   function render() {
-    buttons.length = 0;
+    buttons.length = 0; hubClock = null;
     ctx.clearRect(0, 0, W, H);
     scene.render();
     if (overlay) drawOverlay();
@@ -6318,7 +6348,8 @@
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     requestAnimationFrame(frame);
-    if (hubHeld) return;
+    if (hubHeld) { hubPress = null; return; }
+    hubClockTick();
     try { update(dt); render(); hubBackdrop(); }
     catch (err) { if (!loopErrors++) console.error('Grizzly frame error:', err); }
   }
