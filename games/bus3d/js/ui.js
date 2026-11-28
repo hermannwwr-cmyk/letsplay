@@ -471,11 +471,13 @@
     //    to all the way when the finger has gone a little over one wheel-radius, and it is straight again when the
     //    finger is back where it began. Where the finger is decides it, so a slide that comes back, or carries on
     //    across, always steers the way it goes, whatever the finger did before.
-    //    One thing more, like a real wheel: out on the rim, a finger going ROUND the rim turns the wheel round with
-    //    it (so a push that reaches the side and goes on round keeps turning that way, instead of easing back as the
-    //    finger comes round under or over the middle). That extra turn ('wind') comes only from going round on the
-    //    rim (not in or out, not across); a slide the other way takes it off first, it fades as the finger comes in
-    //    off the rim, and it is gone once the finger is back near the middle.
+    //    One thing more, like a real wheel: out on the SIDES of the rim, a finger going up or down round the rim turns
+    //    the wheel round with it (so a push that reaches the side and goes on round a little keeps turning that way,
+    //    instead of easing back). That extra turn ('wind') comes only from going round where going round is going up
+    //    or down (not in or out, not across, and never along the top or the bottom, where going round is going
+    //    sideways); a slide the other way takes it off first, it fades as the finger comes in off the rim, and it is
+    //    gone once the finger is back near the middle. And on every move, a finger going more sideways than up or
+    //    down never turns the wheel the other way: whatever the finger did before, a slide steers the way it goes.
     //  - held by its rim it is a real wheel ('wheel'): it turns with the finger's angle, up to about 135 degrees each
     //    way. Brought into the middle it becomes the stick above, from where the wheel stands.
     // The horn is the red middle: a short press there that doesn't turn the wheel honks, decided when the finger
@@ -500,7 +502,7 @@
       return wp;
     };
     let wheelId = null, mode = '', inHub = false, onRed = false, downT = 0, downX = 0, downY = 0, far = 0, wide = 0;
-    let px = 0, py = 0, qx = 0, qy = 0, qX = 0, anchorX = 0, anchorRot = 0, dead = 0, wind = 0, fades = 0;
+    let px = 0, py = 0, lmX = 0, lmY = 0, qx = 0, qy = 0, qX = 0, anchorX = 0, anchorRot = 0, dead = 0, wind = 0, fades = 0;
     // the stick: the wheel's angle for a finger at x (from the anchor; the first `dead` pixels either way are still)
     const stickRot = (x, R) => { const d = x - anchorX, a = Math.abs(d) - dead; return BB.clamp(anchorRot + (a > 0 ? (d < 0 ? -a : a) : 0) / R * 135, -135, 135); };
     const sgn = (v) => (v > 0 ? 1 : v < 0 ? -1 : 0);
@@ -508,7 +510,7 @@
       e.preventDefault(); if (wheelId != null) return;
       wheelId = e.pointerId; try { wheelEl.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
       const p = wheelAt(e), r = Math.hypot(p.x, p.y);
-      wheel.drag = true; px = qx = p.x; py = qy = p.y; qX = e.clientX;
+      wheel.drag = true; px = qx = p.x; py = qy = p.y; qX = e.clientX; lmX = e.clientX; lmY = e.clientY;
       downT = e.timeStamp || performance.now(); downX = e.clientX; downY = e.clientY; far = 0; wide = 0;
       inHub = r < p.R * MID; onRed = r < p.R * RED;
       mode = inHub ? 'push' : 'wheel';
@@ -537,6 +539,9 @@
           if (rq >= R * RIM && r >= R * RIM) {
             dA = (Math.atan2(y, x) - Math.atan2(qy, qx)) * 180 / Math.PI; while (dA > 180) dA -= 360; while (dA < -180) dA += 360;
             if (Math.abs(dA) < 60) { const round = Math.abs(dA) * Math.PI / 180 * (r + rq) / 2, inout = Math.abs(r - rq); ro = BB.smooth((round / (round + inout) - 0.5) / 0.3); }
+            // only where going round is going up or down (the sides of the rim): along the top or the bottom going
+            // round is going sideways, and there the wheel must simply follow the finger's way, like the stick
+            ro *= BB.smooth((1 - Math.abs(sx) / Math.max(Math.abs(sy), 0.001)) / 0.5);
           }
           if (ro > 0) wind += (dA - dS) * ro;
           const off = Math.abs(dS) * (1 - ro);
@@ -550,6 +555,10 @@
         if (fade < fades) wind = fades > 0 ? wind * fade / fades : 0;
         fades = fade;
         if (fade >= 1) wind = BB.clamp(wind, -135 - base, 135 - base);
+        // the one promise, checked on every move: a finger going more sideways than up or down never turns the wheel
+        // the other way (if anything above would, the wheel just waits where it is)
+        const mx = e.clientX - lmX, my = e.clientY - lmY;
+        if (Math.abs(mx) > Math.abs(my) && (base + wind - wheel.rot) * mx < 0) wind = wheel.rot - base;
         wheel.rot = BB.clamp(base + wind, -135, 135);
       } else {
         // How far round the middle the finger went since the last move (degrees, clockwise = to the right), faded out
@@ -564,7 +573,7 @@
           mode = 'push'; anchorX = e.clientX; anchorRot = wheel.rot; dead = 0; wind = 0; fades = 0; qx = x; qy = y; qX = e.clientX;
         }
       }
-      px = x; py = y;
+      px = x; py = y; lmX = e.clientX; lmY = e.clientY;
       showWheel();
       if (Math.abs(wheel.rot) > 25) hideTip('wheelhand');
       applyInput();
