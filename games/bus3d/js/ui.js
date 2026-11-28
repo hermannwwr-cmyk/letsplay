@@ -428,7 +428,7 @@
       let w = null; try { w = BB.depot.wish && BB.depot.wish(); } catch (e) { /* none */ }
       const wl = !w ? '' : w.need > 0 ? `${w.need} more for the ${w.name}!` : `Enough for the ${w.name}!`;
       BB.say((n === 1 ? 'You have 1 coin! ' : `You have ${n} coins! `) +
-        (low ? "Fuel is getting low, let's go to the garage!" : wl || (f > 0.55 ? 'Lots of fuel!' : 'Half a tank of fuel.')));
+        (low ? "Fuel is getting low! Let's go to the fuel pump!" : wl || (f > 0.55 ? 'Lots of fuel!' : 'Half a tank of fuel.')));
     }, 'bbu-cash nolb');
     const crow = BB.el('span', 'row', null); cashEl.prepend(crow);
     crow.appendChild(BB.iconEl('coin', 96)); BB.el('b', '', crow, String(BB.depot.cash));
@@ -442,7 +442,7 @@
     const right = BB.el('div', 'bbu-grp', top);
     garageBtn = U.btn(right, 'garage', 'Garage', () => {
       const ph = BB.jobs.phase;
-      if (ph === 'drive' || ph === 'done' || ph === 'stop' || ph === 'question') {
+      if (ph === 'drive' || ph === 'done' || ph === 'stop' || ph === 'question' || ph === 'toPump' || ph === 'pump') {
         let wl = null; try { wl = BB.depot.wishNews && BB.depot.wishNews('tile'); } catch (e) { wl = null; }   // (now and then, not every tap)
         BB.say(wl || "Let's go to the garage!"); BB.jobs.goDepot('quiet');
       }
@@ -883,17 +883,17 @@
     jobEl.style.visibility = 'visible';
     const stop = t || (job && job.stops[Math.min(job.index, job.stops.length - 1)]);
     const wash = !!(t && BB.bus.washBay && t === BB.bus.washBay);
-    const depot = !!(t && t.id === 'depot');
+    const depot = !!(t && t.id === 'depot'), pump = !!(t && t.id === 'pump');
     // the picture of where the job is going (a job of the other rides may name its own: job.pic, or the target's pic)
     // (a roadside scene spot has no picture of its own: the fire, the check-up, the ice cream queue, the broken-down car)
     // (the other rides go to their own stops, not bus stops: the Next stop tile shows the job's own picture)
     const vk = job && job.vehicle && (KIND_OF[job.vehicle] || job.vehicle);
-    const pic = wash ? null : (!depot && job && job.pic) || (vk && JOB_PIC[vk]) || (stop && stop.pic) || JOB_PIC[U.rideKind()] || 'tree';
+    const pic = wash ? null : pump ? 'pump' : (!depot && job && job.pic) || (vk && JOB_PIC[vk]) || (stop && stop.pic) || JOB_PIC[U.rideKind()] || 'tree';
     const x = jobPic.getContext('2d'); x.clearRect(0, 0, 96, 96); if (stop) x.drawImage(wash ? BB.icon('wash', 96) : BB.pic(pic, 96), 0, 0);
     jobDots.innerHTML = '';
     // going to the garage: just its picture; on a job, a dot per stop
-    if (job && !wash && !(t && t.id === 'depot')) job.stops.forEach((s, i) => BB.el('i', i < job.index ? 'done' : i === job.index ? 'now' : '', jobDots));
-    const word = wash ? 'Wash' : depot ? 'Garage' : (job && JOB_WORD[KIND_OF[job.kind] || KIND_OF[job.vehicle] || U.rideKind()]) || (vk === 'taxi' ? JOB_WORD_TAXI : 'Next stop');
+    if (job && !wash && !depot && !pump) job.stops.forEach((s, i) => BB.el('i', i < job.index ? 'done' : i === job.index ? 'now' : '', jobDots));
+    const word = wash ? 'Wash' : depot ? 'Garage' : pump ? 'Fuel' : (job && JOB_WORD[KIND_OF[job.kind] || KIND_OF[job.vehicle] || U.rideKind()]) || (vk === 'taxi' ? JOB_WORD_TAXI : 'Next stop');
     jobEl.querySelector('.lb').textContent = word;
     // somewhere new to go: the tile gives a little pop, so the eye finds the new picture
     const key = word + '|' + (pic || '') + '|' + (stop ? stop.id : '') + '|' + (job ? job.index : '');
@@ -902,7 +902,7 @@
 
   // ---------- Home ----------
   // A trip is in progress: a job, a stop or the drive to the garage. Then a kind card asks first.
-  const tripOn = () => { const J = BB.jobs; return !!(J.current || (J.busy && J.busy()) || J.phase === 'toDepot'); };
+  const tripOn = () => { const J = BB.jobs; return !!(J.current || (J.busy && J.busy()) || J.phase === 'toDepot' || J.phase === 'toPump'); };
   U.homeTap = function () {
     if (BB.bedtime || BB.depot.isOpen || U.titleShown()) return;
     U.releaseAll();

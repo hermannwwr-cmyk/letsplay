@@ -12,9 +12,10 @@
   // their size. These go into the shared config (bus.js reads lane/roadHalf too): kerb lane centre 6.7 from the
   // middle, inner lane 2.5, road half-width 9.2.
   C.block = 56; C.roadHalf = 9.2; C.lane = 6.7; C.laneInner = 2.5; C.laneDivider = 4.6;
-  // Fuel for the big map (legs of 200-900 units, a job of 2-3 stops about 1,300): a full tank lasts 3-4 jobs before
-  // the "getting low" trip to the depot (C.fuelLow).
-  C.fuelPerUnit = 1 / 6500;
+  // Fuel: a job of 2-3 stops is about 200 road units (measured: 120-280), and the first job after the pump starts
+  // with the drive out of the depot yard (~300 more), so a full tank lasts about 3 jobs (measured with the lane
+  // helper: 2.5-3.5) before the "getting hungry" trip to the fuel pump in the depot yard (C.fuelLow; as core.js).
+  C.fuelPerUnit = 1 / 1200;
   const S = C.block, RH = C.roadHalf;
   const K = S / 46;                              // the layout was first drawn for 46-unit blocks: older numbers x K
   const g = (i) => (i - 1.5) * S;                // grid line -> world coordinate (-69, -23, 23, 69)
@@ -279,6 +280,12 @@
   // where the bus waits after Drive: on the yard's way out, just short of the gate (past the bus wash), facing out,
   // so the first drive is a short one (from the garage's own bay it was a long loop round the yard, ~35 s)
   W.yardStart = placeOnKerb({ id: 'yardStart', name: 'Bus Depot', say: 'the depot', pic: 'depot', from: 'Yb', to: 'Yg2', t: 0.85, toward: [40, 200] });
+  // The fuel pump (the yard's fuel island, on the kerb side of the north aisle; built in buildDepot) and the bay
+  // where a ride stands beside it: the north aisle's kerb lane, heading east. jobs.js moves the bay along the kerb
+  // for each ride (bay._bay) so the ride's fuel cap stops just past the pump.
+  // W.pump: the pump's middle on the ground; nozzle: where the nozzle hangs on its back (world point, height y).
+  W.pump = { x: 98, z: 117.1, nozzle: { x: 98.62, y: 1.0, z: 117.15 } };
+  W.pumpBay = placeOnKerb({ id: 'pump', name: 'Fuel Pump', say: 'the fuel pump', pic: 'pump', from: 'Yg1', to: 'Ya', t: 0.8, toward: [98, 100] });
   // More start bays, so buses of friends who tap Drive at about the same time don't stand inside each other: beside
   // it in the inner lane, then on the road just outside the gates (between the two gates, both directions, kerb and
   // inner lanes). BB.bus.placeInYard takes the first free one (W.startSlots()).
@@ -2356,14 +2363,27 @@
       const m = q.mesh(); m.position.set(42, 1.3, 147 + dir * 10.1); m.name = 'boom'; return m;
     };
     if (!boomN) { boomN = boomArm(-1); boomS = boomArm(1); }
-    // the fuel island (north of the north aisle) under a canopy
-    if (!LMP('fuelIsland', 104, 111, Math.PI / 2)) b.at(104, 0.06, 111, 0, (q) => {
-      q.box(12, 0.3, 2.6, '#e9e2d6', 0, 0, 0);
-      for (const x of [-3, 3]) { q.box(1.0, 1.9, 0.9, P.coral, x, 0.3, 0); q.box(0.8, 0.5, 0.06, '#fff6e0', x, 1.4, 0.46); q.box(0.16, 0.7, 0.16, '#555', x + 0.62, 0.8, 0.2); }
-      for (const [x, z] of [[-5.5, -1.8], [5.5, -1.8], [-5.5, 1.8], [5.5, 1.8]]) q.box(0.3, 5.4, 0.3, '#e9e2d6', x, 0.3, z);
-      q.box(14, 0.5, 7, P.teal, 0, 5.7, 0); q.box(14.4, 0.25, 7.4, P.honey, 0, 6.2, 0);
-    });
-    if (!BB.landmarks) W.addBox(104, 111, 6.2, 1.5, 0, 2.5);
+    // the fuel island on the kerb side of the north aisle, under a canopy: one coral pump facing the aisle, so a bus
+    // pulls up beside it in its pump bay (W.pumpBay) and the child carries the nozzle over (jobs.js). The nozzle and
+    // its hose are jobs.js's own (they move); the pump has a little holster on its back where the nozzle hangs.
+    {
+      const PU = W.pump, ix = PU.x - 2.9, iz = PU.z;        // (the island runs on west of the pump: the fuel cap stops east of it, in the open)
+      b.box(7.2, 0.3, 2.2, '#e9e2d6', ix, 0.04, iz); b.box(7.3, 0.08, 2.3, P.honey, ix, 0.34, iz);
+      // the pump: a coral body with a cream screen on the aisle side, a darker cap, a grey holster on the back
+      b.box(0.9, 1.9, 0.8, P.coral, PU.x, 0.42, iz); b.box(0.96, 0.32, 0.86, '#d8483b', PU.x, 2.32, iz);
+      b.box(0.62, 0.5, 0.06, '#fff6e0', PU.x, 1.55, iz + 0.42); b.box(0.5, 0.12, 0.07, P.teal, PU.x, 1.18, iz + 0.42);
+      b.box(0.08, 0.5, 0.4, '#5a5260', PU.x + 0.49, 1.0, iz + 0.05);
+      // a little bin and a tyre stack at the island's far end (just for looks)
+      b.cyl(0.32, 0.28, 0.75, 8, P.teal, ix - 0.9, 0.42, iz + 0.3);
+      for (let k = 0; k < 3; k++) b.cyl(0.42, 0.42, 0.24, 10, '#3a3440', ix - 2.9, 0.42 + k * 0.25, iz);
+      // the canopy on one wide pillar at the west end, high above the tallest bus, so nothing stands between the
+      // stop camera and the pump, the hose and the fuel cap (the camera stands east of them on a phone)
+      b.box(0.9, 7.0, 0.9, '#f4efe6', ix - 1.9, 0.38, iz - 0.2); b.box(1.1, 0.3, 1.1, P.honey, ix - 1.9, 0.38, iz - 0.2);
+      b.box(9.6, 0.42, 5.6, '#fbf6ee', ix + 0.4, 7.2, iz + 0.4); b.box(9.8, 0.5, 5.8, P.teal, ix + 0.4, 7.62, iz + 0.4); b.box(9.84, 0.14, 5.84, P.honey, ix + 0.4, 7.76, iz + 0.4);
+      W.addBox(ix, iz, 3.6, 1.1, 0, 1.0);                   // (the island: the bus slides along it, the cameras look over it)
+      W.addCircle(PU.x, iz, 0.55, 1.0);                    // (the pump: low for the cameras, so the stop view may look past it)
+      W.addCircle(ix - 1.9, iz - 0.2, 0.6, 7.2);
+    }
     // the drive-through bus wash on the south aisle: two portal frames over the bay (the brushes are their own mesh)
     const wb = W.bayOf(W.washBay);
     b.at(wb.x, 0.04, wb.z, wb.heading, (q) => {

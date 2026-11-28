@@ -18,7 +18,7 @@
     corner: 7,              // how far before/after a junction a turn curve starts
     maxSpeed: 13,           // units per second with the GO pedal held
     accel: 5.5, coast: 7, turnSpeed: 7.5,
-    fuelPerUnit: 1 / 6500,  // a full tank lasts a good many jobs (world.js sets the same for its bigger town)
+    fuelPerUnit: 1 / 1200,  // a full tank lasts about 3 jobs, then a trip to the fuel pump (world.js sets the same)
     fuelLow: 0.25,
     pixelRatioCap: 2,
   };
@@ -1049,9 +1049,11 @@
       tone(N(36), 0.4, { type: 'sine', vol: 0.09, at: 0.3 }); tone(N(43), 0.3, { type: 'sine', vol: 0.05, at: 0.34 });
     },
     // the fuel pump: glug-glug bubbles rising over `sec` seconds
-    gurgle(sec = 1.6) {
-      const n = Math.round(sec / 0.13);
+    // (more: a step of a longer fill, no closing notes)
+    gurgle(sec = 1.6, more) {
+      const n = Math.max(1, Math.round(sec / 0.13));
       for (let i = 0; i < n; i++) { const f = N(-2 + i * 0.9 + Math.random() * 3); tone(f, 0.11, { type: 'sine', vol: 0.09, at: i * 0.13, slide: f * 1.7 }); }
+      if (more) return;
       tone(N(24), 0.25, { type: 'sine', vol: 0.08, at: sec }); tone(N(31), 0.35, { type: 'sine', vol: 0.07, at: sec + 0.12 });
     },
     whoosh() { tone(N(5), 0.35, { type: 'triangle', vol: 0.05, slide: N(29) }); },

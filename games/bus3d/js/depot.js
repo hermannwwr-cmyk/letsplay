@@ -7,7 +7,7 @@
      picture and a word, and everything is spoken on tap (playing together is automatic, net.js: no section here);
    - the first tap on something new previews it live on the bus and says its price, a second tap buys it
      (coin jingle, coins fly from the counter); too few coins -> "Let's do more jobs!" and a coin goal to aim for;
-   - fuel is free: every visit fills the tank (the little tank over the 3D view, the pump's gurgle).
+   - fuel is filled at the fuel pump in the depot yard, not here (jobs.js); the little tank chip shows the level.
    Stickers are built here and hung on BB.bus.stickerAnchors (or fallback spots on the carriages); parts (lights,
    bumpers, wheels, rims) are drawn by bus.js (B.setPart / applyCustom with save.parts) and only sold here.
    Saved: bus3d.save.parts {kind: id} and partsOwned ['kind:id'].
@@ -549,8 +549,8 @@
   // one row, or two tidy rows on a narrow panel; the bus number: all three show without scrolling on a tablet), Shop (Stickers,
   // Lights, Bumpers, Wheels, Extras) and Settings (which side the pedals go, lane helper, music, Christmas).
   // Tiles have a picture and a word; unowned ones a price chip; the chosen one a teal rim and a tick; one being tried
-  // on glows, with a green "tap again to buy" chip. Over the 3D view, top left: Coins and Fuel (filled free on every
-  // visit) and, in hub mode, the all-games button and the clock. One big "Drive!" button at the bottom.
+  // on glows, with a green "tap again to buy" chip. Over the 3D view, top left: Coins and Fuel (the tank's level; it is
+  // filled at the fuel pump in the yard) and, in hub mode, the all-games button and the clock. One big "Drive!" button at the bottom.
   BB.css(`
   #ui { --pw: min(500px, 56vw); --tw: 84px; --th: 98px; --tic: 56px; --tlb: 14px; }
   @media (min-height: 700px) and (min-width: 1000px) { #ui { --tw: 96px; --th: 108px; --tic: 64px; --tlb: 15px; } }
@@ -1035,25 +1035,12 @@
     if (calls < 2) idleT = BB.later(1000, idleCheck);
   }
 
-  // ---------- fuel: free, filled on every visit (the pump's gurgle; a little tank shows over the 3D view only while
-  // it fills, then goes away) ----------
-  let filling = false;
-  function syncTank() { if (tankEl && !filling) tankEl.firstChild.style.width = Math.round(BB.bus.fuel * 100) + '%'; }
-  function fillUp(auto) {
-    if (BB.bus.fuel >= 0.98) { if (!auto) BB.say('The tank is full! Yum!'); syncTank(); return; }
-    if (filling) return;
-    filling = true;
-    if (fuelBtn) fuelBtn.classList.remove('gone');
-    BB.sfx.gurgle(1.6); fill = 1.8;
-    const from = BB.bus.fuel, bar = tankEl && tankEl.firstChild;
-    if (bar && bar.animate) bar.animate([{ width: Math.round(from * 100) + '%' }, { width: '100%' }], { duration: 1600, easing: 'ease-in-out', fill: 'forwards' });
-    for (let i = 0; i < 8; i++) BB.later(i * 180, () => { if (!tankEl) return; const b = BB.el('b', '', tankEl); b.style.left = (Math.max(from, i / 8) * 85 + 4) + '%'; BB.later(1000, () => b.remove()); });
-    BB.bus.refuel(1);
-    BB.later(1700, () => {
-      filling = false; syncTank(); D.hop();
-      BB.say(auto ? 'Glug glug! A full tank, free! Now make your bus beautiful!' : 'Yum! A full tank!', { queue: !!auto });
-      BB.later(2500, () => { if (fuelBtn && !filling) fuelBtn.classList.add('gone'); });
-    });
+  // ---------- fuel: the little tank chip over the 3D view shows the level; the tank is filled at the fuel pump in
+  // the depot yard (jobs.js), never here ----------
+  function syncTank() { if (tankEl) tankEl.firstChild.style.width = Math.round(BB.bus.fuel * 100) + '%'; }
+  function tankTap() {
+    const f = BB.bus.fuel;
+    BB.say(f >= 0.98 ? 'The tank is full! Yum!' : f > 0.55 ? 'Lots of fuel!' : 'We fill up at the fuel pump in the yard!');
   }
 
   function renderBody(animate) {
@@ -1294,7 +1281,7 @@
     if (BB.ui.openBook) BB.ui.btn(statusEl, 'book', 'Book', () => BB.ui.openBook(), 'bbd-book');
     cashBox = BB.ui.btn(statusEl, null, 'Coins', () => BB.say(D.cash === 1 ? 'You have 1 coin.' : `You have ${D.cash} coins.`), 'bbd-cash');
     const crow = BB.el('span', 'row', null); cashBox.prepend(crow); crow.appendChild(coinCv(42)); cashSpan = BB.el('b', '', crow, String(D.cash));
-    fuelBtn = BB.ui.btn(statusEl, null, 'Fuel', () => fillUp(false), 'bbd-fuel' + (BB.bus.fuel >= 0.98 ? ' gone' : ''));
+    fuelBtn = BB.ui.btn(statusEl, null, 'Fuel', tankTap, 'bbd-fuel');
     const frow = BB.el('span', 'row', null); fuelBtn.prepend(frow); frow.appendChild(BB.iconEl('fuel', 96));
     tankEl = BB.el('span', 'bbd-tank', frow); BB.el('i', '', tankEl); syncTank();
     if (BB.HUB && BB.ui.makeClock) statusEl.appendChild(BB.ui.makeClock());
@@ -1307,7 +1294,7 @@
     if (D.isOpen) return;
     D.isOpen = true;
     D.isStart = !!(opts && opts.start);
-    preview = null; goalEl = null; filling = false;
+    preview = null; goalEl = null;
     tab = 'bus';
     awning = BB.el('div', 'bbd-awning', BB.ui.root);
     statusEl = BB.el('div', 'bbd-status', BB.ui.root);
@@ -1319,20 +1306,15 @@
     BB.emit('depot:open');
     BB.sfx.whoosh();
     if (D.isStart) {
-      if (BB.bus.fuel < 0.98) { BB.bus.refuel(1); syncTank(); }
-      if (fuelBtn) fuelBtn.classList.add('gone');
       panel.querySelector('.bbd-go').classList.add('start');
       BB.say(D.welcome());
       const wl = D.wishNews('garage'); if (wl) BB.say(wl, { queue: true });
       lastTap = performance.now(); calls = 0; if (!idleT) idleT = BB.later(1000, idleCheck);
       return;
     }
-    // fuel is free: every visit fills the tank, with the pump's gurgle as a little show
-    const low = BB.bus.fuel < 0.98;
-    BB.say(low ? 'Welcome to the garage! Let\'s fill up the tank.' : 'Welcome to the garage! Make your bus beautiful!');
+    BB.say('Welcome to the garage! Make your bus beautiful!');
     // enough coins for the wish: say where it is (its tile glows in My ride), now and then (D.wishNews)
     const wl = D.wishNews('garage'); if (wl) BB.say(wl, { queue: true });
-    if (low) BB.later(900, () => { if (D.isOpen) fillUp(true); });
   };
   // opts.home: back to the home screen instead of driving off (a job in progress waits: jobs.js only picks it up when
   // the garage closes in its 'depot' phase, so it is set to 'home' until Play)
@@ -1342,7 +1324,6 @@
     D.isOpen = false;
     const start = D.isStart; D.isStart = false;
     closePad();
-    if (BB.bus.fuel < 0.98) BB.bus.refuel(1);   // never leave the garage hungry
     preview = null; D.applyLooks();
     for (const el of [panel, awning, statusEl]) if (el) el.remove();
     panel = awning = statusEl = bodyEl = cashBox = cashSpan = goalEl = tankEl = fuelBtn = moreEl = null;

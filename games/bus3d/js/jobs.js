@@ -11,8 +11,9 @@
    aboard or goodbye here, and each vehicle scene has its own moment (hands() in the scene builders).
    Cash: 1 coin per answered stop (never taken away), 2 more for the whole job; coins fly to the
    cash counter. A finished job puts a stamp on the way to a trophy (every 5th job) and shows the wish.
-   Also: special trips with themed groups, passenger friends who say hello and goodbye, low-fuel trips to the depot
-   and the friendly tow when the tank runs dry.
+   Also: special trips with themed groups, passenger friends who say hello and goodbye, the fuel pump in the depot
+   yard when the tank gets low (the child drives there and drags the nozzle over: a hands-on moment on every ride)
+   and the friendly tow, to the pump, when the tank runs dry.
    Exposes BB.jobs = { current, phase, start(), update(dt), busy(), allOff(cb), ... }.
    Every flow timer goes through BB.later / BB.wait (they freeze while the game is held) and every spoken line is
    awaited before the next one, so nothing is cut off. */
@@ -51,7 +52,7 @@
   }
   // a vehicle job (taxi, fire engine, ambulance, ice cream van, tow truck): questions on the card only
   const vmode = () => !!(J.current && J.current.vehicle);
-  J.busy = () => J.phase === 'stop' || J.phase === 'question' || J.phase === 'tow';
+  J.busy = () => J.phase === 'stop' || J.phase === 'question' || J.phase === 'tow' || J.phase === 'pump';
 
   // ---------- difficulty ----------
   // Follows how the child is doing (BB.save.skill, 0 to 4.6; its whole part is the level). A right answer at the first
@@ -1960,6 +1961,7 @@
   J.start = function () {
     if (J.current) return;                    // a job is already running: starting twice must not make two
     if (timeUp()) { bedtime(); return; }
+    if (pumpDue(true) && J.goPump(BB.bus.fuel <= PUMP_LOW ? 'low' : 'drive')) return;   // (hungry, or just out of the garage under 60%)
     const vk = vehicleKind();
     if (vk !== 'bus' && startVehicleJob(vk)) return;
     let theme = pickTheme();
@@ -2118,8 +2120,10 @@
     BB.bus.closeDoors();
     if (timeUp()) { bedtime(); return; }     // time is up: this stop is finished, no new one
     setPhase('drive');
-    // check the tank before announcing the next stop, so we never say "drive to the shops" then "let's go to the depot"
-    if (J.wantDepot || BB.bus.fuel <= BB.cfg.fuelLow + 0.06) J.goDepot(BB.bus.fuel <= BB.cfg.fuelLow + 0.06 ? 'fuel' : undefined);
+    // check the tank before announcing the next stop, so we never say "drive to the shops" then "let's go to the pump"
+    // (the next stop is chosen afresh after the pump: job.q is cleared)
+    if (J.wantDepot) J.goDepot();
+    else if (pumpDue() && (job.q = null, J.goPump('low'))) { /* the job carries on after the pump */ }
     else nextStop();
   }
   // what to say when a job is done: the trip's own words, else never the same twice running
@@ -2158,8 +2162,8 @@
     await Promise.all([say(doneLine(job)).then(() => { if (J.phase !== 'done' || BB.bedtime || (timeUp() && !trophy)) return null; const l = extra(); return l ? say(l) : null; }), wait((trophy ? 3400 : 2800) + (timeUp() ? 500 : 0))]);   // (time up: the banner has gone before the night comes)
     if (J.phase !== 'done' || BB.bedtime) return;
     if (timeUp()) { bedtime(); return; }
-    if (J.wantDepot || BB.bus.fuel <= BB.cfg.fuelLow + 0.06) J.goDepot(BB.bus.fuel <= BB.cfg.fuelLow + 0.06 ? 'fuel' : undefined);
-    else J.start();
+    if (J.wantDepot) J.goDepot();
+    else J.start();                        // (J.start goes to the fuel pump first when the tank is low)
   }
 
   // ---------- vehicles kids can drive: a job kind per vehicle ----------
@@ -2944,8 +2948,8 @@
   // taxi stand, the check-up stop, the ice cream stop), a column of smoke where the fire is, the broken-down car
   // with a warning triangle for the tow truck. The marker goes when the job ends (or Home, bedtime).
   let marker = null;
-  const MARK_PIC = { taxi: 'taxi', ambulance: 'medic', icecream: 'icecream', tow: 'tow' };
-  const MARK_RIM = { taxi: '#f5b83d', ambulance: '#ff8fab', icecream: '#8fd3e8', tow: '#f28b4b' };
+  const MARK_PIC = { taxi: 'taxi', ambulance: 'medic', icecream: 'icecream', tow: 'tow', pump: 'pump' };
+  const MARK_RIM = { taxi: '#f5b83d', ambulance: '#ff8fab', icecream: '#8fd3e8', tow: '#f28b4b', pump: '#19a79b' };
   const rideTexs = {};
   function rideMarkTex(kind) {
     if (rideTexs[kind]) return rideTexs[kind];
@@ -2975,8 +2979,14 @@
     const G = markGeos(), parts = [], add = (m) => { BB.scene.add(m); parts.push(m); return m; };
     // a point by the spot: 'along' the kerb (forward +, the way the ride drives in), 'out' onto the pavement (+)
     const at = (along, out, y = GROUND) => new THREE.Vector3(t.pos.x + t.fwd.x * along + t.side.x * out, y, t.pos.z + t.fwd.z * along + t.side.z * out);
-    const m = { kind, parts, puffs: [], sign: null, t: 0 };
-    if (kind === 'fire') {
+    const m = { kind, parts, puffs: [], sign: null, t: 0, base: 2.7 };
+    if (kind === 'pump') {
+      // the fuel pump: a big round pump sign on a short pole on top of the canopy, seen from far across the town
+      const PU = BB.world.pump, cx = PU.x - 2.4, cz = PU.z + 0.4;
+      const pole = add(new THREE.Mesh(G.pole, BB.mk.mat)); pole.position.set(cx, 7.8, cz); pole.scale.set(1.4, 0.35, 1.4);
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: rideMarkTex(kind), transparent: true, alphaTest: 0.05 }));
+      sp.scale.set(3.6, 3.6, 1); sp.position.set(cx, 10.3, cz); add(sp); m.sign = sp; m.base = 3.6;
+    } else if (kind === 'fire') {
       // smoke rising where the kiosk is on fire (world.js keeps that zone clear: 3-19 ahead, out to 4.6)
       const base = at(12.5, 0.7);
       for (let i = 0; i < 6; i++) { const p = add(new THREE.Mesh(G.puff, BB.mk.mat)); p.userData.ph = i / 6; p.userData.base = base; m.puffs.push(p); }
@@ -3008,7 +3018,7 @@
   function updateMarker(dt) {
     if (!marker) return;
     marker.t += dt;
-    if (marker.sign) { const s = 2.7 * (1 + Math.sin(marker.t * 3) * 0.05); marker.sign.scale.set(s, s, 1); }
+    if (marker.sign) { const s = marker.base * (1 + Math.sin(marker.t * 3) * 0.05); marker.sign.scale.set(s, s, 1); }
     for (const p of marker.puffs) {                    // puffs rise, swell and fade away (shrink), round and round
       const k = (marker.t * 0.22 + p.userData.ph) % 1, b = p.userData.base;
       p.position.set(b.x + Math.sin(k * 6 + p.userData.ph * 9) * 0.6, GROUND + 3.5 + k * 12, b.z + Math.cos(k * 5) * 0.4);
@@ -3186,6 +3196,7 @@
     job.index++;
     if (job.index >= job.legs.length) { clearMarker(); jobDone(); return; }
     if (timeUp()) { bedtime(); return; }
+    if (pumpDue() && J.goPump('low')) return;          // (the next leg after the pump)
     driveLeg();
   }
 
@@ -3194,16 +3205,17 @@
     if (J.phase === 'bedtime' || J.phase === 'toDepot' || J.phase === 'depot') return;
     // busy (a stop, a question, the tow) or settling into a stop's bay: go after the stop instead
     const settling = typeof BB.bus.isSettling === 'function' && BB.bus.isSettling();
-    if (J.phase === 'question' || J.phase === 'stop' || J.phase === 'tow' || settling) { J.wantDepot = true; return; }
+    if (J.phase === 'question' || J.phase === 'stop' || J.phase === 'tow' || J.phase === 'pump' || settling) { J.wantDepot = true; return; }
     J.wantDepot = false;
+    if (J.phase === 'toPump') { clearMarker(); J.wantPump = false; }     // (the pump waits: after Drive it comes first)
     setPhase('toDepot');
     BB.bus.closeDoors();
     BB.bus.stopAt(null);
     BB.emit('job:target', { stop: BB.world.depot, job: J.current });
-    if (reason !== 'quiet') say(reason === 'fuel' ? "I'm getting hungry! Off to the garage!" : 'Off to the garage!', { queue: true });
+    if (reason !== 'quiet') say('Off to the garage!', { queue: true });
     // straight there with a quick fade (no long drive back across town and round the yard); a job in progress waits
     // and carries on after Drive
-    BB.later(reason === 'fuel' ? 1800 : 350, () => {
+    BB.later(350, () => {
       if (J.phase !== 'toDepot' || BB.bedtime) return;
       const open = () => {
         if (J.phase !== 'toDepot' || BB.bedtime) return;
@@ -3219,15 +3231,18 @@
     BB.bus.closeDoors();
     J.lastStop = null;                         // the bus sets off from the garage yard: the next stops are picked from there
     if (timeUp()) { bedtime(); return; }
+    if (pumpDue(true) && J.goPump(BB.bus.fuel <= PUMP_LOW ? 'low' : 'drive')) return;   // (under 60%: the pump first, the job after)
     if (J.current) resumeJob(); else J.start();
   });
+  // the tank is getting low: on the way to a stop, the pump instead (the stop waits); anywhere else, after what is on
+  // (the stop, the question, the job-done banner, the garage: pumpDue() is checked there)
   BB.on('bus:fuelLow', () => {
-    if (J.phase === 'drive' || J.phase === 'done') J.goDepot('fuel');
-    else if (J.phase !== 'toDepot' && J.phase !== 'depot' && J.phase !== 'bedtime') J.wantDepot = true;
+    if (J.phase === 'drive') J.goPump('low');
+    else if (J.phase !== 'toPump' && J.phase !== 'pump' && J.phase !== 'bedtime') J.wantPump = true;
   });
 
-  // Out of fuel: a friendly tow truck backs up to the bus (beep, beep), hooks on and pulls it to the depot, where a
-  // free top-up gets it going again. No cost, no lost progress. Uses the art builder's tow truck when there is one
+  // Out of fuel: a friendly tow truck backs up to the bus (beep, beep), hooks on and pulls it to the fuel pump in the
+  // depot yard, where the child fills the tank as on any pump visit (runPump). No cost, no lost progress. Uses the art builder's tow truck when there is one
   // (BB.bus.makeTowTruck() or BB.world.towTruck), else a soft fade.
   let towTruck = null;
   function getTowTruck() {
@@ -3280,9 +3295,7 @@
     tween(1.6, (t) => { truck.position.set(from.x + sp.fx * 4 * t * t, 0, from.z + sp.fz * 4 * t * t); });
     await wait(500);
     await new Promise((resolve) => BB.ui.fade(() => {
-      B.placeAt(BB.world.depot);
-      B.atStop = null;
-      B.refuel(1);
+      B.placeAt(pumpBay() || BB.world.depot);           // (beside the fuel pump: the child fills up next)
       const d = towSpots(truck);
       truck.rotation.y = d.h; truck.position.copy(d.hook);
       Object.assign(sp, d);
@@ -3295,34 +3308,311 @@
       truck.position.set(from2.x + sp.fx * 28 * e, 0, from2.z + sp.fz * 28 * e);
       truck.scale.setScalar(t < 0.7 ? 1 : Math.max(0.01, 1 - (t - 0.7) / 0.3));
     }).then(() => { truck.visible = false; truck.scale.setScalar(1); });   // hidden, kept for the next tow
-    await say('Free fuel! Thank you, tow truck!');
+    await say('Thank you, tow truck!');
   }
   function towWithFade() {
     return new Promise((resolve) => {
       BB.later(1400, () => BB.ui.fade(() => {
-        BB.bus.placeAt(BB.world.depot);
-        BB.bus.atStop = null;
-        BB.bus.refuel(1);
+        BB.bus.placeAt(pumpBay() || BB.world.depot);
       }, resolve));
-    }).then(() => say('Free fuel at the depot!'));
+    }).then(() => say("Here's the fuel pump!"));
   }
   BB.on('bus:fuelEmpty', async () => {
     if (J.phase === 'tow' || BB.bedtime) return;
     setPhase('tow'); BB.bus.locked = true; BB.bus.go(false);
-    J.wantDepot = false;
+    J.wantDepot = false; J.wantPump = false;
+    try { BB.bus.stopAt(null); } catch (e) { console.error(e); }
+    clearMarker(); siren(false);
     await say("Oh! We're out of fuel. Here comes the tow truck!");
     const truck = getTowTruck();
     try { if (truck) await towWithTruck(truck); else await towWithFade(); } catch (e) { console.error(e); await towWithFade(); }
     BB.bus.locked = false;
-    J.lastStop = null;                                 // (towed to the depot: new stops are picked from there)
+    J.lastStop = null;                                 // (towed to the depot yard: new stops are picked from there)
+    if (BB.bedtime || J.phase !== 'tow') return;
+    runPump();                                         // the tank is filled at the pump, by hand, as on every visit
+  });
+
+  // ---------- the fuel pump ----------
+  // The tank is filled at the fuel pump on the depot yard's north aisle (world.js: W.pump, W.pumpBay), never in the
+  // garage. When it gets low (bus:fuelLow; checked again between stops, between legs and between jobs, never during a
+  // question), or when the bus leaves the garage with less than 60%, the pump becomes the target: the Next stop tile
+  // shows the pump, the ribbon leads there, a pump sign stands over the canopy, and the bus settles in the pump bay
+  // with its fuel cap just past the pump. Then one hands-on moment, on every ride (not switched off with
+  // HANDS_ON: that is the bus stops only): the child drags the glowing nozzle along the dotted path to the ring on the
+  // fuel cap (a tap, or letting go anywhere, also lands it; the hint after 6 s, the game does it after 12 s). The hose
+  // follows the nozzle. Then the big gauge in the card's place fills in ten steps, counted aloud, with the pump's
+  // gurgle: "A full tank! Thank you!". The nozzle goes back, and the job that was going carries on. Free, no coins.
+  // Out of fuel altogether, the tow truck brings the bus to the pump and the same moment follows.
+  const PUMP_LOW = BB.cfg.fuelLow + 0.06, PUMP_AFTER_DRIVE = 0.6, PUMP_GAP = 2.2;   // (the cap stops 2.2 past the pump: on a phone the camera stands ahead of it, so the pump is never in front of the cap)
+  // is the pump due? the tank low (or the low warning came during something), or (soon) just out of the garage
+  // with less than 60% (afterDrive: only while still in the depot yard)
+  function pumpDue(afterDrive) {
+    const f = BB.bus.fuel;
+    if (f >= 0.98) { J.wantPump = false; return false; }
+    if (J.wantPump || f <= PUMP_LOW) return true;
+    return !!(afterDrive && f < PUMP_AFTER_DRIVE && BB.bus.inDepot && BB.bus.inDepot());
+  }
+  J.pumpDue = pumpDue;
+  // the pump bay for the ride driven now: along the kerb so the fuel cap stops PUMP_GAP past the pump
+  function pumpBay() {
+    const W = BB.world, st = W.pumpBay, PU = W.pump;
+    if (!st || !PU) return null;
+    if (!st._bay0) { delete st._bay; st._bay0 = Object.assign({}, W.bayOf(st)); }
+    const b0 = st._bay0, f = b0.fwd;
+    const along = (PU.x - b0.x) * f.x + (PU.z - b0.z) * f.z + PUMP_GAP - (typeof BB.bus.capAlong === 'function' ? BB.bus.capAlong() : 0);
+    const x = b0.x + f.x * along, z = b0.z + f.z * along;
+    st._bay = Object.assign({}, b0, { x, z, nose: { x: x + f.x * 7.2, z: z + f.z * 7.2 } });
+    return st;
+  }
+  J.pumpBay = pumpBay;
+  const RIDE_WORD = { bus: 'bus', taxi: 'taxi', fire: 'fire engine', ambulance: 'ambulance', icecream: 'ice cream van', tow: 'tow truck' };
+  // Head for the pump (reason: 'low' = hungry, 'drive' = just out of the garage, 'quiet'). Never once time is up;
+  // during a stop, a question or the pump-in, it waits (wantPump). True when it is on its way (or waiting to go).
+  J.goPump = function (reason) {
+    if (J.phase === 'bedtime' || J.phase === 'toPump' || J.phase === 'pump' || J.phase === 'tow' || J.phase === 'home' || (BB.depot && BB.depot.isOpen) || timeUp()) return false;
+    const settling = typeof BB.bus.isSettling === 'function' && BB.bus.isSettling();
+    if (J.phase === 'question' || J.phase === 'stop' || settling) { J.wantPump = true; return true; }
+    const st = pumpBay(); if (!st) return false;
+    J.wantPump = false;
+    clearMarker(); siren(false);
+    setPhase('toPump');
+    J.stopStart = null;
+    BB.bus.closeDoors();
+    BB.bus.stopAt(st, () => runPump());
+    try { placeMarker('pump', st); } catch (e) { console.error(e); }
+    BB.emit('job:target', { stop: st, job: J.current });
+    if (reason !== 'quiet') say(reason === 'drive' ? "Let's fill up the tank first! Drive to the fuel pump!" : "I'm getting hungry! Let's drive to the fuel pump!", { queue: true });
+    return true;
+  };
+  // the moment's own things: the nozzle and its hose (always by the pump while the bus is near the yard: the nozzle
+  // hangs on the pump's back), the fuel cap on the bus (only during the moment) and the big gauge
+  const PZ = { nozzle: null, hose: null, cap: null, gauge: null, cells: null, num: null, on: false, gen: 0, home: new THREE.Vector3(), hoseOut: new THREE.Vector3() };
+  const NOZ_GRIP = new THREE.Vector3(0, -0.04, -0.75), NOZ_HOSE = new THREE.Vector3(0, -0.42, -0.9);
+  const HOSE_SEG = 14, HOSE_SIDES = 6, HOSE_R = 0.075;
+  const _pa = new THREE.Vector3(), _pb = new THREE.Vector3(), _pc = new THREE.Vector3(), _pt = new THREE.Vector3(), _pn = new THREE.Vector3(), _pq = new THREE.Vector3(), _pu = new THREE.Vector3(0, 1, 0);
+  function pumpBuild() {
+    if (PZ.nozzle) return;
+    const PU = BB.world.pump;
+    // the nozzle: its spout tip is the mesh's origin and points along +z (so lookAt aims it); the grip and handle behind
+    const b = BB.mk.builder();
+    b.cyl(0.05, 0.045, 0.42, 6, '#c9d2db', 0, 0, -0.42, Math.PI / 2, 0, 0);
+    b.box(0.17, 0.17, 0.1, P.coral, 0, -0.085, -0.47);
+    b.box(0.22, 0.24, 0.44, P.teal, 0, -0.12, -0.74); b.box(0.23, 0.06, 0.45, '#127a71', 0, -0.13, -0.74);
+    b.box(0.15, 0.36, 0.15, P.teal, 0, -0.44, -0.9);
+    b.box(0.07, 0.07, 0.32, P.honey, 0, -0.38, -0.72);
+    PZ.nozzle = b.mesh(); PZ.nozzle.name = 'pumpNozzle';
+    PZ.home.set(PU.nozzle.x, PU.nozzle.y, PU.nozzle.z);
+    PZ.hoseOut.set(PU.x + 0.5, 1.95, PU.z);
+    nozzleHome();
+    // the hose: one small tube whose rings are moved in place (no new objects while it follows the nozzle)
+    const nv = (HOSE_SEG + 1) * HOSE_SIDES, pos = new Float32Array(nv * 3), nor = new Float32Array(nv * 3), idx = [];
+    for (let i = 0; i < HOSE_SEG; i++) for (let k = 0; k < HOSE_SIDES; k++) {
+      const a = i * HOSE_SIDES + k, b2 = i * HOSE_SIDES + (k + 1) % HOSE_SIDES, c = a + HOSE_SIDES, d = b2 + HOSE_SIDES;
+      idx.push(a, c, b2, b2, c, d);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); g.setIndex(idx);
+    g.boundingSphere = new THREE.Sphere(new THREE.Vector3(PU.x + 2, 1, PU.z + 1.5), 9);
+    PZ.hose = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: 0x4a4552 })); PZ.hose.name = 'pumpHose';
+    PZ.hose.frustumCulled = true;
+    // the fuel cap: a cream ring with a coral lid, facing out of the body's side (+z of the mesh)
+    const cb = BB.mk.builder();
+    cb.cyl(0.21, 0.21, 0.04, 12, '#e9e2d6', 0, 0, 0, Math.PI / 2, 0, 0);
+    cb.cyl(0.14, 0.14, 0.06, 12, P.coral, 0, 0, 0.02, Math.PI / 2, 0, 0);
+    PZ.cap = cb.mesh(); PZ.cap.name = 'fuelCap';
+  }
+  function nozzleHome() {
+    const n = PZ.nozzle; if (!n) return;
+    n.position.copy(PZ.home);
+    _pa.set(PZ.home.x + 0.12, PZ.home.y - 1, PZ.home.z); n.lookAt(_pa);      // (spout down, hanging on the pump's back)
+  }
+  // the hose from the pump's top to the nozzle's handle: a sagging curve, rebuilt in place
+  function hoseSync() {
+    const h = PZ.hose, n = PZ.nozzle; if (!h || !n) return;
+    n.updateMatrixWorld();
+    const a = PZ.hoseOut, e = _pb.copy(NOZ_HOSE).applyMatrix4(n.matrixWorld);
+    const d = a.distanceTo(e), sag = 0.35 + d * 0.32;
+    const cx = (a.x + e.x) / 2, cz = (a.z + e.z) / 2, cy = Math.max(0.1, Math.min(a.y, e.y) - sag);
+    const pos = h.geometry.attributes.position.array, nor = h.geometry.attributes.normal.array;
+    for (let i = 0; i <= HOSE_SEG; i++) {
+      const t = i / HOSE_SEG, u = 1 - t;
+      _pc.set(u * u * a.x + 2 * u * t * cx + t * t * e.x, u * u * a.y + 2 * u * t * cy + t * t * e.y, u * u * a.z + 2 * u * t * cz + t * t * e.z);
+      _pt.set(2 * u * (cx - a.x) + 2 * t * (e.x - cx), 2 * u * (cy - a.y) + 2 * t * (e.y - cy), 2 * u * (cz - a.z) + 2 * t * (e.z - cz)).normalize();
+      _pn.crossVectors(_pt, Math.abs(_pt.y) > 0.9 ? _pq.set(1, 0, 0) : _pu).normalize();
+      _pq.crossVectors(_pt, _pn);
+      for (let k = 0; k < HOSE_SIDES; k++) {
+        const an = k / HOSE_SIDES * Math.PI * 2, cs = Math.cos(an), sn = Math.sin(an), o = (i * HOSE_SIDES + k) * 3;
+        const nx = _pn.x * cs + _pq.x * sn, ny = _pn.y * cs + _pq.y * sn, nz = _pn.z * cs + _pq.z * sn;
+        nor[o] = nx; nor[o + 1] = ny; nor[o + 2] = nz;
+        pos[o] = _pc.x + nx * HOSE_R; pos[o + 1] = _pc.y + ny * HOSE_R; pos[o + 2] = _pc.z + nz * HOSE_R;
+      }
+    }
+    h.geometry.attributes.position.needsUpdate = true; h.geometry.attributes.normal.needsUpdate = true;
+  }
+  // near the yard the nozzle and hose stand by the pump; far off they leave the scene (no draw calls)
+  let pumpNear = false, pumpLook = 0;
+  function pumpUpdate(dt) {
+    const PU = BB.world.pump, bp = BB.bus.pos; if (!PU || !bp) return;
+    if ((pumpLook -= dt) <= 0 || PZ.on) {
+      pumpLook = 0.5;
+      const near = PZ.on || (bp.x - PU.x) * (bp.x - PU.x) + (bp.z - PU.z) * (bp.z - PU.z) < 170 * 170;
+      if (near !== pumpNear) {
+        pumpNear = near;
+        if (near) { pumpBuild(); BB.scene.add(PZ.nozzle, PZ.hose); PZ.hoseDirty = true; }
+        else if (PZ.nozzle) { BB.scene.remove(PZ.nozzle); BB.scene.remove(PZ.hose); }
+      }
+    }
+    if (!pumpNear) return;
+    if (PZ.on && PZ.cap && PZ.cap.parent) { BB.bus.capWorld(PZ.cap.position); const sd = BB.world.pumpBay.side; _pa.set(PZ.cap.position.x + sd.x, PZ.cap.position.y, PZ.cap.position.z + sd.z); PZ.cap.lookAt(_pa); }
+    if (PZ.on || PZ.hoseDirty) { hoseSync(); PZ.hoseDirty = false; }
+  }
+  // the big gauge in the card's place (along the bottom on tablets, the column on the left on phones): the pump, a
+  // tank of ten cells and the number counted
+  BB.css(`
+  .bbg { position: absolute; left: 50%; bottom: max(16px, env(safe-area-inset-bottom)); transform: translateX(-50%); display: flex; align-items: center; gap: 18px;
+    background: #fff6e0; border: 4px solid #d9b57f; border-radius: 28px; box-shadow: 0 8px 0 rgba(120,80,40,.18); padding: 12px 22px; pointer-events: none;
+    font-family: 'Fredoka', 'Baloo 2', system-ui, sans-serif; color: #3a2a3c; animation: bbg-in .4s cubic-bezier(.2,1.4,.5,1); --cw: 40px; --ch: 66px; }
+  @keyframes bbg-in { from { transform: translate(-50%, 150%); } }
+  .bbg.out { animation: bbg-out .3s ease-in forwards; }
+  @keyframes bbg-out { to { transform: translate(-50%, 150%); opacity: 0; } }
+  .bbg canvas { width: 84px; height: 84px; display: block; }
+  .bbg-tank { display: flex; align-items: center; gap: 6px; padding: 8px 10px; background: #eadcc0; border-radius: 18px; box-shadow: inset 0 3px 0 rgba(120,80,40,.16); }
+  .bbg-tank em { font: 700 26px/1 inherit; font-style: normal; color: #b08a5c; padding: 0 4px; }
+  .bbg-tank i { width: var(--cw); height: var(--ch); border-radius: 11px; background: #fbf3e2; box-shadow: inset 0 -5px 0 rgba(120,80,40,.1); transition: background .25s; }
+  .bbg-tank i.on { background: var(--c); box-shadow: inset 0 -6px 0 rgba(0,0,0,.14); animation: bbg-pop .35s cubic-bezier(.2,1.6,.5,1); }
+  @keyframes bbg-pop { 40% { transform: scale(1.18, 1.12); } }
+  .bbg-n { min-width: 72px; text-align: center; font-size: 60px; font-weight: 700; line-height: 1; color: #d98700; }
+  .bbg.full { border-color: #19a79b; box-shadow: 0 8px 0 rgba(120,80,40,.18), 0 0 0 6px rgba(143,224,196,.6); }
+  .bbg.full .bbg-n { color: #19a79b; }
+  @media (max-height: 520px) {
+    .bbg { left: max(12px, env(safe-area-inset-left), var(--padx, 0px)); bottom: auto; top: calc(50% + 26px); transform: translateY(-50%); flex-wrap: wrap; justify-content: center;
+      width: 316px; box-sizing: border-box; gap: 6px 14px; padding: 8px 10px 10px; border-radius: 22px; --cw: 21px; --ch: 46px; }
+    @keyframes bbg-in { from { transform: translate(-130%, -50%); } }
+    @keyframes bbg-out { to { transform: translate(-130%, -50%); opacity: 0; } }
+    .bbg canvas { width: 56px; height: 56px; } .bbg-n { font-size: 44px; min-width: 56px; }
+    .bbg-tank { order: 3; gap: 4px; padding: 6px 7px; border-radius: 14px; } .bbg-tank em { font-size: 18px; padding: 0 1px; } .bbg-tank i { border-radius: 7px; }
+  }`);
+  const CELL_COL = ['#ff6b5c', '#ff8a4f', '#ffa53d', '#ffb81f', '#f2c42e', '#c9c93c', '#9cc94a', '#6fc45a', '#3fb47a', '#19a79b'];
+  function gaugeShow() {
+    gaugeHide(true);
+    const g = PZ.gauge = BB.el('div', 'bbg', BB.ui.root || document.getElementById('ui'));
+    g.appendChild(BB.iconEl ? BB.iconEl('fuel', 120) : BB.pic('pump', 120));
+    const tank = BB.el('div', 'bbg-tank', g);
+    BB.el('em', '', tank, 'E');
+    PZ.cells = [];
+    for (let i = 0; i < 10; i++) { const c = BB.el('i', '', tank); c.style.setProperty('--c', CELL_COL[i]); PZ.cells.push(c); }
+    BB.el('em', '', tank, 'F');
+    PZ.num = BB.el('b', 'bbg-n', g, '');
+  }
+  function gaugeHide(now) {
+    const g = PZ.gauge; PZ.gauge = null; PZ.cells = null; PZ.num = null;
+    if (!g) return;
+    if (now) g.remove(); else { g.classList.add('out'); BB.later(350, () => g.remove()); }
+  }
+  // the end of the moment, or Home / bedtime in the middle of it: the nozzle back on the pump, the gauge and cap gone
+  function pumpEnd(now) {
+    PZ.gen++;
+    PZ.on = false;
+    if (BB.hands && BB.hands.active()) BB.hands.stop();
+    gaugeHide(now);
+    if (PZ.cap && PZ.cap.parent) PZ.cap.parent.remove(PZ.cap);
+    nozzleHome(); PZ.hoseDirty = true;
+    const st = BB.world.pumpBay;
+    if (st && st.frame) { delete st.frame; delete st.frameKey; delete st.frameClose; vcall(['reframe']); }
+  }
+  // At the pump (arrived, or towed there): the moment, then the job carries on.
+  async function runPump() {
     if (BB.bedtime) return;
-    await say("Let's go!", { queue: true });           // still 'tow': a depot tap now is remembered (wantDepot)
-    if (BB.bedtime) return;
+    const W = BB.world, st = W.pumpBay, PU = W.pump;
+    setPhase('pump'); J.lastStop = null; J.wantPump = false;
+    clearMarker();
+    BB.sfx.ding();
+    pumpBuild(); pumpNear = false; pumpLook = 0;
+    const g = ++PZ.gen, ok = () => g === PZ.gen && J.phase === 'pump' && !BB.bedtime;
+    PZ.on = true;
+    pumpUpdate(0);
+    BB.scene.add(PZ.cap);
+    // the stop camera shows the pump, the nozzle and the cap as well as the bus
+    const cap = BB.bus.capWorld(new THREE.Vector3());
+    st.frame = [{ x: PU.x + 0.6, y: 0, z: PU.z }, { x: PU.x + 0.6, y: 2.5, z: PU.z }, { x: PU.x - 0.6, y: 0, z: PU.z - 0.5 }, { x: PZ.home.x, y: 2.1, z: PZ.home.z }, { x: cap.x, y: 0, z: cap.z }, { x: cap.x, y: cap.y + 0.4, z: cap.z }];
+    st.frameKey = 'pump' + g; st.frameClose = false;
+    vcall(['reframe']);
+    gaugeShow();
+    await wait(900);
+    if (!ok()) return;
+    const word = RIDE_WORD[vehicleKind()] || 'bus', side = st.side;
+    let filled = false;
+    const done = BB.hands ? await BB.hands.run({
+      kind: 'drag', count: 1, noCount: true, plane: cap.y,
+      say: `Drag the nozzle to the ${word}!`, hint: `Put your finger on the nozzle and pull it to the ${word}!`,
+      targets: [(out) => out.copy(NOZ_GRIP).applyMatrix4(PZ.nozzle.matrixWorld)],
+      drop: (out) => { BB.bus.capWorld(out); out.x += side.x * 0.35; out.z += side.z * 0.35; return out; },
+      drag: (i, p) => {
+        if (!p) return;
+        // the grip under the finger, the spout turned toward the cap
+        const n = PZ.nozzle, c = BB.bus.capWorld(_pc);
+        n.position.set(p.x, p.y + 0.15, p.z);
+        _pa.set(c.x, c.y, c.z); if (_pa.distanceToSquared(n.position) > 0.04) n.lookAt(_pa);
+        n.updateMatrixWorld(); _pb.copy(NOZ_GRIP).applyMatrix4(n.matrixWorld);
+        n.position.x += p.x - _pb.x; n.position.z += p.z - _pb.z;
+      },
+      act: () => {
+        // into the cap: the spout tip on the cap, pointing into the body and a little down
+        const n = PZ.nozzle, a = n.position.clone(), c = BB.bus.capWorld(new THREE.Vector3()), q0 = n.quaternion.clone();
+        n.position.copy(c); _pa.set(c.x - side.x, c.y - 0.35, c.z - side.z); n.lookAt(_pa);
+        const q1 = n.quaternion.clone(); n.position.copy(a); n.quaternion.copy(q0);
+        filled = true; BB.sfx.pop();
+        return tween(0.45, (t) => { const e = BB.smooth ? BB.smooth(t) : t; n.position.lerpVectors(a, c, e); n.quaternion.slerpQuaternions(q0, q1, e); });
+      },
+    }) : true;
+    if (!done || !ok()) return;
+    if (!filled) { nozzleIn(side); }
+    // the tank fills in ten steps, counted aloud, with the pump's gurgle
+    const from = BB.bus.fuel;
+    await wait(250); if (!ok()) return;
+    for (let i = 1; i <= 10; i++) {
+      if (!ok()) return;
+      BB.sfx.gurgle(0.55, true);
+      if (PZ.cells) PZ.cells[i - 1].classList.add('on');
+      if (PZ.num) PZ.num.textContent = String(i);
+      BB.bus.refuel(from + (1 - from) * i / 10 - BB.bus.fuel);   // (refuel adds)
+      await Promise.all([say(i === 10 ? '10!' : String(i)), wait(620)]);
+    }
+    if (!ok()) return;
+    BB.bus.refuel(1);
+    if (PZ.gauge) PZ.gauge.classList.add('full');
+    BB.sfx.gurgle(0.3); try { BB.sfx.sparkle(); } catch (e) { /* no sound */ }
+    if (BB.ui && BB.ui.confetti) BB.ui.confetti(0.5);
+    await say('A full tank! Thank you!');
+    if (!ok()) return;
+    // the nozzle goes back on the pump
+    const n = PZ.nozzle, a = n.position.clone(), q0 = n.quaternion.clone();
+    nozzleHome(); const b2 = n.position.clone(), q1 = n.quaternion.clone(); n.position.copy(a); n.quaternion.copy(q0);
+    BB.sfx.pop();
+    await tween(0.6, (t) => { n.position.lerpVectors(a, b2, t); n.position.y += Math.sin(t * Math.PI) * 0.5; n.quaternion.slerpQuaternions(q0, q1, t); });
+    if (!ok()) return;
+    pumpEnd(false);
+    await wait(500);
+    if (J.phase !== 'pump' || BB.bedtime) return;
+    afterPump();
+  }
+  // (the game landed the nozzle without act: put it in the cap at once)
+  function nozzleIn(side) {
+    const n = PZ.nozzle, c = BB.bus.capWorld(new THREE.Vector3());
+    n.position.copy(c); _pa.set(c.x - side.x, c.y - 0.35, c.z - side.z); n.lookAt(_pa);
+  }
+  // after the pump: bedtime if time is up, the garage if it was asked for, else the job carries on (or a new one)
+  function afterPump() {
     if (timeUp()) { bedtime(); return; }
     setPhase('drive');
+    try { BB.bus.closeDoors(); } catch (e) { console.error(e); }   // (leaves the pump bay so the bus can drive)
     if (J.wantDepot) { J.goDepot('quiet'); return; }
-    if (J.current) resumeJob(true); else J.start();
-  });
+    const job = J.current;
+    if (!job) { J.start(); return; }
+    say('Off we go!', { queue: true });
+    if (job.vehicle && job.index === 0 && job.legs[0] && job.legs[0].start) { say(job.legs[0].start, { queue: true }); resumeJob(true); }
+    else resumeJob(false);
+  }
 
   // ---------- the horn: people nearby jump and wave ----------
   let lastHorn = 0;
@@ -3372,7 +3662,7 @@
   function updateLost(dt) {
     const B = BB.bus, t = B.target;
     lostCool = Math.max(0, lostCool - dt);
-    const off = !t || J.phase !== 'drive' || B.atStop || (B.isSettling && B.isSettling()) || BB.bedtime || BB.depot.isOpen ||
+    const off = !t || (J.phase !== 'drive' && J.phase !== 'toPump') || B.atStop || (B.isSettling && B.isSettling()) || BB.bedtime || BB.depot.isOpen ||
       (BB.ui && BB.ui.homeShown && BB.ui.homeShown()) || (BB.ui && BB.ui.asking && BB.ui.asking()) ||
       // (a town event on screen, e.g. otters crossing or an ambulance coming: waiting for it is right, never "lost")
       (BB.events && BB.events.active && BB.events.active()) || (BB.ui && BB.ui.roadWait && BB.ui.roadWait());
@@ -3391,10 +3681,16 @@
   }
   J.update = function (dt) {
     if (wishEl && BB.bedtime) dropWish();
+    if (BB.bedtime && marker) clearMarker();           // (the goodnight: no sign left standing)
+    if (BB.bedtime && PZ.on) pumpEnd(true);
     try { updateMarker(dt); } catch (e) { console.error(e); }
+    try { pumpUpdate(dt); } catch (e) { console.error(e); }
     try { updateLost(dt); } catch (e) { console.error(e); }
     if (J.phase === 'home') {
       if (BB.hands) BB.hands.stop();
+      if (PZ.on) pumpEnd(true);                // (Home at the pump: the nozzle back, the gauge gone; after Drive the pump comes first)
+      if (marker && marker.kind === 'pump') clearMarker();
+      J.wantPump = false;
       if (J.stopStart) rewindStop();
       if (J.current && J.current.vehicle && J.stopStart !== false) { legGen++; clearWaiting(); scnClear(); clearMarker(); for (const m of J.extras) removePerson(m); J.extras = []; for (const w of J.walkers) removePerson(w.m); J.walkers = []; }
       return;                                  // nothing walks or boards while the home screen is up

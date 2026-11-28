@@ -150,7 +150,7 @@
   // ---------- hub mode flow ----------
   const H = BB.hub;
   let warned = false, warnPending = false, zeroT = 0, stopsSinceZero = 0;
-  const CALM = { idle: 1, done: 1, depot: 1, toDepot: 1, bedtime: 1, home: 1 };
+  const CALM = { idle: 1, done: 1, depot: 1, toDepot: 1, toPump: 1, bedtime: 1, home: 1 };   // (toPump: the drive to the fuel pump stops for bed)
   function hubSetup() {
     BB.on('hub:time', () => {
       if (BB.world.setSky && !BB.bedtime) safe(() => BB.world.setSky(H.share));

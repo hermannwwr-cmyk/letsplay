@@ -47,6 +47,7 @@
      auto(idx)           aim only: point at target idx by itself
      turn(p)             crank only: the winch is at p (0..1)
      say, hint           the spoken invitation and the later hint
+     noCount             no number bubble and no number said (a single thing: the fuel nozzle)
      bubble(j, idx, out) world point of the number bubble (default: the target); bubbleFollow: true = asked again
                          every frame, so the number rides along with a thing that moves off (a friend walking to the door)
    BB.hands.stop() ends the moment at once. BB.hands.size() = the ring size in CSS px (for laying things out).
@@ -227,7 +228,7 @@
     c.T = T; c.phone = innerHeight <= 520; c.topY = c.phone ? 58 : 78;
     if (c.kind === 'aim') aimSize(c);
     feetSize(c);
-    const k = document.querySelector('.bbq:not(.out)');
+    const k = document.querySelector('.bbq:not(.out), .bbg:not(.out)');   // (the card, or the big fuel gauge in its place)
     c.card = !!k;
     if (k) { const r = k.getBoundingClientRect(); c.cl = r.left - 4; c.ct = r.top - 4; c.cr = r.right + 4; c.cb = r.bottom + 4; }
     if (c.crank) { const r = c.crank.getBoundingClientRect(); c.kx = r.left + r.width / 2; c.ky = r.top + r.height / 2; c.kw = r.width; }
@@ -378,9 +379,8 @@
     c.misses = 0; c.focus = -1;
     c.quietUntil = performance.now() + 240;            // (a quick double tap counts once)
     if (t) { burst(c, t.follow ? t.fx : t.box ? t.ax : t.hx, t.follow ? t.fy : t.box ? t.ay : t.hy); t.follow = false; }
-    bubble(c, j, idx);
     note(j);
-    count(c, j + 1);
+    if (!c.o.noCount) { bubble(c, j, idx); count(c, j + 1); }   // (noCount: one thing, nothing to count: the fuel nozzle)
     let r = null;
     try { r = c.o.act ? c.o.act(j, idx, !!auto) : null; } catch (e) { console.error(e); }
     c.heldT = 0;

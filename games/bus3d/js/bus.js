@@ -110,9 +110,17 @@
     return free[0] === slots[0] && free[1] === slots[1] && spots.length ? free[Math.random() < 0.5 ? 0 : 1] : free[0];   // (two at once: less likely to pick the same)
   }
   B.startBay = startBay;
+  // (a tank under 60%: the first drive is to the fuel pump, so the bus starts in the garage's own bay on the north
+  // aisle, a short way before the pump, when no friend's bus is there)
+  function pumpStart() {
+    const st = W().depot; if (!st || !(B.fuel < 0.6)) return null;
+    let spots = []; try { spots = (BB.net && BB.net.busSpots) ? BB.net.busSpots() : []; } catch (e) { /* playing alone */ }
+    const b = W().bayOf(st);
+    return spots.some((p) => { const dx = p.x - b.x, dz = p.z - b.z; return Math.abs(dx * b.side.x + dz * b.side.z) < 2.4 && Math.abs(dx * b.fwd.x + dz * b.fwd.z) < 12; }) ? null : st;
+  }
   B.placeInYard = function () {
     const t = B.target, cb = B.onArrive;                 // (a job may already have set its first stop)
-    B.placeAt(startBay()); B.atStop = null; B.doorsOpen = false;
+    B.placeAt(pumpStart() || startBay()); B.atStop = null; B.doorsOpen = false;
     if (t && t !== W().depot) { B.target = t; B.onArrive = cb; refreshRibbon(); }
   };
   // Is the bus inside the depot's yard (or its workshop)? 'bus:leftDepot' fires when it drives out of the gate.
@@ -176,6 +184,22 @@
     }
     return out;
   };
+  // The fuel cap: a point on the kerb side of the body (the side the doors are on, where the fuel pump stands),
+  // low on the front carriage: behind the front wheel on the single- and double-decker, between the wheels on the
+  // bendy's front carriage, just ahead of the rear wheel on the other rides. B.capLocal(v) is in the front
+  // carriage's own frame; B.capWorld(v) in the world; B.capAlong() = how far ahead of the ride's middle it is (the
+  // pump bay is placed from it, jobs.js).
+  B.capLocal = function (v) {
+    v = v || new THREE.Vector3();
+    const w = M ? M.width : 2.5, ax = M && M.axlesF;
+    let z = 1.8, y = 0.95;
+    if (B.type === 'bendy') z = -0.1;
+    else if (B.type !== 'single' && B.type !== 'double') { z = ax && ax.length > 1 ? ax[1] + WHEEL.r + 0.5 : -LF / 4; y = B.type === 'taxi' ? 0.72 : 0.9; }
+    return v.set(w / 2 + 0.03, y, z);
+  };
+  B.capWorld = function (v) { v = B.capLocal(v); B.front.updateMatrixWorld(); return B.front.localToWorld(v); };
+  B.capAlong = function () { return frontOff() + B.capLocal(_capV).z; };
+  const _capV = new THREE.Vector3();
   // B.holdArrival(seconds): for up to 8 s the bus won't settle into its target bay (it rolls on slowly, the bay keeps
   // glowing), e.g. while an event plays; B.holdArrival(0) releases it. Game clock (hold-aware). Ignored at a stop.
   let arrivalHold = 0;
@@ -584,7 +608,7 @@
     if (m.kerbWallMaterial) { solidGlass(m.kerbWallMaterial); wallMats.push({ mat: m.kerbWallMaterial, base: m.kerbWallMaterial.opacity, tr: false }); }
     if (m.roofMaterial) wallMats.push({ mat: m.roofMaterial, glassOnly: true, u: solidGlass(m.roofMaterial) });   // (the road side and the doors)
     const pm = m.partMounts || {};
-    M = { type, roofParts, roofMats, wallMats, roofMaterial: m.roofMaterial || null, wallParts: m.kerbWallParts || [], height: m.height || 3.1, routeSign: m.routeSign || null, doorLocal: m.doorLocal || { x: 1.6, y: 0, z: LF / 2 - 1.0 },
+    M = { type, roofParts, roofMats, wallMats, roofMaterial: m.roofMaterial || null, wallParts: m.kerbWallParts || [], height: m.height || 3.1, width: m.width || 2.5, axlesF: (m.axles && m.axles.front) || null, routeSign: m.routeSign || null, doorLocal: m.doorLocal || { x: 1.6, y: 0, z: LF / 2 - 1.0 },
       roofY: m.roofY || m.height || 3.1, paintMats, setPaint: m.setPaint, setLights: m.setLights, dispose: m.dispose, setCabin: m.setCabinLight, cabinLevel: -1,
       mounts: { lights: pm.lights || pm.lightsFront, bumpersFront: pm.bumpersFront || pm.bumperFront, bumpersRear: pm.bumpersRear || pm.bumperRear, roof: pm.roofFront || null,
         glow: [pm.underglow, pm.underglowRear].filter(Boolean) } };
@@ -2382,7 +2406,10 @@
 
     // fuel
     if (ds > 0 && !B.noFuel) {
-      B.fuel = Math.max(0, B.fuel - ds * C.fuelPerUnit);
+      // (on the way to the fuel pump the tank drains at a quarter and keeps its last 2%, so the drive there from the far
+      // side of the map, up to ~1,100 road units, always makes it: the friendly tow is for a bus that went elsewhere)
+      const toPump = !!(B.target && B.target.id === 'pump');
+      B.fuel = Math.max(toPump ? Math.min(B.fuel, 0.02) : 0, B.fuel - ds * C.fuelPerUnit * (toPump ? 0.25 : 1));
       if (!lowWarned && B.fuel <= C.fuelLow) { lowWarned = true; BB.emit('bus:fuelLow', { fuel: B.fuel }); }
       if (B.fuel <= 0) { B.noFuel = true; B.speed = 0; BB.emit('bus:fuelEmpty', {}); }
       // dust: about a full coat in 7 minutes of driving, faster in the rain
