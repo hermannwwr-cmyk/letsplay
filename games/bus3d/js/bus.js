@@ -1439,7 +1439,10 @@
       return mn;
     }
     const mid = close ? null : lw(0, 2.2, -frontOff());
-    const checks = [heads[0], heads[4], heads[heads.length - 1], req[iDoor], req[iDoor + 1], req[iDoor + 2], req[iDoor + 3], mid].filter(Boolean);
+    // (and the very point the live camera keeps in sight while it swings round, midPoint() at a height of 2.2: for a
+    // bendy that is between the carriages; a view that can't see it would be lifted over the thing in the way)
+    const camMid = close ? null : lw(0, 0, ART ? -(HITCH + R_CTR) / 2 : 0); if (camMid) camMid.y = 2.2;
+    const checks = [heads[0], heads[4], heads[heads.length - 1], req[iDoor], req[iDoor + 1], req[iDoor + 2], req[iDoor + 3], mid, camMid].filter(Boolean);
     // a scene: nothing solid in front of its props or either end of the vehicle either
     if (st && Array.isArray(st.frame) && st.frame.length) for (let i = 2 * NS; i < iDoor; i += 2) checks.push(req[i]);
     // the scene's own big props (jobs.js target.blockers: the burning kiosk, its smoke) mustn't hide the rest either:
@@ -1839,8 +1842,12 @@
     let px = m.x + Math.sin(a) * r, pz = m.z + Math.cos(a) * r;
     // while swinging: never inside a pillar, a trunk or a building, and go over anything in the way
     const capY = underViaduct(px, pz) || underViaduct(m.x, m.z) ? 10.2 : 30;
-    // (the stop view was planned clear of buildings: once nearly there it is used as it is, and holds still)
-    const settled = stopView && stopCam && Math.hypot(px - camPos.x, ny - camPos.y, pz - camPos.z) < 2.5;
+    // (the stop view was planned clear of buildings: once the swing round has reached its side, or the camera is
+    // nearly there, it is used as it is and holds still; a planned view that doesn't see the bus's middle itself (a
+    // close-up, or a scene whose fallback hides a little) is never lifted over it at all: lifting there would only
+    // take the camera away from its plan for good, the way a road-sign post once kept it high above a phone stop)
+    if (stopView && stopCam && stopCam._midOk == null) stopCam._midOk = !W().blocksSight(camPos.x, camPos.y, camPos.z, m.x, 2.2, m.z);
+    const settled = stopView && stopCam && (!stopCam._midOk || Math.abs(wrapA(a1 - a)) < 0.25 || Math.hypot(px - camPos.x, ny - camPos.y, pz - camPos.z) < 2.5);
     const q = stopView && stopCam ? null : W().pushOut(px, pz, 1.4);
     if (q && q.hit > 0.01) { px = q.x; pz = q.z; }
     for (let k = 0; k < 6 && !settled && W().blocksSight(px, ny, pz, m.x, 2.2, m.z); k++) {

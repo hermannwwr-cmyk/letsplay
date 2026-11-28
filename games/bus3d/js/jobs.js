@@ -2448,6 +2448,7 @@
     if (!m) m = new THREE.Mesh(geo, BB.mk.mat);
     m.position.copy(pos); m.rotation.y = rotY || 0; m.name = 'sceneItem';
     BB.scene.add(m);
+    m.userData.sc = sc;
     if (sc !== 1) m.scale.setScalar(sc);
     if (pop) { m.scale.setScalar(0.01); tween(0.3, (t) => m.scale.setScalar(sc * Math.max(0.01, t < 0.7 ? t / 0.7 * 1.15 : 1.15 - (t - 0.7) / 0.3 * 0.15))); }
     return m;
@@ -2543,23 +2544,42 @@
   // taps the spot the things come out of
   const rideTarget = (at) => (typeof BB.bus.bodyBox === 'function' ? { at: (out) => out.copy(at), box: BB.bus.bodyBox([]) } : (out) => out.copy(at));
   // Taking away: the last k things can be touched, in any order, and the ones left always fill the first places,
-  // like the card's pictures: when one is taken from the middle of those k, the last one left steps into its place
+  // like the card's pictures: when one is taken from the middle of those k, the last one left moves into its place
   // (and the card's pictures swap with them), so neither the tray nor the card ever shows a gap in the middle.
-  // targets: one per thing (its ring follows it); place(t): where target t's thing stands now; take(j, t): the j-th
-  // one taken is target t's thing: makes the move and returns the place that empties (the last one left), which then
-  // holds the thing taken. slide = how the one left moves over (cars roll, bags and ice creams hop).
-  function takeAway(q, slot, dy, slide) {
-    const where = Array.from({ length: q.k }, (_, t) => q.n - 1 - t);
+  // The one that moves over never passes through the others: bags and ice creams hop high over them in an arc,
+  // cars (too big to hop) shrink away and pop up again in the empty space once the car going home has left it.
+  // targets: one per thing (its ring follows the thing itself, also while it moves over); place(t): where target
+  // t's thing stands now; take(j, t): the j-th one taken is target t's thing: makes the move and returns the place
+  // that empties (the last one left), which then holds the thing taken; bubble: the number bubble rides along with
+  // the thing that leaves, `top` above it (never stays on a place another thing then fills).
+  function takeAway(q, slot, dy, slide, top) {
+    const where = Array.from({ length: q.k }, (_, t) => q.n - 1 - t), gone = [];
+    const sc = (m) => m.userData.sc || 1;
+    const mine = (m) => (m.userData.mv = (m.userData.mv || 0) + 1);     // a newer move stops an older one
+    const moveOver = (m, to) => {
+      const tk = mine(m), a0 = m.position.clone(), s0 = sc(m);
+      if (slide) {       // a car: shrinks away, waits for the space to clear, pops up in it
+        return tween(0.25, (k) => { if (m.userData.mv === tk) m.scale.setScalar(s0 * Math.max(0.01, 1 - k)); })
+          .then(() => tween(0.45, () => {}))      // (game time, like the car going home)
+          .then(() => { if (m.userData.mv !== tk) return null; m.position.copy(to); BB.sfx.pop && BB.sfx.pop();
+            return tween(0.3, (k) => { if (m.userData.mv === tk) m.scale.setScalar(s0 * Math.max(0.01, k < 0.7 ? k / 0.7 * 1.15 : 1.15 - (k - 0.7) / 0.3 * 0.15)); }); });
+      }
+      const h = 1.9 * s0;   // (higher than a bag or an ice cream, wherever it passes over one)
+      return tween(0.6, (k) => { if (m.userData.mv !== tk) return; m.position.lerpVectors(a0, to, k); m.position.y = a0.y + (to.y - a0.y) * k + Math.sin(k * Math.PI) * h; });
+    };
+    const at = (t, out) => { const m = gone[t] || SCN.items[where[t]], p = slot(where[t]); out.copy(p); if (m && !gone[t]) { out.x = m.position.x; out.z = m.position.z; } out.y = p.y + dy; return out; };
     return {
-      targets: where.map((_, t) => (out) => { out.copy(slot(where[t])); out.y += dy; return out; }),
+      targets: where.map((_, t) => (out) => at(t, out)),
       place: (t) => where[t],
+      bubble: (j, t, out) => { const m = gone[t] || SCN.items[where[t]]; if (m) { out.copy(m.position); out.y += top * sc(m); } else at(t, out); return out; },
       take(j, t) {
-        const i = where[t], last = q.n - 1 - j;
+        const i = where[t], last = q.n - 1 - j, it = SCN.items[i];
+        if (it) { mine(it); it.scale.setScalar(sc(it)); gone[t] = it; }   // (stop it moving over, whole again: it goes)
         if (i !== last) {
           const mv = SCN.items[last]; SCN.items[last] = SCN.items[i]; SCN.items[i] = mv;
           const a = SCN.look[i] != null ? SCN.look[i] : i; SCN.look[i] = SCN.look[last] != null ? SCN.look[last] : last; SCN.look[last] = a;
           for (let u = 0; u < where.length; u++) if (where[u] === last) where[u] = i;
-          if (mv) { if (slide) { const a0 = mv.position.clone(), to = slot(i); tween(0.5, (k) => { mv.position.lerpVectors(a0, to, 1 - (1 - k) * (1 - k)); }); } else scnHop(mv, slot(i), 0.5, 0.4); }
+          if (mv) moveOver(mv, slot(i));
           cardPic(i); cardPic(last);
         }
         return last;
@@ -2607,9 +2627,9 @@
               return tween(0.8, (t) => { const e = 1 - (1 - t) * (1 - t); m.position.lerpVectors(a, to, e); if (t >= 1) m.rotation.y = slot.face; });
             } };
         }
-        const ta = takeAway(q, slot, 0.8, true);
+        const ta = takeAway(q, slot, 0.8, true, 1.9);
         return { kind: 'tap', count: q.k, say: `Tap ${pl(q.k, 'car', 'cars')} to send ${plural(q.k, 'it', 'them')} home!`, hint: 'Tap a car!',
-          targets: ta.targets, act: (j, t) => { const i = ta.take(j, t); step(i); S.remove(i); } };
+          targets: ta.targets, bubble: ta.bubble, bubbleFollow: true, act: (j, t) => { const i = ta.take(j, t); step(i); S.remove(i); } };
       },
       // (the cars stand between the camera and the truck: the camera looks over them, not through them)
       points: (c) => { const pts = Array.from({ length: Math.max(1, c) }, (_, i) => slot(i)); SCN.blockers = pts.map((p) => ({ x: p.x, z: p.z, hw: 0.95, hd: 1.9, ry: slot.face, y0: 0, top: GROUND + 1.75 }));
@@ -2618,8 +2638,9 @@
     return S;
   }
   function bagScene() {
-    const G = sceneGeos(), slot = tray(2.5, -2.2, 0.95, 1.3, 0, 0.5), from = kerbSpot(3.2, 2.0, false);
-    const make = (i, pop) => scnMesh(G.bags[i % 10], slot(i), slot.face, pop, innerHeight <= 520 ? 1.2 : false);
+    const big = innerHeight <= 520 ? 1.2 : 1;            // (on phones the little things are a fifth bigger, and so is the tray)
+    const G = sceneGeos(), slot = tray(2.5, -2.2, 0.95 * big, 1.3 * big, 0, 0.5), from = kerbSpot(3.2, 2.0, false);
+    const make = (i, pop) => scnMesh(G.bags[i % 10], slot(i), slot.face, pop, big !== 1 ? big : false);
     // the bags still to come stand in a little row by the family
     const pile = (j) => kerbSpot(3.2 + Math.floor(j / 5) * 1.0, 1.0 + (j % 5) * 1.0, false);
     let coming = [];
@@ -2637,7 +2658,7 @@
         const away = to.clone().add(new THREE.Vector3(slot.f.ox * 2.5 - slot.f.fx * 4, 0, slot.f.oz * 2.5 - slot.f.fz * 4));
         return tween(0.55, (t) => { m.position.lerpVectors(a, to, t); m.position.y = GROUND + Math.sin(t * Math.PI) * 1.0; })
           .then(() => wait(250))
-          .then(() => tween(0.75, (t) => { m.position.lerpVectors(to, away, t); m.position.y = GROUND + Math.abs(Math.sin(t * Math.PI * 3)) * 0.35; m.scale.setScalar(Math.max(0.01, 1 - t * t)); }))
+          .then(() => tween(0.75, (t) => { m.position.lerpVectors(to, away, t); m.position.y = GROUND + Math.abs(Math.sin(t * Math.PI * 3)) * 0.35; m.scale.setScalar((m.userData.sc || 1) * Math.max(0.01, 1 - t * t)); }))
           .then(() => { SCN.extra = SCN.extra.filter((x) => x !== m); scnDrop(m); });
       },
       prep(q) {
@@ -2654,21 +2675,23 @@
             bubble: (j, idx, out) => { out.copy(slot(q.n + j)); out.y += 1.0; },
             act: (j, idx) => { const m = coming[idx], i = q.n + j; SCN.extra = SCN.extra.filter((x) => x !== m); SCN.items[i] = m; SCN.look[i] = q.n + idx; step(i); return scnHop(m, slot(i), 1.2, 0.55); } };
         }
-        const ta = takeAway(q, slot, 0.4, false);
+        const ta = takeAway(q, slot, 0.4, false, 1.0);
         return { kind: 'tap', count: q.k, say: `Tap ${pl(q.k, 'bag', 'bags')} to carry home!`, hint: 'Tap the glowing bag!',
-          targets: ta.targets, act: (j, t) => { const i = ta.take(j, t); step(i); S.remove(i); } };
+          targets: ta.targets, bubble: ta.bubble, bubbleFollow: true, act: (j, t) => { const i = ta.take(j, t); step(i); S.remove(i); } };
       },
       points: (c) => Array.from({ length: Math.max(1, c) }, (_, i) => slot(i)).concat([from], coming.map((m) => m.position.clone())),
     };
     return S;
   }
   function teddyScene() {
-    const G = sceneGeos(), slot = tray(2.7, -0.9, 0.95, 1.3, 0.5, 0.5);
+    const big = innerHeight <= 520 ? 1.2 : 1;            // (on phones the teddies are a fifth bigger, and so are the kit and its spacing)
+    const G = sceneGeos(), slot = tray(2.7, -0.9, 0.95 * big, 1.3 * big, 0.5, 0.5);
     if (!SCN.extra.some((m) => m.userData.kit)) {        // the kit box under the teddies
       const c = slot.mid(); c.y -= 0.5;
       const kit = scnMesh(G.kit, c, Math.atan2(slot.f.fx, slot.f.fz) + Math.PI / 2, false); kit.userData.kit = true; SCN.extra.push(kit);
+      if (big !== 1) kit.scale.set(big, 1, big);
     }
-    const make = (i, pop) => scnMesh(G.teddy, slot(i), slot.face, pop, innerHeight <= 520 ? 1.2 : true);
+    const make = (i, pop) => scnMesh(G.teddy, slot(i), slot.face, pop, big !== 1 ? big : true);
     // the teddies still to go in sit on the pavement beside the kit
     const pile = (j) => kerbSpot(3.1 + Math.floor(j / 5) * 0.9, 0.5 + (j % 5) * 0.9, false);
     let coming = [], kids = [];
@@ -2717,12 +2740,14 @@
   // the ice cream van's stand: two rows of five ice creams (like the card's ten-frame); a sold one goes to the next
   // child in the queue (who hops with joy), a new one pops on
   function iceScene() {
-    const G = sceneGeos(), slot = tray(2.7, -0.9, 0.95, 1.3, 0.5, 0.5);
+    const big = innerHeight <= 520 ? 1.2 : 1;            // (on phones the ice creams are a fifth bigger, and so are the stand and its spacing)
+    const G = sceneGeos(), slot = tray(2.7, -0.9, 0.95 * big, 1.3 * big, 0.5, 0.5);
     if (!SCN.extra.some((m) => m.userData.stand)) {
       const c = slot.mid(); c.y -= 0.5;
       const st = scnMesh(G.stand, c, Math.atan2(slot.f.fx, slot.f.fz) + Math.PI / 2, false); st.userData.stand = true; SCN.extra.push(st);
+      if (big !== 1) st.scale.set(big, 1, big);
     }
-    const make = (i, pop) => scnMesh(G.creams[i % 4], slot(i), slot.face, pop, innerHeight <= 520 ? 1.2 : true);
+    const make = (i, pop) => scnMesh(G.creams[i % 4], slot(i), slot.face, pop, big !== 1 ? big : true);
     const hatchP = new THREE.Vector3(slot.f.d.x + slot.f.ox * 0.2, GROUND + 1.55, slot.f.d.z + slot.f.oz * 0.2);   // the serving hatch
     let served = 0;
     const S = {
@@ -2745,7 +2770,7 @@
         }
         // one ice cream for each child in the queue (who step apart where the view shows them in a clump)
         spreadRow(J.waiting);
-        const kidP = new THREE.Vector3(), ta = takeAway(q, slot, 0.45, false);
+        const kidP = new THREE.Vector3(), ta = takeAway(q, slot, 0.45, false, 1.2);
         return { kind: 'drag', count: q.k, plane: GROUND + 0.9, say: `Give ${pl(q.k, 'child', 'children')} an ice cream!`, hint: 'Tap an ice cream, or pull it to a child!',
           targets: ta.targets,
           dropFlat: true, drop: (out) => { const kid = J.waiting[Math.min(served, J.waiting.length - 1)]; if (kid) { kidP.copy(kid.position); kidP.y = GROUND; } return out.copy(kidP); },

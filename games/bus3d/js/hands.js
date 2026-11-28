@@ -689,7 +689,7 @@
       if (b.old && !b.faded && b.t > 0.9) { b.faded = true; b.a.firstChild.classList.add('old'); }
       if (b.faded && b.t > 1.6) { b.a.remove(); c.bubbles.splice(i, 1); continue; }
       if (c.o.bubbleFollow && c.o.bubble) { try { c.o.bubble(b.j, b.idx, b.p); } catch (e) { /* keep where it was */ } }   // (over a friend walking to the door)
-      { const on = proj(b.p, _s); place(b.a, BB.clamp(_s.x, 40, innerWidth - 40), Math.max(_s.y, innerHeight <= 520 ? 62 : 86), on); }   // (never off the edge)
+      { const on = proj(b.p, _s); place(b.a, BB.clamp(_s.x, 40, innerWidth - 40), BB.clamp(_s.y, innerHeight <= 520 ? 62 : 86, innerHeight - 34), on); }   // (never off the edge)
     }
     if (c.ended) return;
     c.t += dt; c.since += dt;
