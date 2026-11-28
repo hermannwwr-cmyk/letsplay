@@ -10,7 +10,9 @@
    Hands-on: while the story is told the child does its "k" part with a finger (BB.hands, hands.js): taps each friend
    aboard or goodbye here, and each vehicle scene has its own moment (hands() in the scene builders).
    Cash: 1 coin per answered stop (never taken away), 2 more for the whole job; coins fly to the
-   cash counter. Also: low-fuel trips to the depot and the friendly tow when the tank runs dry.
+   cash counter. A finished job puts a stamp on the way to a trophy (every 5th job) and shows the wish.
+   Also: special trips with themed groups, passenger friends who say hello and goodbye, low-fuel trips to the depot
+   and the friendly tow when the tank runs dry.
    Exposes BB.jobs = { current, phase, start(), update(dt), busy(), allOff(cb), ... }.
    Every flow timer goes through BB.later / BB.wait (they freeze while the game is held) and every spoken line is
    awaited before the next one, so nothing is cut off. */
@@ -141,37 +143,68 @@
     return q;
   }
 
-  // ---------- special jobs: school run, airport rush, party bus (at most about 1 job in 3) ----------
-  // A themed group gets on at the first stop (that is the question: "3 children get on") and gets off at the second.
+  // ---------- special trips (at most about 1 job in 3, from the 4th job on) ----------
+  // A themed group gets on at the first stop (that is the question: "3 children get on") and gets off at the second,
+  // each with their own thing (a school bag, a suitcase, a balloon...), which they still carry when they get off.
+  // dir 'from': the group waits at the place itself (the airport, the beach, the market) and goes on to another stop;
+  // dir 'to': they wait at a stop near the place and the second stop is the place (the playground, the big wheel, the
+  // hawker centre). when: only at that time of day. pick: the line for the first stop; take: the line for the drive to
+  // the place ('to' trips); drop: their goodbye at the end; done: the job-done line.
   const THEMES = {
-    school: { word: ['child', 'children'], prop: 'bag', kid: true, start: 'School run! Good morning!', drop: 'School time! Bye bye, children!' },
-    airport: { word: ['traveller', 'travellers'], prop: 'case', start: 'Airport rush! The planes have landed!', drop: 'Welcome to the city! Have a lovely trip!' },
-    party: { word: ['party friend', 'party friends'], prop: 'balloon', start: 'Party bus! A birthday group is waiting!', drop: 'Happy birthday! Bye bye!' },
+    school: { dir: 'to', place: /playground/i, alt: /park|garden/i, word: ['child', 'children'], prop: 'bag', kid: true, when: () => morning(),
+      pick: (st) => `School trip! Good morning! Pick up the children at ${st.say}!`, take: (st) => `Now take the children to ${st.say}!`,
+      drop: 'Here we are! Have fun, children!', done: 'School trip done! Great driving!' },
+    airport: { dir: 'from', place: /airport/i, word: ['traveller', 'travellers'], prop: 'case',
+      pick: (st) => `Airport rush! The planes have landed! Drive to ${st.say}!`, drop: 'Welcome to the city! Have a lovely trip!', done: 'Airport rush done! Great driving!' },
+    party: { dir: 'from', place: /beach/i, alt: /park/i, word: ['party friend', 'party friends'], prop: 'balloon',
+      pick: (st) => `Party bus! A birthday group is waiting at ${st.say}!`, drop: 'Happy birthday! Bye bye!', done: 'Party bus done! Hooray!' },
+    market: { dir: 'from', place: /market/i, word: ['shopper', 'shoppers'], prop: 'shop', when: () => !nightNow(),
+      pick: (st) => `Market day! The shoppers are waiting at ${st.say} with full bags!`, done: 'Market day done! Great driving!',
+      drop: () => (dayT() > 0.55 ? 'Thank you, Captain! Time to cook dinner!' : 'Thank you, Captain! What a lot of shopping!') },
+    wheel: { dir: 'to', place: /wheel/i, word: ['visitor', 'visitors'], prop: 'camera',
+      pick: (st) => `Big wheel trip! Pick up the visitors at ${st.say}!`, take: (st) => `Now take the visitors to ${st.say}!`,
+      drop: 'Have fun on the big wheel! Wheee!', done: 'Big wheel trip done! Great driving!' },
+    lunch: { dir: 'to', place: /hawker/i, word: ['hungry friend', 'hungry friends'], when: () => midday(),
+      pick: (st) => `Lunch time! Pick up the hungry friends at ${st.say}!`, take: (st) => `Now take them to ${st.say}! Yum yum!`,
+      drop: 'Enjoy your lunch! Yum yum!', done: 'Lunch trip done! Great driving!' },
   };
   const stopLike = (re) => (BB.world.stops || []).find((s) => s && !s.minor && re.test((s.id || '') + ' ' + (s.name || '') + ' ' + (s.pic || '')));
-  function morning() {
-    const W = BB.world, d = W && W.day;
-    if (W && typeof W.night === 'function' && +W.night() > 0.3) return false;
-    return !!(d && typeof d.t === 'number' && d.t >= 0.03 && d.t <= 0.3);
-  }
+  const dayT = () => { const d = BB.world && BB.world.day; return d && typeof d.t === 'number' ? d.t : -1; };
+  const nightNow = () => { const W = BB.world; return !!(W && typeof W.night === 'function' && +W.night() > 0.3); };
+  function morning() { const t = dayT(); return !nightNow() && t >= 0.03 && t <= 0.3; }
+  function midday() { const t = dayT(); return !nightNow() && t > 0.3 && t <= 0.55; }
   function pickTheme() {
     if (level() < 1 || (BB.save.jobsDone | 0) < 3) return null;     // the first jobs stay close to home
     if ((J.sinceSpecial == null ? 2 : J.sinceSpecial) < 2 || Math.random() > 0.5) return null;
     if (friendsOut()) return null;                                  // friends are out driving: stay with them (no themed trip away)
-    // only when the themed stop is near enough by road (about 400 units), so no long trip across the map
-    const here = BB.bus.atStop || J.lastStop;
-    const near = (id) => { const st = themeStop(id); if (!st) return id === 'school'; return st !== here && stopDist(here && okStop(here) ? here : null, st) <= 400; };
+    // only when the place is near enough by road (about 400 units), so no long trip across the map; a different
+    // trip from the last one while there are others
+    const here = BB.bus.atStop || J.lastStop, from = here && okStop(here) ? here : null;
     const ok = [];
-    if (morning() && near('school')) ok.push('school');
-    if (stopLike(/airport/i) && near('airport')) ok.push('airport');
-    if (stopLike(/beach|park/i) && near('party')) ok.push('party');
-    return ok.length ? BB.pick(ok) : null;
+    for (const id in THEMES) {
+      const T = THEMES[id], st = themeStop(id);
+      if (!st || st === here || (T.when && !T.when())) continue;
+      if (stopDist(from, st) <= 400) ok.push(id);
+    }
+    const fresh = ok.filter((id) => id !== J.lastTheme);
+    return fresh.length ? BB.pick(fresh) : ok.length ? BB.pick(ok) : null;
   }
   function themeStop(id) {
-    if (id === 'school') return stopLike(/school/i);
-    if (id === 'airport') return stopLike(/airport/i);
-    if (id === 'party') return stopLike(/beach/i) || stopLike(/park/i);
-    return null;
+    const T = THEMES[id]; if (!T) return null;
+    return stopLike(T.place) || (T.alt ? stopLike(T.alt) : null);
+  }
+  // a 'to' trip's pick-up: a stop a short drive before the place (40-130 road units to it, a little more where stops
+  // are few), one of the two nearest to the bus
+  function pickupFor(place, here) {
+    const from = here && okStop(here) ? here : null, out = [];
+    for (const s of BB.world.stops || []) {
+      if (!okStop(s) || s === place || s === here || s.say === place.say) continue;
+      const d = stopDist(s, place);
+      if (d >= 40 && d <= 220) out.push({ s, d: stopDist(from, s), near: d <= 130 });
+    }
+    const best = out.filter((o) => o.near).length ? out.filter((o) => o.near) : out;
+    best.sort((a, b) => a.d - b.d);
+    return best.length ? BB.pick(best.slice(0, 2)).s : null;
   }
   // a short original "good morning" jingle (C major, up and down)
   function jingle() {
@@ -202,21 +235,48 @@
   // style.look ({shirt, skin, hair, kid}) dresses them exactly (someone getting off looks like whoever sat in that seat);
   // style.seat = the seat they will take (a traveller's suitcase then has that seat's colour, like on the card).
   const lookGeos = {};
-  function lookGeo(L) { const k = [L.shirt, L.skin, L.hair, L.kid ? 1 : 0, L.bun ? 1 : 0].join(); return lookGeos[k] || (lookGeos[k] = friendGeo(L)); }
+  function lookGeo(L) { const k = [L.shirt, L.skin, L.hair, L.kid ? 1 : 0, L.bun ? 1 : 0, L.hat ? 1 : 0].join(); return lookGeos[k] || (lookGeos[k] = friendGeo(L)); }
   function person(i, style) {
     style = style || {};
     const li = (style.kid ? KID_LOOKS[i % 2] : i) % LOOKS.length;
-    const geo = style.geo || (style.look ? lookGeo(style.look) : LOOKS[li]);
+    let geo = style.geo || (style.look ? lookGeo(style.look) : LOOKS[li]);
+    // their thing is part of their own mesh (one draw call for a person and a bag, so a group of four shoppers costs
+    // no more than four people); only a balloon is its own mesh, because it floats off and pops
+    const pg = style.prop && PROPS[style.prop] ? (style.prop === 'case' && style.seat != null ? caseGeo(bagColor(style.seat)) : PROPS[style.prop]) : null;
+    const both = pg && style.prop !== 'balloon' ? withProp(geo, pg, style.kid ? 0.72 : 1) : null;
+    if (both) geo = both;
     const m = new THREE.Mesh(geo, BB.mk.mat); m.name = 'person'; BB.scene.add(m);
     m.userData.look = style.look || style.lookData || LOOK_DATA[li];
-    if (style.prop && PROPS[style.prop]) {
-      const pg = style.prop === 'case' && style.seat != null ? caseGeo(bagColor(style.seat)) : PROPS[style.prop];
-      const pm = new THREE.Mesh(pg, BB.mk.mat); pm.name = 'prop';
-      if (style.kid) pm.scale.setScalar(0.72);
-      m.add(pm); m.userData.prop = pm; m.userData.propKind = style.prop;
+    if (pg) {
+      if (!both) {
+        const pm = new THREE.Mesh(pg, BB.mk.mat); pm.name = 'prop';
+        if (style.kid) pm.scale.setScalar(0.72);
+        m.add(pm); m.userData.prop = pm;
+      }
+      m.userData.propKind = style.prop; m.userData.propSeat = style.seat;
     }
     if (style.friend) m.userData.friend = style.friend;
     return m;
+  }
+  // a person's mesh with their thing merged in (k: the thing's scale, 0.72 for a child), made once per pair
+  const withGeos = new Map();
+  function withProp(geo, pg, k) {
+    const key = geo.uuid + '|' + pg.uuid + '|' + k;
+    if (withGeos.has(key)) return withGeos.get(key);
+    const A = geo.attributes, B = pg.attributes;
+    let out = null;
+    if (!geo.index && !pg.index && A.position && B.position && A.normal && B.normal && A.color && B.color &&
+        A.position.array instanceof Float32Array && B.position.array instanceof Float32Array &&
+        A.normal.array.constructor === B.normal.array.constructor && A.color.array.constructor === B.color.array.constructor) {
+      const cat = (a, b, scale) => { const r = new a.constructor(a.length + b.length); r.set(a); if (scale === 1) r.set(b, a.length); else for (let j = 0; j < b.length; j++) r[a.length + j] = b[j] * scale; return r; };
+      out = new THREE.BufferGeometry();
+      out.setAttribute('position', new THREE.BufferAttribute(cat(A.position.array, B.position.array, k), 3));
+      out.setAttribute('normal', new THREE.BufferAttribute(cat(A.normal.array, B.normal.array, 1), 3, A.normal.normalized));
+      out.setAttribute('color', new THREE.BufferAttribute(cat(A.color.array, B.color.array, 1), 3, A.color.normalized));
+      out.computeBoundingSphere();
+    }
+    withGeos.set(key, out);
+    return out;
   }
 
   // ---------- props and the passenger friends ----------
@@ -246,15 +306,78 @@
     PROPS.kite = mk((b) => { b.box(0.62, 0.62, 0.04, P.coral, 0.75, 2.55, -0.3, 0, 0, Math.PI / 4); b.box(0.04, 0.62, 0.05, P.honeyLight, 0.75, 2.55, -0.3, 0, 0, Math.PI / 4); b.cyl(0.012, 0.012, 1.5, 4, '#fff6e0', 0.48, 1.0, -0.15); });
     PROPS.durian = mk((b) => { b.ball(0.2, '#8bbf3a', 0.44, 0.98, 0.22, 0); b.ball(0.17, '#6fa52e', 0.46, 1.01, 0.25, 0, 1.15, 1.15, 1.15); b.box(0.04, 0.1, 0.04, '#9b6238', 0.44, 1.15, 0.22); });
     PROPS.paper = mk((b) => { b.box(0.52, 0.38, 0.03, '#f4f1ea', 0, 1.12, 0.34); b.box(0.42, 0.05, 0.035, '#8a8290', 0, 1.38, 0.34); b.box(0.3, 0.05, 0.035, '#8a8290', -0.04, 1.26, 0.34); });
+    // a bunch of flowers in a paper cone, held in front
+    PROPS.flowers = mk((b) => {
+      b.cyl(0.13, 0.03, 0.36, 6, '#fff6e0', 0.24, 0.86, 0.3);
+      b.ball(0.07, P.leaf, 0.15, 1.24, 0.34); b.ball(0.07, P.leaf, 0.33, 1.22, 0.28);
+      b.ball(0.095, P.rose, 0.18, 1.3, 0.28); b.ball(0.095, P.honey, 0.3, 1.32, 0.33); b.ball(0.085, P.plum, 0.24, 1.36, 0.24);
+    });
+    // a little bird cage with a yellow songbird, hanging from the hand by its hook
+    PROPS.cage = mk((b) => {
+      const cx = 0.56, wood = '#b98a52';
+      b.cyl(0.2, 0.21, 0.06, 8, wood, cx, 0.5, 0);
+      for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; b.box(0.025, 0.42, 0.025, '#d9b57f', cx + Math.cos(a) * 0.18, 0.56, Math.sin(a) * 0.18); }
+      b.cyl(0.19, 0.19, 0.04, 8, wood, cx, 0.97, 0);
+      b.ball(0.19, '#d9b57f', cx, 1.0, 0, 0, 1, 0.42, 1);
+      b.box(0.03, 0.16, 0.03, '#8a6a3a', cx, 1.06, 0);
+      b.box(0.3, 0.025, 0.025, wood, cx, 0.68, 0);
+      b.ball(0.075, '#ffd45c', cx, 0.79, 0, 0, 1.15, 1, 1); b.ball(0.05, '#ffd45c', cx + 0.06, 0.87, 0); b.box(0.04, 0.025, 0.03, '#f28b4b', cx + 0.11, 0.86, 0);
+    });
+    // a football held at the side
+    PROPS.ball = mk((b) => {
+      const x = 0.5, y = 1.0, z = 0.12;
+      b.ball(0.2, '#fffdf6', x, y, z, 1);
+      for (const [dx, dy, dz] of [[0.17, 0.02, 0], [0, 0.17, 0.04], [0.02, 0.0, 0.18], [-0.1, -0.12, 0.1], [0.1, -0.1, -0.1]]) b.ball(0.065, '#3a2a3c', x + dx, y + dy, z + dz, 0, 1, 1, 1);
+    });
+    // a cake box with a ribbon and a bow, carried in front with both hands
+    PROPS.cake = mk((b) => {
+      b.box(0.52, 0.32, 0.4, '#ffe4ec', 0, 0.86, 0.42);
+      b.box(0.08, 0.33, 0.41, P.rose, 0, 0.86, 0.42); b.box(0.53, 0.33, 0.08, P.rose, 0, 0.86, 0.42);
+      b.ball(0.07, P.rose, -0.06, 1.22, 0.42, 0, 1.2, 0.8, 0.8); b.ball(0.07, P.rose, 0.06, 1.22, 0.42, 0, 1.2, 0.8, 0.8);
+    });
+    // a market shopping bag with greens sticking out
+    PROPS.shop = mk((b) => {
+      b.box(0.34, 0.4, 0.22, '#e9c48f', 0.52, 0.6, 0.04); b.box(0.35, 0.06, 0.23, '#d1a56b', 0.52, 0.94, 0.04);
+      b.box(0.03, 0.16, 0.03, '#b98a52', 0.42, 1.0, 0.04); b.box(0.03, 0.16, 0.03, '#b98a52', 0.62, 1.0, 0.04); b.box(0.23, 0.03, 0.03, '#b98a52', 0.52, 1.14, 0.04);
+      b.ball(0.11, P.leaf, 0.45, 1.04, 0.06); b.ball(0.09, '#8bbf3a', 0.58, 1.06, 0.0); b.cyl(0.0, 0.05, 0.26, 5, '#f28b4b', 0.55, 0.96, 0.1);
+    });
+    // a camera on a strap, at the chest
+    PROPS.camera = mk((b) => {
+      b.box(0.3, 0.19, 0.1, '#3a3f4a', 0, 1.24, 0.31); b.box(0.08, 0.05, 0.08, '#3a3f4a', -0.08, 1.43, 0.31);
+      b.cyl(0.065, 0.075, 0.1, 8, '#1f2228', 0.03, 1.28, 0.33, 0, Math.PI / 2); b.ball(0.04, '#9fd4f2', 0.03, 1.335, 0.42);
+      b.box(0.02, 0.5, 0.02, '#c84a3c', -0.13, 1.3, 0.24, 0, 0, -0.25); b.box(0.02, 0.5, 0.02, '#c84a3c', 0.13, 1.3, 0.24, 0, 0, 0.25);
+    });
   }
   // Recurring passenger friends (generic, the game's own people style). Met once -> BB.save.friendsMet, 'friend:met'.
+  // Each has their own thing (prop), says what they're up to when they get on (hi: two short lines, taken in turn,
+  // so the hello stays about 3 s) and their own goodbye when they get off (bye), wherever that is: at the end of the
+  // job, or as one of the people getting off at a stop. The grown-ups also take the taxi home with their bags
+  // (taxi: [hello, goodbye]); the children don't ride a taxi on their own.
   const FRIENDS = [
-    { id: 'granny', name: 'Granny Mei', prop: 'cat', look: { shirt: P.plum, skin: '#f1c7a0', hair: '#e8e4dc', bun: true } },
-    { id: 'kai', name: 'Kai', prop: 'kite', look: { shirt: '#f28b4b', skin: '#d9a679', hair: '#1f1b22', kid: true } },
-    { id: 'rose', name: 'Auntie Rose', prop: 'durian', look: { shirt: P.leaf, skin: '#a8714a', hair: '#3a2a2c', bun: true } },
-    { id: 'tan', name: 'Uncle Tan', prop: 'paper', look: { shirt: '#9fb6c8', skin: '#f5d3b5', hair: '#8a8290' } },
+    { id: 'granny', name: 'Granny Mei', prop: 'cat', look: { shirt: P.plum, skin: '#f1c7a0', hair: '#e8e4dc', bun: true },
+      hi: ['Whiskers and I are visiting my sister!', 'Whiskers loves the bus!'], bye: 'Thank you, dear! Bye bye, Whiskers!',
+      taxi: ['Whiskers and I had a holiday! Home, please!', 'Thank you, dear! Home sweet home!'] },
+    { id: 'kai', name: 'Kai', prop: 'kite', look: { shirt: '#f28b4b', skin: '#d9a679', hair: '#1f1b22', kid: true },
+      hi: ["I'm going to fly my kite!", 'Look at my new kite!'], bye: 'Bye, Captain! Up, up, kite!' },
+    { id: 'rose', name: 'Auntie Rose', prop: 'durian', look: { shirt: P.leaf, skin: '#a8714a', hair: '#3a2a2c', bun: true },
+      hi: ['Pooh! My durian is smelly!', 'I bought a big durian!'], bye: 'Thank you, Captain! Durian for dinner!',
+      taxi: ['I did lots of shopping! Home, please!', 'Thank you, Captain! Durian for dinner!'] },
+    { id: 'tan', name: 'Uncle Tan', prop: 'paper', look: { shirt: '#9fb6c8', skin: '#f5d3b5', hair: '#8a8290' },
+      hi: ['I read my paper on the bus!', 'What a lovely day for a ride!'], bye: 'Thank you, Captain! Have a lovely day!',
+      taxi: ['My bags are so heavy! Home, please!', 'Thank you, Captain! Have a lovely day!'] },
+    { id: 'lily', name: 'Lily', prop: 'flowers', look: { shirt: '#ff8fab', skin: '#f1c7a0', hair: '#6b4a2e', kid: true, bun: true },
+      hi: ['These flowers are for Grandma!', 'I picked flowers for Grandma!'], bye: 'Bye bye, Captain! Grandma will love them!' },
+    { id: 'lee', name: 'Grandpa Lee', prop: 'cage', look: { shirt: '#e9c46a', skin: '#7a4b2e', hair: '#e8e4dc' },
+      hi: ['My bird loves the bus! Tweet tweet!', 'My little bird sings on the bus!'], bye: 'Thank you, Captain! Tweet tweet!',
+      taxi: ['My bird and I are going home! Tweet tweet!', 'Thank you, Captain! Tweet tweet!'] },
+    { id: 'siti', name: 'Coach Siti', prop: 'ball', look: { shirt: P.teal, skin: '#d9a679', hair: '#1f1b22', bun: true },
+      hi: ["Football time! Let's go!", 'I have a football match!'], bye: 'Thanks, Captain! Goal!',
+      taxi: ['Football camp is over! Home, please!', 'Thanks, Captain! Goal!'] },
+    { id: 'wong', name: 'Chef Wong', prop: 'cake', look: { shirt: '#fffdf6', skin: '#f5d3b5', hair: '#1f1b22', hat: true },
+      hi: ['I baked a birthday cake! Drive gently!', 'Mind my cake, Captain!'], bye: 'Thank you, Captain! Happy birthday, everybody!',
+      taxi: ['I bought food for my kitchen! Home, please!', 'Thank you, Captain! Yum yum!'] },
   ];
-  J.FRIENDS = FRIENDS.map((f) => ({ id: f.id, name: f.name, prop: f.prop }));
+  J.FRIENDS = FRIENDS.map((f) => ({ id: f.id, name: f.name, prop: f.prop, look: f.look }));
   function friendGeo(L) {
     const b = BB.mk.builder(), s = L.kid ? 0.72 : 1, pants = '#4a5a78';
     b.box(0.22 * s, 0.8 * s, 0.24 * s, pants, -0.13 * s, 0, 0); b.box(0.22 * s, 0.8 * s, 0.24 * s, pants, 0.13 * s, 0, 0);
@@ -262,8 +385,30 @@
     b.ball(0.27 * s, L.skin, 0, 1.9 * s, 0);
     b.ball(0.28 * s, L.hair, 0, 2.0 * s, -0.05 * s, 0, 1, 0.7, 1);
     if (L.bun) b.ball(0.13 * s, L.hair, 0, 2.18 * s, -0.24 * s);
+    if (L.hat) { b.cyl(0.24 * s, 0.22 * s, 0.24 * s, 8, '#ffffff', 0, 2.08 * s, 0); b.ball(0.3 * s, '#ffffff', 0, 2.4 * s, 0, 0, 1, 0.62, 1); }   // a chef's hat
     b.box(0.12 * s, 0.6 * s, 0.14 * s, L.shirt, -0.36 * s, 0.95 * s, 0); b.box(0.12 * s, 0.6 * s, 0.14 * s, L.shirt, 0.36 * s, 0.95 * s, 0);
     return b.geometry();
+  }
+  // Which friend gets on next: one not met yet when there is one (the sticker book fills up), never the one who
+  // rode last time while there are others.
+  // grownUp: only a friend who can take a taxi on their own
+  function pickFriend(grownUp) {
+    const all = grownUp ? FRIENDS.filter((f) => f.taxi && !f.look.kid) : FRIENDS;
+    const met = friendsMet(), fresh = all.filter((f) => !met.includes(f.id));
+    let pool = fresh.length && Math.random() < 0.8 ? fresh : all;
+    const other = pool.filter((f) => f.id !== J.lastFriend); if (other.length) pool = other;
+    const f = BB.pick(pool); J.lastFriend = f.id;
+    return f;
+  }
+  // "Hi, Captain! I'm Kai! I'm going to fly my kite!" (met before: "Hello again! It's Kai! Look at my new kite!")
+  // taxi: their taxi hello ("... Home, please!")
+  const hiTurn = {};
+  function friendHello(f, taxi) {
+    const first = meetFriend(f.id);
+    let hi;
+    if (taxi && f.taxi) hi = f.taxi[0];
+    else { const i = hiTurn[f.id] = first ? 0 : ((hiTurn[f.id] == null ? 0 : hiTurn[f.id]) + 1) % f.hi.length; hi = f.hi[i]; }
+    return first ? `Hi, Captain! I'm ${f.name}! ${hi}` : `${BB.pick(['Hello again!', 'Hi, Captain!', 'Hello, my friend!'])} It's ${f.name}! ${hi}`;
   }
   function friendsMet() {
     let a = Array.isArray(BB.save.friendsMet) ? BB.save.friendsMet : null;
@@ -308,8 +453,11 @@
   // Put the people for the next question at the stop's shelter, in a little queue facing the road.
   function setWaiting(stop, q) {
     clearWaiting();
+    if (stop) stop.queue = 0;
     if (!stop || !q) return;
     const pre = Math.max(0, q.pre), total = pre + (q.kind === 'add' ? q.k : 0);
+    // (the stop view leaves the queue its strip of pavement, bus.js: so many places long)
+    stop.queue = total ? Math.min(4, Math.max(q.kind === 'add' ? q.k : 1, Math.ceil(total / 2))) : 0;
     const friendAt = q.friend && q.kind === 'add' ? total - 1 : -1;
     for (let i = 0; i < total; i++) {
       let style = i < pre ? q.preStyle : q.style;
@@ -323,16 +471,29 @@
       m.position.set(stop.pos.x + stop.fwd.x * along + stop.side.x * off, GROUND, stop.pos.z + stop.fwd.z * along + stop.side.z * off);
       m.rotation.y = Math.atan2(-stop.side.x, -stop.side.z);
       m.userData.pre = i < pre;
+      if (q.group && i >= pre) m.userData.group = true;            // (one of the themed group: "children", "shoppers")
       m.userData.seed = Math.random() * 6;
       J.waiting.push(m);
     }
   }
   // Walk a person to a point at a gentle pace. Resolves on arrival.
   function walkTo(m, to, speed = 3.3, opts = {}) {
+    // (someone already on their way somewhere else changes course: never two walks pulling at one person)
+    for (let i = J.walkers.length - 1; i >= 0; i--) if (J.walkers[i].m === m) { const w = J.walkers[i]; J.walkers.splice(i, 1); if (w.done) w.done(); }
     return new Promise((resolve) => {
       const from = m.position.clone(), dist = hypot2(to.x - from.x, to.z - from.z);
       J.walkers.push({ m, from, to: to.clone(), t: 0, dur: Math.max(0.35, dist / speed), done: resolve, shrink: !!opts.shrink });
     });
+  }
+  // Who sits where, beyond their colours (bus jobs): job.seats[i] = { friend: id } or { prop, kid }, so whoever gets
+  // off from seat i is the same person again, still carrying their school bag, suitcase or balloon (and a friend says
+  // their own goodbye). Seats always fill and empty from the top, so a record stays with its seat.
+  function noteSeat(seat, m) {
+    const job = J.current; if (!job || job.vehicle || seat < 0) return;
+    const u = m.userData, seats = job.seats || (job.seats = {});
+    if (u.friend) seats[seat] = { friend: u.friend };
+    else if (u.propKind || u.group) seats[seat] = { prop: u.propKind || null, kid: !!(u.look && u.look.kid), seat: u.propSeat, group: !!u.group };   // (seat: a suitcase's colour)
+    else delete seats[seat];
   }
   // One person gets on: walk to the door, step in, and appear in the next seat (the bus draws seated heads by count).
   async function boardOne(m, onSeat) {
@@ -341,6 +502,7 @@
     removePerson(m);
     BB.bus.passengers = BB.clamp((BB.bus.passengers | 0) + 1, 0, 10);
     if (m.userData.look && typeof BB.bus.setSeatLook === 'function') BB.bus.setSeatLook(BB.bus.passengers - 1, m.userData.look);   // the same colours in the seat
+    noteSeat(BB.bus.passengers - 1, m);
     BB.sfx.pop();
     if (onSeat) onSeat(BB.bus.passengers - 1);
   }
@@ -355,7 +517,16 @@
     if (seat < 0) return;
     BB.bus.passengers = seat;
     if (onLeave) onLeave(seat);
-    const sl = typeof BB.bus.seatLook === 'function' ? BB.bus.seatLook(seat) : null;      // whoever sat there gets off
+    // whoever sat there gets off: a friend as themselves (their goodbye comes when the stop allows it), anyone else
+    // in that seat's colours with the thing they got on with
+    const job = J.current, rec = job && job.seats && job.seats[seat];
+    if (rec) {
+      delete job.seats[seat];
+      const f = rec.friend && FRIENDS.find((x) => x.id === rec.friend);
+      if (f) { style = Object.assign(friendStyle(f), style && style.onPop ? { onPop: style.onPop } : {}); job.friendBye = f; }
+      else if (rec.prop && !(style && style.geo)) style = Object.assign({}, style || {}, { prop: rec.prop, kid: rec.kid, seat: rec.seat != null ? rec.seat : seat });
+    }
+    const sl = typeof BB.bus.seatLook === 'function' ? BB.bus.seatLook(seat) : null;
     const m = person(BB.randInt(0, 7), sl && !(style && style.geo) ? Object.assign({}, style || {}, { look: sl }) : style);
     m.position.copy(doorIn(true));
     BB.sfx.pop();
@@ -372,15 +543,34 @@
       walkAway(m);
     });
   }
+  // The camera as it will stand at this stop (BB.bus.stopView(): the planned view), so people are placed for the
+  // picture the child will see, not for a camera still swinging round from behind the bus.
+  const qCam = new THREE.PerspectiveCamera(50, 1, 0.5, 900);
+  function viewCam() {
+    const v = typeof BB.bus.stopView === 'function' ? BB.bus.stopView() : null, cam = BB.camera;
+    if (!v || !v.pos) return cam;
+    qCam.fov = v.fov || cam.fov; qCam.aspect = cam.aspect; qCam.near = cam.near; qCam.far = cam.far; qCam.updateProjectionMatrix();
+    qCam.position.copy(v.pos); qCam.lookAt(v.look); qCam.updateMatrixWorld(true);
+    return qCam;
+  }
   // A spot on the pavement for the k-th person who got off: in view of the stop camera, clear of the seats (so the
   // count on the bus stays readable) and of the question card, nearest the exit door first. Works for every bus
   // type and screen size because it is worked out on screen; falls back to a spot next to the exit door.
   function waveSpot(k) { return freeSpot(J.extras.map((m) => m.userData.spot).filter(Boolean), false, kerbSpot(1.7 + (k % 2) * 0.5, -0.8 - k * 0.9, true)); }
+  // Where the question card stands on screen: where it is, else where it stood last time at this screen size, else
+  // its usual place (the stop view and the queue are planned before the card shows)
+  let cardSeen = null;
+  function cardRect() {
+    const W = innerWidth, H = innerHeight, key = W + 'x' + H, c = document.querySelector('.bbq:not(.out)');
+    if (c) { const r = c.getBoundingClientRect(); if (r.width > 0) cardSeen = { key, left: r.left, top: r.top, right: r.right, bottom: r.bottom }; }
+    if (cardSeen && cardSeen.key === key) return cardSeen;
+    return H <= 520 ? { left: 0, top: 0, right: Math.min(345, W * 0.42), bottom: H } : { left: W / 2 - 440, top: H - 250, right: W / 2 + 440, bottom: H };
+  }
   // A free pavement spot in view (not over the seats, not under the card, not on another person), nearest the front
   // door (front) or the exit door. With no card yet, the card's usual place is kept clear.
   function freeSpot(taken, front, fallback) {
     try {
-      const W = innerWidth, H = innerHeight, cam = BB.camera;
+      const W = innerWidth, H = innerHeight, cam = viewCam();
       const proj = (p) => { const q = p.clone().project(cam); return q.z > 1 ? null : [(q.x + 1) / 2 * W, (1 - q.y) / 2 * H]; };
       // the seats' box on screen (with a margin)
       let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
@@ -389,38 +579,143 @@
         for (const dy of [0, 1.5]) { const s2 = proj(new THREE.Vector3(a.x, a.y + dy, a.z)); if (s2) { x0 = Math.min(x0, s2[0]); x1 = Math.max(x1, s2[0]); y0 = Math.min(y0, s2[1]); y1 = Math.max(y1, s2[1]); } }
       }
       const seatBox = [x0 - 30, y0 - 40, x1 + 30, y1 + 20];
-      const c = document.querySelector('.bbq');
-      const cr = c ? c.getBoundingClientRect() : H <= 520 ? { left: 0, top: 0, right: 345, bottom: H } : { left: W / 2 - 440, top: H - 280, right: W / 2 + 440, bottom: H };
+      const cr = cardRect();
       const hit = (r, b) => b && r[0] < b[2] && r[2] > b[0] && r[1] < b[3] && r[3] > b[1];
       const exit = doorFrame(true), frontD = doorFrame(false);
+      const queue = front ? [] : J.waiting.map((m) => m.userData.spot).filter(Boolean);    // (people getting off never stand among the friends waiting to get on)
       const span = front ? 0 : (exit.d.x - frontD.d.x) * frontD.fx + (exit.d.z - frontD.d.z) * frontD.fz;   // the door, along the bus
       const cands = [];
       // (along the whole bus and a little past both ends: when the stop view is close and cuts the tail off, there is
       // still room in front of the nose; the nearest spot to the door wins)
-      for (const out of [2.4, 3.4, 1.6, 4.4]) {
-        for (let along = Math.max(span + 4, 6); along >= span - (front ? 24 : 14); along -= 0.9) {   // (the queue may stand well back on a small screen, where the card covers the door: every friend must be seen, they are tapped aboard)
-          const p = kerbSpot(out, along, false);
-          const foot = proj(p), head = proj(new THREE.Vector3(p.x, p.y + 2.3, p.z));
-          if (!foot || !head) continue;
-          const r = [Math.min(foot[0], head[0]) - 18, head[1] - 50, Math.max(foot[0], head[0]) + 18, foot[1]];
-          if (r[0] < 10 || r[2] > W - 10 || r[1] < 60 || r[3] > H - 4) continue;
-          if (hit(r, seatBox) || (cr && hit(r, [cr.left, cr.top, cr.right, cr.bottom]))) continue;
-          if (taken.some((t) => t.distanceTo(p) < 0.85)) continue;
-          cands.push({ p, d: Math.abs(along - span) + (out - 2.4) * (out - 2.4) });
+      // dip = how much of a person may be hidden by the card: their shoes; or, where the view is so close that the
+      // whole pavement lies behind the card, their legs (better than standing in front of a seated friend)
+      for (const dip of [0.14, 0.5]) {
+        for (const out of [2.4, 3.4, 1.6, 4.4]) {
+          for (let along = Math.max(span + 4, 6); along >= span - (front ? 24 : 14); along -= 0.9) {   // (the queue may stand well back on a small screen, where the card covers the door: every friend must be seen, they are tapped aboard)
+            const p = kerbSpot(out, along, false);
+            const foot = proj(p), head = proj(new THREE.Vector3(p.x, p.y + 2.3, p.z));
+            if (!foot || !head) continue;
+            const tall = foot[1] - head[1];
+            if (tall > H * 0.45) continue;                        // (nobody looms huge in the foreground)
+            const r = [Math.min(foot[0], head[0]) - 18, head[1] - 50, Math.max(foot[0], head[0]) + 18, foot[1] - tall * dip];
+            if (r[0] < 10 || r[2] > W - 10 || r[1] < 60 || r[3] > H - 4) continue;
+            if (hit(r, seatBox) || (cr && hit(r, [cr.left, cr.top, cr.right, cr.bottom]))) continue;
+            if (taken.some((t) => t.distanceTo(p) < 0.85) || queue.some((t) => t.distanceTo(p) < 1.6)) continue;
+            cands.push({ p, d: Math.abs(along - span) + (out - 2.4) * (out - 2.4) });
+          }
         }
+        if (cands.length) break;
       }
       if (!cands.length) return fallback;
       cands.sort((a, b) => a.d - b.d);
       return cands[0].p;
     } catch (e) { return fallback; }
   }
-  // At arrival the queue steps up to spots the stop camera sees, nearest the front door, and faces the bus.
-  function queueIntoView() {
-    const taken = [];
+  // The queue: a tidy row on the pavement where the stop view shows every one of them, nobody in front of a seated
+  // friend (the count on the bus stays readable), nobody under the card or cut by the screen's edge. On a tablet (the
+  // card along the bottom) the row runs ahead of the front door, beside the bus's nose; on a phone (the card on the
+  // left) in front of the bus from its door back, heads below the seated friends' laps. bus.js leaves that strip of
+  // pavement room in the stop view (stop.queue). minPx = the room each one needs on screen: the tap ring when they
+  // are to be waved aboard (so the rings never overlap), less for a plain queue; a long queue stands two deep.
+  // Returns n spots, or null when no such row fits (the nearest free spots are used instead).
+  // fr (bus.js, while it plans a stop view): { cam, seat(i, v), kerb(out, along) } for the bus in its settled place;
+  // strict: 'feet' = only rows with every friend's feet (and the ring round them) in view, 'toes' = or a toe hidden;
+  // blind = a lamp post or a sign may stand in front of someone (when nothing else fits)
+  function queueRow(n, minPx, fr, strict, blind) {
+    const W = innerWidth, H = innerHeight, cam = fr ? fr.cam : viewCam(), phone = H <= 520;
+    const spot = fr ? fr.kerb : (out, along) => kerbSpot(out, along, false);
+    const pr = (p, dy) => { _v.set(p.x, p.y + dy, p.z).project(cam); return _v.z > 1 ? null : [(_v.x + 1) / 2 * W, (1 - _v.y) / 2 * H]; };
+    // the seated friends on screen: across the row, and down to their laps
+    let sx0 = 1e9, sx1 = -1e9, sy1 = -1e9;
+    for (let i = 0; i < 10; i++) {
+      const q = pr(fr ? fr.seat(i, new THREE.Vector3()) : BB.bus.seatWorld(i, new THREE.Vector3()), 0.35);
+      if (q) { sx0 = Math.min(sx0, q[0]); sx1 = Math.max(sx1, q[0]); sy1 = Math.max(sy1, q[1]); }
+    }
+    const cr = cardRect();
+    const half = Math.max(22, minPx / 2), x0 = (phone ? cr.right : 0) + half + 4, x1 = W - half - 4;
+    // how much of a person the card or the screen's edge may hide: nothing, their feet and the ring lying round them
+    // in view (-1); a toe (0.14); or, in a very close view, their legs (0.5)
+    let dip = -1;
+    const ok = (p) => {
+      const foot = pr(p, 0), head = pr(p, 2.3);
+      if (!foot || !head) return false;
+      const tall = foot[1] - head[1], low = dip < 0 ? foot[1] + half * 0.42 : foot[1] - tall * dip;
+      if (tall > H * 0.45 || foot[0] < x0 || foot[0] > x1 || head[0] < x0 || head[0] > x1 || head[1] < 70 || low > H - 3) return false;
+      if (!phone && foot[0] + half > cr.left && foot[0] - half < cr.right && low > cr.top) return false;
+      if (head[0] > sx0 - 36 && head[0] < sx1 + 36 && head[1] - Math.max(5, tall * 0.05) < sy1) return false;       // not in front of a seated friend
+      // (nothing in the way: a post, a sign or a corner of a building between the camera and them; looked at across
+      // their whole width, so a post hiding half of someone counts too)
+      if (blind) return true;
+      const cp = cam.position, W0 = BB.world, dx = p.x - cp.x, dz = p.z - cp.z, dl = hypot2(dx, dz) || 1, sx = -dz / dl * 0.34, sz = dx / dl * 0.34;
+      return !(W0.blocksSight(cp.x, cp.y, cp.z, p.x, p.y + 1.1, p.z) || W0.blocksSight(cp.x, cp.y, cp.z, p.x + sx, p.y + 1.1, p.z + sz) ||
+        W0.blocksSight(cp.x, cp.y, cp.z, p.x - sx, p.y + 1.1, p.z - sz) || W0.blocksSight(cp.x, cp.y, cp.z, p.x, p.y + 1.9, p.z));
+    };
+    for (dip of strict === 'feet' ? [-1] : strict ? [-1, 0.14] : [-1, 0.14, 0.5]) for (const rows of n > 4 ? [1, 2] : [1]) {
+      for (const dir of phone ? [-1, 1] : [1, -1]) {
+        for (const out of dir > 0 ? [2.0, 2.4, 1.6, 2.8, 3.2] : [2.8, 3.1, 3.4, 3.7, 4.0, 4.4, 4.8, 5.2]) {
+          const a = pr(spot(out, 0), 0), b = pr(spot(out, 1), 0);
+          if (!a || !b) continue;
+          const step = Math.max(0.9, (minPx + 4) / Math.max(1, hypot2(a[0] - b[0], a[1] - b[1])));
+          for (const lead of [0.35, 0.9, 1.6, 2.4]) {
+            const spots = [];
+            for (let i = 0; i < n; i++) {
+              const r = i % rows, col = (i - r) / rows;
+              const p = spot(out + r * 1.05, lead + dir * (col * step + r * step * 0.5));
+              if (!ok(p)) break;
+              spots.push(p);
+            }
+            if (spots.length === n) return spots;
+          }
+        }
+      }
+    }
+    return null;
+  }
+  // How well the people waiting at the stop fit a stop view bus.js is planning (BB.bus calls this before the bus has
+  // settled; fr as for queueRow): { fit, loose, tall }. fit: 3 = in one tidy row with a whole tap ring each, their
+  // feet and the ring round them in view; 2 or 1 = with smaller rings; 0 = no such row. loose: the same, with their
+  // toes allowed under the card or the screen's edge; blind: as loose, with something like a lamp post allowed in
+  // front of someone (better than no row at all). tall = how tall they stand on screen (px).
+  // (fr.queue: the places the stop keeps for them, st.queue; while nobody stands there yet, that many to tap)
+  J.queueFit = function (fr) {
+    const out = { fit: 3, loose: 3, blind: 3, tall: 999 };
+    const all = J.waiting.length || Math.min(4, fr.queue | 0); if (!all) return out;
+    const tap = J.waiting.length ? J.waiting.filter((m) => !m.userData.pre).length : all, T = BB.hands && BB.hands.size ? BB.hands.size() : 84;
+    const px = tap && BB.hands ? [T + 4, T * 0.8, T * 0.62] : [50, 40], n = tap && BB.hands ? tap : all;
+    const H = innerHeight, cam = fr.cam;
+    for (const mode of ['feet', 'toes', 'blind']) {
+      if (mode === 'blind' && out.loose) { out.blind = out.loose; break; }
+      const strict = mode === 'feet';
+      let tier = 0;
+      for (let i = 0; i < px.length && !tier; i++) {
+        const row = queueRow(n, px[i], fr, strict ? 'feet' : 'toes', mode === 'blind');
+        if (!row) continue;
+        tier = 3 - i;
+        if (out.tall === 999) { _v.copy(row[0]).project(cam); const fy = _v.y; _v.set(row[0].x, row[0].y + 2.3, row[0].z).project(cam); out.tall = Math.round((_v.y - fy) / 2 * H); }
+      }
+      if (tier && tap && tap < all && !queueRow(all, 40, fr, strict ? 'feet' : 'toes', mode === 'blind')) tier = Math.min(tier, 1);   // (those who get on first stand in the row too)
+      if (strict) out.fit = tier; else if (mode === 'toes') out.loose = Math.max(tier, out.fit); else out.blind = tier;
+    }
+    if (out.tall === 999) out.tall = 0;
+    return out;
+  };
+  // The people waiting take their places in the queue and face the door. spread = they are about to be waved
+  // aboard with a tap each: every one gets room for a ring of their own.
+  function queueUp(spread) {
+    const n = J.waiting.length; if (!n) return;
+    const T = BB.hands && BB.hands.size ? BB.hands.size() : 84;
+    // (their feet and rings in view first, then a toe hidden, then anything that fits; bigger room before smaller,
+    // in the same order as the stop view was chosen, BB.jobs.queueFit)
+    let row = null;
+    const tiers = spread ? [[T + 4, 'feet'], [T * 0.8, 'feet'], [T + 4, 'toes'], [T * 0.8, 'toes'], [T * 0.62, 'toes'], [T * 0.8, null], [T * 0.62, null], [44, null]] : [[50, 'feet'], [40, 'feet'], [50, null], [40, null]];
+    for (const blind of [false, true]) { for (const [px, mode] of tiers) { row = queueRow(n, px, null, mode, blind); if (row) break; } if (row) break; }
+    const taken = [], f = doorFrame(false), face = Math.atan2(f.ox, f.oz);
     J.waiting.forEach((m, i) => {
-      const p = freeSpot(taken, true, kerbSpot(1.6 + (i % 2) * 0.5, 1.2 + i * 0.9, false));
+      const p = row ? row[i] : freeSpot(taken, true, kerbSpot(1.6 + (i % 2) * 0.5, 1.2 + i * 0.9, false));
       taken.push(p); m.userData.spot = p;
-      walkTo(m, p, 3.8).then(() => { const d = doorOut(); m.rotation.y = Math.atan2(d.x - m.position.x, d.z - m.position.z); });
+      if (hypot2(p.x - m.position.x, p.z - m.position.z) < 0.15) return;
+      // (they wait facing us, so their faces show; a tapped friend turns and walks to the door)
+      walkTo(m, p, 3.8).then(() => { if (J.waiting.includes(m)) m.rotation.y = face; });
     });
   }
   // a party friend's balloon floats up out of their hand and pops in a little burst (onPop once per group)
@@ -767,8 +1062,26 @@
     animation: bbj-in .5s cubic-bezier(.2,1.5,.5,1); }
   .bbj.out { transition: opacity .4s, transform .4s; opacity: 0; transform: translate(-50%, -30px); }
   @keyframes bbj-in { from { transform: translate(-50%, 0) scale(.3); opacity: 0; } }
-  .bbj svg { width: 56px; height: 56px; animation: bbq-pop .5s both; }
-  .bbj svg:nth-child(2) { animation-delay: .15s; } .bbj svg:nth-child(3) { animation-delay: .3s; }
+  .bbj .track { position: relative; display: flex; align-items: center; gap: 8px; }
+  .bbj .track::before { content: ''; position: absolute; left: 22px; right: 30px; top: 50%; margin-top: -2px; border-top: 4px dotted #e2cfa8; }
+  .bbj .pip { position: relative; width: 56px; height: 50px; flex: none; display: flex; align-items: center; justify-content: center; }
+  /* a ticket still to come: a dashed ticket-shaped place on the path */
+  .bbj .pip:not(.on)::after { content: ''; width: 46px; height: 34px; box-sizing: border-box; border: 3px dashed #d6c39e; border-radius: 9px; background: #fff6e0; }
+  .bbj .pip canvas.tk { display: block; width: 56px; height: 42px; margin: 0; transform: rotate(var(--r, 0deg)); filter: drop-shadow(0 2px 0 rgba(120,80,40,.2)); }
+  .bbj .pip.on canvas.tk { animation: bbj-tk .45s var(--d, 0s) cubic-bezier(.2,1.5,.5,1) both; }
+  @keyframes bbj-tk { from { transform: scale(.3) rotate(var(--r, 0deg)); opacity: 0; } }
+  /* this job's ticket is stamped onto the path: it drops in big and tilted, lands with a squash and glows */
+  .bbj .pip.new canvas.tk { animation: bbj-stamp .8s var(--d, 0s) cubic-bezier(.3,1.4,.5,1) both; filter: drop-shadow(0 0 7px rgba(255,196,50,.95)); }
+  @keyframes bbj-stamp { 0% { transform: translateY(-38px) scale(1.8) rotate(-18deg); opacity: 0; } 40% { transform: translateY(0) scale(.9, .8) rotate(var(--r, 0deg)); opacity: 1; }
+    65% { transform: scale(1.18) rotate(var(--r, 0deg)); } 100% { transform: scale(1.1) rotate(var(--r, 0deg)); } }
+  .bbj .cup { position: relative; margin-left: 4px; width: 62px; height: 62px; display: flex; align-items: center; justify-content: center; }
+  .bbj .cup svg { display: block; width: 62px; height: 62px; }
+  /* the trophy at the end of the path waits in full colour (a little smaller, now and then a wiggle: "come and get me") */
+  .bbj .cup:not(.on) svg { width: 52px; height: 52px; transform-origin: 50% 85%; animation: bbj-wait 3.2s ease-in-out 1s infinite; }
+  @keyframes bbj-wait { 0%, 72%, 100% { transform: rotate(0); } 78% { transform: rotate(-8deg) scale(1.06); } 86% { transform: rotate(6deg) scale(1.06); } 93% { transform: rotate(-3deg); } }
+  .bbj .cup.new svg { animation: bbj-cup 1s .55s cubic-bezier(.2,1.5,.4,1) both; filter: drop-shadow(0 0 10px rgba(255,190,40,.95)); }
+  @keyframes bbj-cup { 0% { transform: scale(.3) translateY(10px); } 45% { transform: scale(1.5) translateY(-6px) rotate(-6deg); } 70% { transform: scale(1.25) rotate(4deg); } 100% { transform: scale(1.3); } }
+  .bbj.win { border-color: #ffb81f; box-shadow: 0 8px 0 rgba(120,80,40,.18), 0 0 0 6px rgba(255,212,92,.45); }
   .bbj canvas { width: 52px; height: 52px; margin-left: 10px; }
   .bbj-wish { position: absolute; left: 50%; top: calc(24% + 92px); transform: translate(-50%, 0); display: flex; align-items: center; gap: 10px;
     background: #fff6e0; border: 4px solid #d9b57f; border-radius: 26px; padding: 6px 20px 6px 12px; pointer-events: none;
@@ -804,7 +1117,10 @@
     .bbq-dots i { width: 16px; height: 18px; }
     .bbq-btn { width: 64px; height: 64px; font-size: 38px; border-radius: 20px; }
     .bbq-say { width: 56px; height: 56px; }
-    .bbj { font-size: 36px; padding: 8px 20px; top: 20%; } .bbj svg { width: 42px; height: 42px; } .bbj canvas { width: 40px; height: 40px; }
+    .bbj { font-size: 36px; padding: 8px 20px; top: 20%; gap: 8px; } .bbj .pip { width: 42px; height: 36px; } .bbj .pip canvas.tk { width: 42px; height: 32px; }
+    .bbj .cup, .bbj .cup svg { width: 46px; height: 46px; } .bbj .cup:not(.on) svg { width: 40px; height: 40px; }
+    .bbj .pip:not(.on)::after { width: 34px; height: 25px; border-width: 2.5px; border-radius: 7px; } .bbj .track::before { left: 16px; right: 22px; border-top-width: 3px; }
+    .bbj .track { gap: 5px; } .bbj canvas { width: 40px; height: 40px; margin-left: 6px; }
   }
   @media (max-height: 380px) {
     .bbq { --cell: 30px; --bird: 54px; gap: 5px; padding: 4px 10px 8px; }
@@ -878,12 +1194,12 @@
     if (!sumEl) return;
     // little people under each number, or (suitcases, firefighters, teddies, ice creams, cars) tiny copies of the card's pictures
     const mode = q.icon || (q.what === 'bags' ? 'bags' : 'people');
-    const pic = (i) => mode === 'bags' ? suitcase(i) : ICONS[mode] ? ICONS[mode](i) : '';
+    const pic = (i) => mode === 'bags' ? suitcase(lookOf(i)) : ICONS[mode] ? ICONS[mode](lookOf(i)) : '';
     const dots = (n, from = 0) => '<span class="bbq-dots">' + Array.from({ length: n }, (_, i) => `<i>${mode === 'people' ? '' : pic(from + i)}</i>`).join('') + '</span>';
     sumEl.innerHTML =
       `<span class="bbq-term n1" data-p="n1"><b>${q.n}</b>${dots(q.n)}</span>` +
       `<span class="bbq-term op" data-p="n2"><b>${q.kind === 'add' ? '+' : MINUS}</b></span>` +
-      `<span class="bbq-term n2 ${q.kind}" data-p="n2"><b>${q.k}</b>${dots(q.k, q.n)}</span>` +
+      `<span class="bbq-term n2 ${q.kind}" data-p="n2"><b>${q.k}</b>${dots(q.k, q.kind === 'add' ? q.n : Math.max(0, q.n - q.k))}</span>` +
       `<span class="bbq-term op" data-p="ask"><b>=</b></span>` +
       `<span class="bbq-term ans" data-p="ask"><b>?</b></span>`;
   }
@@ -925,9 +1241,18 @@
     el.classList.toggle('new', state === 'new');
     el.classList.toggle('gone', state === 'gone');
     if (!state) el.innerHTML = '';
-    else if (!had) el.innerHTML = iconMode === 'people' ? face(i) : iconMode === 'bags' ? suitcase(i) : (ICONS[iconMode] ? ICONS[iconMode](i) : face(i));
+    else if (!had) { const k = lookOf(i); el.innerHTML = iconMode === 'people' ? face(i) : iconMode === 'bags' ? suitcase(k) : (ICONS[iconMode] ? ICONS[iconMode](k) : face(i)); }
+  }
+  // place i's picture again (a vehicle scene's thing moved into that place: its own colour; any number badge stays)
+  function cardPic(i) {
+    const el = seatEls[i]; if (!el || !el.dataset.state || iconMode === 'people') return;
+    const k = lookOf(i), nums = Array.from(el.querySelectorAll('.num'));
+    el.innerHTML = iconMode === 'bags' ? suitcase(k) : (ICONS[iconMode] ? ICONS[iconMode](k) : '');
+    for (const n of nums) el.appendChild(n);
   }
   const isFull = (i) => seatEls[i] && (seatEls[i].dataset.state === 'full' || seatEls[i].dataset.state === 'new');
+  // the picture for place i: the thing really standing there (a vehicle scene, SCN.look), else picture i
+  const lookOf = (i) => (vmode() && SCN.look[i] != null ? SCN.look[i] : i);
   function badge(i, num, big) {
     const el = seatEls[i]; if (!el) return;
     let b = el.querySelector('.num');
@@ -1053,17 +1378,20 @@
     const alive = () => g === stopGen && J.phase === 'stop' && !BB.bedtime;
     await wait(250);                          // the stop camera settles about 1 s after arrival
     if (!alive()) return;
-    queueIntoView();
+    // friends who will be waved aboard with a tap each stand well apart (room for a ring each): at once when nobody
+    // gets on first, else when those have got on and the queue moves up to the door
+    const tapOn = !!BB.hands && q.kind === 'add' && q.k > 0;
+    queueUp(tapOn && !(q.pre > 0));
     await wait(350);
     if (!alive()) return;
-    // a passenger friend in the queue waves and says hello (met for the first time: added to the friends list)
+    // a passenger friend in the queue waves and says hello (met for the first time: added to the friends list),
+    // while the people before them get on
+    let hello = null;
     if (q.friend) {
       const f = FRIENDS.find((x) => x.id === q.friend), fm = J.waiting.find((m) => m.userData.friend === q.friend);
       if (f) {
         if (fm) { fm.userData.jump = 1; fm.userData.jumpDelay = 0; }
-        const first = meetFriend(f.id);
-        await say(first ? `Hello, Captain! I'm ${f.name}!` : `Hello again, Captain! It's me, ${f.name}!`);
-        if (!alive()) return;
+        hello = say(friendHello(f));
       }
     }
     // first, people who get on (or, rarely, off) without a question, so the question starts from a good group.
@@ -1071,9 +1399,11 @@
     if (q.pre > 0) {
       const pre = J.waiting.filter((m) => m.userData.pre);
       J.waiting = J.waiting.filter((m) => !m.userData.pre);
-      await Promise.all([say(helloLine()), boardPeople(pre)]);
-    } else if (q.pre < 0) {
-      await alightPeople(-q.pre);
+      await Promise.all([hello || say(helloLine()), boardPeople(pre)]);
+      if (alive() && tapOn) queueUp(true);
+    } else {
+      if (hello) { await hello; if (!alive()) return; }
+      if (q.pre < 0) await alightPeople(-q.pre);
     }
     if (!alive()) return;
     BB.bus.passengers = q.n;
@@ -1104,14 +1434,22 @@
     if (BB.hands && q.k > 0 && (q.kind !== 'add' || J.waiting.length)) {
       let done;
       if (q.kind === 'add') {
-        const list = J.waiting.slice();
-        done = await BB.hands.run({ kind: 'tap', count: list.length, say: `Tap ${pl(list.length, 'friend', 'friends')} to get on!`, hint: 'Tap a friend to wave them on!',
-          targets: list.map((m) => (out) => { out.copy(m.position); out.y = GROUND + 1.25; return out; }),
-          bubble: (j, idx, out) => { out.copy(list[idx].position); out.y = GROUND + 2.3; },
-          act: (j, idx) => { const m = list[idx]; J.waiting = J.waiting.filter((x) => x !== m); return boardOne(m, onSeat); } });
+        const list = J.waiting.slice(), tall = (m) => (m.userData.look && m.userData.look.kid ? 0.72 : 1);
+        const wd = q.word || ['friend', 'friends'];      // (a themed group: "Tap 3 children to get on!")
+        done = await BB.hands.run({ kind: 'tap', count: list.length, say: `Tap ${pl(list.length, wd[0], wd[1])} to get on!`, hint: `Tap ${wd[0] === 'child' ? 'a child' : 'a ' + wd[0]}!`,
+          // (each friend wears the ring flat round their feet, so they stay in full view: the whole friend is the place to tap)
+          targets: list.map((m) => ({ at: (out) => { out.copy(m.position); out.y = GROUND + 1.2 * tall(m); return out; }, feet: (out) => { out.copy(m.position); out.y = GROUND; return out; } })),
+          bubble: (j, idx, out) => { out.copy(list[idx].position); out.y = GROUND + 2.3 * tall(list[idx]); }, bubbleFollow: true,
+          // (a happy hop as they set off for the door)
+          act: (j, idx) => { const m = list[idx]; J.waiting = J.waiting.filter((x) => x !== m); m.userData.jump = 0.5; m.userData.jumpDelay = 0; return boardOne(m, onSeat); } });
       } else {
-        const n = q.n;
-        done = await BB.hands.run({ kind: 'tap', count: q.k, ordered: true, say: `Tap ${pl(q.k, 'friend', 'friends')} to say goodbye!`, hint: 'Tap the glowing friend!',
+        // (who is getting off: a passenger friend by name, a themed group by its word, else "friends")
+        const n = q.n, job = J.current, recs = (job && job.seats) || {}, TH = job && job.theme ? THEMES[job.theme] : null;
+        const top = Array.from({ length: q.k }, (_, t) => recs[n - 1 - t]);
+        const fr = q.k === 1 && top[0] && top[0].friend ? FRIENDS.find((x) => x.id === top[0].friend) : null;
+        const wd = TH && top.every((r) => r && r.group) ? TH.word : ['friend', 'friends'];
+        done = await BB.hands.run({ kind: 'tap', count: q.k, ordered: true, say: fr ? `Tap ${fr.name} to say goodbye!` : `Tap ${pl(q.k, wd[0], wd[1])} to say goodbye!`,
+          hint: fr ? `Tap ${fr.name}!` : `Tap the glowing ${wd[0]}!`,
           targets: Array.from({ length: q.k }, (_, t) => (out) => { BB.bus.seatWorld(n - 1 - t, out); out.y += 1.0; return out; }),
           act: () => alightOne(onLeave, true) });
       }
@@ -1203,10 +1541,11 @@
   }
 
   // Coins fly from the right answer to the cash counter; the cash is added as they land. Resolves when added.
-  function flyCoins(fromEl, n) {
+  // land: instead of adding them, call this as they land (the job's coins: counted already, the counter waits for them)
+  function flyCoins(fromEl, n, land) {
     return new Promise((resolve) => {
       let added = false;
-      const add = () => { if (added) return; added = true; BB.depot.add(n); resolve(); };
+      const add = () => { if (added) return; added = true; if (land) land(); else BB.depot.add(n); resolve(); };
       const safety = BB.later(1800, add);
       const root = (BB.ui && BB.ui.root) || document.body;
       const target = document.querySelector('.bbu-cash canvas') || document.querySelector('.bbu-cash');
@@ -1355,28 +1694,106 @@
   }
 
   // ---------- job done ----------
-  function celebrateJob(cash) {
+  // The banner: a ticket for each job on a dotted path of four tickets to a trophy, and the job's coins. A ticket is a
+  // teal paper ticket with the ride that did that job in its window (save.stamps), so the path reads as "my jobs", not
+  // as money or a score; every 5th job wins the trophy, with the number of jobs on it (the launcher's stars are the
+  // same number). The trophy waits at the end of the path in full colour, so the child sees where the path goes.
+  // The job's coins then fly from the banner into the coin counter. Under it the wish (the ride being saved up for,
+  // depot.js): its picture, a bar filling with the coins and how many more it takes (or a tick when there are
+  // enough). Returns what to say about the wish: { line, ready }.
+  const TICKETS = new WeakMap();     // the ride's garage picture -> its ticket, drawn once
+  function ticketArt(ride) {
+    let pc = null; try { pc = BB.depot.ridePic ? BB.depot.ridePic(ride) : null; } catch (e) { pc = null; }
+    if (pc && TICKETS.has(pc)) return TICKETS.get(pc);
+    const k = 1.25, c = document.createElement('canvas'); c.width = Math.round(132 * k); c.height = Math.round(100 * k);
+    const x = c.getContext('2d'); x.scale(k, k); x.lineJoin = 'round';
+    // the ticket: a rounded card with a round notch in each side, paper-cut (a deeper crescent lower right, a rim)
+    const X0 = 5, Y0 = 7, X1 = 125, Y1 = 91, R = 13, cy = 49, nr = 10;
+    const t = new Path2D();
+    t.moveTo(X0 + R, Y0); t.lineTo(X1 - R, Y0); t.arcTo(X1, Y0, X1, Y0 + R, R);
+    t.lineTo(X1, cy - nr); t.arc(X1, cy, nr, -Math.PI / 2, Math.PI / 2, true);
+    t.lineTo(X1, Y1 - R); t.arcTo(X1, Y1, X1 - R, Y1, R); t.lineTo(X0 + R, Y1); t.arcTo(X0, Y1, X0, Y1 - R, R);
+    t.lineTo(X0, cy + nr); t.arc(X0, cy, nr, Math.PI / 2, -Math.PI / 2, true);
+    t.lineTo(X0, Y0 + R); t.arcTo(X0, Y0, X0 + R, Y0, R); t.closePath();
+    BB.paper(x, t, P.teal, { rimW: 3 });
+    // its window: cream, with the ride in it (the middle of its garage picture, 4:3, close up)
+    const win = new Path2D(); BB.paths.rr(win, 21, 15, 86, 66, 10);
+    x.fillStyle = '#fff6e0'; x.fill(win);
+    if (pc) { x.save(); x.clip(win); x.drawImage(pc, pc.width * 0.06, pc.height * 0.17, pc.width * 0.88, pc.height * 0.66, 20, 15, 88, 66); x.restore(); }
+    x.lineWidth = 2.2; x.strokeStyle = '#12867c'; x.stroke(win);
+    if (pc) TICKETS.set(pc, c);
+    return c;
+  }
+  const CUP = (num) => {
+    const t = num == null ? '' : String(num), fs = t.length > 2 ? 12.5 : t.length > 1 ? 16 : 19;
+    return '<svg viewBox="0 0 64 64"><path d="M17 15 H9.5 C7.5 15 6.5 16.6 6.5 18.5 C6.5 25 11 30.5 18 31.5" fill="none" stroke="#f2b51f" stroke-width="4.5" stroke-linecap="round"/>'
+      + '<path d="M47 15 H54.5 C56.5 15 57.5 16.6 57.5 18.5 C57.5 25 53 30.5 46 31.5" fill="none" stroke="#e0a21a" stroke-width="4.5" stroke-linecap="round"/>'
+      + '<path d="M15.5 9 H48.5 V22 C48.5 34.5 41 41.5 32 41.5 C23 41.5 15.5 34.5 15.5 22 Z" fill="#ffc93c"/>'
+      + '<path d="M48.5 22 C48.5 34.5 41 41.5 32 41.5 C39 38.5 44.5 32 45.2 22 V9 H48.5 Z" fill="#e8a91c"/>'
+      + '<rect x="13.5" y="6.5" width="37" height="6" rx="3" fill="#ffd96b"/><rect x="28" y="41" width="8" height="8" fill="#e8a91c"/>'
+      + '<rect x="19" y="48" width="26" height="9" rx="3.5" fill="#f2b51f"/><path d="M45 51.5 V53.5 C45 55.4 43.4 57 41.5 57 H22.5 C21 57 19.7 56.1 19.2 54.8 H40 C42 54.8 43.4 53.5 43.6 51.5Z" fill="#d1931a"/>'
+      + (t ? `<text x="31.5" y="${29.5 + (17 - fs) / 3}" text-anchor="middle" font-family="Fredoka, 'Baloo 2', system-ui, sans-serif" font-weight="700" font-size="${fs}" fill="#fff6e0" stroke="#c98a12" stroke-width="1.6" paint-order="stroke">${t}</text>`
+        : '<path d="M22 14 C21 21 22.5 27 26 31" stroke="#ffe7a3" stroke-width="3.2" fill="none" stroke-linecap="round"/>')   // (waiting: a shine instead of the number)
+      + '</svg>';
+  };
+  // the wish card goes when its time is up, or at once when the goodnight starts (main.js: its sleepy "z z z" sits
+  // just where the card is)
+  let wishEl = null;
+  function dropWish() { const e = wishEl; wishEl = null; if (e) { e.classList.add('out'); BB.later(450, () => e.remove()); } }
+  // a soft rising ding for each ticket up to this job's, a little stamp thump for the new one, a fanfare for a trophy
+  function starDings(k) {
+    if (typeof BB.tone !== 'function') return;
+    const f = (semi) => 440 * Math.pow(2, (semi - 9) / 12);
+    for (let i = 1; i <= Math.min(k, 4); i++) { try { BB.tone(f(19 + i * 3), 0.14, { type: 'sine', vol: i === k ? 0.08 : 0.05, at: 0.25 + (i - 1) * 0.12 }); } catch (e) { /* no sound */ } }
+    if (k < 5) {
+      try { BB.tone(f(4), 0.09, { type: 'triangle', vol: 0.09, slide: f(-3), at: 0.36 + (k - 1) * 0.12 }); } catch (e) { /* no sound */ }
+      BB.later(420 + (k - 1) * 120, () => BB.sfx.sparkle());
+    } else BB.later(650, () => { BB.sfx.right(); BB.later(380, () => BB.sfx.sparkle()); });
+  }
+  // cash: the job's coins in all (shown); jobCoins: the job's own coins, which fly to the counter; calm: time is up
+  // (the goodnight comes next: no wish card)
+  function celebrateJob(cash, n, jobCoins, calm) {
     const root = (BB.ui && BB.ui.root) || document.body;
-    const el = BB.el('div', 'bbj', root, STAR + STAR + STAR);
-    const c = document.createElement('canvas'); c.width = c.height = 80; c.getContext('2d').drawImage(BB.pic('coin', 80), 0, 0);
-    el.appendChild(c); BB.el('span', '', el, '+' + cash);
-    BB.later(2600, () => { el.classList.add('out'); BB.later(450, () => el.remove()); });
-    // the wish (the ride being saved up for, depot.js): its picture, a bar filling with the coins and how many more
-    // it takes (or a tick when there are enough); returns the line to say about it
+    const k = ((Math.max(1, n) - 1) % 5) + 1, goal = Math.ceil(Math.max(1, n) / 5) * 5;   // k: this job's place on the way (5 = the trophy)
+    const hist = Array.isArray(BB.save.stamps) ? BB.save.stamps : [], now = hist[hist.length - 1] || BB.bus.type || 'bendy';
+    const el = BB.el('div', 'bbj' + (k === 5 ? ' win' : ''), root);
+    const track = BB.el('span', 'track', el);
+    for (let i = 1; i <= 4; i++) {
+      const p = BB.el('span', 'pip' + (i <= k ? ' on' : '') + (i === k ? ' new' : ''), track);
+      p.style.setProperty('--d', (0.1 + (i - 1) * 0.12) + 's'); p.style.setProperty('--r', [-4, 3, -2, 4][i - 1] + 'deg');   // (stuck on by hand)
+      if (i > k) continue;
+      try {
+        const src = ticketArt(hist[hist.length - k + i - 1] || now), tc = document.createElement('canvas');
+        tc.width = src.width; tc.height = src.height; tc.getContext('2d').drawImage(src, 0, 0); tc.className = 'tk'; p.appendChild(tc);
+      } catch (e) { console.error(e); }
+    }
+    BB.el('span', 'cup' + (k === 5 ? ' on new' : ''), track, CUP(k === 5 ? goal : null));
+    const c = document.createElement('canvas'); c.width = c.height = 80; c.className = 'coin'; c.getContext('2d').drawImage(BB.pic('coin', 80), 0, 0);
+    el.appendChild(c); BB.el('span', 'cash', el, '+' + cash);
+    starDings(k);
+    // the job's coins fly from the banner into the counter once the ticket is in (the counter shows them as they land)
+    // (not when the counter is hidden: the goodnight has started, or the garage)
+    const landed = () => { if (BB.ui && BB.ui.coinsLanded) BB.ui.coinsLanded(); };
+    const counterOn = () => { const t = document.querySelector('.bbu-cash'); return !!(t && t.getBoundingClientRect().width > 0); };
+    if (jobCoins > 0) BB.later(1000, () => { if (c.isConnected && counterOn() && !BB.bedtime) flyCoins(c, jobCoins, landed); else landed(); });
+    BB.later(k === 5 ? 3400 : 2700, () => { el.classList.add('out'); BB.later(450, () => el.remove()); });
+    if (calm) return null;
     let w = null; try { w = BB.depot.wish && BB.depot.wish(); } catch (e) { console.error(e); }
     if (!w) return null;
-    const we = BB.el('div', 'bbj-wish', root);
+    dropWish();
+    const we = wishEl = BB.el('div', 'bbj-wish', root);
     try { const pc = w.pic(), c2 = document.createElement('canvas'); c2.width = pc.width; c2.height = pc.height; c2.getContext('2d').drawImage(pc, 0, 0); c2.className = 'ride'; we.appendChild(c2); } catch (e) { console.error(e); }
     const had = Math.max(0, w.price - w.need - cash);
     const fill = BB.el('i', '', BB.el('span', 'bar', we)); fill.style.width = Math.round(100 * Math.min(1, had / w.price)) + '%';
     BB.later(500, () => { fill.style.width = Math.round(100 * Math.min(1, (w.price - w.need) / w.price)) + '%'; });
     if (w.need > 0) { const c3 = document.createElement('canvas'); c3.width = c3.height = 64; c3.getContext('2d').drawImage(BB.pic('coin', 64), 0, 0); c3.className = 'coin'; we.appendChild(c3); BB.el('b', '', we, String(w.need)); }
     else BB.el('b', 'ok', we, '');
-    BB.later(3600, () => { we.classList.add('out'); BB.later(450, () => we.remove()); });
-    if (w.need <= 0) return (wishTold[w.id] = (wishTold[w.id] | 0) + 1) <= 3 ? `You have enough coins for the ${w.name}! It is in the garage!` : null;
-    return `${w.need} more ${w.need === 1 ? 'coin' : 'coins'} for the ${w.name}!`;
+    BB.later(k === 5 ? 3900 : 3600, () => { if (wishEl === we) dropWish(); });
+    // (enough coins: jobDone asks depot.js wishNews only when it is about to say it; the gold Garage tile shows it
+    // the rest of the time)
+    if (w.need <= 0) return { ready: true };
+    return { line: `${w.need} more ${w.need === 1 ? 'coin' : 'coins'} for the ${w.name}!` };
   }
-  const wishTold = {};              // how often "you have enough" was said per ride (not on and on if the child keeps saving)
 
   // ---------- the job loop ----------
   // Stops for a new job: never where we are, and the previous job's stops only when there aren't enough others,
@@ -1462,7 +1879,8 @@
     for (const o of pool) { const n = weight ? weight(o.s) : 1; for (let i = 0; i < n; i++) bag.push(o.s); }
     return BB.pick(bag.length ? bag : pool.map((o) => o.s));
   }
-  function nextNear(from, exclude) {
+  // strict: only a name not heard yet in this job (else null: the job is long enough without going "back")
+  function nextNear(from, exclude, strict) {
     const W = BB.world, all = (W.stops || []).filter((s) => okStop(s) && !exclude.includes(s));
     const met = meetPick(from, all, exclude, (st) => (st.minor ? 1 : 3));
     if (met) return met;
@@ -1475,13 +1893,23 @@
     if (!pool.length) pool = ranked.filter((o) => o.d >= 25 && o.d <= 130);       // nothing that close: widen a little
     if (!pool.length) { const n0 = (ranked.find((o) => o.d >= 25) || ranked[0]).d; pool = ranked.filter((o) => o.d >= 25 && o.d <= n0 + 80).slice(0, 5); }   // (from the garage yard: the few nearest from the gate)
     if (!pool.length) pool = ranked.slice(0, 3);
-    // never the same name (and picture) as the stop just before: several small stops share a name ("old town", "the
-    // flats"), and a child can't tell two "old town" stops in a row apart
-    const prevSay = from && from.say;
-    if (prevSay) {
-      const differ = (o) => o.s.say !== prevSay && !(from.pic && o.s.pic === from.pic && o.s.minor && from.minor);
-      let fresh = pool.filter(differ);
-      if (!fresh.length) fresh = ranked.filter((o) => o.d >= 25 && o.d <= 160 && differ(o)).slice(0, 4);
+    // a name the child hasn't just heard: several small stops share a name ("old town", "the flats"), and a child can't
+    // tell two "old town" stops in a row apart; "the seaside, the sea view, the seaside" in one job, or "first stop,
+    // old town" while standing in old town, sounds like going back or nowhere. Best: none of this job's names nor
+    // where the bus is, in the usual hop, else a little further (up to about 130 road units); else (strict: the
+    // job's third stop) none, and the job ends at two stops; else not the stop just before. (Old town and the airport
+    // road have only their own name for a long way: then stopLine says "drive to the next old town stop!")
+    const prevSay = from && from.say, heard = new Set();
+    if (prevSay) heard.add(prevSay);
+    for (const s of exclude) if (s && s.say) heard.add(s.say);
+    if (heard.size) {
+      const samePic = (o) => !!(from && from.pic && o.s.pic === from.pic && o.s.minor && from.minor);
+      const newName = (o) => !heard.has(o.s.say) && !samePic(o), notPrev = (o) => o.s.say !== prevSay && !samePic(o);
+      let fresh = pool.filter(newName);
+      if (!fresh.length) fresh = ranked.filter((o) => o.d >= 25 && o.d <= 130 && newName(o)).slice(0, 3);
+      if (!fresh.length && strict) return null;
+      if (!fresh.length) fresh = pool.filter(notPrev);
+      if (!fresh.length) fresh = ranked.filter((o) => o.d >= 25 && o.d <= 160 && notPrev(o)).slice(0, 4);
       if (fresh.length) pool = fresh;
     }
     pool = leadPool(pool);
@@ -1494,21 +1922,33 @@
     const count = (BB.save.jobsDone | 0) < 1 ? 2 : BB.randInt(2, 3);
     const here = BB.bus.atStop || J.lastStop;
     const exclude = here ? [here] : [];
-    const list = [];
-    let from = here && here.id !== 'depot' && okStop(here) ? here : null;
-    for (let i = 0; i < count; i++) {
-      const s2 = nextNear(from, exclude.concat(list));
-      if (!s2) break;
-      list.push(s2); from = s2;
+    const from0 = here && here.id !== 'depot' && okStop(here) ? here : null;
+    // a third stop only with a name not heard yet in this job ("the seaside, the sea view, the seaside" sounds like
+    // going back): a few tries with another second stop, else the job has two stops
+    let list = [];
+    for (let tries = 0; tries < 5 && list.length < count; tries++) {
+      const l = [];
+      let from = from0;
+      for (let i = 0; i < count; i++) {
+        const s2 = nextNear(from, exclude.concat(l), i >= 2);
+        if (!s2) break;
+        l.push(s2); from = s2;
+      }
+      if (l.length > list.length) list = l;
     }
     J.lastJobStops = list;
     return list;
   }
-  const stopLine = (st, first) => first
-    ? (st.minor ? `New job! First stop, ${st.say}!` : `New job! Drive to ${st.say}!`)
-    : (st.minor ? `Next stop, ${st.say}!` : `Now drive to ${st.say}!`);
+  // (prev: the stop the bus is at; when the next one has the same name, it is "the next old town stop")
+  const stopLine = (st, first, prev) => prev && prev.say && prev.say === st.say
+    ? `${first ? 'New job! Drive' : 'Now drive'} to the next ${st.say.replace(/^the /, '')} stop!`
+    : first
+      ? (st.minor ? `New job! First stop, ${st.say}!` : `New job! Drive to ${st.say}!`)
+      : (st.minor ? `Next stop, ${st.say}!` : `Now drive to ${st.say}!`);
+  const hereStop = () => { const h = BB.bus.atStop || J.lastStop; return h && h.say ? h : null; };
   function bedtime() {
     clearWaiting(); clearMarker();
+    dropWish();
     if (J.current) { J.current = null; BB.bus.stopAt(null); BB.emit('job:target', { stop: null, job: null }); }
     setPhase('bedtime');
     BB.emit('jobs:bedtime');
@@ -1518,20 +1958,25 @@
     if (timeUp()) { bedtime(); return; }
     const vk = vehicleKind();
     if (vk !== 'bus' && startVehicleJob(vk)) return;
-    const theme = pickTheme();
-    const job = { stops: pickStops(), index: 0, cash: 0, q: null, theme, groupOn: 0 };
+    let theme = pickTheme();
+    const job = { stops: pickStops(), index: 0, cash: 0, q: null, theme: null, groupOn: 0 };
     if (theme) {
-      // the themed stop first (the school, the airport, the beach/park), then one other stop for the drop
-      const ts = themeStop(theme), here = BB.bus.atStop || J.lastStop;
-      if (ts && ts !== here) { const d2 = nextNear(ts, [ts, here].filter(Boolean)); job.stops = d2 ? [ts, d2] : job.stops.slice(0, 2); }
-      else job.stops = job.stops.slice(0, 2);
-      J.lastJobStops = job.stops.slice();
-      J.sinceSpecial = 0;
-    } else J.sinceSpecial = (J.sinceSpecial == null ? 2 : J.sinceSpecial) + 1;
+      // 'from': the place first (the airport, the beach, the market), then one other stop for the drop;
+      // 'to': a stop just before the place, then the place (the playground, the big wheel, the hawker centre)
+      const T = THEMES[theme], ts = themeStop(theme), here = BB.bus.atStop || J.lastStop;
+      let two = null;
+      if (ts && ts !== here) {
+        if (T.dir === 'to') { const pu = pickupFor(ts, here); if (pu) two = [pu, ts]; }
+        else { const d2 = nextNear(ts, [ts, here].filter(Boolean)); if (d2) two = [ts, d2]; }
+      }
+      if (two) { job.stops = two; job.theme = theme; J.lastJobStops = two.slice(); J.lastTheme = theme; J.sinceSpecial = 0; }
+      else theme = null;                      // (no way to make it here: an everyday job instead)
+    }
+    if (!theme) J.sinceSpecial = (J.sinceSpecial == null ? 2 : J.sinceSpecial) + 1;
     J.current = job;
     BB.emit('job:new', { job, theme });
-    if (theme === 'school') jingle();
-    say(theme ? `${THEMES[theme].start} Drive to ${job.stops[0].say}!` : stopLine(job.stops[0], true), { queue: true });
+    if (theme === 'school' || theme === 'party') jingle();
+    say(theme ? THEMES[theme].pick(job.stops[0]) : stopLine(job.stops[0], true, hereStop()), { queue: true });
     nextStop(true);
   };
   // Head for the job's current stop: a new question (and the people for it waiting at the shelter).
@@ -1567,11 +2012,16 @@
       job.q = makeAddQuestion(n0, 1, Math.max(1, Math.min(3, LEVELS[level()].kMax)));
       job.q.bonus = true;
     } else job.q = makeQuestion(n0, J.lastKey);
-    // now and then one of the people getting on is a passenger friend (at most one a job)
-    if (job.q.kind === 'add' && !job.q.group && !job.friendDone && Math.random() < 0.3) { job.q.friend = BB.pick(FRIENDS).id; job.friendDone = true; }
+    // now and then one of the people getting on is a passenger friend (at most one a job; one not met yet first),
+    // never at the last stop, so they ride along for a while before their goodbye
+    if (job.q.kind === 'add' && !job.q.group && !job.friendDone && job.index < job.stops.length - 1 && Math.random() < 0.3) { job.q.friend = pickFriend().id; job.friendDone = true; }
     setWaiting(stop, job.q);
-    driveTo(stop, bonusLine ? 'silent' : quiet);
+    // a 'to' trip: the drive to the place says where the group is going ("Now take the children to the playground!")
+    const TH = job.theme && THEMES[job.theme];
+    const takeLine = TH && TH.take && job.index > 0 && job.index === job.stops.length - 1 ? TH.take(stop) : null;
+    driveTo(stop, bonusLine || takeLine ? 'silent' : quiet);
     if (bonusLine) { BB.emit('job:new', { job, bonus: true }); say(bonusLine, { queue: true }); }
+    else if (takeLine && !quiet) say(takeLine, { queue: true });
   }
   J.nextStop = nextStop;
   J.setWaiting = setWaiting;
@@ -1597,14 +2047,33 @@
     setPhase('drive');
     BB.bus.stopAt(stop, onArrive);
     BB.emit('job:target', { stop, job });
-    if (!quiet) say(stopLine(stop, false), { queue: true });          // quiet: true, or 'silent' (another line says it)
+    if (!quiet) say(stopLine(stop, false, hereStop()), { queue: true });          // quiet: true, or 'silent' (another line says it)
   }
+  // the friend still on the bus (job.seats), or null
+  function friendAboard(job) {
+    const seats = job && job.seats; if (!seats) return null;
+    for (const k in seats) { const r = seats[k]; if (r && r.friend && +k < (BB.bus.passengers | 0)) { const f = FRIENDS.find((x) => x.id === r.friend); if (f) return f; } }
+    return null;
+  }
+  // a friend's own goodbye, with a happy hop if they're still in view
+  async function friendBye(job, f) {
+    f = f || job.friendBye; job.friendBye = null;
+    if (!f) return;
+    const m = J.extras.concat(J.walkers.map((w) => w.m)).find((x) => x.userData.friend === f.id);
+    if (m) { m.userData.jump = 1; m.userData.jumpDelay = 0.2; }
+    await say(f.bye);
+  }
+  // everybody off at the end of an everyday job: never the same words twice running
+  const END_LINES = ['Last stop! Everybody off. Thank you, bus!', 'Here we are! Everybody off!', 'Last stop! Bye bye, everybody!', 'Last stop! Thank you for riding!'];
+  let lastEnd = '';
+  const endLine = () => { let l; do l = BB.pick(END_LINES); while (l === lastEnd); lastEnd = l; return l; };
   function onArrive(stop) {
     const job = J.current; if (!job) return;
     setPhase('stop'); J.lastStop = stop;
     BB.bus.openDoors(); BB.sfx.ding();
     const q = job.q;
-    J.stopStart = { job, stop, q, pax0: BB.bus.passengers | 0 };     // to replay this stop exactly after Home
+    // to replay this stop exactly after Home (who sits where too)
+    J.stopStart = { job, stop, q, pax0: BB.bus.passengers | 0, seats: Object.assign({}, job.seats || {}), friendBye: job.friendBye || null };
     BB.later(350, () => { if (J.phase === 'stop') runStop(stop, q, (qq, cash) => afterRight(stop, qq, cash)); });
   }
   async function afterRight(stop, q, cash) {
@@ -1613,31 +2082,32 @@
     BB.emit('job:stopDone', { correct: true, cash, stop, tries: q.tries, bonus: !!q.bonus });
     if (q.group) job.groupOn = q.k + (q.preStyle ? Math.max(0, q.pre) : 0);   // the themed group now on board
     if (q.bonus) await say('Thank you for stopping in the rain!');
+    // a friend got off here (one of the people getting off): their own goodbye, now the question is answered
+    if (job.friendBye && J.current === job && J.phase !== 'home' && job.index < job.stops.length - 1) await friendBye(job);
     await wait(250);
     if (J.current !== job || BB.bedtime) return;
     if (J.phase === 'home') {
-      job.index++; job.q = null;
-      if (job.index >= job.stops.length) { BB.bus.passengers = 0; J.current = null; BB.save.jobsDone = (BB.save.jobsDone | 0) + 1; BB.saveNow(); }
+      job.index++; job.q = null; job.friendBye = null;
+      if (job.index >= job.stops.length) { BB.bus.passengers = 0; J.current = null; BB.save.jobsDone = (BB.save.jobsDone | 0) + 1; stampJob(job); BB.saveNow(); }
       return;
     }
     job.index++;
     if (job.index >= job.stops.length) {
-      // end of the line: everybody gets off with a wave (so the next job starts fresh, no getting-off warm-ups).
-      // A themed group leaves with its props and its own goodbye (balloons float up and pop: "Happy birthday!").
-      const all = BB.bus.passengers | 0;
+      // end of the line: everybody gets off with a wave (so the next job starts fresh, no getting-off warm-ups), each
+      // with the thing they got on with (job.seats). A themed trip ends with the group's own goodbye (balloons float
+      // up and pop: "Happy birthday!"); a friend on board says theirs as they step off.
+      if (job.friendBye) { await friendBye(job); if (J.current !== job || BB.bedtime) return; }   // (a friend got off for this stop's question)
+      const all = BB.bus.passengers | 0, T = job.theme ? THEMES[job.theme] : null;
+      let line = T ? (typeof T.drop === 'function' ? T.drop() : T.drop) : endLine();
+      if (job.theme === 'airport' && !/city/i.test(((stop && stop.id) || '') + ' ' + ((stop && stop.name) || ''))) line = 'Bye bye! Have a lovely trip!';
       if (all > 0) {
-        if (job.theme && job.groupOn > 0) {
-          const T = THEMES[job.theme], g = Math.min(job.groupOn, all);
-          let popped = false;
-          const style = { prop: T.prop, kid: !!T.kid, onPop: () => { if (!popped && BB.ui && BB.ui.confetti) { popped = true; BB.ui.confetti(); } } };
-          let dropLine = T.drop;
-          if (job.theme === 'airport' && !/city/i.test(((stop && stop.id) || '') + ' ' + ((stop && stop.name) || ''))) dropLine = 'Bye bye! Have a lovely trip!';
-          await Promise.all([say(dropLine), alightPeople(g, null, false, style).then(() => all - g > 0 ? alightPeople(all - g) : null)]);
-        } else {
-          await Promise.all([say('Last stop! Everybody off. Thank you, bus!'), alightPeople(all)]);
-        }
+        let popped = false;
+        const style = { onPop: () => { if (!popped && BB.ui && BB.ui.confetti) { popped = true; BB.ui.confetti(); } } };
+        const fr = friendAboard(job);
+        await Promise.all([say(line).then(() => (fr && J.current === job ? friendBye(job, fr) : null)), alightPeople(all, null, false, style)]);
+        job.friendBye = null;
         if (J.current !== job || BB.bedtime) return;
-      }
+      } else if (T) { await say(line); if (J.current !== job || BB.bedtime) return; }
       BB.bus.closeDoors();
       jobDone(); return;
     }
@@ -1648,15 +2118,40 @@
     if (J.wantDepot || BB.bus.fuel <= BB.cfg.fuelLow + 0.06) J.goDepot(BB.bus.fuel <= BB.cfg.fuelLow + 0.06 ? 'fuel' : undefined);
     else nextStop();
   }
+  // what to say when a job is done: the trip's own words, else never the same twice running
+  const DONE_LINES = ['Job done! Great driving!', 'Job done! Everybody got there!', 'All done! What a captain!', 'Job done! Super driving!'];
+  const VEH_DONE = { taxi: 'Taxi job done! Great driving!', fire: 'Fire engine job done! What a hero!', ambulance: 'Ambulance job done! Everybody feels better!',
+    icecream: 'Ice cream job done! Yum yum!', tow: 'Tow truck job done! Great driving!' };
+  let lastDone = '';
+  function doneLine(job) {
+    let l = job.vehicle ? VEH_DONE[job.vehicle] : job.theme && THEMES[job.theme] ? THEMES[job.theme].done : null;
+    if (!l) { do l = BB.pick(DONE_LINES); while (l === lastDone); lastDone = l; }
+    return (BB.xmas ? 'Ho ho ho! ' : '') + l;
+  }
+  // this job's ticket: the ride that did it (save.stamps, the last 5, with save.jobsDone)
+  function stampJob(job) {
+    BB.save.stamps = (Array.isArray(BB.save.stamps) ? BB.save.stamps : []).concat(String(BB.bus.type || (job && job.vehicle) || BB.save.busType || 'bendy')).slice(-5);
+  }
+  // every 5th job: a trophy (the jobs are counted in save.jobsDone; the launcher's stars are the same number)
+  const trophyLine = (n) => n % 25 === 0 ? `${n} jobs! You are a super bus captain! A big shiny trophy for you!` : BB.pick([`That's ${n} jobs! A trophy for you!`, `Wow, ${n} jobs! Here's a trophy!`]);
   async function jobDone() {
     const job = J.current;
-    BB.save.jobsDone = (BB.save.jobsDone | 0) + 1; BB.saveNow();
-    BB.depot.add(CASH_JOB); job.cash += CASH_JOB;
+    const n = BB.save.jobsDone = (BB.save.jobsDone | 0) + 1;
+    stampJob(job); BB.saveNow();
+    BB.depot.add(CASH_JOB, { quiet: true }); job.cash += CASH_JOB;     // (they fly from the banner to the counter)
     J.current = null; setPhase('done');
     BB.sfx.cheer();
-    const wishLine = celebrateJob(job.cash);
-    BB.emit('job:done', { cash: job.cash, job });
-    await Promise.all([say(BB.xmas ? 'Ho ho ho! Job done! Great driving!' : 'Job done! Great driving!').then(() => (wishLine && J.phase === 'done' && !BB.bedtime && !timeUp() ? say(wishLine) : null)), wait(2800)]);
+    const calm = timeUp() || !!BB.bedtime;
+    const wish = celebrateJob(job.cash, n, CASH_JOB, calm), trophy = n % 5 === 0;
+    BB.emit('job:done', { cash: job.cash, job, jobs: n, trophy });
+    // a happy toot of our own horn (only here: not a honk for the friends nearby), not at bedtime
+    if (trophy) BB.later(700, () => { if (BB.ui && BB.ui.confetti) BB.ui.confetti(0.8); if (!timeUp() && !BB.bedtime) { try { BB.sfx.horn(!!(BB.save.upgrades && BB.save.upgrades.horn)); } catch (e) { /* no horn */ } } });
+    // one more line at most: the trophy, else the wish when there are enough coins (now and then: depot.js
+    // wishNews, asked only when it will really be said), else "one more job for a trophy", else how many more coins
+    // the wish takes
+    const wishNews = () => { try { return BB.depot.wishNews ? BB.depot.wishNews('job') : null; } catch (e) { return null; } };
+    const extra = () => trophy ? trophyLine(n) : (wish && wish.ready && wishNews()) || (n % 5 === 4 ? 'One more job for a trophy!' : wish && !wish.ready ? wish.line : null);
+    await Promise.all([say(doneLine(job)).then(() => { if (J.phase !== 'done' || BB.bedtime || timeUp()) return null; const l = extra(); return l ? say(l) : null; }), wait(trophy ? 3400 : 2800)]);
     if (J.phase !== 'done' || BB.bedtime) return;
     if (timeUp()) { bedtime(); return; }
     if (J.wantDepot || BB.bus.fuel <= BB.cfg.fuelLow + 0.06) J.goDepot(BB.bus.fuel <= BB.cfg.fuelLow + 0.06 ? 'fuel' : undefined);
@@ -1817,7 +2312,7 @@
       const g = legGen, alive = () => g === legGen && !BB.bedtime && !!J.current && J.phase !== 'home';
       (async () => {
         buildCard(q); J.question = q;
-        if (q.scene) { try { q.scene.show(q.n); if (q.scene.prep) q.scene.prep(q); scnFrame(q.scene.points(Math.max(q.n, q.kind === 'add' ? q.n + q.k : q.n))); } catch (e) { console.error(e); } }
+        if (q.scene) { try { q.scene.show(q.n); if (q.scene.prep) q.scene.prep(q); scnFrame(q.scene.points(Math.max(q.n, q.kind === 'add' ? q.n + q.k : q.n)), q.scene.close, q.scene.top, q.scene.pitch); } catch (e) { console.error(e); } }
         await wait(350); if (!alive()) return;
         for (let i = 0; i < q.n; i++) light(i, true);
         showSum('n1'); litSum('n1');
@@ -1855,10 +2350,21 @@
     });
   }
   // people (a family, Auntie, a queue of children) appear by the vehicle's door and hop in, or hop out and walk away
-  async function hopIn(count, style) {
+  // meet: async (riders) => {...} while they stand in view at the kerb, before they walk to the door (their hello).
+  // (they wait in J.waiting meanwhile, so Home or bedtime clears them away)
+  async function hopIn(count, style, meet) {
     const list = [];
-    for (let i = 0; i < count; i++) { const m = person(BB.randInt(0, 7), style); m.position.copy(kerbSpot(2.2 + (i % 2) * 0.5, 1 + i * 0.9, false)); list.push(m); }
+    for (let i = 0; i < count; i++) { const m = person(BB.randInt(0, 7), style); m.position.copy(kerbSpot(2.2 + (i % 2) * 0.5, 1 + i * 0.9, false)); list.push(m); J.waiting.push(m); }
     await wait(300);
+    if (meet && list.every((m) => m.parent)) {
+      // (facing us, so their faces show, with a happy hop: here we are!)
+      let face = null; try { const f = doorFrame(false); face = Math.atan2(f.ox, f.oz); } catch (e) { face = null; }
+      for (const m of list) { if (face != null) { m.rotation.y = face; m.userData.keepFace = true; } m.userData.jump = 1; m.userData.jumpDelay = 0; }
+      try { await meet(list); } catch (e) { console.error(e); }
+      for (const m of list) delete m.userData.keepFace;
+    }
+    if (list.some((m) => !m.parent)) return;                                   // (cleared meanwhile: Home, bedtime)
+    J.waiting = J.waiting.filter((m) => list.indexOf(m) < 0);
     await Promise.all(list.map((m, i) => wait(i * 350).then(async () => { await walkTo(m, doorOut(), 3.2); removePerson(m); BB.sfx.pop(); })));
   }
   async function hopOut(count, style) {
@@ -1881,7 +2387,9 @@
   // ten-frame): cars in the depot yard, bags behind the taxi's boot, teddy bears on a kit box, firefighters and a
   // kiosk's smoky windows. They pop in / drive off / hop away / clear as the story is told, and the scene camera is
   // asked to frame them (target.frame + BB.bus.reframe()).
-  const SCN = { items: [], extra: [], target: null, n: 0, tick: null, dry: false };   // tick(dt): the scene's own per-frame work (the fire)
+  const SCN = { items: [], extra: [], target: null, n: 0, tick: null, dry: false, look: [] };   // tick(dt): the scene's own per-frame work (the fire)
+  // SCN.look[i]: which picture the thing in place i really is (its colour), when it isn't picture i: things carried
+  // by hand fill the places in order, whichever one the child picks up first, and the card shows each in its place
   let SGEO = null, frameNo = 0;
   function sceneGeos() {
     if (SGEO) return SGEO;
@@ -1897,14 +2405,14 @@
       creams: ['#ff8fab', '#fff3d6', '#8b5a3c', '#8fe0c4'].map((c) => mk((b) => {
         b.cyl(0.2, 0.04, 0.5, 7, '#e2b07c', 0, 0, 0); b.ball(0.23, c, 0, 0.58, 0); b.ball(0.06, '#ef5a4b', 0, 0.84, 0);
       })),
-      stand: mk((b) => { b.box(4.2, 0.4, 1.9, '#fbf7ee', 0, 0, 0); b.box(4.24, 0.1, 1.94, '#8fd3e8', 0, 0.4, 0); }),   // top at 0.5
+      stand: mk((b) => { b.box(5.2, 0.4, 2.2, '#fbf7ee', 0, 0, 0); b.box(5.24, 0.1, 2.24, '#8fd3e8', 0, 0.4, 0); }),   // top at 0.5
       teddy: mk((b) => {
         b.ball(0.3, '#b5793e', 0, 0.3, 0); b.ball(0.24, '#c58a55', 0, 0.76, 0); b.ball(0.1, '#b5793e', -0.18, 0.95, 0); b.ball(0.1, '#b5793e', 0.18, 0.95, 0);
         b.ball(0.09, '#e2b07c', 0, 0.72, 0.2); b.ball(0.09, '#ff8fab', 0, 0.42, 0.26);
       }),
-      kit: mk((b) => { b.box(4.4, 0.5, 2.0, '#fbf7ee', 0, 0, 0); b.box(4.44, 0.12, 2.04, '#ff8fab', 0, 0.36, 0); // a coral heart on the lid (the ambulance's emblem; never a cross)
-        b.ball(0.17, '#ff6b5c', 1.63, 0.5, 0.7, 1, 1, 0.22, 1); b.ball(0.17, '#ff6b5c', 1.87, 0.5, 0.7, 1, 1, 0.22, 1);
-        b.box(0.32, 0.06, 0.32, '#ff6b5c', 1.75, 0.47, 0.52, Math.PI / 4); }),
+      kit: mk((b) => { b.box(5.4, 0.5, 2.2, '#fbf7ee', 0, 0, 0); b.box(5.44, 0.12, 2.24, '#ff8fab', 0, 0.36, 0); // a coral heart on the side (the ambulance's emblem; never a cross)
+        b.ball(0.15, '#ff6b5c', 2.34, 0.27, 1.11, 1, 1, 1, 0.22); b.ball(0.15, '#ff6b5c', 2.56, 0.27, 1.11, 1, 1, 1, 0.22);
+        b.box(0.26, 0.26, 0.06, '#ff6b5c', 2.45, 0.04, 1.11, 0, 0, Math.PI / 4); }),
       fighters: [0, 1, 2, 3, 4].map((k) => friendGeo({ shirt: '#3d5a80', skin: SKINS[(k * 3) % 5], hair: '#ef5a4b' }).scale(1.2, 1.2, 1.2)),   // (a bit bigger: easy to count)   // red helmet; firefighter i = the card's i
       // the kiosk with its ten windows (two rows of five, like the card), a pale frame round each pane: one mesh
       kioskWin: mk((b) => {
@@ -1920,40 +2428,76 @@
     };
     return SGEO;
   }
-  // a tray of slots: 'out' units onto the pavement, 'along' units along the vehicle from its front door, sp apart
-  function tray(out, along, sp, rowSp, y = 0) {
+  // a tray of slots: 'out' units onto the pavement, 'along' units along the vehicle from its front door, sp apart;
+  // stag = how far the second (nearer) row stands to the side, in slots: half a slot puts each thing in the near row
+  // between two in the far row, so both rows read from a low view (like the seats in the bus)
+  function tray(out, along, sp, rowSp, y = 0, stag = 0) {
     const f = doorFrame(false);
-    const fn = (i) => { const r = Math.floor(i / 5), c = i % 5; return new THREE.Vector3(f.d.x + f.ox * (out + r * rowSp) + f.fx * (along - c * sp), GROUND + y, f.d.z + f.oz * (out + r * rowSp) + f.fz * (along - c * sp)); };
+    const fn = (i) => { const r = Math.floor(i / 5), c = i % 5 + r * stag; return new THREE.Vector3(f.d.x + f.ox * (out + r * rowSp) + f.fx * (along - c * sp), GROUND + y, f.d.z + f.oz * (out + r * rowSp) + f.fz * (along - c * sp)); };
+    fn.mid = () => fn(0).lerp(fn(9), 0.5);           // the middle of the whole tray
     fn.f = f; fn.face = Math.atan2(f.ox, f.oz);        // facing the stop camera (out onto the pavement)
     return fn;
   }
-  function scnMesh(geo, pos, rotY, pop) {
-    const m = new THREE.Mesh(geo, BB.mk.mat); m.position.copy(pos); m.rotation.y = rotY || 0; m.name = 'sceneItem';
+  // batch: one of many little things that share a shape (teddies, ice creams, firefighters, cars): they are drawn
+  // together, one instanced mesh per shape (scnBatch), each keeping an empty object of its own that moves as before;
+  // a number instead of true is its size too (the little things a fifth bigger on a phone)
+  function scnMesh(geo, pos, rotY, pop, batch) {
+    const sc = typeof batch === 'number' ? batch : 1;
+    let m = batch ? new THREE.Object3D() : null;
+    if (m && !scnBatchAdd(geo, m)) m = null;           // (a full batch: a mesh of its own)
+    if (!m) m = new THREE.Mesh(geo, BB.mk.mat);
+    m.position.copy(pos); m.rotation.y = rotY || 0; m.name = 'sceneItem';
     BB.scene.add(m);
-    if (pop) { m.scale.setScalar(0.01); tween(0.3, (t) => m.scale.setScalar(Math.max(0.01, t < 0.7 ? t / 0.7 * 1.15 : 1.15 - (t - 0.7) / 0.3 * 0.15))); }
+    if (sc !== 1) m.scale.setScalar(sc);
+    if (pop) { m.scale.setScalar(0.01); tween(0.3, (t) => m.scale.setScalar(sc * Math.max(0.01, t < 0.7 ? t / 0.7 * 1.15 : 1.15 - (t - 0.7) / 0.3 * 0.15))); }
     return m;
+  }
+  const BATCHES = new Map();          // shape -> { mesh (one instanced mesh), list (the things' own objects) }
+  function scnBatchAdd(geo, o) {
+    let b = BATCHES.get(geo);
+    if (!b) { const mesh = new THREE.InstancedMesh(geo, BB.mk.mat, 12); mesh.name = 'sceneItem'; mesh.frustumCulled = false; mesh.count = 0; b = { mesh, list: [] }; BATCHES.set(geo, b); }
+    if (b.list.length >= 12) return false;
+    if (!b.mesh.parent) BB.scene.add(b.mesh);
+    b.list.push(o); o.userData.batch = b;
+    return true;
+  }
+  // every frame: each instance where its thing is (an empty batch leaves the scene)
+  function scnBatchSync() {
+    for (const b of BATCHES.values()) {
+      if (!b.mesh.parent) continue;
+      let n = 0;
+      for (const o of b.list) { if (!o.parent) continue; o.updateMatrixWorld(); b.mesh.setMatrixAt(n++, o.matrixWorld); }
+      b.mesh.count = n;
+      if (n) b.mesh.instanceMatrix.needsUpdate = true; else b.mesh.parent.remove(b.mesh);
+    }
   }
   // (userData.own: this mesh's geometry or instance buffers were made for it alone, so they are freed with it)
   const scnDrop = (m) => {
     if (!m) return;
+    if (m.userData.batch) { const L = m.userData.batch.list, k = L.indexOf(m); if (k >= 0) L.splice(k, 1); m.userData.batch = null; }
     if (m.parent) m.parent.remove(m);
     if (m.userData.own) { if (m.isInstancedMesh) m.dispose(); else m.geometry.dispose(); }
   };
   function scnClear() {
     for (const m of SCN.items.concat(SCN.extra)) scnDrop(m);
-    SCN.items = []; SCN.extra = []; SCN.tick = null; SCN.dry = false;
+    SCN.items = []; SCN.extra = []; SCN.tick = null; SCN.dry = false; SCN.look = [];
+    for (const b of BATCHES.values()) { for (const o of b.list) { o.userData.batch = null; if (o.parent) o.parent.remove(o); } b.list.length = 0; b.mesh.count = 0; if (b.mesh.parent) b.mesh.parent.remove(b.mesh); }
     if (BB.hands) BB.hands.stop();
     if (BB.water) BB.water.clear();
-    if (SCN.target) { delete SCN.target.frame; delete SCN.target.frameKey; delete SCN.target.blockers; SCN.target = null; vcall(['reframe']); }
+    if (SCN.target) { delete SCN.target.frame; delete SCN.target.frameKey; delete SCN.target.frameClose; delete SCN.target.framePitch; delete SCN.target.blockers; SCN.target = null; vcall(['reframe']); }
     SCN.blockers = [];
   }
   J._scnClear = scnClear;
   // ask the scene camera to show these world points too
-  function scnFrame(pts) {
+  // (close = a close-up of just these points, up to `top` high: the vehicle itself may then be out of the picture;
+  // pitch = the least the camera looks down, in degrees: two rows of little things on a tray both show from above)
+  function scnFrame(pts, close, top, pitch) {
     const job = J.current, t = job && job.legs && job.legs[job.index] && job.legs[job.index].to;
     if (!t || !pts.length) return;
-    t.frame = pts.map((p) => ({ x: p.x, y: 0, z: p.z })).concat(pts.map((p) => ({ x: p.x, y: 2.4, z: p.z })));
+    t.frame = pts.map((p) => ({ x: p.x, y: 0, z: p.z })).concat(pts.map((p) => ({ x: p.x, y: top || 2.4, z: p.z })));
     t.frameKey = 'scn' + (++frameNo);
+    t.frameClose = !!close;
+    t.framePitch = +pitch || 0;
     t.blockers = (SCN.blockers || []).slice();      // the scene's big props: the camera mustn't look past them (bus.js)
     SCN.target = t;
     vcall(['reframe']);
@@ -1967,13 +2511,70 @@
     const a = m.position.clone();
     return tween(dur, (t) => { m.position.lerpVectors(a, to, t); m.position.y = a.y + (to.y - a.y) * t + Math.sin(t * Math.PI) * h; });
   }
-  // the things taken away are the last k: target t is thing n - 1 - t
-  const lastOnes = (q, pos, dy) => Array.from({ length: q.k }, (_, t) => { const p = pos(q.n - 1 - t).clone(); p.y += dy; return (out) => out.copy(p); });
+  // Things the child will touch one by one (the bags still to come, the children waiting for a teddy) need room for
+  // a ring each: where the planned view shows a row of them closer together than that, they step apart along their
+  // own line, as far as the screen has room (where it hasn't, the moment shows one ring at a time: hands.js).
+  const _q2 = new THREE.Vector3();
+  function spreadRow(list) {
+    if (list.length < 2 || !BB.hands || !BB.hands.size) return;
+    const T = BB.hands.size() + 4, cam = viewCam(), W = innerWidth, H = innerHeight;
+    const px = (p) => { _v.copy(p).project(cam); return (_v.x + 1) / 2 * W; }, py = () => (1 - _v.y) / 2 * H;
+    const a = list[0].position;
+    let mn = 1e9;
+    for (let i = 1; i < list.length; i++) { const x1 = px(list[i].position), y1 = py(), x0 = px(list[i - 1].position), y0 = py(); mn = Math.min(mn, hypot2(x1 - x0, y1 - y0)); }
+    if (mn >= T) return;
+    let f = Math.min(2.6, T / Math.max(8, mn));
+    // (not off the screen, not behind the card on a phone)
+    const c = document.querySelector('.bbq'), cr = c ? c.getBoundingClientRect() : null;
+    const x0 = (H <= 520 ? (cr ? cr.right : 345) : 0) + T / 2 + 2, x1 = W - T / 2 - 2;
+    for (let tries = 0; tries < 8 && f > 1.03; tries++) {
+      let fits = true;
+      for (let i = 1; i < list.length && fits; i++) { const p = list[i].position; const x = px(_q2.set(a.x + (p.x - a.x) * f, p.y, a.z + (p.z - a.z) * f)); if (x < x0 || x > x1) fits = false; }
+      if (fits) break;
+      f = 1 + (f - 1) * 0.75;
+    }
+    if (f <= 1.03) return;
+    for (let i = 1; i < list.length; i++) {
+      const m = list[i], bx = m.position.x, bz = m.position.z, tx = a.x + (bx - a.x) * f, tz = a.z + (bz - a.z) * f;
+      tween(0.3, (t) => { m.position.x = bx + (tx - bx) * t; m.position.z = bz + (tz - bz) * t; });
+    }
+  }
+  // "Tap the fire engine", "tap the van": the whole vehicle is the target (its body's box on screen), and the hand
+  // taps the spot the things come out of
+  const rideTarget = (at) => (typeof BB.bus.bodyBox === 'function' ? { at: (out) => out.copy(at), box: BB.bus.bodyBox([]) } : (out) => out.copy(at));
+  // Taking away: the last k things can be touched, in any order, and the ones left always fill the first places,
+  // like the card's pictures: when one is taken from the middle of those k, the last one left steps into its place
+  // (and the card's pictures swap with them), so neither the tray nor the card ever shows a gap in the middle.
+  // targets: one per thing (its ring follows it); place(t): where target t's thing stands now; take(j, t): the j-th
+  // one taken is target t's thing: makes the move and returns the place that empties (the last one left), which then
+  // holds the thing taken. slide = how the one left moves over (cars roll, bags and ice creams hop).
+  function takeAway(q, slot, dy, slide) {
+    const where = Array.from({ length: q.k }, (_, t) => q.n - 1 - t);
+    return {
+      targets: where.map((_, t) => (out) => { out.copy(slot(where[t])); out.y += dy; return out; }),
+      place: (t) => where[t],
+      take(j, t) {
+        const i = where[t], last = q.n - 1 - j;
+        if (i !== last) {
+          const mv = SCN.items[last]; SCN.items[last] = SCN.items[i]; SCN.items[i] = mv;
+          const a = SCN.look[i] != null ? SCN.look[i] : i; SCN.look[i] = SCN.look[last] != null ? SCN.look[last] : last; SCN.look[last] = a;
+          for (let u = 0; u < where.length; u++) if (where[u] === last) where[u] = i;
+          if (mv) { if (slide) { const a0 = mv.position.clone(), to = slot(i); tween(0.5, (k) => { mv.position.lerpVectors(a0, to, 1 - (1 - k) * (1 - k)); }); } else scnHop(mv, slot(i), 0.5, 0.4); }
+          cardPic(i); cardPic(last);
+        }
+        return last;
+      },
+    };
+  }
   function yardScene(lot = 'the yard') {
     const G = sceneGeos(), slot = tray(3.8, -1.5, 2.5, 4.6);
-    const make = (i, pop) => scnMesh(G.cars[i % 5], slot(i), slot.face, pop);
-    // the cars still to come wait in a short queue just ahead of the spaces
-    const queue = (j) => kerbSpot(3.8 + Math.floor(j / 3) * 4.6, 1.5 + (j % 3) * 2.3, false);
+    const make = (i, pop) => scnMesh(G.cars[i % 5], slot(i), slot.face, pop, true);
+    // the cars still to come queue up ahead of the spaces, turned the other way (nose toward the car park, as if
+    // driving in), with a wide gap before the parked ones, so they never read as part of the parked row: two in a
+    // line, the next two in a nearer line between them (each car a ring apart on screen), three in a line past four
+    let per = 2;
+    const queue = (j) => { const r = Math.floor(j / per); return kerbSpot(3.8 + r * 2.9, 4.6 + (j % per) * 4.6 + (r % 2) * 2.3, false); };
+    const queueFace = Math.atan2(-slot.f.fx, -slot.f.fz);
     let coming = [];
     const S = {
       show(n) { while (SCN.items.length < n) SCN.items.push(make(SCN.items.length, false)); },
@@ -1990,47 +2591,54 @@
       prep(q) {
         coming = [];
         if (q.kind !== 'add') return;
-        for (let j = 0; j < q.k; j++) { const m = make(q.n + j, true); m.position.copy(queue(j)); m.rotation.y = Math.atan2(-slot.f.fx, -slot.f.fz); coming.push(m); SCN.extra.push(m); }
+        per = q.k > 4 ? 3 : 2;
+        for (let j = 0; j < q.k; j++) { const m = make(q.n + j, true); m.position.copy(queue(j)); m.rotation.y = queueFace; coming.push(m); SCN.extra.push(m); }
       },
       hands(q, step) {
         if (q.kind === 'add') {
-          const drop = slot(q.n);
-          return { kind: 'drag', count: q.k, plane: GROUND, say: `Drive ${pl(q.k, 'more car', 'more cars')} into ${lot}!`, hint: 'Tap a car, or drag it to the green ring!',
-            targets: coming.map((m) => (out) => { out.copy(m.position); out.y += 0.8; return out; }), drop: (out) => out.copy(drop),
+          return { kind: 'drag', count: q.k, plane: GROUND, say: `Park ${pl(q.k, 'more car', 'more cars')}!`, hint: 'Tap a car, or pull it to the green ring!',
+            targets: coming.map((m) => (out) => { out.copy(m.position); out.y += 0.8; return out; }), drop: (out, idx, j) => out.copy(slot(q.n + j)),
             drag: (idx, p) => { if (p) coming[idx].position.set(p.x, GROUND, p.z); },
-            bubble: (j, idx, out) => { out.copy(slot(q.n + idx)); out.y += 1.9; },
+            bubble: (j, idx, out) => { out.copy(slot(q.n + j)); out.y += 1.9; },
             act: (j, idx) => {
-              const m = coming[idx], i = q.n + idx, a = m.position.clone(), to = slot(i);
-              SCN.extra = SCN.extra.filter((x) => x !== m); SCN.items[i] = m; step(i);
+              const m = coming[idx], i = q.n + j, a = m.position.clone(), to = slot(i);
+              SCN.extra = SCN.extra.filter((x) => x !== m); SCN.items[i] = m; SCN.look[i] = q.n + idx; step(i);
               m.rotation.y = Math.atan2(to.x - a.x, to.z - a.z);
               return tween(0.8, (t) => { const e = 1 - (1 - t) * (1 - t); m.position.lerpVectors(a, to, e); if (t >= 1) m.rotation.y = slot.face; });
             } };
         }
-        return { kind: 'tap', count: q.k, say: `Tap ${pl(q.k, 'car', 'cars')} to send ${plural(q.k, 'it', 'them')} home!`, hint: 'Tap a glowing car!',
-          targets: lastOnes(q, slot, 0.8), act: (j, t) => { const i = q.n - 1 - t; step(i); S.remove(i); } };
+        const ta = takeAway(q, slot, 0.8, true);
+        return { kind: 'tap', count: q.k, say: `Tap ${pl(q.k, 'car', 'cars')} to send ${plural(q.k, 'it', 'them')} home!`, hint: 'Tap a car!',
+          targets: ta.targets, act: (j, t) => { const i = ta.take(j, t); step(i); S.remove(i); } };
       },
       // (the cars stand between the camera and the truck: the camera looks over them, not through them)
       points: (c) => { const pts = Array.from({ length: Math.max(1, c) }, (_, i) => slot(i)); SCN.blockers = pts.map((p) => ({ x: p.x, z: p.z, hw: 0.95, hd: 1.9, ry: slot.face, y0: 0, top: GROUND + 1.75 }));
-        return pts.concat(pts.map((p) => p.clone().add(new THREE.Vector3(slot.f.ox * 1.9, 0, slot.f.oz * 1.9))), coming.map((m) => m.position.clone().add(new THREE.Vector3(slot.f.fx * 2.2, 0, slot.f.fz * 2.2)))); },   // (and their far ends)
+        return pts.concat(pts.map((p) => p.clone().add(new THREE.Vector3(slot.f.ox * 1.9, 0, slot.f.oz * 1.9))), coming.map((m) => m.position.clone().add(new THREE.Vector3(slot.f.fx * 2.0 + slot.f.ox * 1.0, 0, slot.f.fz * 2.0 + slot.f.oz * 1.0)))); },   // (and their far ends)
     };
     return S;
   }
   function bagScene() {
-    const G = sceneGeos(), slot = tray(2.5, -2.2, 0.85, 0.95), from = kerbSpot(3.2, 2.0, false);
-    const make = (i, pop) => scnMesh(G.bags[i % 10], slot(i), slot.face, pop);
+    const G = sceneGeos(), slot = tray(2.5, -2.2, 0.95, 1.3, 0, 0.5), from = kerbSpot(3.2, 2.0, false);
+    const make = (i, pop) => scnMesh(G.bags[i % 10], slot(i), slot.face, pop, innerHeight <= 520 ? 1.2 : false);
     // the bags still to come stand in a little row by the family
     const pile = (j) => kerbSpot(3.2 + Math.floor(j / 5) * 1.0, 1.0 + (j % 5) * 1.0, false);
     let coming = [];
     const S = {
+      pitch: 26,          // (from a little above, the near row a long step nearer and between the far one's things: both rows read)
       show(n) { while (SCN.items.length < n) SCN.items.push(make(SCN.items.length, false)); },
       add(i) {          // swung from the family into the boot
         const m = make(i, false), to = slot(i); m.position.copy(from); SCN.items[i] = m;
         tween(0.7, (t) => { m.position.lerpVectors(from, to, t); m.position.y = GROUND + Math.sin(t * Math.PI) * 1.6; });
       },
-      remove(i) {       // lifted out onto the pavement
+      remove(i) {       // carried home: lifted out onto the pavement, then it hops off along it and is gone (so the
+                        // bags left by the taxi are the only ones there to count)
         const m = SCN.items[i]; if (!m) return; SCN.items[i] = null; SCN.extra.push(m);
-        const a = m.position.clone(), to = a.clone().add(new THREE.Vector3(slot.f.ox * 2.2, 0, slot.f.oz * 2.2));
-        tween(0.6, (t) => { m.position.lerpVectors(a, to, t); m.position.y = GROUND + Math.sin(t * Math.PI) * 1.0; });
+        const a = m.position.clone(), to = a.clone().add(new THREE.Vector3(slot.f.ox * 1.8, 0, slot.f.oz * 1.8));
+        const away = to.clone().add(new THREE.Vector3(slot.f.ox * 2.5 - slot.f.fx * 4, 0, slot.f.oz * 2.5 - slot.f.fz * 4));
+        return tween(0.55, (t) => { m.position.lerpVectors(a, to, t); m.position.y = GROUND + Math.sin(t * Math.PI) * 1.0; })
+          .then(() => wait(250))
+          .then(() => tween(0.75, (t) => { m.position.lerpVectors(to, away, t); m.position.y = GROUND + Math.abs(Math.sin(t * Math.PI * 3)) * 0.35; m.scale.setScalar(Math.max(0.01, 1 - t * t)); }))
+          .then(() => { SCN.extra = SCN.extra.filter((x) => x !== m); scnDrop(m); });
       },
       prep(q) {
         coming = [];
@@ -2039,31 +2647,33 @@
       },
       hands(q, step) {
         if (q.kind === 'add') {
-          const drop = slot(q.n); drop.y += 0.4;
-          return { kind: 'drag', count: q.k, plane: GROUND + 0.4, say: `Put ${pl(q.k, 'more bag', 'more bags')} by the taxi!`, hint: 'Tap a bag, or drag it to the green ring!',
-            targets: coming.map((m) => (out) => { out.copy(m.position); out.y += 0.4; return out; }), drop: (out) => out.copy(drop),
+          spreadRow(coming);
+          return { kind: 'drag', count: q.k, plane: GROUND + 0.4, say: `Put ${pl(q.k, 'more bag', 'more bags')} by the taxi!`, hint: 'Tap a bag, or pull it to the green ring!',
+            targets: coming.map((m) => (out) => { out.copy(m.position); out.y += 0.4; return out; }), drop: (out, idx, j) => { out.copy(slot(q.n + j)); out.y += 0.4; return out; },
             drag: (idx, p) => { if (p) coming[idx].position.set(p.x, GROUND + 0.45, p.z); },
-            bubble: (j, idx, out) => { out.copy(slot(q.n + idx)); out.y += 1.0; },
-            act: (j, idx) => { const m = coming[idx], i = q.n + idx; SCN.extra = SCN.extra.filter((x) => x !== m); SCN.items[i] = m; step(i); return scnHop(m, slot(i), 1.2, 0.55); } };
+            bubble: (j, idx, out) => { out.copy(slot(q.n + j)); out.y += 1.0; },
+            act: (j, idx) => { const m = coming[idx], i = q.n + j; SCN.extra = SCN.extra.filter((x) => x !== m); SCN.items[i] = m; SCN.look[i] = q.n + idx; step(i); return scnHop(m, slot(i), 1.2, 0.55); } };
         }
-        return { kind: 'tap', count: q.k, say: `Tap ${pl(q.k, 'bag', 'bags')} to carry home!`, hint: 'Tap a glowing bag!',
-          targets: lastOnes(q, slot, 0.4), act: (j, t) => { const i = q.n - 1 - t; step(i); S.remove(i); } };
+        const ta = takeAway(q, slot, 0.4, false);
+        return { kind: 'tap', count: q.k, say: `Tap ${pl(q.k, 'bag', 'bags')} to carry home!`, hint: 'Tap the glowing bag!',
+          targets: ta.targets, act: (j, t) => { const i = ta.take(j, t); step(i); S.remove(i); } };
       },
       points: (c) => Array.from({ length: Math.max(1, c) }, (_, i) => slot(i)).concat([from], coming.map((m) => m.position.clone())),
     };
     return S;
   }
   function teddyScene() {
-    const G = sceneGeos(), slot = tray(2.7, -0.9, 0.8, 0.85, 0.5);
+    const G = sceneGeos(), slot = tray(2.7, -0.9, 0.95, 1.3, 0.5, 0.5);
     if (!SCN.extra.some((m) => m.userData.kit)) {        // the kit box under the teddies
-      const c = slot(2).clone().add(new THREE.Vector3(slot.f.ox * 0.42, -0.5, slot.f.oz * 0.42));
+      const c = slot.mid(); c.y -= 0.5;
       const kit = scnMesh(G.kit, c, Math.atan2(slot.f.fx, slot.f.fz) + Math.PI / 2, false); kit.userData.kit = true; SCN.extra.push(kit);
     }
-    const make = (i, pop) => scnMesh(G.teddy, slot(i), slot.face, pop);
+    const make = (i, pop) => scnMesh(G.teddy, slot(i), slot.face, pop, innerHeight <= 520 ? 1.2 : true);
     // the teddies still to go in sit on the pavement beside the kit
     const pile = (j) => kerbSpot(3.1 + Math.floor(j / 5) * 0.9, 0.5 + (j % 5) * 0.9, false);
     let coming = [], kids = [];
     const S = {
+      pitch: 26,          // (from a little above, the near row a long step nearer and between the far one's things: both rows read)
       show(n) { while (SCN.items.length < n) SCN.items.push(make(SCN.items.length, false)); },
       add(i) { SCN.items[i] = make(i, true); },
       remove(i, kid) {       // a teddy hops off to a child
@@ -2081,40 +2691,42 @@
         clearWaiting();
         for (let j = 0; j < q.k; j++) {
           const m = person(BB.randInt(0, 7), { kid: true });
-          m.position.copy(kerbSpot(3.0 + (j % 2) * 0.9, 1.0 + j * 0.85, false)); m.rotation.y = slot.face; m.userData.seed = Math.random() * 6;
+          m.position.copy(kerbSpot(3.1, 1.0 + j * 1.15, false)); m.rotation.y = slot.face; m.userData.seed = Math.random() * 6;   // one row, well apart
           J.waiting.push(m); kids.push(m);
         }
       },
       hands(q, step) {
         if (q.kind === 'add') {
-          const drop = slot(q.n);
-          return { kind: 'drag', count: q.k, plane: GROUND + 0.4, say: `Pop ${pl(q.k, 'more teddy bear', 'more teddy bears')} into the kit!`, hint: 'Tap a teddy bear, or drag it to the green ring!',
-            targets: coming.map((m) => (out) => { out.copy(m.position); out.y += 0.5; return out; }), drop: (out) => out.copy(drop),
+          spreadRow(coming);
+          return { kind: 'drag', count: q.k, plane: GROUND + 0.4, say: `Put ${pl(q.k, 'more teddy bear', 'more teddy bears')} in the kit!`, hint: 'Tap a teddy bear, or pull it to the green ring!',
+            targets: coming.map((m) => (out) => { out.copy(m.position); out.y += 0.5; return out; }), drop: (out, idx, j) => out.copy(slot(q.n + j)),
             drag: (idx, p) => { if (p) coming[idx].position.set(p.x, GROUND + 0.4, p.z); },
-            bubble: (j, idx, out) => { out.copy(slot(q.n + idx)); out.y += 1.2; },
-            act: (j, idx) => { const m = coming[idx], i = q.n + idx; SCN.extra = SCN.extra.filter((x) => x !== m); SCN.items[i] = m; step(i); return scnHop(m, slot(i), 1.1, 0.55); } };
+            bubble: (j, idx, out) => { out.copy(slot(q.n + j)); out.y += 1.2; },
+            act: (j, idx) => { const m = coming[idx], i = q.n + j; SCN.extra = SCN.extra.filter((x) => x !== m); SCN.items[i] = m; SCN.look[i] = q.n + idx; step(i); return scnHop(m, slot(i), 1.1, 0.55); } };
         }
-        return { kind: 'tap', count: q.k, say: plural(q.k, 'Tap the child to give a teddy bear!', 'Tap each child to give a teddy bear!'), hint: 'Tap a waving child!',
-          targets: kids.map((m) => (out) => { out.copy(m.position); out.y = GROUND + 1.0; return out; }),
-          bubble: (j, t, out) => { out.copy(kids[t].position); out.y = GROUND + 2.0; },
+        spreadRow(kids);
+        return { kind: 'tap', count: q.k, say: `Tap ${pl(q.k, 'child', 'children')} to give a teddy bear!`, hint: 'Tap a child!',
+          targets: kids.map((m) => ({ at: (out) => { out.copy(m.position); out.y = GROUND + 0.85; return out; }, feet: (out) => { out.copy(m.position); out.y = GROUND; return out; } })),
+          bubble: (j, t, out) => { out.copy(kids[t].position); out.y = GROUND + 1.75; },
           act: (j, t) => { const i = q.n - 1 - j; step(i); return S.remove(i, kids[t]); } };
       },
-      points: (c) => Array.from({ length: Math.max(1, c) }, (_, i) => slot(i)).concat(coming.map((m) => m.position.clone()), kids.map((m) => m.position.clone())),
+      points: () => Array.from({ length: 10 }, (_, i) => slot(i)).concat(coming.map((m) => m.position.clone()), kids.map((m) => m.position.clone())),   // (the whole kit)
     };
     return S;
   }
   // the ice cream van's stand: two rows of five ice creams (like the card's ten-frame); a sold one goes to the next
   // child in the queue (who hops with joy), a new one pops on
   function iceScene() {
-    const G = sceneGeos(), slot = tray(2.7, -0.9, 0.8, 0.85, 0.5);
+    const G = sceneGeos(), slot = tray(2.7, -0.9, 0.95, 1.3, 0.5, 0.5);
     if (!SCN.extra.some((m) => m.userData.stand)) {
-      const c = slot(2).clone().add(new THREE.Vector3(slot.f.ox * 0.42, -0.5, slot.f.oz * 0.42));
+      const c = slot.mid(); c.y -= 0.5;
       const st = scnMesh(G.stand, c, Math.atan2(slot.f.fx, slot.f.fz) + Math.PI / 2, false); st.userData.stand = true; SCN.extra.push(st);
     }
-    const make = (i, pop) => scnMesh(G.creams[i % 4], slot(i), slot.face, pop);
+    const make = (i, pop) => scnMesh(G.creams[i % 4], slot(i), slot.face, pop, innerHeight <= 520 ? 1.2 : true);
     const hatchP = new THREE.Vector3(slot.f.d.x + slot.f.ox * 0.2, GROUND + 1.55, slot.f.d.z + slot.f.oz * 0.2);   // the serving hatch
     let served = 0;
     const S = {
+      pitch: 26,          // (from a little above, the near row a long step nearer and between the far one's things: both rows read)
       show(n) { while (SCN.items.length < n) SCN.items.push(make(SCN.items.length, false)); },
       add(i) { SCN.items[i] = make(i, true); },
       remove(i) {
@@ -2127,20 +2739,21 @@
       hands(q, step) {
         if (q.kind === 'add') {       // each tap on the van makes one more: it comes out of the hatch and hops onto the stand
           return { kind: 'tap', count: q.k, repeat: true, say: `Tap the van to make ${pl(q.k, 'more ice cream', 'more ice creams')}!`, hint: 'Tap the ice cream van!',
-            targets: [(out) => out.copy(hatchP)],
+            targets: [rideTarget(hatchP)],
             bubble: (j, idx, out) => { out.copy(slot(q.n + j)); out.y += 1.2; },
             act: (j) => { const i = q.n + j, m = make(i, true); m.position.copy(hatchP); SCN.items[i] = m; step(i); jingle(); return scnHop(m, slot(i), 0.9, 0.6); } };
         }
-        // one ice cream for each child in the queue
-        const kidP = new THREE.Vector3();
-        return { kind: 'drag', count: q.k, plane: GROUND + 0.9, say: plural(q.k, 'Give the child an ice cream!', 'Give each child an ice cream!'), hint: 'Tap an ice cream, or drag it to a child!',
-          targets: lastOnes(q, slot, 0.45),
-          drop: (out) => { const kid = J.waiting[Math.min(served, J.waiting.length - 1)]; if (kid) { kidP.copy(kid.position); kidP.y = GROUND + 1.1; } return out.copy(kidP); },
-          drag: (t, p) => { const m = SCN.items[q.n - 1 - t]; if (m && p) m.position.set(p.x, GROUND + 0.9, p.z); },
-          bubble: (j, t, out) => { const kid = J.waiting[Math.min(j, J.waiting.length - 1)]; if (kid) { out.copy(kid.position); out.y = GROUND + 2.0; } else out.copy(slot(q.n - 1 - t)); },
-          act: (j, t) => { const i = q.n - 1 - t; step(i); return S.remove(i); } };
+        // one ice cream for each child in the queue (who step apart where the view shows them in a clump)
+        spreadRow(J.waiting);
+        const kidP = new THREE.Vector3(), ta = takeAway(q, slot, 0.45, false);
+        return { kind: 'drag', count: q.k, plane: GROUND + 0.9, say: `Give ${pl(q.k, 'child', 'children')} an ice cream!`, hint: 'Tap an ice cream, or pull it to a child!',
+          targets: ta.targets,
+          dropFlat: true, drop: (out) => { const kid = J.waiting[Math.min(served, J.waiting.length - 1)]; if (kid) { kidP.copy(kid.position); kidP.y = GROUND; } return out.copy(kidP); },
+          drag: (t, p) => { const m = SCN.items[ta.place(t)]; if (m && p) m.position.set(p.x, GROUND + 0.9, p.z); },
+          bubble: (j, t, out) => { const kid = J.waiting[Math.min(j, J.waiting.length - 1)]; if (kid) { out.copy(kid.position); out.y = GROUND + 2.0; } else out.copy(slot(ta.place(t))); },
+          act: (j, t) => { const i = ta.take(j, t); step(i); return S.remove(i); } };
       },
-      points: (c) => Array.from({ length: Math.max(1, c) }, (_, i) => slot(i)).concat(J.waiting.map((k) => k.position)),
+      points: () => Array.from({ length: 10 }, (_, i) => slot(i)).concat(J.waiting.map((k) => k.position)),   // (the whole stand)
     };
     return S;
   }
@@ -2163,7 +2776,9 @@
     const kiosk = scnMesh(G.kioskWin, base, face, false); SCN.extra.push(kiosk);
     SCN.blockers = [{ x: base.x, z: base.z, hw: 3.6, hd: 1.7, ry: face, y0: 0, top: GROUND + 4.4 }];
     const wins = [];              // the middle of each window pane
-    for (let i = 0; i < 10; i++) { const r = Math.floor(i / 5), side = (i % 5 - 2) * 1.25; wins.push(new THREE.Vector3(base.x + f.ox * 1.6 + f.fx * side, GROUND + (r ? 1.25 : 2.55) + 0.42, base.z + f.oz * 1.6 + f.fz * side)); }
+    // (window 0 at the top left as the camera sees it, like picture 0 on the card: the camera looks from the pavement
+    // side, so the front of the vehicle is to the left)
+    for (let i = 0; i < 10; i++) { const r = Math.floor(i / 5), side = (2 - i % 5) * 1.25; wins.push(new THREE.Vector3(base.x + f.ox * 1.6 + f.fx * side, GROUND + (r ? 1.25 : 2.55) + 0.42, base.z + f.oz * 1.6 + f.fz * side)); }
     // smoke: a puff out of each smoky window, billowing; it shrinks away when the window is sprayed clear
     const sm = new THREE.InstancedMesh(G.smoke, BB.mk.mat, 10); sm.name = 'sceneItem'; sm.frustumCulled = false; sm.userData.own = true;
     BB.scene.add(sm); SCN.extra.push(sm);
@@ -2198,7 +2813,7 @@
       }
       hose = b.mesh(); hose.name = 'sceneItem'; hose.userData.own = true; BB.scene.add(hose); SCN.extra.push(hose);
     }
-    const fighter = (i, pop) => scnMesh(G.fighters[i % 5], slots[i], fdir, pop);
+    const fighter = (i, pop) => scnMesh(G.fighters[i % 5], slots[i], fdir, pop, true);
     const arrive = (i) => { ready[i] = true; hoses(); };
     // where firefighter i sprays when nobody aims: its own patch of the wall above the windows, swaying a little
     function restAt(i, out) {
@@ -2246,7 +2861,7 @@
         hands(q, step) {          // each tap on the engine calls one more firefighter out: they run to their place and spray
           const doorP = new THREE.Vector3(f.d.x + f.ox * 0.3, GROUND + 1.5, f.d.z + f.oz * 0.3), from = new THREE.Vector3(f.d.x + f.ox * 0.8, GROUND, f.d.z + f.oz * 0.8);
           return { kind: 'tap', count: q.k, repeat: true, say: `Tap the fire engine to call ${pl(q.k, 'more firefighter', 'more firefighters')}!`, hint: 'Tap the fire engine!',
-            targets: [(out) => out.copy(doorP)],
+            targets: [rideTarget(doorP)],
             bubble: (j, idx, out) => { out.copy(slots[q.n + j]); out.y += 2.9; },
             act: (j) => {
               const i = q.n + j, m = fighter(i, true); m.position.copy(from); SCN.items[i] = m; step(i);
@@ -2263,13 +2878,25 @@
         prep() {},
         hands(q, step) {          // the child points the water at the glowing windows
           aimQ = q; restAt(Math.max(0, ready.indexOf(true)), aimP);
-          return { kind: 'aim', count: q.k, say: `Spray ${pl(q.k, 'window', 'windows')}! Point the water at the glowing ${plural(q.k, 'one', 'ones')}!`, hint: 'Touch a glowing window!',
+          return { kind: 'aim', count: q.k, say: `Spray ${pl(q.k, 'smoky window', 'smoky windows')}!`, hint: 'Touch a glowing window!',
             targets: Array.from({ length: q.k }, (_, t) => (out) => out.copy(wins[q.n - 1 - t])),
-            aim: (x, y) => { const p = BB.hands.ray(x, y).intersectPlane(wall, _a); if (p) { clampAim(p); aimOn = true; } },
+            // (a finger near a glowing window means that window: the water goes right onto it, so a small finger on a
+            // small screen needn't be exact; anywhere else the water just follows the finger)
+            aim: (x, y) => {
+              const p = BB.hands.ray(x, y).intersectPlane(wall, _a); if (!p) return;
+              let best = -1, bd = 0.95 * 0.95;
+              for (let t = 0; t < q.k; t++) { const i = q.n - 1 - t; if (!(want[i] > 0)) continue; const d = p.distanceToSquared(wins[i]); if (d < bd) { bd = d; best = i; } }
+              if (best >= 0) aimP.copy(wins[best]); else clampAim(p);
+              aimOn = true;
+            },
             auto: (t) => { aimP.copy(wins[q.n - 1 - t]); aimOn = true; },
             act: (j, t) => { const i = q.n - 1 - t; want[i] = 0; step(i); BB.sfx.whoosh(); } };
         },
-        points: () => ends.concat(slots.filter((s, i) => ready[i])),
+        // a close-up of the kiosk: the windows are what is counted and sprayed here, so they are shown big, with
+        // the firefighters nearest the kiosk whole beside it (two on a tablet, one on a phone), so nobody looms half
+        // cut off in front; the others and the engine as far as the picture reaches
+        close: true, top: 4.4,
+        points: () => ends.concat(slots.filter((s, i) => ready[i]).slice(0, innerHeight <= 520 ? 1 : 2)),
       },
       // the water sweeps over the windows still smoking, one after another
       async sweep(ok) {
@@ -2380,21 +3007,24 @@
     const L = [];
     const carry = { bags: null, teddies: null };
     if (kind === 'taxi') {
-      const fam = BB.randInt(1, 4);
-      L.push({ to: spot, start: `Taxi job! A family is waiting${where(spot)}. Let's go!`, run: async (ok) => {
-        await say(plural(fam, 'Hello, taxi! In I get!', 'Hello, taxi! In we get!')); if (!ok()) return;
-        hatch(true); await hopIn(fam); if (!ok()) return;
+      // a family, or now and then (about one taxi job in three) a passenger friend with their bags
+      // (a grown-up friend: the children don't take a taxi on their own; they wave and say hello once they're in view)
+      const fr = Math.random() < 0.35 ? pickFriend(true) : null, fam = fr ? 1 : BB.randInt(1, 4), who = fr ? friendStyle(fr) : null;
+      const riders = fr ? fr.name : 'the family';
+      L.push({ to: spot, start: fr ? `Taxi job! ${fr.name} is waiting${where(spot)}. Let's go!` : `Taxi job! A family is waiting${where(spot)}. Let's go!`, run: async (ok) => {
+        hatch(true);
+        await hopIn(fam, who, async () => { await say(fr ? friendHello(fr, true) : plural(fam, 'Hello, taxi! In I get!', 'Hello, taxi! In we get!')); }); if (!ok()) return;
         const q = legQ('add', null, WORDS.bagsIn, 'bags'); q.scene = bagScene(); await askScene(q); carry.bags = q.answer; hatch(false);
       } });
       const home = legTo(spot, spots('picnic'), [spot]);
-      L.push({ to: home, go: 'Now take the family home!', run: async (ok) => {
+      L.push({ to: home, go: `Now take ${riders} home!`, run: async (ok) => {
         hatch(true);
         const qb = legQ('sub', carry.bags, WORDS.bagsIn, 'bags'); qb.scene = bagScene(); await askScene(qb); if (!ok()) return;
-        hatch(false); hopOut(fam); await say('Thank you, taxi! Bye bye!');
+        hatch(false); hopOut(fam, who); await say(fr ? (fr.taxi ? fr.taxi[1] : fr.bye) : 'Thank you, taxi! Bye bye!');
       } });
     } else if (kind === 'fire') {
       const station = place('fireStation');      // (the drive back only when the station is just down the road)
-      L.push({ to: spot, start: `Fire engine! There's smoke${where(spot)}! Siren on, let's go!`, onGo: () => siren(true), run: async (ok) => {
+      L.push({ to: spot, start: BB.pick([`Fire engine! There's smoke${where(spot)}! Siren on, let's go!`, `Nee naw, nee naw! Smoke${where(spot)}! Let's go, fire engine!`]), onGo: () => siren(true), run: async (ok) => {
         const subOk = LEVELS[level()].sub > 0, qw = subOk ? legQ('sub', null, WORDS.windows, 'window') : null;
         const fs = fireScene(qw ? qw.n : 4);
         await say("We're here! Ladder up!"); ladder(true); if (!ok()) return;
@@ -2413,24 +3043,28 @@
       if (isNear(spot, station)) L.push({ to: station, go: 'Back to the fire station!', run: async () => { await say('Thank you, firefighters!'); } });
     } else if (kind === 'ambulance') {
       // the clinic when it's just down the road, else Auntie goes home after her check-up in the ambulance
+      // the patient is one of the passenger friends (a bumped knee, nothing worse), so the ambulance meets them too
       const clinic = place('clinic'), toClinic = isNear(spot, clinic), dest = toClinic ? clinic : legTo(spot, spots('picnic'), [spot]);
-      const auntie = { geo: (FRIENDS[2].geo || (FRIENDS[2].geo = friendGeo(FRIENDS[2].look))) };
-      L.push({ to: spot, start: `Ambulance! Auntie hurt her knee. She's waiting${where(spot)}. Let's go!`, onGo: () => siren(true), run: async (ok) => {
+      const pf = pickFriend(), patient = { geo: pf.geo || (pf.geo = friendGeo(pf.look)), lookData: pf.look, kid: !!pf.look.kid };
+      L.push({ to: spot, start: `Ambulance! ${pf.name} bumped a knee and is waiting${where(spot)}. Let's go!`, onGo: () => siren(true), run: async (ok) => {
         siren(false);
-        await say('Hello, Auntie! Hop in! We have teddy bears for brave children.'); if (!ok()) return;
-        await hopIn(1, auntie); if (!ok()) return;
+        // (the patient waits at the kerb, in view, while the crew says hello; then hops in)
+        await hopIn(1, patient, async () => {
+          const first = meetFriend(pf.id);
+          await say(`${first ? `Hello, ${pf.name}! Nice to meet you!` : `Hello again, ${pf.name}!`} Hop in! We have teddy bears for brave children.`);
+        }); if (!ok()) return;
         const q = legQ('add', null, WORDS.teddies, 'teddy'); q.scene = teddyScene(); await askScene(q); carry.teddies = q.answer;
       } });
-      L.push({ to: dest, go: toClinic ? 'Off to the clinic!' : "Auntie's knee is better! Let's take her home!", run: async (ok) => {
+      L.push({ to: dest, go: toClinic ? 'Off to the clinic!' : `The knee is better! Let's take ${pf.name} home!`, run: async (ok) => {
         const qt = legQ('sub', carry.teddies, (q0) => WORDS.teddies(q0, toClinic ? ' at the clinic' : ' nearby'), 'teddy'); qt.scene = teddyScene(); await askScene(qt); if (!ok()) return;
         for (const m of J.waiting.splice(0)) { m.userData.jump = 1; J.extras.push(m); BB.later(900, () => walkAway(m)); }   // the children, each with a teddy
-        hopOut(1, auntie); await say('All better! Thank you!');
+        hopOut(1, patient); await say(`All better! Thank you, ambulance!`);
       } });
     } else if (kind === 'icecream') {
       // children wait at the van's own stops nearby (by the park, the swings and the seaside more often)
       const pool = spots('icecream'), fun = (t) => (/park|beach|swings|seaside/i.test((t.say || '') + ' ' + (t.near || '') + ' ' + (t.id || '')) ? 3 : 1);
       const park = legTo(from0, pool, [], fun), beach = legTo(park, pool, [park], fun);
-      L.push({ to: park, start: `Ice cream van! Let's go to ${sayOf(park)}!`, run: async (ok) => {
+      L.push({ to: park, start: BB.pick([`Ice cream van! Let's go to ${sayOf(park)}!`, `Ding-a-ling! The children at ${sayOf(park)} want ice cream!`]), run: async (ok) => {
         // exactly as many children queue as buy one (each takes an ice cream off the stand)
         const q = legQ('sub', null, WORDS.sold, 'icecream'); q.scene = iceScene();
         jingle(); queueKids(q.kind === 'sub' ? q.k : 2); hatch(true);
@@ -2450,7 +3084,7 @@
     } else if (kind === 'tow') {
       // the depot yard when it's just down the road, else the car park nearby (the cars are drawn beside the truck)
       const toDepot = isNear(spot, W.depot), yard = toDepot ? W.depot : legTo(spot, spots('yard'), [spot], null, tagged('yard2')), lot = toDepot ? 'the yard' : 'the car park';
-      L.push({ to: spot, start: `Tow truck! A car has broken down${where(spot)}. Let's help!`, run: async (ok) => {
+      L.push({ to: spot, start: BB.pick([`Tow truck! A car has broken down${where(spot)}. Let's help!`, `Tow truck! A little car has a flat tyre${where(spot)}. Let's help!`]), run: async (ok) => {
         const car = brokenCar();
         if (!(BB.bus.has && BB.bus.has('hook')) || vcall(['hookOn', 'hookCar'], car) === undefined) {
           // no hook helper: the car is lifted behind the truck
@@ -2458,6 +3092,12 @@
           car.position.set(0, 0.35, -5.2); car.rotation.set(0.12, 0, 0); BB.bus.front.add(car);
         }
         BB.sfx.pop();
+        // (the stop view shows the hooked car too, all the way up: it hangs behind the truck)
+        try {
+          car.updateWorldMatrix(true, false);
+          const cp = car.getWorldPosition(new THREE.Vector3()), f = doorFrame(false);
+          scnFrame([-2.4, 0, 2.4].map((a) => new THREE.Vector3(cp.x + f.fx * a, 0, cp.z + f.fz * a)), false, 3.6);
+        } catch (e) { console.error(e); }
         // the child winds the winch: a big wheel to turn with a finger, and the boom lifts the car as it turns
         if (BB.hands && BB.bus.has && BB.bus.has('hook') && typeof BB.bus.setBoom === 'function') {
           BB.bus.setBoom(0);
@@ -2548,6 +3188,7 @@
   BB.on('depot:closed', () => {
     if (J.phase !== 'depot') return;
     BB.bus.closeDoors();
+    J.lastStop = null;                         // the bus sets off from the garage yard: the next stops are picked from there
     if (timeUp()) { bedtime(); return; }
     if (J.current) resumeJob(); else J.start();
   });
@@ -2644,6 +3285,7 @@
     const truck = getTowTruck();
     try { if (truck) await towWithTruck(truck); else await towWithFade(); } catch (e) { console.error(e); await towWithFade(); }
     BB.bus.locked = false;
+    J.lastStop = null;                                 // (towed to the depot: new stops are picked from there)
     if (BB.bedtime) return;
     await say("Let's go!", { queue: true });           // still 'tow': a depot tap now is remembered (wantDepot)
     if (BB.bedtime) return;
@@ -2688,6 +3330,7 @@
     tweens.length = 0;
     scene.reset(); hideCount(); clearMarks();
     BB.bus.passengers = st.pax0;
+    st.job.seats = Object.assign({}, st.seats || {}); st.job.friendBye = st.friendBye || null;   // who sits where, as on arrival
     const q = st.q;
     q.tries = 0; q.done = false; q.onRight = null;
     setWaiting(st.stop, q);
@@ -2716,12 +3359,13 @@
     say(away ? 'Tap the turn around button!' : stillT > 8 ? 'Hold the green pedal to go!' : 'Follow the yellow arrows!');
   }
   J.update = function (dt) {
+    if (wishEl && BB.bedtime) dropWish();
     try { updateMarker(dt); } catch (e) { console.error(e); }
     try { updateLost(dt); } catch (e) { console.error(e); }
     if (J.phase === 'home') {
       if (BB.hands) BB.hands.stop();
       if (J.stopStart) rewindStop();
-      if (J.current && J.current.vehicle && J.stopStart !== false) { legGen++; clearWaiting(); scnClear(); clearMarker(); for (const m of J.extras) removePerson(m); J.extras = []; J.walkers = []; }
+      if (J.current && J.current.vehicle && J.stopStart !== false) { legGen++; clearWaiting(); scnClear(); clearMarker(); for (const m of J.extras) removePerson(m); J.extras = []; for (const w of J.walkers) removePerson(w.m); J.walkers = []; }
       return;                                  // nothing walks or boards while the home screen is up
     }
     for (let i = J.walkers.length - 1; i >= 0; i--) {
@@ -2764,7 +3408,7 @@
       const ph = (1 - u.jump) * 2;                         // 0..2: two hops
       m.position.y += Math.sin((ph % 1) * Math.PI) * 0.55;
       m.rotation.z = Math.sin(ph * Math.PI * 2) * 0.18 * u.jump;
-      if (bp && !J.walkers.some((w) => w.m === m)) m.rotation.y = Math.atan2(bp.x - m.position.x, bp.z - m.position.z);
+      if (bp && !u.keepFace && !J.walkers.some((w) => w.m === m)) m.rotation.y = Math.atan2(bp.x - m.position.x, bp.z - m.position.z);
       if (u.jump === 0) m.rotation.z = 0;
     }
     // the hands-on moment (targets, hints, the game's help), the fire's smoke and water
@@ -2780,6 +3424,7 @@
       try { tw.fn(t, dt); } catch (e) { console.error(e); }
       if (tw.t >= 1) { tweens.splice(i, 1); tw.done(); }
     }
+    if (BATCHES.size) scnBatchSync();
     // the glowing numbers above the seats pop in and the hint ones pulse
     marks.forEach((sp, i) => { if (sp.visible) placeMark(i); });
     const qq = J.question, canTap = card && J.phase === 'question' && qq && !qq.done;

@@ -2,26 +2,55 @@
    BB.hands: one finger-driven moment at a time, laid over the 3D scene (a DOM layer inside #ui, under the HUD and the
    question card). While a question's story is told, the child DOES its "k" part: taps each friend aboard, drags each
    bag to the taxi, aims the fire hose at the smoky windows, turns the tow truck's winch. jobs.js describes the
-   moment; this file draws the glowing targets, the pointing hand and the number bubbles, counts aloud, and helps:
+   moment; this file draws it and helps. One look for every ride:
+     the ring      a chunky honey ring on what to touch: 88 px (66 on phones), never two overlapping: when the things
+                   stand a ring apart each wears its own, else only the next one does (the others can still be
+                   touched: the thing nearest the finger is the one meant); a whole vehicle wears it round its box;
+                   a person wears it lying flat round their feet, like a spotlight on the pavement, so the person
+                   stays in full view (the whole person is the place to touch)
+     the hand      a paper hand that shows the gesture from the first moment: it taps (with a ripple), carries a thing
+                   along a dotted path to the drop place, slides from window to window, or goes round the winch
+     the drop      a dashed teal ring with a little arrow: where a dragged thing goes (it lights up under the finger)
+     the bubble    the number of each thing done, counted aloud with a little note that climbs
+   Every touch gets an answer: a pop of paper stars, the note, the number; a touch that missed makes the nearest
+   ring wiggle and brings the hand to it (after two near misses the hint is said, after four the game does one; a
+   touch at the very edge of the screen, a thumb gripping the tablet, is not a miss at all and does nothing).
+   A touch that reaches a thing holds it, one at a time (a new one lets the old one go, and that one counts or
+   lands); a touch on nothing holds nothing, so a thumb resting on the screen's edge (holding the tablet) never gets
+   in another finger's way and never stops the waiting clock. A press held still counts (a tap after 0.6 s, a thing
+   in the hand lands after 1.5 s, or 3 s once it has been carried; real time), and a quick double tap counts once.
+   Aiming and the winch: the finger that moves steers (a thumb landing at the screen's edge never takes over from a
+   finger; a new finger takes over at once when the steering one is such a thumb or has kept still a moment, else
+   when it moves itself). Nothing can be done wrong: a drag let go anywhere, or a plain tap, still lands. And it
+   never blocks:
      no finger for HINT_AT seconds (after the invitation) -> the hint line is spoken and the hand grows
      no finger for AUTO_AT seconds  -> the game does the next one itself, then one more every AUTO_GAP seconds
-   so a moment can never block the game, and nothing can be done wrong (a drag let go anywhere still lands).
    The waiting is counted in game time (H.update(dt)), so it stands still on a hold or a hidden page.
+   Speech: the invitation is never cut off: a number counted while it is said waits its turn, and so do the
+   numbers behind one another; only a late hint is cut by the child's own counting.
 
    BB.hands.run(opts) -> Promise<boolean> (true = all done, false = stopped):
      kind    'tap' | 'drag' | 'aim' | 'crank'
      count   how many actions (tap, drag, aim), ignored for crank
-     targets [fn(out) -> world point] one per thing to touch; `repeat: true` = one target tapped `count` times;
-             `ordered: true` = the things go in list order whichever one is touched (only the next one glows)
-     drop    fn(out) -> world point of the place things are dragged to (drag)
+     targets one per thing to touch: fn(out) -> world point, or { at: fn(out), box: [world points] } for a whole big
+             thing (the ring goes round its box on screen: "tap the fire engine"), or { at: fn(out), feet: fn(out) }
+             for a person (at = their middle, where the hand taps; the ring lies round their feet; the whole person,
+             feet to head, takes the finger); `repeat: true` = one target tapped
+             `count` times; `ordered: true` = the things go in list order whichever one is touched (one ring, on the
+             next one; a touch anywhere on the group counts, also where one has just gone)
+     drop    fn(out, idx, j) -> world point of the place thing idx (the one carried, else the next one) goes as the
+             j-th one (drag; things fill their places in order, whichever one is carried); dropFlat: true = that
+             point is a person's feet (the drop place lies flat round them)
      act(j, idx, auto)   the j-th action (0-based) on target idx; may return a promise the moment waits for
      drag(idx, point)    the finger carries target idx over the ground (point = null when it lets go)
      aim(x, y)           the finger points at a screen spot (aim); the scene calls BB.hands.hit(idx) when it is hit
      auto(idx)           aim only: point at target idx by itself
      turn(p)             crank only: the winch is at p (0..1)
      say, hint           the spoken invitation and the later hint
-     bubble(j, idx, out) world point of the number bubble (default: the target)
-   BB.hands.stop() ends the moment at once. BB.hands.state() is read by nothing in the game (tools only).
+     bubble(j, idx, out) world point of the number bubble (default: the target); bubbleFollow: true = asked again
+                         every frame, so the number rides along with a thing that moves off (a friend walking to the door)
+   BB.hands.stop() ends the moment at once. BB.hands.size() = the ring size in CSS px (for laying things out).
+   BB.hands.state() is read by nothing in the game (tools only).
 
    BB.water: the fire hose. Up to 10 streams in ONE instanced mesh (a parabola of droplets that widens into spray,
    a little splash and two mist puffs where it lands). stream(i, from, to, on) / update(dt) / clear(). */
@@ -29,28 +58,73 @@
   'use strict';
   const BB = window.BB;
   const H = BB.hands = {};
-  const HINT_AT = 6, AUTO_AT = 12, AUTO_GAP = 2.4, SAY_GRACE = 3;   // (the waiting starts when the invitation has been said: about 3 s)
+  const HINT_AT = 6, AUTO_AT = 12, AUTO_GAP = 2.4;
   H.HINT_AT = HINT_AT; H.AUTO_AT = AUTO_AT;
+  const hypot2 = (a, b) => Math.sqrt(a * a + b * b);
+  const tsize = () => (innerHeight <= 520 ? 66 : 88);      // (the same numbers as --t below)
+  H.size = tsize;
 
   BB.css(`
-  .bbh { position: absolute; inset: 0; pointer-events: none; overflow: hidden; --t: 84px; --bub: 60px; --hand: 76px; font-family: 'Fredoka', 'Baloo 2', system-ui, sans-serif; }
-  .bbh-at { position: absolute; left: 0; top: 0; will-change: transform; }
-  .bbh-t { position: absolute; width: var(--t); height: var(--t); left: calc(var(--t) / -2); top: calc(var(--t) / -2); border-radius: 50%;
-    pointer-events: auto; touch-action: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-  .bbh.aim .bbh-t { pointer-events: none; }
-  .bbh.aim { --t: 62px; }
-  .bbh-t.ring::before { content: ''; position: absolute; inset: 12%; border-radius: 50%; box-sizing: border-box; border: 5px solid #ffd45c;
-    box-shadow: 0 0 12px 3px rgba(255,190,40,.85), inset 0 0 9px 1px rgba(255,214,92,.65); animation: bbh-pulse .9s ease-in-out infinite alternate; }
-  .bbh-t.held::before { border-color: #19a79b; box-shadow: 0 0 12px 3px rgba(25,167,155,.7); animation: none; transform: scale(1.12); }
-  @keyframes bbh-pulse { from { transform: scale(.9); opacity: .75; } to { transform: scale(1.08); opacity: 1; } }
-  .bbh-drop { position: absolute; width: calc(var(--t) * 1.25); height: calc(var(--t) * 1.25); left: calc(var(--t) * -.625); top: calc(var(--t) * -.625);
-    border-radius: 50%; box-sizing: border-box; border: 5px dashed #19a79b; background: rgba(25,167,155,.14); animation: bbh-pulse 1.1s ease-in-out infinite alternate; }
-  .bbh-hand { position: absolute; width: var(--hand); height: var(--hand); left: calc(var(--hand) * -.36); top: calc(var(--hand) * .04); opacity: .92;
-    transition: opacity .3s; filter: drop-shadow(0 4px 0 rgba(120,80,40,.22)); }
-  .bbh-hand svg { width: 100%; height: 100%; display: block; transform-origin: 40% 10%; animation: bbh-tap 1s ease-in-out infinite; }
-  .bbh-hand.move svg { animation: none; }
-  .bbh-hand.big { --hand: 96px; }
-  @keyframes bbh-tap { 0%, 100% { transform: translateY(12px); } 45% { transform: translateY(0) scale(.94); } }
+  .bbh { position: absolute; inset: 0; pointer-events: none; overflow: hidden; --t: 88px; --bub: 60px; --hand: 84px; --rim: 6px; font-family: 'Fredoka', 'Baloo 2', system-ui, sans-serif; }
+  .bbh-pad { position: absolute; inset: 0; pointer-events: auto; touch-action: none; -webkit-tap-highlight-color: transparent; }
+  .bbh-at { position: absolute; left: 0; top: 0; will-change: transform; pointer-events: none; }
+  /* the ring: honey with a deeper rim outside and a cream line inside, so it shows on any colour */
+  .bbh-t { position: absolute; width: var(--w, var(--t)); height: var(--h, var(--t)); left: calc(var(--w, var(--t)) / -2); top: calc(var(--h, var(--t)) / -2);
+    border-radius: 50%; opacity: 0; transform: scale(.5); transition: opacity .18s, transform .28s cubic-bezier(.2,1.6,.5,1); }
+  .bbh-t.box { border-radius: 30px; }
+  .bbh-t.foot { --w: calc(var(--t) * .92); --h: calc(var(--t) * .4); }
+  .bbh-t.ring { opacity: 1; transform: none; }
+  .bbh-t i { position: absolute; inset: 0; border-radius: inherit; box-sizing: border-box; border: var(--rim) solid #ffd45c;
+    background: radial-gradient(closest-side, rgba(255,236,170,0) 70%, rgba(255,224,120,.22) 100%);
+    box-shadow: 0 0 0 3px #f2a516, 0 0 14px 6px rgba(255,184,31,.55), inset 0 0 0 3px #fff6e0, inset 0 0 8px 2px rgba(255,214,92,.4);
+    animation: bbh-pulse .85s ease-in-out infinite alternate; }
+  .bbh-t.box i { background: none; animation-name: bbh-pulse-box; }
+  .bbh-t.foot i { background: radial-gradient(closest-side, rgba(255,236,170,.32), rgba(255,224,120,.12) 75%, rgba(255,224,120,0) 100%); }
+  @keyframes bbh-pulse { from { transform: scale(.92); } to { transform: scale(1.04); } }
+  @keyframes bbh-pulse-box { from { transform: scale(.97); } to { transform: scale(1.02); } }
+  .bbh.hint .bbh-t i { animation-duration: .5s; }
+  .bbh-t.held i { border-color: #6fdacd; box-shadow: 0 0 0 3px #19a79b, 0 0 14px 6px rgba(25,167,155,.5), inset 0 0 0 3px #fff6e0; animation: none; transform: scale(.9); }
+  .bbh-t.nudge, .bbh-crank.nudge { animation: bbh-nudge .55s ease-out; }
+  @keyframes bbh-nudge { 25% { transform: scale(1.24) rotate(-5deg); } 50% { transform: scale(.96) rotate(4deg); } 75% { transform: scale(1.1) rotate(-2deg); } }
+  /* the drop place */
+  .bbh-drop { position: absolute; width: calc(var(--t) * 1.2); height: calc(var(--t) * 1.2); left: calc(var(--t) * -.6); top: calc(var(--t) * -.6);
+    border-radius: 50%; box-sizing: border-box; border: var(--rim) dashed #19a79b; background: rgba(255,246,224,.3);
+    box-shadow: 0 0 0 4px rgba(255,246,224,.9), 0 0 16px 6px rgba(25,167,155,.38); animation: bbh-pulse 1.1s ease-in-out infinite alternate; }
+  .bbh-drop::after { content: ''; position: absolute; left: 50%; top: calc(var(--t) * -.36); width: calc(var(--t) * .34); height: calc(var(--t) * .26); margin-left: calc(var(--t) * -.17);
+    background: #19a79b; clip-path: polygon(0 0, 100% 0, 50% 100%); animation: bbh-bob .6s ease-in-out infinite alternate; }
+  @keyframes bbh-bob { to { transform: translateY(calc(var(--t) * .1)); } }
+  .bbh-drop.near { border-style: solid; background: rgba(150,232,218,.5); animation: none; transform: scale(1.14); }
+  /* a person to give the thing to: the drop place lies flat round their feet, so they stay in view */
+  .bbh-drop.flat { height: calc(var(--t) * .5); top: calc(var(--t) * -.25); }
+  .bbh-drop.flat::after { display: none; }
+  /* the dotted path from the thing to the drop place, and its arrowhead */
+  .bbh-dot { position: absolute; width: 18px; height: 18px; left: -9px; top: -9px; border-radius: 50%; background: #fff6e0; box-shadow: 0 0 0 4px #19a79b, 0 3px 0 4px rgba(18,122,113,.35);
+    animation: bbh-march 1.2s linear infinite; }
+  @keyframes bbh-march { 0%, 100% { transform: scale(.72); opacity: .7; } 50% { transform: scale(1.12); opacity: 1; } }
+  .bbh-arrow { position: absolute; width: 40px; height: 40px; left: -20px; top: -20px; filter: drop-shadow(0 3px 0 rgba(18,122,113,.35)); }
+  .bbh-arrow b { position: absolute; inset: 0; background: #19a79b; clip-path: polygon(6% 4%, 98% 50%, 6% 96%, 30% 50%); }
+  /* the pointing hand */
+  .bbh-hand { position: absolute; width: var(--hand); height: var(--hand); left: calc(var(--hand) * -.39); top: calc(var(--hand) * -.02);
+    filter: drop-shadow(0 4px 0 rgba(120,80,40,.22)); }
+  .bbh-hand svg { position: relative; width: 100%; height: 100%; display: block; transform-origin: 39% 5%; transition: transform .16s; }
+  .bbh-hand.tap svg { animation: bbh-tap 1.15s ease-in-out infinite; }
+  @keyframes bbh-tap { 0%, 100% { transform: translate(10px, 26px) rotate(7deg); } 40%, 60% { transform: translate(0, 0) scale(.93); } }
+  .bbh-hand.press svg { transform: scale(.92); }
+  .bbh-hand.lift svg { transform: translate(9px, 22px) rotate(7deg); }
+  .bbh-rip { position: absolute; left: 39%; top: 5%; width: 0; height: 0; }
+  .bbh-rip::before { content: ''; position: absolute; width: calc(var(--hand) * .9); height: calc(var(--hand) * .9); left: calc(var(--hand) * -.45); top: calc(var(--hand) * -.45);
+    border-radius: 50%; box-sizing: border-box; border: 5px solid #fff6e0; box-shadow: 0 0 0 2px #ffb81f; opacity: 0; }
+  .bbh-hand.tap .bbh-rip::before { animation: bbh-rip 1.15s ease-out infinite; }
+  @keyframes bbh-rip { 0%, 38% { transform: scale(.15); opacity: 0; } 45% { opacity: .95; } 80%, 100% { transform: scale(1); opacity: 0; } }
+  .bbh-hand.big { --hand: 104px; }
+  /* a touch that counted: a ring that opens and six paper stars */
+  .bbh-pop b { position: absolute; width: var(--t); height: var(--t); left: calc(var(--t) / -2); top: calc(var(--t) / -2); border-radius: 50%; box-sizing: border-box;
+    border: var(--rim) solid #ffd45c; animation: bbh-popring .5s ease-out forwards; }
+  @keyframes bbh-popring { from { transform: scale(.7); opacity: 1; } to { transform: scale(1.7); opacity: 0; } }
+  .bbh-pop i { position: absolute; width: 18px; height: 18px; left: -9px; top: -9px; background: var(--c);
+    clip-path: polygon(50% 0, 62% 36%, 100% 38%, 70% 60%, 80% 98%, 50% 76%, 20% 98%, 30% 60%, 0 38%, 38% 36%); animation: bbh-fly .6s ease-out forwards; }
+  @keyframes bbh-fly { from { transform: translate(0, 0) scale(.4); opacity: 1; } to { transform: translate(var(--dx), var(--dy)) scale(1.15) rotate(150deg); opacity: 0; } }
+  /* the number bubble (the same look as the counting bubbles over the seats) */
   .bbh-bub { position: absolute; min-width: var(--bub); height: var(--bub); left: calc(var(--bub) / -2); top: calc(var(--bub) * -1.1);
     box-sizing: border-box; padding: 0 8px; border-radius: calc(var(--bub) / 2); background: #fff6e0; border: 4px solid #ffb81f; color: #d98700;
     font: 700 calc(var(--bub) * .68)/1 'Fredoka', 'Baloo 2', system-ui, sans-serif; display: flex; align-items: center; justify-content: center;
@@ -58,38 +132,54 @@
   .bbh-bub::after { content: ''; position: absolute; left: 50%; bottom: -12px; margin-left: -8px; border: 8px solid transparent; border-top-color: #ffb81f; border-bottom: 0; }
   .bbh-bub.old { opacity: 0; transform: scale(.7); }
   @keyframes bbh-in { from { transform: scale(.2); opacity: 0; } }
-  .bbh-pad { position: absolute; inset: 0; pointer-events: auto; touch-action: none; }
-  .bbh-crank { position: absolute; right: max(26px, env(safe-area-inset-right)); bottom: 34%; width: 230px; height: 230px; pointer-events: auto; touch-action: none;
+  /* the winch wheel: below the truck on tablets, in the empty column on the left on phones */
+  .bbh-crank { position: absolute; left: 50%; bottom: max(20px, env(safe-area-inset-bottom)); width: 250px; height: 250px; margin-left: -125px; pointer-events: auto; touch-action: none;
     cursor: grab; animation: bbh-in .4s cubic-bezier(.2,1.5,.5,1); -webkit-tap-highlight-color: transparent; }
   .bbh-crank svg { width: 100%; height: 100%; display: block; overflow: visible; }
-  .bbh-crank .rot { transform-origin: 100px 100px; }
-  .bbh-crank.glow .rim { animation: bbh-rim .8s ease-in-out infinite alternate; }
-  @keyframes bbh-rim { to { stroke: #ffd45c; stroke-width: 9; } }
+  .bbh-crank .rot { transform-origin: 120px 120px; }
+  .bbh-crank .knob { transform-box: fill-box; transform-origin: center; animation: bbh-pulse .85s ease-in-out infinite alternate; }
+  .bbh-crank.held .knob { animation: none; stroke: #6fdacd; }
+  .bbh.hint .bbh-crank .rim { animation: bbh-rim .5s ease-in-out infinite alternate; }
+  @keyframes bbh-rim { to { stroke: #ffd45c; } }
   @media (max-height: 520px) {
-    .bbh { --t: 64px; --bub: 46px; --hand: 58px; }
-    .bbh.aim { --t: 46px; }
-    .bbh-hand.big { --hand: 72px; }
-    .bbh-crank { width: 168px; height: 168px; bottom: max(14px, env(safe-area-inset-bottom)); }
+    .bbh { --t: 66px; --bub: 46px; --hand: 62px; --rim: 5px; }
+    .bbh-t.box { border-radius: 22px; }
+    .bbh-hand.big { --hand: 76px; }
+    .bbh-dot { width: 13px; height: 13px; left: -6.5px; top: -6.5px; box-shadow: 0 0 0 3px #19a79b; }
+    .bbh-arrow { width: 28px; height: 28px; left: -14px; top: -14px; }
+    .bbh-pop i { width: 14px; height: 14px; left: -7px; top: -7px; }
+    .bbh-crank { left: max(30px, env(safe-area-inset-left)); bottom: auto; top: calc(50% - 76px); width: 196px; height: 196px; margin-left: 0; }
   }
   `);
   // a pointing hand cut from paper: cream skin, a deeper rim, a darker crescent on the lower right, a teal cuff
-  const HAND = `<svg viewBox="0 0 80 80"><g stroke="#d9a05f" stroke-width="3" stroke-linejoin="round">
+  const HAND = `<i class="bbh-rip"></i><svg viewBox="0 0 80 80"><g stroke="#d9a05f" stroke-width="3" stroke-linejoin="round">
     <rect x="23" y="4" width="16" height="42" rx="8" fill="#ffe2bd"/>
     <path d="M14 44 Q14 34 24 34 H50 Q62 34 62 46 V56 Q62 70 48 70 H30 Q14 70 14 56 Z" fill="#ffe2bd"/>
     <path d="M14 48 Q5 44 7 37 Q10 31 18 36" fill="#ffe2bd"/></g>
     <path d="M60 44 V56 Q60 68 48 68 H34 Q52 64 54 44 Z" fill="#f0c493"/>
     <path d="M35.5 8 V40 H32 Q34 24 31.5 7 Z" fill="#f0c493"/>
     <rect x="22" y="66" width="34" height="11" rx="5.5" fill="#19a79b" stroke="#127a71" stroke-width="3"/></svg>`;
-  // the winch wheel: a cream drum with a coral rim, honey spokes and a round knob to hold
-  const CRANK = `<svg viewBox="0 0 200 200"><circle cx="103" cy="105" r="92" fill="rgba(120,80,40,.2)"/>
-    <g class="rot"><circle class="rim" cx="100" cy="100" r="88" fill="#fff6e0" stroke="#f26b5b" stroke-width="12"/>
-    <path d="M162 162 A88 88 0 0 0 188 100 L176 100 A76 76 0 0 1 154 154 Z" fill="#c84a3c"/>
-    <g stroke="#f5b83d" stroke-width="13" stroke-linecap="round"><path d="M100 100 V30 M100 100 L39 135 M100 100 L161 135"/></g>
-    <circle cx="100" cy="100" r="24" fill="#f5b83d" stroke="#d98700" stroke-width="5"/><path d="M112 112 A17 17 0 0 0 117 100 A17 17 0 0 1 100 117 Z" fill="#d98700"/>
-    <circle cx="100" cy="30" r="25" fill="#19a79b" stroke="#127a71" stroke-width="6"/><path d="M114 44 A20 20 0 0 0 120 30 A20 20 0 0 1 100 50 Z" fill="#127a71"/></g></svg>`;
+  // the winch wheel: a cream drum with a coral rim, honey spokes and a round teal knob to hold (it wears the ring);
+  // round it a track with little arrows that fills with teal as the car goes up
+  const TRACK = 2 * Math.PI * 108;
+  const CRANK = `<svg viewBox="0 0 240 240"><circle cx="123" cy="126" r="112" fill="rgba(120,80,40,.2)"/>
+    <circle cx="120" cy="120" r="108" fill="none" stroke="#d9b57f" stroke-width="22"/><circle cx="120" cy="120" r="108" fill="none" stroke="#fff6e0" stroke-width="16"/>
+    <g fill="#e3b877"><path d="M196 44 l10 13 -15 -2z" transform="rotate(8 196 48)"/><path d="M214 176 l-3 16 -11 -11z"/><path d="M52 204 l-16 -4 11 -11z"/><path d="M20 82 l7 -15 9 13z"/></g>
+    <circle class="prog" cx="120" cy="120" r="108" fill="none" stroke="#19a79b" stroke-width="16" stroke-linecap="round" stroke-dasharray="${TRACK.toFixed(1)}" stroke-dashoffset="${TRACK.toFixed(1)}" transform="rotate(-90 120 120)"/>
+    <g class="rot"><circle class="rim" cx="120" cy="120" r="84" fill="#fff6e0" stroke="#f26b5b" stroke-width="12"/>
+    <path d="M179 179 A84 84 0 0 0 204 120 L192 120 A72 72 0 0 1 171 171 Z" fill="#c84a3c"/>
+    <g stroke="#f5b83d" stroke-width="13" stroke-linecap="round"><path d="M120 120 V52 M120 120 L61 154 M120 120 L179 154"/></g>
+    <circle cx="120" cy="120" r="23" fill="#f5b83d" stroke="#d98700" stroke-width="5"/><path d="M131 131 A16 16 0 0 0 136 120 A16 16 0 0 1 120 136 Z" fill="#d98700"/>
+    <circle class="knob" cx="120" cy="48" r="33" fill="rgba(255,224,120,.3)" stroke="#ffd45c" stroke-width="6"/>
+    <circle cx="120" cy="48" r="24" fill="#19a79b" stroke="#127a71" stroke-width="6"/><path d="M134 62 A20 20 0 0 0 140 48 A20 20 0 0 1 120 68 Z" fill="#127a71"/></g></svg>`;
+  const STARS = ['#ffd45c', '#ff6b5c', '#19a79b', '#4fa3e0', '#ff8fab', '#fff6e0'];
+  // counting notes: up a bright five-note scale, one step for each thing (semitones above C5)
+  const SCALE = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21];
+  const note = (j) => { try { const f = 523.25 * Math.pow(2, SCALE[Math.min(j, 9)] / 12); BB.tone(f, 0.2, { type: 'triangle', vol: 0.09 }); BB.tone(f * 2, 0.12, { type: 'sine', vol: 0.03, at: 0.02 }); } catch (e) { /* no sound */ } };
+  const soft = (f, at) => { try { BB.tone(f, 0.08, { type: 'sine', vol: 0.04, at: at || 0 }); } catch (e) { /* no sound */ } };
 
   let layer = null, cur = null;
-  const _v = new THREE.Vector3(), _p = new THREE.Vector3(), _hit = new THREE.Vector3(), _ndc = new THREE.Vector2();
+  const _v = new THREE.Vector3(), _hit = new THREE.Vector3(), _ndc = new THREE.Vector2();
   const _ray = new THREE.Raycaster(), _plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), _s = { x: 0, y: 0 };
   function root() {
     if (!layer || !layer.isConnected) {
@@ -127,117 +217,397 @@
   const anchor = () => BB.el('div', 'bbh-at', root());
   const asking = () => !!(BB.ui && BB.ui.asking && BB.ui.asking());
   const unlock = () => { if (BB.audio && BB.audio.unlock) BB.audio.unlock(); };
+  const again = (el, cls) => { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); };
 
+  // The room the rings have: the screen, less the HUD's row along the top and the question card (read twice a
+  // second, never every frame). A thing that stands under the card gets its ring at the card's edge, within reach.
+  function measure(c) {
+    const T = tsize();
+    if (T !== c.T && c.kind !== 'aim') for (const t of c.targets) if (!t.box) { t.w = t.feet ? T * 0.92 : T; t.h = t.feet ? T * 0.4 : T; if (t.feet) t.el.style.removeProperty('--w'); }   // (the screen was turned or resized)
+    c.T = T; c.phone = innerHeight <= 520; c.topY = c.phone ? 58 : 78;
+    if (c.kind === 'aim') aimSize(c);
+    feetSize(c);
+    const k = document.querySelector('.bbq:not(.out)');
+    c.card = !!k;
+    if (k) { const r = k.getBoundingClientRect(); c.cl = r.left - 4; c.ct = r.top - 4; c.cr = r.right + 4; c.cb = r.bottom + 4; }
+    if (c.crank) { const r = c.crank.getBoundingClientRect(); c.kx = r.left + r.width / 2; c.ky = r.top + r.height / 2; c.kw = r.width; }
+  }
+  function keep(c, s, r, ry) {
+    if (ry == null) ry = r;
+    const Wd = innerWidth, Hd = innerHeight, top = c.topY + ry * 0.6;
+    s.x = BB.clamp(s.x, r + 4, Wd - r - 4); s.y = BB.clamp(s.y, top, Hd - ry - 4);
+    if (c.card && s.x + r > c.cl && s.x - r < c.cr && s.y + ry > c.ct && s.y - ry < c.cb) {
+      if (c.phone) s.x = Math.min(Wd - r - 4, c.cr + r); else s.y = Math.max(top, c.ct - ry);
+    }
+  }
+  // rings lying round people's feet: a little narrower where the people stand close together (as narrow as three
+  // quarters of a ring), so each one still wears their own (their reach stays the whole person)
+  function feetSize(c) {
+    let mn = 1e9, any = false;
+    for (let i = 0; i < c.targets.length; i++) {
+      const a = c.targets[i]; if (!a.feet || a.used || !a.seen) continue; any = true;
+      for (let j = i + 1; j < c.targets.length; j++) { const b = c.targets[j]; if (b.feet && !b.used && b.seen && Math.abs(a.sy - b.sy) < a.h) mn = Math.min(mn, Math.abs(a.sx - b.sx)); }
+    }
+    if (!any) return;
+    const w = Math.round(BB.clamp(mn * 0.96, c.T * 0.72, c.T * 0.92));
+    for (let i = 0; i < c.targets.length; i++) {
+      const t = c.targets[i]; if (!t.feet || Math.abs(t.w - w) < 1) continue;
+      t.w = w; t.el.style.setProperty('--w', w + 'px');
+    }
+  }
+  // aiming: the rings only mark the windows (the whole view takes the finger), as big as their spacing on screen
+  // allows; worked out again twice a second (the camera may still be swinging round, the screen may be turned)
+  function aimSize(c) {
+    let g = c.T;
+    for (let i = 0; i < c.targets.length; i++) {
+      const a = c.targets[i]; a.at(a.p); if (!proj(a.p, _s)) continue;
+      const ax = _s.x, ay = _s.y;
+      for (let j = i + 1; j < c.targets.length; j++) { const b = c.targets[j]; b.at(b.p); if (proj(b.p, _s)) g = Math.min(g, hypot2(ax - _s.x, ay - _s.y) * 0.94); }
+    }
+    g = Math.round(Math.max(40, g));
+    if (Math.abs(g - c.aimT) < 2) return;
+    c.aimT = g;
+    if (layer) layer.style.setProperty('--t', g + 'px');
+    for (let i = 0; i < c.targets.length; i++) c.targets[i].w = c.targets[i].h = g;
+  }
+  // a whole big thing (the fire engine, the ice cream van): the ring goes round its box on screen
+  function projBox(c, t) {
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, n = 0;
+    for (let k = 0; k < t.box.length; k++) {
+      if (!proj(t.box[k], _s)) continue;
+      n++; if (_s.x < x0) x0 = _s.x; if (_s.x > x1) x1 = _s.x; if (_s.y < y0) y0 = _s.y; if (_s.y > y1) y1 = _s.y;
+    }
+    t.seen = n > 0; if (!n) return;
+    const Wd = innerWidth, Hd = innerHeight;
+    x0 = Math.max(x0 - 8, 8); x1 = Math.min(x1 + 8, Wd - 8); y0 = Math.max(y0 - 8, c.topY); y1 = Math.min(y1 + 8, Hd - 8);
+    if (c.card) { if (c.phone) x0 = Math.max(x0, Math.min(c.cr, x1 - c.T)); else y1 = Math.min(y1, Math.max(c.ct, y0 + c.T)); }
+    const w = Math.max(c.T, x1 - x0), h = Math.max(c.T, y1 - y0);
+    t.sx = (x0 + x1) / 2; t.sy = (y0 + y1) / 2;
+    if (Math.abs(w - t.w) > 2 || Math.abs(h - t.h) > 2) { t.w = w; t.h = h; t.el.style.setProperty('--w', w.toFixed(0) + 'px'); t.el.style.setProperty('--h', h.toFixed(0) + 'px'); }
+    // the hand taps the thing's own spot (the door, the hatch) when it has one
+    t.ax = t.sx; t.ay = t.sy;
+    if (t.at) { t.at(t.p); if (proj(t.p, _s)) { t.ax = BB.clamp(_s.x, t.sx - w / 2 + 24, t.sx + w / 2 - 24); t.ay = BB.clamp(_s.y, t.sy - h / 2 + 24, t.sy + h / 2 - 24); } }
+  }
+  // 0 in the middle of a target .. 1 at the edge of its reach (a generous third beyond the ring; a person: anywhere
+  // from their feet to the top of their head, and a good half ring either side)
+  function reach(t, x, y) {
+    if (t.box) return hypot2(Math.max(0, Math.abs(x - t.sx) - t.w / 2), Math.max(0, Math.abs(y - t.sy) - t.h / 2)) / 20;
+    if (t.feet) {
+      const ax = t.sx, ay = t.sy + t.h * 0.3, bx = t.tx, by = t.ty, vx = bx - ax, vy = by - ay, l2 = vx * vx + vy * vy || 1;
+      const u = BB.clamp(((x - ax) * vx + (y - ay) * vy) / l2, 0, 1);
+      return hypot2(x - ax - vx * u, y - ay - vy * u) / (c0T * 0.62);
+    }
+    return hypot2(x - t.hx, y - t.hy) / (t.w * 0.66);
+  }
+  let c0T = 88;              // (the ring size of the moment on now: a person's reach)
+  // the next thing to touch: the one the child last reached for, else the first in the list
+  function next(c) {
+    if (c.focus >= 0 && !c.targets[c.focus].used) return c.focus;
+    for (let i = 0; i < c.targets.length; i++) if (!c.targets[i].used) return i;
+    return -1;
+  }
+  // which target a finger at (x, y) means: the nearest one in reach (things that share a ring: any of them, also
+  // the place of one that has just gone, means the next one), or -1
+  function pick(c, x, y) {
+    let best = -1, bd = 1e9;
+    for (let i = 0; i < c.targets.length; i++) {
+      const t = c.targets[i];
+      if (!t.seen || (t.used && !c.shared)) continue;
+      const d = reach(t, x, y);
+      if (d < bd) { bd = d; best = i; }
+    }
+    if (best < 0 || bd > 1) return -1;
+    return c.shared ? next(c) : best;
+  }
+  function nearest(c, x, y) {
+    if (c.shared) return next(c);
+    let best = -1, bd = 1e9;
+    for (let i = 0; i < c.targets.length; i++) { const t = c.targets[i]; if (t.used || !t.seen) continue; const d = hypot2(x - t.hx, y - t.hy); if (d < bd) { bd = d; best = i; } }
+    return best;
+  }
+  // do the things still to touch all stand clear of each other (so each can wear its own ring)? If any two are
+  // closer than a ring, only the next one wears it: all the rings or one, never some of them
+  function apart(c) {
+    const lim = c.T * 0.98, n = c.targets.length;
+    for (let i = 0; i < n; i++) {
+      const t = c.targets[i]; if (t.used || !t.seen) continue;
+      for (let j = i + 1; j < n; j++) {
+        const u = c.targets[j];
+        if (u.used || !u.seen) continue;
+        // (rings lying flat round two people's feet: apart when they don't overlap, side by side or one behind)
+        if (t.feet && u.feet) { if (Math.abs(t.sx - u.sx) < (t.w + u.w) / 2 * 0.96 && Math.abs(t.sy - u.sy) < (t.h + u.h) / 2 * 0.96) return false; continue; }
+        if (hypot2(t.sx - u.sx, t.sy - u.sy) < lim) return false;
+      }
+    }
+    return true;
+  }
+
+  function burst(c, x, y) {
+    const a = anchor(); a.className = 'bbh-at bbh-pop';
+    a.style.transform = 'translate(' + x.toFixed(0) + 'px,' + y.toFixed(0) + 'px)';
+    BB.el('b', '', a);
+    for (let i = 0; i < 6; i++) {
+      const s = BB.el('i', '', a), an = i / 6 * Math.PI * 2 + 0.5, d = c.T * 0.85;
+      s.style.setProperty('--c', STARS[i]); s.style.setProperty('--dx', Math.round(Math.cos(an) * d) + 'px'); s.style.setProperty('--dy', Math.round(Math.sin(an) * d) + 'px');
+    }
+    BB.later(700, () => a.remove());
+  }
   function bubble(c, j, idx) {
-    const a = anchor(), b = { a, p: new THREE.Vector3(), t: 0 };
+    const a = anchor(), b = { a, p: new THREE.Vector3(), t: 0, j, idx };
     BB.el('div', 'bbh-bub', a, String(j + 1));
-    if (c.o.bubble) c.o.bubble(j, idx, b.p); else if (c.targets[idx]) c.targets[idx].at(b.p);
+    const t = c.targets[idx];
+    if (c.o.bubble) c.o.bubble(j, idx, b.p); else if (t && t.at) t.at(b.p); else if (t && t.box) b.p.copy(t.box[0]);
     for (const o of c.bubbles) o.old = true;
     c.bubbles.push(b);
+  }
+  // counting aloud: one, two, three. Never over the invitation, and the numbers never cut each other off; a hint
+  // that is still being said when the child counts is cut (it isn't needed any more).
+  function count(c, n) {
+    const wait = c.inviting || c.nums > 0;
+    c.nums++;
+    BB.say(String(n), { queue: wait }).then(() => { c.nums = Math.max(0, c.nums - 1); });
   }
   // one action done (by the finger, or by the game when auto is true)
   function did(c, idx, auto) {
     if (cur !== c || c.done >= c.count) return;
     const t = c.targets[idx];
-    if (t && !c.o.repeat) { if (t.used) return; t.used = true; t.el.remove(); }
+    if (t && !c.o.repeat) { if (t.used) return; t.used = true; t.ring = false; t.el.classList.remove('ring', 'held'); }
+    if (c.grab === idx && c.pid != null) release(c);   // (the game did the very thing a finger was holding: let it go)
     const j = c.done++;
     c.idle = auto ? AUTO_AT - AUTO_GAP : 0;
+    c.misses = 0; c.focus = -1;
+    c.quietUntil = performance.now() + 240;            // (a quick double tap counts once)
+    if (t) { burst(c, t.follow ? t.fx : t.box ? t.ax : t.hx, t.follow ? t.fy : t.box ? t.ay : t.hy); t.follow = false; }
     bubble(c, j, idx);
-    try { BB.sfx.tick(); } catch (e) { /* no sound */ }
-    BB.say(String(j + 1), { queue: false });           // counting aloud: one, two, three
+    note(j);
+    count(c, j + 1);
     let r = null;
     try { r = c.o.act ? c.o.act(j, idx, !!auto) : null; } catch (e) { console.error(e); }
+    c.heldT = 0;
     if (r && typeof r.then === 'function') c.pending.push(r.catch((e) => console.error(e)));
     if (c.done >= c.count) finish(c, true);
   }
-  function next(c) { for (let i = 0; i < c.targets.length; i++) if (!c.targets[i].used) return i; return -1; }
+  // a touch that missed: no "wrong", just a little wiggle of the nearest ring, and the hand goes there. A touch at
+  // the very edge of the screen (a thumb gripping the tablet, landing again each time it shifts) is no miss at all:
+  // nothing happens. Only near misses (within a couple of rings of a thing) bring the hint, or the game's help, early.
+  // (the screen's very edge, where a thumb holding the tablet rests)
+  const atEdge = (x, y) => { const e = Math.max(44, innerWidth * 0.055); return x < e || x > innerWidth - e || y > innerHeight - 30; };
+  function miss(c, x, y) {
+    if (atEdge(x, y)) return;
+    const now = performance.now();
+    if (now - c.missAt < 250) return;                  // (a palm's several touches at once: one miss)
+    c.missAt = now;
+    c.since = 9;
+    soft(523, 0); soft(659, 0.07);
+    const i = nearest(c, x, y);
+    let d = 1e9;
+    if (i >= 0) {
+      if (!c.shared) c.focus = i;
+      const t = c.targets[i]; t.ring = true; t.el.classList.add('ring'); again(t.el, 'nudge');
+      d = t.box ? hypot2(Math.max(0, Math.abs(x - t.sx) - t.w / 2), Math.max(0, Math.abs(y - t.sy) - t.h / 2)) : hypot2(x - t.hx, y - t.hy);
+    } else if (c.crank) { again(c.crank, 'nudge'); d = hypot2(x - c.kx, y - c.ky) - c.kw / 2; }
+    if (d > c.T * 2.5) return;
+    c.misses++;
+    if (c.misses >= 4) c.idle = Math.max(c.idle, AUTO_AT);              // the game shows how: it does one
+    else if (c.misses >= 2 && !c.hinted) c.idle = Math.max(c.idle, HINT_AT);
+  }
   function finish(c, ok) {
     if (c.ended) return;
     c.ended = true;
-    for (const t of c.targets) t.el.remove();
+    for (const t of c.targets) t.a.remove();
+    for (const d of c.dots) d.remove();
     if (c.hand) c.hand.remove();
     if (c.drop) c.drop.remove();
     if (c.pad) c.pad.remove();
     if (c.crank) c.crank.remove();
-    if (layer) layer.classList.remove('aim');
+    if (layer) layer.className = 'bbh';
     const done = () => { for (const b of c.bubbles) b.a.remove(); c.bubbles.length = 0; if (cur === c) cur = null; };
     if (!ok) { done(); c.resolve(false); return; }
+    BB.later(260, () => { try { BB.sfx.sparkle(); } catch (e) { /* no sound */ } });
     c.closing = 1.3;                                   // the last number stays a moment (H.update clears it)
     c.done2 = done;
     Promise.all(c.pending).then(() => c.resolve(!c.stopped));
+  }
+  // forget the finger (without landing or counting anything)
+  function release(c) {
+    const i = c.grab; c.grab = -1; c.pid = null; c.down = false; c.heldT = 0;
+    if (c.crank) c.crank.classList.remove('held');
+    if (i >= 0 && c.targets[i]) { const t = c.targets[i]; t.el.classList.remove('held'); t.follow = false; }
+    c.dragging = null;
+    if (c.drop && c.near) { c.near = false; c.drop.firstChild.classList.remove('near'); }
+  }
+  // the finger lets go: a thing in the hand lands, a plain tap counts (act), or neither
+  function letGo(c, moved, act) {
+    const i = c.grab; c.grab = -1; c.pid = null; c.down = false; c.heldT = 0;
+    if (c.crank) c.crank.classList.remove('held');
+    c.since = 0;
+    if (i < 0) return;
+    const t = c.targets[i]; if (!t) return;
+    t.el.classList.remove('held'); c.dragging = null;
+    if (c.drop && c.near) { c.near = false; c.drop.firstChild.classList.remove('near'); }
+    if (c.kind === 'drag' && moved && c.o.drag) { try { c.o.drag(i, null); } catch (err) { console.error(err); } }
+    if (act) did(c, i, false); else t.follow = false;
   }
 
   H.run = function (o) {
     H.stop();
     return new Promise((resolve) => {
-      const c = cur = { o, kind: o.kind || 'tap', count: Math.max(1, o.count | 0), done: 0, idle: o.say ? -SAY_GRACE : 0, hinted: false, targets: [], bubbles: [], pending: [],
-        resolve, ended: false, closing: null, hand: null, drop: null, pad: null, crank: null, dragging: null, t: 0, p: 0 };
+      const kind = o.kind || 'tap';
+      const c = cur = { o, kind, count: Math.max(1, o.count | 0), done: 0, idle: 0, hinted: false, targets: [], bubbles: [], pending: [], dots: [], resolve, ended: false,
+        closing: null, hand: null, drop: null, pad: null, crank: null, dragging: null, t: 0, p: 0, shared: !!(o.ordered || o.repeat), pid: null, down: false, grab: -1,
+        moved: false, since: 9, misses: 0, missAt: 0, focus: -1, quietUntil: 0, inviting: !!o.say, nums: 0, safeT: 0, pose: '', near: false, ang: 0,
+        heldT: 0, heldAt: 0, fingers: {}, steerAt: 0, steerEdge: false, mx: 0, my: 0, ix: 0, iy: 0, lx: 0, ly: 0, turned: 0, autoOn: false, autoIdx: -1,
+        T: tsize(), phone: false, topY: 78, card: false, cl: 0, ct: 0, cr: 0, cb: 0, kx: 0, ky: 0, kw: 0, dx: 0, dy: 0, dropOn: false, pathOn: false, px0: 0, py0: 0, px1: 0, py1: 0, aimT: 0 };
       const L = root();
-      L.classList.toggle('aim', c.kind === 'aim');
-      if (c.kind === 'aim') {
-        // the whole view is the aiming pad (the HUD and the card sit on top and keep their own taps)
-        c.pad = BB.el('div', 'bbh-pad', L);
-        const aim = (e) => { c.idle = 0; c.touched = true; try { o.aim(e.clientX, e.clientY); } catch (err) { console.error(err); } };
-        c.pad.addEventListener('pointerdown', (e) => { e.preventDefault(); c.down = true; try { c.pad.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ } aim(e); });
-        c.pad.addEventListener('pointermove', (e) => { if (c.down) aim(e); });
-        const up = () => { c.down = false; unlock(); };
-        c.pad.addEventListener('pointerup', up); c.pad.addEventListener('pointercancel', up);
-      }
-      if (c.kind === 'crank') {
+      L.className = 'bbh ' + kind;
+      L.style.removeProperty('--t');
+      // The whole view takes the finger (the HUD and the card sit on top and keep their own taps). A touch that
+      // reaches a thing holds it, one at a time: a new one lets the old one go (it counts, or lands). A touch on
+      // nothing holds nothing (the nearest ring wiggles), so a thumb resting on the edge of the screen, holding the
+      // tablet, never gets in another finger's way. Aiming: the newest finger steers.
+      c.pad = BB.el('div', 'bbh-pad', L);
+      const steer = (x, y) => { c.lx = x; c.ly = y; try { o.aim(x, y); } catch (err) { console.error(err); } };
+      const busy = () => { c.idle = 0; c.misses = 0; c.autoOn = false; c.autoIdx = -1; };     // (a finger at work: the game's help waits)
+      c.pad.addEventListener('pointerdown', (e) => {
+        if (cur !== c || c.ended) return;
+        e.preventDefault();
+        const x = e.clientX, y = e.clientY;
+        if (kind === 'aim') {
+          // (the finger that moves steers: a new one takes over at once when no finger steers, when the one that
+          // does is a thumb at the screen's edge, or when it has kept still a moment; else as soon as it moves. A
+          // thumb landing at the edge to grip the tablet never pulls the water away from a finger)
+          const edge = atEdge(x, y);
+          c.fingers[e.pointerId] = { ox: x, oy: y, edge };
+          try { c.pad.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+          if (c.pid == null || (c.steerEdge && !edge) || (!edge && performance.now() - c.steerAt > 400)) takeAim(e.pointerId, x, y, edge);
+          return;
+        }
+        if (performance.now() < c.quietUntil) return;       // (a quick double tap counts once)
+        let i = kind === 'crank' ? -1 : pick(c, x, y);
+        if (i < 0) { miss(c, x, y); return; }
+        if (c.pid != null) {                                // another finger holds a thing: that one counts or lands first
+          letGo(c, c.moved, true);
+          if (cur !== c || c.ended) return;
+          i = pick(c, x, y); if (i < 0) return;
+        }
+        c.pid = e.pointerId; c.down = true; c.grab = i; c.moved = false; c.heldT = 0; c.heldAt = performance.now(); c.sx0 = c.mx = x; c.sy0 = c.my = y;
+        try { c.pad.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+        busy();
+        const t = c.targets[i];
+        t.el.classList.add('held'); soft(784, 0);
+        if (kind === 'drag') {
+          c.dragging = t; t.fx = x; t.fy = y;
+          // (the thing never flies off to the horizon: it stays within a fair way of where it is going)
+          c.far = 8;
+          if (c.drop) { t.at(t.p); o.drop(c.dropP, i, c.done); c.far = Math.max(8, 1.6 * hypot2(t.p.x - c.dropP.x, t.p.z - c.dropP.z)); }
+        }
+      });
+      // a finger taking over the aim (or the winch)
+      const takeAim = (id, x, y, edge) => { c.pid = id; c.down = true; c.ix = x; c.iy = y; c.steerEdge = !!edge; c.steerAt = edge ? 0 : performance.now(); busy(); steer(x, y); };
+      c.pad.addEventListener('pointermove', (e) => {
+        if (kind === 'aim' && e.pointerId !== c.pid && cur === c && !c.ended) {
+          const fg = c.fingers[e.pointerId];
+          if (fg && hypot2(e.clientX - fg.ox, e.clientY - fg.oy) > (fg.edge ? 40 : 14)) takeAim(e.pointerId, e.clientX, e.clientY, false);
+          return;
+        }
+        if (e.pointerId !== c.pid || cur !== c || c.ended) return;
+        const x = e.clientX, y = e.clientY;
+        if (kind === 'aim') {
+          // (a finger held still trembles a little: that steers nothing and doesn't keep the game's help waiting)
+          const far = hypot2(x - c.ix, y - c.iy) > 14;
+          if (far) { c.ix = x; c.iy = y; busy(); c.steerAt = performance.now(); c.steerEdge = false; }
+          if ((far || !c.autoOn) && hypot2(x - c.lx, y - c.ly) >= 3) steer(x, y);
+          return;
+        }
+        if (c.grab < 0 || kind !== 'drag') return;
+        if (!c.moved && Math.abs(x - c.sx0) + Math.abs(y - c.sy0) > 8) c.moved = true;
+        if (!c.moved) return;
+        if (hypot2(x - c.mx, y - c.my) > 4) { c.mx = x; c.my = y; c.heldAt = performance.now(); c.idle = 0; }
+        const t = c.targets[c.grab], g = ground(x, y, o.plane || 0, _hit);
+        if (g && c.drop) { const ddx = g.x - c.dropP.x, ddz = g.z - c.dropP.z, dl = hypot2(ddx, ddz); if (dl > c.far) { g.x = c.dropP.x + ddx / dl * c.far; g.z = c.dropP.z + ddz / dl * c.far; } }
+        if (g && o.drag) { try { o.drag(c.grab, g); } catch (err) { console.error(err); } }
+        t.fx = x; t.fy = y; t.follow = true;
+      });
+      const up = (e) => { delete c.fingers[e.pointerId]; if (e.pointerId !== c.pid) return; unlock(); const moved = c.moved; letGo(c, moved, kind !== 'aim' && (e.type === 'pointerup' || moved)); };
+      c.pad.addEventListener('pointerup', up); c.pad.addEventListener('pointercancel', up);
+      if (kind === 'crank') {
         c.count = 1;
         c.crank = BB.el('div', 'bbh-crank', L, CRANK);
-        c.rot = c.crank.querySelector('.rot'); c.ang = 0; c.tick = 0;
-        const angle = (e) => { const r = c.crank.getBoundingClientRect(); return Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2)); };
+        c.rot = c.crank.querySelector('.rot'); c.prog = c.crank.querySelector('.prog'); c.tick = 0;
+        const angle = (e) => Math.atan2(e.clientY - c.ky, e.clientX - c.kx);
         const turn = (d) => {
           if (c.ended) return;
           c.ang += d; c.p = Math.min(1, c.p + Math.abs(d) / (Math.PI * 2 * (o.turns || 3)));
           c.rot.style.transform = 'rotate(' + (c.ang * 57.2958).toFixed(1) + 'deg)';
-          c.tick += Math.abs(d); if (c.tick > 0.8) { c.tick = 0; try { BB.sfx.tick(); } catch (e) { /* none */ } }
+          c.prog.style.strokeDashoffset = (TRACK * (1 - c.p)).toFixed(1);
+          c.tick += Math.abs(d); if (c.tick > 0.8) { c.tick = 0; try { BB.tone(440 + 440 * c.p, 0.05, { type: 'sine', vol: 0.06 }); } catch (e) { /* none */ } }   // (the clicks climb as the car goes up)
           try { if (o.turn) o.turn(c.p); } catch (err) { console.error(err); }
-          if (c.p >= 1) { try { if (o.act) { const r = o.act(0, 0, !!c.autoOn); if (r && r.then) c.pending.push(r); } } catch (err) { console.error(err); } c.done = 1; finish(c, true); }
+          if (c.p >= 1) {
+            try { if (o.act) { const r = o.act(0, 0, !!c.autoOn); if (r && r.then) c.pending.push(r); } } catch (err) { console.error(err); }
+            c.done = 1; burst(c, c.kx, c.ky); note(4); finish(c, true);
+          }
         };
         c.turnBy = turn;
-        c.crank.addEventListener('pointerdown', (e) => { e.preventDefault(); c.down = true; c.last = angle(e); c.moved = 0; c.idle = 0; try { c.crank.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ } });
+        // the finger that turns the wheel turns it: a new one takes over at once when the wheel is still, else as
+        // soon as it turns it a little (a thumb resting on the wheel, or anywhere else, never blocks another, and
+        // never takes it from a finger that is winding)
+        const grabWheel = (e, edge) => {
+          if (c.pid != null) release(c);
+          c.pid = e.pointerId; c.down = true; c.grab = -1; c.last = angle(e); c.moved = 0; c.turned = 0; c.idle = 0; c.misses = 0;
+          c.steerEdge = !!edge; c.steerAt = edge ? 0 : performance.now();
+          c.crank.classList.add('held');
+        };
+        c.crank.addEventListener('pointerdown', (e) => {
+          e.preventDefault();
+          if (cur !== c || c.ended) return;
+          measure(c);
+          const edge = atEdge(e.clientX, e.clientY);
+          c.fingers[e.pointerId] = { a: angle(e), turn: 0 };
+          try { c.crank.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+          if (c.pid == null || (c.steerEdge && !edge) || (!edge && performance.now() - c.steerAt > 400)) grabWheel(e, edge);
+        });
         c.crank.addEventListener('pointermove', (e) => {
+          // (by the hub of the wheel the angle swings wildly with the smallest tremble: that turns nothing)
+          const hub = hypot2(e.clientX - c.kx, e.clientY - c.ky) < Math.max(26, c.kw * 0.16);
+          if (e.pointerId !== c.pid) {
+            const fg = c.fingers[e.pointerId]; if (!fg || cur !== c || c.ended) return;
+            const a = angle(e); let d = a - fg.a; fg.a = a;
+            if (d > Math.PI) d -= Math.PI * 2; else if (d < -Math.PI) d += Math.PI * 2;
+            if (!hub) fg.turn += Math.abs(d);
+            if (fg.turn > 0.3) grabWheel(e, false);
+            return;
+          }
           if (!c.down) return;
           const a = angle(e); let d = a - c.last; c.last = a;
           if (d > Math.PI) d -= Math.PI * 2; else if (d < -Math.PI) d += Math.PI * 2;
-          c.moved += Math.abs(d); c.idle = 0; c.autoOn = false;
+          if (hub) d = 0;
+          c.moved += Math.abs(d);
+          // (only real turning keeps the game's help waiting: not a finger that just rests on the wheel)
+          c.turned += Math.abs(d); if (c.turned > 0.25) { c.turned = 0; c.idle = 0; c.autoOn = false; c.steerAt = performance.now(); c.steerEdge = false; }
           turn(d);
         });
-        const up = () => { if (c.down && c.moved < 0.15) turn(Math.PI / 2.5); c.down = false; unlock(); };   // a tap gives a little turn too
-        c.crank.addEventListener('pointerup', up); c.crank.addEventListener('pointercancel', () => { c.down = false; });
-      }
-      (o.targets || []).forEach((at, idx) => {
-        const a = anchor(), el = BB.el('div', 'bbh-t', a), t = { at, a, el, used: false, p: new THREE.Vector3() };
-        c.targets.push(t);
-        if (c.kind === 'aim') return;
-        let down = false, sx = 0, sy = 0, moved = false;
-        el.addEventListener('pointerdown', (e) => {
-          e.preventDefault(); down = true; moved = false; sx = e.clientX; sy = e.clientY; c.idle = 0;
-          if (c.kind === 'drag') { try { el.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ } el.classList.add('held'); c.dragging = t; }
-        });
-        el.addEventListener('pointermove', (e) => {
-          if (!down || c.kind !== 'drag') return;
-          if (Math.abs(e.clientX - sx) + Math.abs(e.clientY - sy) > 8) moved = true;
-          if (!moved) return;
-          c.idle = 0;
-          const k = o.ordered ? next(c) : idx, g = ground(e.clientX, e.clientY, o.plane || 0, _hit);
-          if (g && o.drag) { try { o.drag(k, g); } catch (err) { console.error(err); } }
-          t.fx = e.clientX; t.fy = e.clientY; t.follow = true;
-        });
-        const up = (e) => {
-          if (!down) return; down = false; unlock();
-          el.classList.remove('held'); c.dragging = null; t.follow = false;
-          const k = o.ordered ? next(c) : idx;
-          if (c.kind === 'drag' && moved && o.drag) { try { o.drag(k, null); } catch (err) { console.error(err); } }
-          if (e.type === 'pointerup' || moved) did(c, k, false);
+        const cup = (e) => {
+          delete c.fingers[e.pointerId];
+          if (e.pointerId !== c.pid) return;
+          const tap = e.type === 'pointerup' && c.moved < 0.15;
+          unlock(); letGo(c, false, false);
+          if (tap) turn(Math.PI / 2.5);                  // a tap gives a little turn too
         };
-        el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+        c.crank.addEventListener('pointerup', cup); c.crank.addEventListener('pointercancel', cup);
+      }
+      (o.targets || []).forEach((tg) => {
+        const fn = typeof tg === 'function', box = fn ? null : tg.box || null, feet = fn ? null : tg.feet || null;
+        const a = anchor(), el = BB.el('div', 'bbh-t' + (box ? ' box' : feet ? ' foot' : ''), a, '<i></i>');
+        c.targets.push({ at: fn ? tg : tg.at || null, box, feet, a, el, used: false, ring: false, seen: false, follow: false, p: new THREE.Vector3(), q: feet ? new THREE.Vector3() : null,
+          sx: 0, sy: 0, hx: 0, hy: 0, tx: 0, ty: 0, ax: 0, ay: 0, fx: 0, fy: 0, w: feet ? c.T * 0.92 : c.T, h: feet ? c.T * 0.4 : c.T });
       });
-      if (c.kind === 'drag' && o.drop) { c.drop = anchor(); BB.el('div', 'bbh-drop', c.drop); c.dropP = new THREE.Vector3(); }
-      c.hand = anchor(); c.handEl = BB.el('div', 'bbh-hand' + (c.kind === 'drag' || c.kind === 'crank' ? ' move' : ''), c.hand, HAND);
-      if (o.say) BB.say(o.say, { queue: true });
+      if (kind === 'drag' && o.drop) {
+        c.drop = anchor(); BB.el('div', 'bbh-drop' + (o.dropFlat ? ' flat' : ''), c.drop); c.dropP = new THREE.Vector3();
+        for (let i = 0; i < 6; i++) { const d = anchor(); BB.el('div', i < 5 ? 'bbh-dot' : 'bbh-arrow', d, i < 5 ? null : '<b></b>'); if (i < 5) d.firstChild.style.animationDelay = (i * 0.15 - 1.2).toFixed(2) + 's'; d._on = false; d.style.display = 'none'; c.dots.push(d); }
+      }
+      c.hand = anchor(); c.handEl = BB.el('div', 'bbh-hand', c.hand, HAND);
+      measure(c);
+      if (o.say) { const end = () => { c.inviting = false; }; BB.say(o.say, { queue: true }).then(end, end); }
       H.update(0);
     });
   };
@@ -245,13 +615,67 @@
   H.hit = (idx) => { if (cur && !cur.ended) did(cur, idx, !!cur.autoOn); };
   H.active = () => !!(cur && !cur.ended);
   H.stop = function () { const c = cur; if (!c) return; if (c.ended) { c.stopped = true; if (c.done2) c.done2(); c.closing = null; cur = null; return; } finish(c, false); };
+  // (a hold, or the page hidden, takes the finger away: whatever it held stays where it is, ready to be touched again)
+  BB.on('held', (d) => { const c = cur; if (d && d.on && c && !c.ended && c.pid != null) { if (c.kind === 'drag' && c.moved && c.grab >= 0 && c.o.drag) { try { c.o.drag(c.grab, null); } catch (e) { console.error(e); } } release(c); } });
   H.state = function () {
     const c = cur; if (!c || c.ended) return { on: false };
-    const r = c.crank ? c.crank.getBoundingClientRect() : null;
-    return { on: true, kind: c.kind, done: c.done, count: c.count, idle: +c.idle.toFixed(2), hinted: c.hinted, p: +c.p.toFixed(3),
-      targets: c.targets.map((t) => ({ used: t.used, x: t.a._x, y: t.a._y, on: t.a._on !== false })),
-      drop: c.drop ? { x: c.drop._x, y: c.drop._y } : null, crank: r ? { x: r.left + r.width / 2, y: r.top + r.height / 2, r: r.width / 2 } : null };
+    return { on: true, kind: c.kind, done: c.done, count: c.count, idle: +c.idle.toFixed(2), hinted: c.hinted, p: +c.p.toFixed(3), misses: c.misses, size: c.T,
+      targets: c.targets.map((t) => ({ used: t.used, x: t.sx, y: t.sy, hx: t.hx, hy: t.hy, w: t.w, h: t.h, on: t.seen, ring: t.ring, person: !!t.feet })),
+      drop: c.drop ? { x: c.dx, y: c.dy } : null, crank: c.crank ? { x: c.kx, y: c.ky, r: c.kw / 2 } : null,
+      steer: c.kind === 'aim' && c.pid != null ? { id: c.pid, x: Math.round(c.lx), y: Math.round(c.ly) } : null };
   };
+
+  function pose(c, p) { if (c.pose !== p) { c.pose = p; c.handEl.className = 'bbh-hand ' + p + (c.hinted ? ' big' : ''); } }
+  // the k-th thing still to do (aim: the hand slides from one to the next)
+  function liveAt(c, k) { for (let i = 0; i < c.targets.length; i++) { const t = c.targets[i]; if (t.used || !t.seen) continue; if (k-- === 0) return t; } return null; }
+  function hidePath(c) { if (!c.pathOn) return; c.pathOn = false; for (let i = 0; i < c.dots.length; i++) place(c.dots[i], 0, 0, false); }
+  // the dotted path: five dots in a gentle arc from the thing to the drop place, and an arrowhead
+  function showPath(c, x0, y0, x1, y1, arc) {
+    if (c.pathOn && Math.abs(x0 - c.px0) + Math.abs(y0 - c.py0) + Math.abs(x1 - c.px1) + Math.abs(y1 - c.py1) < 1) return;
+    c.pathOn = true; c.px0 = x0; c.py0 = y0; c.px1 = x1; c.py1 = y1;
+    const len = hypot2(x1 - x0, y1 - y0) || 1, a = c.T * 0.5 / len, b = 1 - c.T * 0.62 / len;      // (from the ring's edge to the drop's edge)
+    for (let i = 0; i < 6; i++) {
+      const v = a + (b - a) * (i / 5);
+      place(c.dots[i], x0 + (x1 - x0) * v, y0 + (y1 - y0) * v - Math.sin(v * Math.PI) * arc, true);
+    }
+    const ang = Math.atan2((y1 - y0) + Math.cos(b * Math.PI) * Math.PI * arc * -1, x1 - x0);
+    c.dots[5].firstChild.style.transform = 'rotate(' + (ang * 57.2958).toFixed(0) + 'deg)';
+  }
+  // the pointing hand shows the gesture, from the start
+  function gesture(c, nx) {
+    const hide = c.down || c.since < 0.7;
+    if (c.kind === 'crank') {
+      // on the knob, then once round the wheel
+      const u = c.t % 3.4, k = c.kw * 0.3, sw = BB.smooth((u - 0.5) / 2.0) * Math.PI * 1.8, a = c.ang - Math.PI / 2 + sw;
+      pose(c, u < 0.3 || u > 2.7 ? 'lift' : 'press');
+      place(c.hand, c.kx + Math.cos(a) * k, c.ky + Math.sin(a) * k, !hide && c.kw > 0 && u < 3.0);
+      return;
+    }
+    const t = nx >= 0 ? c.targets[nx] : null;
+    if (!t || !t.seen) { place(c.hand, 0, 0, false); hidePath(c); return; }
+    const x = t.box ? t.ax : t.hx, y = t.box ? t.ay : t.hy;
+    if (c.kind === 'drag' && c.drop && c.dropOn) {
+      // press on the thing, carry it along the path, let go on the drop place
+      const len = hypot2(c.dx - x, c.dy - y), arc = Math.min(54, len * 0.2);
+      if (hide || len < c.T * 1.25) hidePath(c); else showPath(c, x, y, c.dx, c.dy, arc);
+      const u = c.t % 3.0, v = BB.smooth((u - 0.55) / 1.25);
+      pose(c, u < 0.3 || u > 1.95 ? 'lift' : 'press');
+      place(c.hand, x + (c.dx - x) * v, y + (c.dy - y) * v - Math.sin(v * Math.PI) * arc, !hide && u < 2.45);
+      return;
+    }
+    if (c.kind === 'aim') {
+      // finger down, sliding from one glowing window to the next
+      let n = 0; for (let i = 0; i < c.targets.length; i++) if (!c.targets[i].used && c.targets[i].seen) n++;
+      const seg = Math.floor(c.t / 1.4), v = BB.smooth((c.t % 1.4) / 0.55);
+      const to = liveAt(c, seg % n) || t, from = liveAt(c, (seg + n - 1) % n) || to;
+      pose(c, 'press');
+      place(c.hand, from.sx + (to.sx - from.sx) * v, from.sy + (to.sy - from.sy) * v + c.aimT * 0.12, !hide);
+      return;
+    }
+    hidePath(c);
+    pose(c, 'tap');
+    place(c.hand, x, y, !hide);
+  }
 
   H.update = function (dt) {
     try { if (W.mesh) W.update(dt); } catch (e) { console.error(e); }
@@ -264,39 +688,66 @@
       b.t += dt;
       if (b.old && !b.faded && b.t > 0.9) { b.faded = true; b.a.firstChild.classList.add('old'); }
       if (b.faded && b.t > 1.6) { b.a.remove(); c.bubbles.splice(i, 1); continue; }
+      if (c.o.bubbleFollow && c.o.bubble) { try { c.o.bubble(b.j, b.idx, b.p); } catch (e) { /* keep where it was */ } }   // (over a friend walking to the door)
       { const on = proj(b.p, _s); place(b.a, BB.clamp(_s.x, 40, innerWidth - 40), Math.max(_s.y, innerHeight <= 520 ? 62 : 86), on); }   // (never off the edge)
     }
     if (c.ended) return;
-    c.t += dt;
+    c.t += dt; c.since += dt;
+    if ((c.safeT -= dt) <= 0) { c.safeT = 0.5; measure(c); }
     const o = c.o, nx = next(c);
+    c0T = c.T;
+    // a press held still counts too: a tap after 0.6 s, a thing in the hand lands after 1.5 s (3 s once it has been
+    // carried somewhere), so a finger or a thumb resting on a thing never keeps the moment waiting (real time: a hold
+    // or a hidden page lets the finger go anyway)
+    if (c.grab >= 0 && c.pid != null && (c.kind === 'tap' || c.kind === 'drag')) {
+      c.heldT = (performance.now() - c.heldAt) / 1000;
+      if (c.heldT >= (c.kind === 'tap' ? 0.6 : c.moved ? 3 : 1.5)) { letGo(c, c.moved, true); if (c.ended || cur !== c) return; }
+    }
+    // where every thing is on screen
     for (let i = 0; i < c.targets.length; i++) {
       const t = c.targets[i]; if (t.used) continue;
-      t.at(t.p);
-      const ring = !o.ordered || i === nx;
+      if (t.box) projBox(c, t);
+      else if (t.feet) {
+        // a person: the ring at their feet, the hand at their middle, their head as high again
+        t.at(t.p); t.feet(t.q);
+        t.seen = proj(t.p, _s);
+        const bx = _s.x, by = _s.y;
+        if (t.seen && proj(t.q, _s)) {
+          t.tx = 2 * bx - _s.x; t.ty = 2 * by - _s.y;
+          keep(c, _s, t.w / 2, t.h / 2); t.sx = _s.x; t.sy = _s.y;
+          if (!t.follow) { t.hx = bx; t.hy = by; }
+        } else t.seen = false;
+        continue;
+      } else { t.at(t.p); t.seen = proj(t.p, _s); if (t.seen) { keep(c, _s, t.w / 2); t.sx = _s.x; t.sy = _s.y; } }
+      if (!t.follow) { t.hx = t.sx; t.hy = t.sy; }
+    }
+    // the rings: always on the next thing; on the others too when they all stand well apart (never two overlapping)
+    // (while a thing is carried, only it wears its ring: the drop place is what matters then)
+    const carried = c.dragging && c.dragging.follow ? c.dragging : null;
+    const all = c.kind === 'aim' || (!c.shared && !carried && apart(c));
+    for (let i = 0; i < c.targets.length; i++) {
+      const t = c.targets[i]; if (t.used) continue;
+      const ring = t.seen && (carried ? t === carried : i === nx || all);
       if (ring !== t.ring) { t.ring = ring; t.el.classList.toggle('ring', ring); }
       if (t.follow) place(t.a, t.fx, t.fy, true);       // under the finger while it is carried
-      else { const on = proj(t.p, _s); place(t.a, BB.clamp(_s.x, 34, innerWidth - 34), BB.clamp(_s.y, 34, innerHeight - 34), on); }   // (always within reach)
+      else place(t.a, t.sx, t.sy, t.seen);
     }
-    if (c.drop) { o.drop(c.dropP); const on = proj(c.dropP, _s); place(c.drop, _s.x, _s.y, on); }
-    // the pointing hand: on the next thing to touch; for a drag it glides from the thing to the drop place; round
-    // the winch it circles
-    if (c.kind === 'crank') {
-      const r = c.crank.getBoundingClientRect(), a = c.t * 2.2;
-      place(c.hand, r.left + r.width / 2 + Math.cos(a) * r.width * 0.34, r.top + r.height / 2 + Math.sin(a) * r.height * 0.34, !c.down);
-    } else if (nx >= 0 && !c.dragging && !(c.kind === 'aim' && c.down)) {
-      const t = c.targets[nx];
-      if (proj(t.p, _s)) {
-        let x = _s.x, y = _s.y;
-        if (c.drop && proj(c.dropP, _s)) { const u = BB.smooth(BB.clamp((c.t % 2.2) / 1.5, 0, 1)); x += (_s.x - x) * u; y += (_s.y - y) * u; }
-        place(c.hand, x, y, true);
-      } else place(c.hand, 0, 0, false);
-    } else place(c.hand, 0, 0, false);
-    // waiting for a finger: a hint, then the game helps
-    if (asking() || c.down || c.dragging) return;
+    if (c.drop) {
+      o.drop(c.dropP, carried ? c.targets.indexOf(carried) : nx, c.done); c.dropOn = proj(c.dropP, _s);
+      if (c.dropOn) { keep(c, _s, c.T * 0.6, o.dropFlat ? c.T * 0.25 : c.T * 0.6); c.dx = _s.x; c.dy = _s.y; }
+      place(c.drop, c.dx, c.dy, c.dropOn);
+      const near = !!(c.dragging && c.dragging.follow && (hypot2(c.dragging.fx - c.dx, c.dragging.fy - c.dy) < c.T ||
+        (o.dropFlat && Math.abs(c.dragging.fx - c.dx) < c.T * 0.7 && c.dragging.fy < c.dy && c.dragging.fy > c.dy - c.T * 1.8)));
+      if (near !== c.near) { c.near = near; c.drop.firstChild.classList.toggle('near', near); }
+    }
+    gesture(c, nx);
+    // waiting for a finger: a hint, then the game helps (a finger at work keeps setting the clock back; one that just
+    // rests somewhere doesn't stop it)
+    if (asking()) return;
+    if (c.inviting && c.t < 7) return;                  // (the waiting starts when the invitation has been said)
     c.idle += dt;
     if (!c.hinted && c.idle >= HINT_AT) {
-      c.hinted = true; c.handEl.classList.add('big');
-      if (c.crank) c.crank.classList.add('glow');
+      c.hinted = true; c.pose = ''; layer.classList.add('hint');
       if (o.hint) BB.say(o.hint, { queue: true });
     }
     if (c.idle >= AUTO_AT) {

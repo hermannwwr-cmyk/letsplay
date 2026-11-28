@@ -58,6 +58,16 @@
   /* the fuel dial: always exactly 2 : 1 (a true half circle; this beats the tiles' square .row canvas rule) */
   .bbu-b.bbu-cash .row canvas.fuel { width: calc(var(--ic) * 1.7); height: calc(var(--ic) * .85); display: block; }
   .bbu-job { visibility: hidden; padding-left: 10px; padding-right: 12px; }
+  /* the Garage tile when there are enough coins for the wish: a gold glow and the ride's picture on a little card */
+  .bbu-b.wishready { border-color: #ffb81f; animation: bbu-glow 1s infinite alternate; }
+  .bbu-b .wishpic { position: absolute; left: 50%; top: calc(100% + 5px); transform: translateX(-50%); width: 50px; height: 37px; padding: 1px 2px; box-sizing: border-box; display: none;
+    background: #fff6e0; border: 2.5px solid #ffb81f; border-radius: 12px; box-shadow: 0 3px 0 rgba(120,80,40,.2); animation: bbu-bob 1.6s ease-in-out infinite; }
+  .bbu-b.wishready .wishpic { display: block; }
+  .bbu-b .wishpic canvas { width: 100%; height: 100%; display: block; }
+  @media (max-height: 520px) { .bbu-b .wishpic { width: 42px; height: 31px; top: calc(100% + 4px); } }
+  /* the friends' chips (net.js) hang below the top bar on the right: below the wish card while it shows */
+  #ui.wishup:not(.home) .bbn-friends { top: calc(var(--st) + var(--hudh, 80px) + 54px); }
+  @media (max-height: 520px) { #ui.wishup:not(.home) .bbn-friends { top: calc(var(--st) + var(--hudh, 80px) + 44px); } }
   .bbu-job .row canvas { width: var(--ic); height: var(--ic); }
   .bbu-job .dots { display: flex; gap: 5px; }
   .bbu-job .dots i { width: 15px; height: 15px; border-radius: 50%; background: #eadfca; border: 2px solid #d9b57f; box-sizing: border-box; }
@@ -209,7 +219,8 @@
   .bbu-book .stk canvas { filter: drop-shadow(0 3px 0 rgba(120,80,40,.25)); }
   .bbu-book .stk .q { box-sizing: border-box; border: 3px dashed #d0bfa0; border-radius: 22px; display: flex; align-items: center; justify-content: center;
     font: 700 calc(var(--sk) * .5)/1 ${BB.FONT}; color: #d0bfa0; background: rgba(255,255,255,.4); }
-  .bbu-book .stk .lb { min-height: 1.05em; white-space: nowrap; }
+  /* names wrap onto a second line where the stickers are small ("Grandpa / Lee"), so neighbours never run together */
+  .bbu-book .stk .lb { min-height: 1.05em; white-space: normal; max-width: calc(var(--sk) + 4px); overflow-wrap: normal; }
   .bbu-book .stk.pressed { transform: translateY(3px); }
   .bbu-book .stk.fresh canvas { animation: bbu-pop .5s cubic-bezier(.2,1.6,.5,1); }
   .bbu-book .x { position: absolute; z-index: 3; top: -18px; right: -18px; width: 64px; height: 64px; border: none; background: none; padding: 0; cursor: pointer;
@@ -383,10 +394,29 @@
     const right = BB.el('div', 'bbu-grp', top);
     garageBtn = U.btn(right, 'garage', 'Garage', () => {
       const ph = BB.jobs.phase;
-      if (ph === 'drive' || ph === 'done' || ph === 'stop' || ph === 'question') { BB.say("Let's go to the garage!"); BB.jobs.goDepot('quiet'); }
+      if (ph === 'drive' || ph === 'done' || ph === 'stop' || ph === 'question') {
+        let wl = null; try { wl = BB.depot.wishNews && BB.depot.wishNews('tile'); } catch (e) { wl = null; }   // (now and then, not every tap)
+        BB.say(wl || "Let's go to the garage!"); BB.jobs.goDepot('quiet');
+      }
       else if (ph === 'toDepot') BB.say("We're going to the garage!");
       else BB.say('Garage!');
     });
+    // enough coins for the wish (the ride being saved up for, depot.js): the Garage tile glows gold and shows that
+    // ride's little picture, so the child knows it is waiting there
+    const wishPic = BB.el('span', 'wishpic', garageBtn);
+    let wishId = '';
+    const wishReady = () => { let w = null; try { w = BB.depot && BB.depot.wish ? BB.depot.wish() : null; } catch (e) { w = null; } return w && w.need <= 0 ? w : null; };
+    U.syncWish = function () {
+      const w = wishReady();
+      garageBtn.classList.toggle('wishready', !!w);
+      U.root.classList.toggle('wishup', !!w);           // (friends' chips, net.js, move down past the little card)
+      if (w && w.id !== wishId) {
+        wishId = w.id; wishPic.innerHTML = '';
+        try { const pc = w.pic(), c = document.createElement('canvas'); c.width = pc.width; c.height = pc.height; c.getContext('2d').drawImage(pc, 0, 0); wishPic.appendChild(c); } catch (e) { console.error(e); }
+      }
+    };
+    for (const ev of ['cash:changed', 'wish:changed', 'depot:closed']) BB.on(ev, () => U.syncWish());
+    U.syncWish();
     soundBtn = U.btn(right, 'sound', 'Sound', () => {
       const mute = !BB.audio.mute;
       BB.audio.setSound(mute, BB.audio.music, true);
@@ -520,10 +550,15 @@
     BB.on('bus:bump', () => { const c = document.getElementById('c'); if (!c) return; c.classList.remove('bbu-wobble'); void c.offsetWidth; c.classList.add('bbu-wobble'); BB.sfx.pop(); });
 
     // events
+    // (quiet: the job's coins fly in from the job-done banner; the counter goes up as they land, U.coinsLanded)
+    const showCash = () => { cashEl.querySelector('b').textContent = String(BB.depot.cash); };
+    const bumpCash = () => { cashEl.classList.remove('bump'); void cashEl.offsetWidth; cashEl.classList.add('bump'); };
     BB.on('cash:changed', (d) => {
-      cashEl.querySelector('b').textContent = String(d.cash);
-      if (d.delta > 0) { cashEl.classList.remove('bump'); void cashEl.offsetWidth; cashEl.classList.add('bump'); U.coins(d.delta); }
+      if (d.quiet && d.delta > 0) { BB.later(2600, showCash); return; }
+      showCash();
+      if (d.delta > 0) { bumpCash(); U.coins(d.delta); }
     });
+    U.coinsLanded = () => { showCash(); bumpCash(); BB.sfx.coin(); };
     BB.on('job:new', () => renderJob());
     BB.on('job:target', () => { if (washRoute) washRoute = null; renderJob(); });   // (the job took over the way)
     BB.on('job:stopDone', () => renderJob());
@@ -945,7 +980,8 @@
     };
     const seen = spotSeen();
     page(BB.spotPic('fireTruck', 64), 'Things I spotted', 4, spotList().map(([id, name]) => ({ id, name, found: seen.has(id), pic: () => BB.spotPic(id, 160), missing: 'Not found yet! Keep your eyes open when you drive!' })));
-    page(BB.friendPic({ id: 'granny', look: FRIEND_LOOK.granny, prop: 'cat' }, 64), 'My passenger friends', 2, friendList().map((f) => ({ id: 'friend-' + f.id, name: f.name, found: f.met, pic: () => BB.friendPic(f, 160), missing: 'Not met yet! Maybe they will get on your bus one day!' })));
+    const fl = friendList();
+    page(BB.friendPic({ id: 'granny', look: FRIEND_LOOK.granny, prop: 'cat' }, 64), 'My passenger friends', fl.length > 6 ? 4 : fl.length > 4 ? 3 : 2, fl.map((f) => ({ id: 'friend-' + f.id, name: f.name, found: f.met, pic: () => BB.friendPic(f, 160), missing: 'Not met yet! Maybe they will get on your bus one day!' })));
     freshIds.clear();
     BB.sfx.page();
     BB.say('My sticker book!');
