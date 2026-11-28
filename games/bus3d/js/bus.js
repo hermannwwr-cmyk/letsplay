@@ -2075,7 +2075,7 @@
     // In the last stretch before the target bay (lined up with it) the parking logic takes over: steer along the
     // bay's own line and let approachCap() slow the bus to a stop in it, so a throttle-only drive always parks.
     const asst = B.assist && canDrive && thr > 0 ? (bayAssist(MAX_STEER + 0.22) || assistSteer(MAX_STEER + 0.22)) : null;
-    if (asst && !asst.bay && Math.abs(kidSteer) < 0.3) want = Math.min(want, Math.max(4.0, Math.min(top * (1 - 1.1 * Math.abs(asst.alpha)), asst.vBend)));
+    if (asst && !asst.bay && Math.abs(kidSteer) < 0.3) want = Math.min(want, Math.max(9, Math.min(top * (1 - 0.3 * Math.abs(asst.alpha)), asst.vBend)));   // (turns hardly slow it: the owner's choice)
     if (lookSlow < 1 && want > 0) want = Math.min(want, Math.max(3.5, MAX_FWD * lookSlow));   // (B.lookAt: slower, never stopped)
     let cap = approachCap();
     if (cap < Infinity) want = BB.clamp(want, -cap, cap); else cap = 0;   // ease off coming into the target bay so it can settle
@@ -2254,7 +2254,7 @@
     // how much the path turns within the next ~14 or more (much further at speed), for slowing down in good time
     // before a junction's turn (measured from the bus's own point on the path: a long straight counts as straight)
     // The tightest bend ahead (its radius, from each corner's turn and its segments) sets a speed limit: gentle on
-    // the loop's wide curves, a slow roll round a junction's turn.
+    // the loop's wide curves and the junctions' turns are taken at nearly full speed (the owner asked for quicker drives).
     // (measured over 4-unit chords of the path resampled every 2 units, so a small kink where two pieces of the line
     // meet doesn't read as a hairpin and hold the bus to a crawl)
     const look = 14 + Math.max(0, B.speed) * 1.6, samp = [qx, qz];
@@ -2267,8 +2267,8 @@
     for (let i = 0; i + 8 < samp.length; i += 2) {
       const t1 = Math.atan2(samp[i + 4] - samp[i], samp[i + 5] - samp[i + 1]), t2 = Math.atan2(samp[i + 8] - samp[i + 4], samp[i + 9] - samp[i + 5]);
       const dth = Math.abs(wrapA(t2 - t1));
-      // each bend's speed (about 3.2 sideways), and how fast the bus may still go this far before it (easing off at 3)
-      if (dth > 0.02) { const vb = Math.sqrt(3.2 * 4 / dth), d = Math.max(0, i - 2); rMin = Math.min(rMin, Math.sqrt(vb * vb + 6 * d)); }
+      // each bend's speed (about 12 sideways: corners at nearly full speed, the owner's choice), and how fast the bus may still go this far before it (easing off at 3)
+      if (dth > 0.02) { const vb = Math.sqrt(12 * 4 / dth), d = Math.max(0, i - 2); rMin = Math.min(rMin, Math.sqrt(vb * vb + 6 * d)); }
     }
     return { steer: BB.clamp(steer, -ms, ms), alpha: Math.max(Math.abs(wrapA(th - h)), Math.min(1, Math.abs(e) / 4)), vBend: rMin };
   }
