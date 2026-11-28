@@ -1032,6 +1032,8 @@
     door() { tone(N(0), 0.25, { type: 'sine', vol: 0.08, slide: N(-5) }); tone(N(12), 0.12, { type: 'sine', vol: 0.05, at: 0.05 }); },
     ding() { tone(N(16), 0.35, { type: 'sine', vol: 0.11 }); tone(N(12), 0.5, { type: 'sine', vol: 0.11, at: 0.25 }); },
     beep() { tone(N(24), 0.08, { type: 'sine', vol: 0.07 }); },
+    // backing up: one soft beep (ui.js repeats it while the bus rolls backwards)
+    backBeep() { tone(N(26), 0.2, { type: 'sine', vol: 0.045, attack: 0.02 }); },
     cheer() { [0, 4, 7, 12, 16, 19, 24].forEach((s, i) => tone(N(12 + s), 0.18, { type: 'square', vol: 0.05, at: i * 0.07 })); },
     // The horn: a cheerful two-tone honk; the "horn tune" upgrade plays a little tune instead.
     // k scales the volume (a friend's bus far away honks more quietly).

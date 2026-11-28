@@ -1,12 +1,15 @@
 /* Little Bus Captain: the home screen, the HUD and the other screens (DOM over the canvas, inside #ui).
    Home screen (the game starts here): "Little Bus Captain" lettering, the child's bus parked at its garage with the
    camera swinging gently round it, ONE big Play button (to the garage), the family strip (status picture and the
-   buses here now) and, in hub mode, the all-games button with its "Home" tag (to the app's launcher).
+   buses here now), the Book tile, the wish card (the ride being saved up for, with its coin bar) and, in hub mode,
+   the all-games button with its "Home" tag (to the app's launcher).
    HUD: every button is a paper tile with a picture and a word under it, spoken on tap (BB.icon pictures, Fredoka).
    Driving is kept clear so the road shows (the owner asked for fewer buttons): a small top bar with Home, one tile
    for coins and the fuel dial, Next stop (the stop's picture and progress dots) and, in hub mode, the shared clock
-   chip, then Garage and Sound; at the bottom only the steering wheel (tap its middle to honk) and the Go / Back
-   pedals, plus Turn around or Wash when they're needed. Music and the lane helper are in the garage's Settings, and
+   chip, then Garage and Sound; at the bottom only the steering wheel (turn it by the rim, or push from its middle;
+   tap its middle to honk) and the Go / Back pedals, plus Turn around or Wash when they're needed. When the bus has
+   stood still for a while (and the road isn't asking it to wait) the thing to press next lights up: the Go pedal, or
+   Turn around while that is offered; backing up beeps. Music and the lane helper are in the garage's Settings, and
    the fire engine's and ambulance's sirens switch themselves on and off with their jobs.
    Home goes back to the home screen (hub and standalone alike); with a trip in progress a kind "Go home?" card asks
    first, and the job waits (phase 'home') until Play and Drive. Also toasts, coins, confetti, a fade for the tow, the
@@ -53,7 +56,7 @@
   .bbu-mid { flex: 1; min-width: 0; display: flex; justify-content: center; align-items: flex-start; gap: 12px; }
   .bbu-b .row canvas { width: var(--ic); height: var(--ic); flex: none; }
   .bbu-cash .row b { font-size: calc(var(--ic) * .8); line-height: 1; min-width: .6em; text-align: left; color: #3a2a3c; }
-  .bbu-cash.bump { animation: bbu-bump .5s; }
+  .bbu-cash.bump, .bbu-job.bump { animation: bbu-bump .5s; }
   @keyframes bbu-bump { 40% { transform: scale(1.14); } }
   /* the fuel dial: always exactly 2 : 1 (a true half circle; this beats the tiles' square .row canvas rule) */
   .bbu-b.bbu-cash .row canvas.fuel { width: calc(var(--ic) * 1.7); height: calc(var(--ic) * .85); display: block; }
@@ -139,6 +142,7 @@
   .ctl-wheel .bbu-wheel, .ctl-wheel .bbu-ped { display: block; }
   .bbu-wheel { position: absolute; left: calc(var(--sl) + 6px); bottom: var(--sb); width: var(--wh); height: var(--wh); border-radius: 50%;
     pointer-events: auto; touch-action: none; }
+  .bbu-wheel { transition: transform .12s ease-out; } .bbu-wheel.grab { transform: scale(1.05); }   /* (held: it swells a little, "got it") */
   .bbu-wheel .rot { position: absolute; inset: 0; transition: transform .05s linear; }
   .bbu-wheel.honk svg { animation: bbu-honk .3s ease-out; }
   @keyframes bbu-honk { 40% { transform: scale(.94); } }
@@ -153,8 +157,22 @@
   .bbu-ped.back { right: calc(var(--sr) + 6px + var(--pgw) + 14px); width: var(--pbw); height: var(--pbh); border-radius: 24px;
     background: linear-gradient(#ffd27a, #f5a23d 55%, #d98226); box-shadow: inset -4px -5px 0 rgba(0,0,0,.1), 0 6px 0 #a8601a, 0 8px 14px rgba(0,0,0,.12); }
   .bbu-ped.down { transform: translateY(6px); } .bbu-ped.go.down { box-shadow: 0 2px 0 #24702d; } .bbu-ped.back.down { box-shadow: 0 1px 0 #a8601a; }
-  .bbu-ped.go.nudge { animation: bbu-pednudge 1.4s ease-in-out infinite; }
-  @keyframes bbu-pednudge { 50% { box-shadow: 0 8px 0 #24702d, 0 0 0 14px rgba(255,212,92,.55); } }
+  /* "press me": the Go pedal lights up with a gold rim and its arrow bobs. The rim glows mostly inside the pedal (a
+     white edge, then gold), with only a thin gold and amber line outside it, so it shows whole even where the pedal
+     sits close to the screen's edge or the Back pedal, and on every ground (it is on the pedal, not the road). The
+     shadow lists match the pedal's own, shadow for shadow, so the rim swells smoothly instead of blinking. */
+  .bbu-ped.go.nudge, .bbu-ped.go.idle { animation: bbu-pednudge 1.4s ease-in-out infinite; }
+  .bbu-ped.go.nudge svg, .bbu-ped.go.idle svg { animation: bbu-pedarrow 1.4s ease-in-out infinite; }
+  @keyframes bbu-pedarrow { 50% { transform: translateY(-6%); } }
+  @keyframes bbu-pednudge {
+    0%, 100% { box-shadow: inset 0 0 0 0 #fff, inset 0 0 0 0 #ffc23a, inset -5px -6px 0 rgba(0,0,0,.1), 0 8px 0 #24702d, 0 0 0 0 #ffb81f, 0 0 0 0 rgba(176,104,0,.75), 0 10px 18px rgba(0,0,0,.15); }
+    50% { box-shadow: inset 0 0 0 4px #fff, inset 0 0 0 11px #ffc23a, inset -5px -6px 0 rgba(0,0,0,.1), 0 8px 0 #24702d, 0 0 0 3.5px #ffb81f, 0 0 0 5px rgba(176,104,0,.75), 0 10px 18px rgba(0,0,0,.15); } }
+  /* the Turn around tile gets the same gold rim when it is the thing to press (the bus faces away and stands still) */
+  .bbu-uturn.idle { animation: bbu-pop .3s cubic-bezier(.2,1.5,.5,1), bbu-uturnnudge 1.4s ease-in-out infinite; }
+  .bbu-uturn.idle canvas { animation: bbu-pedarrow 1.4s ease-in-out infinite; }
+  @keyframes bbu-uturnnudge {
+    0%, 100% { box-shadow: inset 0 0 0 0 #fff, inset 0 0 0 0 #ffc23a, inset -4px -5px 0 rgba(217,181,127,.45), 0 4px 0 rgba(120,80,40,.18), 0 0 0 0 #ffb81f, 0 0 0 0 rgba(176,104,0,.75); }
+    50% { box-shadow: inset 0 0 0 3px #fff, inset 0 0 0 8px #ffc23a, inset -4px -5px 0 rgba(217,181,127,.45), 0 4px 0 rgba(120,80,40,.18), 0 0 0 3.5px #ffb81f, 0 0 0 5px rgba(176,104,0,.75); } }
   .ctl-wheel .bbu-uturn { right: calc(var(--sr) + 6px + (var(--pgw) - var(--dt) - 14px) / 2); bottom: calc(var(--sb) + var(--pgh) + 16px); }
   .ctl-wheel.lefty .bbu-wheel { left: auto; right: calc(var(--sr) + 6px); }
   .ctl-wheel.lefty .bbu-ped.go { right: auto; left: calc(var(--sl) + 6px); }
@@ -202,6 +220,26 @@
   @keyframes bbu-wiggle { 20% { rotate: -3deg; } 40% { rotate: 3deg; } 60% { rotate: -2deg; } 80% { rotate: 1deg; } }
   .bbu-fam { position: absolute; top: var(--st); right: var(--sr); pointer-events: none !important; }
   .bbu-title .bbu-bookbtn { position: absolute; left: var(--sl); bottom: var(--sb); }
+  /* the home screen's wish (bottom right): the ride being saved up for, a bar that fills with the coins and how many
+     more it takes (a green tick once there are enough). The square picture canvas has an empty band above and below
+     its 4 : 3 picture: the negative margins tuck those away. */
+  .bbu-title .bbu-wish { position: absolute; right: var(--sr); bottom: var(--sb); height: auto; padding: 5px 12px 9px; gap: 5px; --wp: 112px;
+    animation: bbu-pop .4s cubic-bezier(.2,1.5,.5,1); }
+  .bbu-wish > canvas.ride { width: var(--wp); height: var(--wp); margin: calc(var(--wp) * -.125) 0; }
+  .bbu-wish .row { height: auto; gap: 6px; }
+  .bbu-wish .bar { width: calc(var(--wp) * .62); height: 13px; border-radius: 7px; background: #eadfca; overflow: hidden; box-shadow: inset 0 2px 0 rgba(120,80,40,.12); }
+  .bbu-wish .bar i { display: block; height: 100%; width: 0; min-width: 6px; border-radius: 7px; background: #ffb81f; transition: width 1s ease-out; }
+  .bbu-wish .row canvas { width: 24px; height: 24px; margin-right: -3px; }
+  .bbu-wish .row b { font: 700 22px/1 ${BB.FONT}; color: #9a5d00; }
+  .bbu-wish .ok { width: 26px; height: 26px; border-radius: 50%; flex: none; background: #19a79b url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 12.5l4 4 8-9' stroke='white' stroke-width='3.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/80% no-repeat; }
+  .bbu-wish.ready { border-color: #19a79b; box-shadow: inset -4px -5px 0 rgba(25,167,155,.2), 0 4px 0 rgba(20,110,100,.25); }
+  .bbu-wish.ready .bar i { background: #5cb85c; }
+  @media (max-height: 520px) { .bbu-title .bbu-wish { --wp: 84px; padding: 4px 9px 7px; gap: 4px; } .bbu-wish .bar { height: 11px; }
+    .bbu-wish .row canvas { width: 20px; height: 20px; } .bbu-wish .row b { font-size: 18px; } .bbu-wish .ok { width: 22px; height: 22px; } }
+  /* (a narrow, upright window, e.g. the hub's "Play anyway" in iPad Split View: a smaller card, and in the narrowest
+     ones the card and the Book tile sit above the Play button instead of beside it) */
+  @media (max-width: 640px) { .bbu-title .bbu-wish { --wp: 84px; padding: 4px 9px 7px; } }
+  @media (max-width: 480px) { .bbu-title .bbu-wish, .bbu-title .bbu-bookbtn { bottom: calc(var(--sb) + 126px); } }
   /* the spotter book: two paper pages, a sticker per find (grey "?" outlines for the rest) */
   .bbu-book { position: absolute; inset: 0; z-index: 59; background: rgba(40,30,50,.4); display: flex; align-items: center; justify-content: center;
     pointer-events: auto; animation: bbu-fadein .2s; padding: var(--st) var(--sr) var(--sb) var(--sl); box-sizing: border-box; --sk: 92px; --skl: 14px; }
@@ -323,9 +361,11 @@
     .bbu-tip { bottom: calc(var(--cb) + var(--joy) / 4); }
     .bbu-tip.wheelhand { bottom: calc(var(--cb) + var(--wh) * .65); } .bbu-tip.pedalhand { bottom: calc(var(--cb) + var(--pgh) / 4); }
     .bbu-ped .lb { font-size: calc(var(--lb) + 3px); }
-    .bbu-ped.go.nudge { animation-name: bbu-pednudge-s; }
+    .bbu-ped.go.nudge, .bbu-ped.go.idle { animation-name: bbu-pednudge-s; }
   }
-  @keyframes bbu-pednudge-s { 50% { box-shadow: 0 8px 0 #24702d, 0 0 0 9px rgba(255,212,92,.55); } }
+  @keyframes bbu-pednudge-s {
+    0%, 100% { box-shadow: inset 0 0 0 0 #fff, inset 0 0 0 0 #ffc23a, inset -5px -6px 0 rgba(0,0,0,.1), 0 8px 0 #24702d, 0 0 0 0 #ffb81f, 0 0 0 0 rgba(176,104,0,.75), 0 10px 18px rgba(0,0,0,.15); }
+    50% { box-shadow: inset 0 0 0 3px #fff, inset 0 0 0 8px #ffc23a, inset -5px -6px 0 rgba(0,0,0,.1), 0 8px 0 #24702d, 0 0 0 3px #ffb81f, 0 0 0 4.5px rgba(176,104,0,.75), 0 10px 18px rgba(0,0,0,.15); } }
   `);
 
   function darkHex(c, t = 0.22) { return BB.dark ? BB.dark(c, t) : c; }
@@ -363,8 +403,8 @@
   // swap a tile's picture (e.g. Music on/off)
   U.setIcon = function (b, icon) { const old = b.querySelector('canvas, svg'); const nu = BB.iconEl(icon, 128); if (old) b.replaceChild(nu, old); else b.prepend(nu); };
 
-  let uturnBtn, washBtn, facing = false, driving = true, tips = [];
-  let hud, cashEl, fuelCv, jobEl, jobPic, jobDots, wheelEl, wheelRot, pedGo, pedBack, titleEl, soundBtn, exitBtn, homeBtn, garageBtn, playBtn, famEl;
+  let uturnBtn, washBtn, facing = false, driving = true, tips = [], wheelLetGo = null;
+  let hud, cashEl, fuelCv, jobEl, jobPic, jobDots, wheelEl, wheelRot, pedGo, pedBack, titleEl, soundBtn, exitBtn, homeBtn, garageBtn, playBtn, famEl, wishEl;
 
   U.init = function () {
     U.root = document.getElementById('ui');
@@ -425,35 +465,127 @@
     BB.on('sound:changed', syncSound); syncSound();
 
     // driving: the steering wheel and the Go / Back pedals (the only controls: the owner chose them over a joystick)
-    // the steering wheel: drag round it (the wheel turns with the finger's angle, up to about 135 degrees each way,
-    // and eases back to the middle when let go), and the Go and Back pedals (hold)
+    // The steering wheel takes a finger two ways, and eases back to the middle when let go:
+    //  - pushed from its middle (where a thumb lands first, and where the angle means little) it works like a stick
+    //    ('push'): the wheel turns the way the finger slides, left or right, from nothing (a tap's wobble is left out)
+    //    to all the way when the finger has gone a little over one wheel-radius, and it is straight again when the
+    //    finger is back where it began. Where the finger is decides it, so a slide that comes back, or carries on
+    //    across, always steers the way it goes, whatever the finger did before.
+    //    One thing more, like a real wheel: out on the rim, a finger going ROUND the rim turns the wheel round with
+    //    it (so a push that reaches the side and goes on round keeps turning that way, instead of easing back as the
+    //    finger comes round under or over the middle). That extra turn ('wind') comes only from going round on the
+    //    rim (not in or out, not across); a slide the other way takes it off first, it fades as the finger comes in
+    //    off the rim, and it is gone once the finger is back near the middle.
+    //  - held by its rim it is a real wheel ('wheel'): it turns with the finger's angle, up to about 135 degrees each
+    //    way. Brought into the middle it becomes the stick above, from where the wheel stands.
+    // The horn is the red middle: a short press there that doesn't turn the wheel honks, decided when the finger
+    // lifts, so a little wobble doesn't spoil it. The Go and Back pedals are held.
     wheelEl = BB.el('div', 'bbu-wheel', hud); wheelRot = BB.el('div', 'rot', wheelEl, WHEEL_SVG);
     wheelEl.setAttribute('aria-label', 'steering wheel');
-    let wheelId = null, lastA = 0, turned = 0, downT = 0, inHub = false;
-    const angOf = (e) => { const r = wheelEl.getBoundingClientRect(); return Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2)) * 180 / Math.PI; };
+    // Shares of the wheel's radius (the picture: the red horn out to 0.34, the spokes to 0.73, then the rim):
+    // MID: a press that starts inside it is a push, and may be the horn (the horn's old reach); RED: the red horn,
+    // with a finger's margin; CORE: a rim press brought this far in becomes a stick; RIM: out on the rim (where going
+    // round turns the wheel like a real wheel); IN: the wind has faded away by here.
+    // STEER_PX: a push steers once the finger has gone this far sideways, and from nothing (the way there doesn't
+    // count). STEP_PX: the way round is measured in steps at least this long (a finger's tremble has no direction).
+    // The horn: a press that never turned the wheel by HORN_DEG or more (so a quick sideways jab steers and doesn't
+    // honk), and was either under TAP_MS and slid less than TAP_PX or stayed on the red horn, or under PRESS_MS and
+    // barely moved (STILL_PX) or stayed on the red horn sliding less than TAP_PX.
+    const MID = 0.6, RED = 0.42, CORE = 0.3, RIM = 0.72, IN = 0.3, STEER_PX = 9, STEP_PX = 5;
+    const TAP_MS = 350, TAP_PX = 24, PRESS_MS = 700, STILL_PX = 12, HORN_DEG = 12;
+    const wp = { x: 0, y: 0, R: 1 };
+    const wheelAt = (e) => {            // the finger, measured from the wheel's middle
+      const r = wheelEl.getBoundingClientRect();
+      wp.x = e.clientX - (r.left + r.width / 2); wp.y = e.clientY - (r.top + r.height / 2); wp.R = (wheelEl.offsetWidth || r.width || 2) / 2;
+      return wp;
+    };
+    let wheelId = null, mode = '', inHub = false, onRed = false, downT = 0, downX = 0, downY = 0, far = 0, wide = 0;
+    let px = 0, py = 0, qx = 0, qy = 0, qX = 0, anchorX = 0, anchorRot = 0, dead = 0, wind = 0, fades = 0;
+    // the stick: the wheel's angle for a finger at x (from the anchor; the first `dead` pixels either way are still)
+    const stickRot = (x, R) => { const d = x - anchorX, a = Math.abs(d) - dead; return BB.clamp(anchorRot + (a > 0 ? (d < 0 ? -a : a) : 0) / R * 135, -135, 135); };
+    const sgn = (v) => (v > 0 ? 1 : v < 0 ? -1 : 0);
     wheelEl.addEventListener('pointerdown', (e) => {
       e.preventDefault(); if (wheelId != null) return;
       wheelId = e.pointerId; try { wheelEl.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
-      lastA = angOf(e); wheel.drag = true;
-      const r = wheelEl.getBoundingClientRect(), dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
-      turned = 0; downT = performance.now(); inHub = Math.hypot(dx, dy) < r.width * 0.3;     // the red middle (with the horn)
+      const p = wheelAt(e), r = Math.hypot(p.x, p.y);
+      wheel.drag = true; px = qx = p.x; py = qy = p.y; qX = e.clientX;
+      downT = e.timeStamp || performance.now(); downX = e.clientX; downY = e.clientY; far = 0; wide = 0;
+      inHub = r < p.R * MID; onRed = r < p.R * RED;
+      mode = inHub ? 'push' : 'wheel';
+      anchorX = downX; anchorRot = wheel.rot; dead = STEER_PX; wind = 0; fades = 0;
+      wheelEl.classList.add('grab');
     });
     wheelEl.addEventListener('pointermove', (e) => {
       if (e.pointerId !== wheelId) return;
-      const a = angOf(e); let d = a - lastA; while (d > 180) d -= 360; while (d < -180) d += 360; lastA = a;
-      if (inHub) { const r = wheelEl.getBoundingClientRect(); if (Math.hypot(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2)) < r.width * 0.3) return; inHub = false; }
-      turned += Math.abs(d);
-      wheel.rot = BB.clamp(wheel.rot + d, -135, 135); showWheel();
+      const p = wheelAt(e), x = p.x, y = p.y, R = p.R, r = Math.hypot(x, y);
+      const travel = Math.hypot(e.clientX - downX, e.clientY - downY); if (travel > far) far = travel;
+      const side = Math.abs(e.clientX - downX); if (side > wide) wide = side;
+      if (r >= R * MID) inHub = false;                 // out of the middle: a turn, not the horn
+      if (r >= R * RED) onRed = false;
+      if (mode === 'push') {
+        const base = stickRot(e.clientX, R);
+        // Measured over steps of at least STEP_PX: is the finger going round out on the rim (both ends of the step on
+        // the rim, and the step mostly going round rather than in or out)? Then the wheel turns like a real wheel,
+        // by the angle the finger went round (dA, degrees, clockwise = to the right): the wind takes up the
+        // difference from the stick. A sideways slide across under or over the middle mostly goes in or out where it
+        // meets the rim, so it stays a stick. A step the stick takes back the other way (a slide coming back, or
+        // going on across) first takes the wind off, so the wheel answers the finger at once.
+        const sx = x - qx, sy = y - qy;
+        if (sx * sx + sy * sy >= STEP_PX * STEP_PX) {
+          const rq = Math.hypot(qx, qy), dS = base - stickRot(qX, R);
+          let ro = 0, dA = 0;
+          if (rq >= R * RIM && r >= R * RIM) {
+            dA = (Math.atan2(y, x) - Math.atan2(qy, qx)) * 180 / Math.PI; while (dA > 180) dA -= 360; while (dA < -180) dA += 360;
+            if (Math.abs(dA) < 60) { const round = Math.abs(dA) * Math.PI / 180 * (r + rq) / 2, inout = Math.abs(r - rq); ro = BB.smooth((round / (round + inout) - 0.5) / 0.3); }
+          }
+          if (ro > 0) wind += (dA - dS) * ro;
+          const off = Math.abs(dS) * (1 - ro);
+          if (wind !== 0 && off > 0 && sgn(dS) === -sgn(wind)) wind = Math.abs(wind) <= off ? 0 : wind - sgn(wind) * off;
+          qx = x; qy = y; qX = e.clientX;
+        }
+        // Coming in off the rim fades the wind away for good (going back out doesn't bring it back), all gone once
+        // the finger is near the middle; at the lock, out on the rim, the finger slips round the rim (the wind never
+        // piles up beyond the lock, so going back answers at once).
+        const fade = BB.smooth((r / R - IN) / (RIM - IN));
+        if (fade < fades) wind = fades > 0 ? wind * fade / fades : 0;
+        fades = fade;
+        if (fade >= 1) wind = BB.clamp(wind, -135 - base, 135 - base);
+        wheel.rot = BB.clamp(base + wind, -135, 135);
+      } else {
+        // How far round the middle the finger went since the last move (degrees, clockwise = to the right), faded out
+        // where the move passes right by the middle (there the angle means nothing, and a finger crossing it would
+        // flip the wheel right over).
+        let dA = (Math.atan2(y, x) - Math.atan2(py, px)) * 180 / Math.PI; while (dA > 180) dA -= 360; while (dA < -180) dA += 360;
+        const sx = x - px, sy = y - py, len2 = sx * sx + sy * sy, t = len2 > 0 ? BB.clamp(-(px * sx + py * sy) / len2, 0, 1) : 0;
+        const near = Math.hypot(px + sx * t, py + sy * t) / R;
+        wheel.rot = BB.clamp(wheel.rot + dA * BB.smooth((near - 0.1) / 0.15), -135, 135);
+        if (r < R * CORE) {
+          // brought into the middle: a stick from here on, starting from where the wheel stands
+          mode = 'push'; anchorX = e.clientX; anchorRot = wheel.rot; dead = 0; wind = 0; fades = 0; qx = x; qy = y; qX = e.clientX;
+        }
+      }
+      px = x; py = y;
+      showWheel();
       if (Math.abs(wheel.rot) > 25) hideTip('wheelhand');
       applyInput();
     });
-    // a quick tap on the wheel's red middle (not a turn) honks the horn
+    // The horn: a press that began on the wheel's middle, never left it and never turned the wheel (by HORN_DEG)
+    // honks when the finger lifts: a quick one that slid only a little (or stayed on the red horn), or a slower one
+    // that hardly moved (or stayed on the red horn and slid only a little). A slide that turned the wheel is a turn,
+    // not the horn, however quick (so quick little steering jabs never add up to the secret turbo). Any small turn
+    // begun meanwhile eases away by itself. (The events' own times are used, so a busy frame between finger down
+    // and finger up doesn't make a quick tap look like a long one.)
     const wheelUp = (e) => {
       if (e.pointerId !== wheelId) return; wheelId = null; wheel.drag = false;
-      if (e.type === 'pointerup' && inHub && turned < 12 && performance.now() - downT < 600) honk();
-      inHub = false;
+      wheelEl.classList.remove('grab');
+      const held = (e.timeStamp || performance.now()) - downT, R = (wheelEl.offsetWidth || 2) / 2;
+      const turned = (wide - STEER_PX) / R * 135 >= HORN_DEG;
+      const horn = !turned && (held < TAP_MS ? far < TAP_PX || onRed : held < PRESS_MS && (far < STILL_PX || (onRed && far < TAP_PX)));
+      if (e.type === 'pointerup' && inHub && horn) honk();
+      inHub = onRed = false; mode = ''; wind = 0;
     };
     for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) wheelEl.addEventListener(ev, wheelUp);
+    wheelLetGo = () => { wheelId = null; inHub = onRed = false; mode = ''; wind = 0; };
     wheelEl.addEventListener('contextmenu', (e) => e.preventDefault());
     const pedal = (cls, key, word) => {
       const b = BB.el('button', 'bbu-ped ' + cls, hud, PEDAL_SVG[cls] + `<span class="lb">${word}</span>`); b.setAttribute('aria-label', word);
@@ -490,7 +622,7 @@
     BB.on('bus:washBay', (d) => { if (d && d.inBay) U.atWash(); else washDeclined = false; });   // (asked again only after leaving the bay)
     BB.on('bus:washed', () => washDone());
     BB.on('bus:dirt', syncWash);
-    BB.on('bus:turnAround', () => { facing = false; syncUturn(); });
+    BB.on('bus:turnAround', () => { facing = false; idleGo = 0; syncUturn(); });
     BB.on('bus:facingAway', (d) => { facing = !!(d && d.on); syncUturn(); });
 
     // the home screen: the lettering, ONE big Play button (to the garage), the family strip
@@ -503,6 +635,8 @@
     BB.tap(playBtn, () => U.play());
     famEl = BB.el('div', 'bbu-fam', titleEl);
     U.btn(titleEl, 'book', 'Book', () => U.openBook(), 'bbu-bookbtn');
+    wishEl = BB.el('button', 'bbu-b bbu-wish', titleEl); wishEl.type = 'button'; wishEl.style.display = 'none';
+    BB.tap(wishEl, () => wishTap());
     const snow = BB.el('div', 'bbu-snow', titleEl);
     for (let i = 0; i < 14; i++) {        // (twinkling sparkles in the sky, not snow)
       const f = BB.el('i', '', snow), sz = 9 + Math.random() * 9;
@@ -578,7 +712,7 @@
     const A = BB.audio;
     soundBtn.classList.toggle('off', A.mute); U.setIcon(soundBtn, A.mute ? 'soundOff' : 'sound');
   }
-  function syncUturn() { const on = facing && driving && !!BB.bus.turnAround; if (uturnBtn) uturnBtn.classList.toggle('on', on); }
+  function syncUturn() { const on = facing && driving && !!BB.bus.turnAround; if (uturnBtn) uturnBtn.classList.toggle('on', on); if (on && pedGo) pedGo.classList.remove('nudge'); }
   // ---------- the bus wash ----------
   // A dusty bus (save.dirt > 0.4, only looks) gets a Wash tile: the ribbon leads to the wash bay next to the garage. In
   // the bay a pay card: 3 coins (never taken without a yes; too few = "Let's do more jobs!"). Then bus.js's wash
@@ -725,6 +859,7 @@
   const JOB_WORD = { fire: 'Fire!', ambulance: 'Ambulance', icecream: 'Ice cream', tow: 'Tow' };
   const JOB_PIC = { fire: 'fire', ambulance: 'medic', icecream: 'icecream', tow: 'tow', taxi: 'taxi' };
   const JOB_WORD_TAXI = 'Taxi';
+  let jobKey = '';
   function renderJob() {
     const job = BB.jobs.current, t = BB.bus.target;
     if (!t && !job) { jobEl.style.visibility = 'hidden'; return; }
@@ -741,7 +876,11 @@
     jobDots.innerHTML = '';
     // going to the garage: just its picture; on a job, a dot per stop
     if (job && !wash && !(t && t.id === 'depot')) job.stops.forEach((s, i) => BB.el('i', i < job.index ? 'done' : i === job.index ? 'now' : '', jobDots));
-    jobEl.querySelector('.lb').textContent = wash ? 'Wash' : depot ? 'Garage' : (job && JOB_WORD[KIND_OF[job.kind] || KIND_OF[job.vehicle] || U.rideKind()]) || (vk === 'taxi' ? JOB_WORD_TAXI : 'Next stop');
+    const word = wash ? 'Wash' : depot ? 'Garage' : (job && JOB_WORD[KIND_OF[job.kind] || KIND_OF[job.vehicle] || U.rideKind()]) || (vk === 'taxi' ? JOB_WORD_TAXI : 'Next stop');
+    jobEl.querySelector('.lb').textContent = word;
+    // somewhere new to go: the tile gives a little pop, so the eye finds the new picture
+    const key = word + '|' + (pic || '') + '|' + (stop ? stop.id : '') + '|' + (job ? job.index : '');
+    if (key !== jobKey) { jobKey = key; if (hud && !hud.classList.contains('off')) { jobEl.classList.remove('bump'); void jobEl.offsetWidth; jobEl.classList.add('bump'); } }
   }
 
   // ---------- Home ----------
@@ -775,6 +914,7 @@
   let askEl = null;
   U.ask = function (o) {
     U.closeAsk();
+    askedIn = BB.events ? BB.events.current : null;    // (the road event this card belongs to, if any: see roadWait)
     const w = askEl = BB.el('div', 'bbu-ask', U.root);
     const card = BB.el('div', 'card', w);
     if (o.pic && o.pic.nodeType === 1) { o.pic.classList.add('pic'); card.appendChild(o.pic); }
@@ -820,6 +960,8 @@
     for (const k in pedals) pedals[k] = false;
     for (const b of [pedGo, pedBack]) if (b) { b.classList.remove('down'); b._ptrs.clear(); }
     wheel.drag = false;                   // (the wheel itself eases back to the middle in U.update)
+    if (wheelLetGo) wheelLetGo();         // (a finger still down on it no longer steers, nor honks, until it presses again)
+    if (wheelEl) wheelEl.classList.remove('grab');
     try { applyInput(); } catch (e) { /* bus not built yet */ }
   };
   U.input = () => { const c = current(); return { throttle: c.throttle, steer: c.steer, go: c.throttle > 0.25, back: c.throttle < -0.25, left: c.steer < -0.3, right: c.steer > 0.3 }; };
@@ -862,7 +1004,7 @@
     U.closeAsk(); U.releaseAll(); U.hideTips();
     titleEl.style.display = ''; U.root.classList.add('home'); hud.classList.add('off'); U.showExit(true);
     try { if (BB.bus.placeAtDepot) BB.bus.placeAtDepot('title'); else BB.bus.setCamera('title'); } catch (e) { console.error(e); }
-    syncFam();
+    syncFam(); showWish();
     if (opts.say !== false) BB.say(U.homeWelcome());
     homeCalls = 0; if (homeIdle) BB.cancelLater(homeIdle); homeIdle = BB.later(12000, homeNudge);
     BB.emit('home:open');
@@ -872,6 +1014,35 @@
     if (!U.titleShown() || BB.bedtime || homeCalls >= 2) return;
     if (!BB.speaking()) { homeCalls++; playBtn.classList.remove('call'); void playBtn.offsetWidth; playBtn.classList.add('call'); BB.say('Tap Play to go to your garage!'); }
     homeIdle = BB.later(homeCalls ? 18000 : 4000, homeNudge);
+  }
+  // The wish on the home screen: the ride the child is saving up for (BB.depot.wish(): the locked ride tapped last in
+  // the garage, or the cheapest one not bought yet), with a bar that fills as the coins come in. A tap says how many
+  // more coins it takes, or that there are enough (and Play gives a wiggle: the garage is that way). No card once
+  // every ride is theirs. Nothing here may ever keep the home screen from opening, hence the try/catch.
+  function showWish() {
+    if (!wishEl) return;
+    let w = null; try { w = BB.depot.wish && BB.depot.wish(); } catch (e) { console.error(e); }
+    wishEl.style.display = 'none'; wishEl.innerHTML = '';
+    if (!w) return;
+    try {
+      const src = w.pic(), c = document.createElement('canvas'); c.width = src.width; c.height = src.height; c.getContext('2d').drawImage(src, 0, 0);
+      c.className = 'ride'; wishEl.appendChild(c);
+      const row = BB.el('span', 'row', wishEl), fill = BB.el('i', '', BB.el('span', 'bar', row));
+      if (w.need > 0) { row.appendChild(BB.iconEl('coin', 64)); BB.el('b', '', row, String(w.need)); } else BB.el('span', 'ok', row);
+      wishEl.classList.toggle('ready', w.need <= 0);
+      wishEl.setAttribute('aria-label', w.need > 0 ? `${w.need} more coins for the ${w.name}` : `Enough coins for the ${w.name}`);
+      wishEl.style.display = '';
+      const share = Math.round(100 * BB.clamp((w.price - w.need) / w.price, 0, 1));
+      requestAnimationFrame(() => requestAnimationFrame(() => { fill.style.width = share + '%'; }));   // (the bar fills up as the screen opens)
+    } catch (e) { console.error(e); wishEl.style.display = 'none'; }
+  }
+  function wishTap() {
+    let w = null; try { w = BB.depot.wish && BB.depot.wish(); } catch (e) { /* none */ }
+    if (!w) return;
+    BB.sfx.pop();
+    if (w.need > 0) { BB.say(`${w.need} more ${w.need === 1 ? 'coin' : 'coins'} for the ${w.name}!`); return; }
+    BB.say(`You have enough coins for the ${w.name}! It is in the garage!`);
+    playBtn.classList.remove('call'); void playBtn.offsetWidth; playBtn.classList.add('call');
   }
   U.hideHome = function () { titleEl.style.display = 'none'; U.root.classList.remove('home'); U.showExit(false); if (homeIdle) { BB.cancelLater(homeIdle); homeIdle = null; } };
   // Play: to the garage. A job that was waiting (Home in the middle of one) carries on after Drive.
@@ -1135,11 +1306,54 @@
     x.beginPath(); x.moveTo(cx, cy); x.lineTo(cx + Math.cos(a) * (R - 6), cy + Math.sin(a) * (R - 6)); x.stroke();
     x.fillStyle = '#f26b5b'; x.beginPath(); x.arc(cx, cy, 6, 0, Math.PI * 2); x.fill();
   }
+  // Is something on the road asking the bus to wait right now? Only the moments where waiting is the right thing:
+  // an otter family on the crossing just ahead ("Stop! Let the otters cross!"), an ambulance coming past ("Make
+  // way!") until it is by, the bus stopped beside the ice cream truck ("Stop near the truck for a treat!") until
+  // the treat has been offered, and a look up at the fireworks or a plane. The other events (the broken-down car,
+  // the milk van, the parade, ...) go on round the bus, and driving on is fine. (Read from BB.events' current event
+  // and its spots(); jobs.js can use BB.ui.roadWait() too, so its spoken hints never say "go" while the road says
+  // "wait".)
+  let askedIn = null;
+  function roadWait() {
+    const E = BB.events, B = BB.bus, id = E && E.active && E.active();
+    if (!id || !B || !B.pos) return false;
+    if (B.isLooking && B.isLooking()) return true;
+    if (id !== 'otters' && id !== 'ambulance' && id !== 'iceCream') return false;
+    let q = null; try { q = E.current && E.current.spots && E.current.spots(); } catch (e) { return false; }
+    const s = q && q[0]; if (!s) return false;                  // (the otters: none on the crossing now)
+    const dx = s[1] - B.pos.x, dz = s[3] - B.pos.z, d = Math.sqrt(dx * dx + dz * dz);
+    if (id === 'otters') return d < 60;
+    if (id === 'iceCream') return d < 30 && askedIn !== E.current;
+    return d < 50 && dx * Math.sin(B.heading) + dz * Math.cos(B.heading) < 8;   // the ambulance: close, not yet by
+  }
+  U.roadWait = () => { try { return roadWait(); } catch (e) { return false; } };
+  // Two small cues while driving (both on the game clock, so they stand still on a hold):
+  //  - the bus could go but has stood still with no foot on a pedal for a few seconds: the thing to press next lights
+  //    up with a gold rim, so a child who can't read (or missed the words) sees it: the Go pedal, or the Turn around
+  //    tile instead while that is offered (only one of them, never both). Never while the road asks the bus to wait
+  //    (roadWait above); the few seconds start again once it is over;
+  //  - backing up beeps softly, like a real bus (and tells the ears that the orange pedal goes backwards).
+  let idleGo = 0, goGlow = 0, backBeep = 0, waitTick = 0, waiting = false;
+  function driveCues(dt) {
+    const B = BB.bus;
+    const can = driving && hud && !hud.classList.contains('off') && !askEl && !bookEl && !BB.bedtime && B.camMode === 'chase' && !B.atStop && !B.locked && !B.noFuel && !B.doorsOpen;
+    const foot = pedals.go || pedals.back || keys.go || keys.back;
+    const still = can && !foot && Math.abs(B.speed) < 0.3;
+    if (!still) waitTick = 0;
+    else if ((waitTick -= dt) <= 0) { waitTick = 0.2; waiting = U.roadWait(); }   // (5 times a second is plenty)
+    idleGo = still && !waiting ? idleGo + dt : 0;
+    // 0: nothing, 1: the Go pedal, 2: the Turn around tile (shown while the bus faces away, see syncUturn)
+    const glow = idleGo > 4 ? (uturnBtn && uturnBtn.classList.contains('on') ? 2 : 1) : 0;
+    if (glow !== goGlow) { goGlow = glow; if (pedGo) pedGo.classList.toggle('idle', glow === 1); if (uturnBtn) uturnBtn.classList.toggle('idle', glow === 2); }
+    if (can && (pedals.back || keys.back) && B.speed < -0.6) { backBeep -= dt; if (backBeep <= 0) { backBeep = 0.64; BB.sfx.backBeep(); } }
+    else backBeep = 0;
+  }
   U.update = function (dt) {
     if (!wheel.drag && wheel.rot !== 0) {            // the wheel eases back to the middle
       wheel.rot = Math.abs(wheel.rot) < 0.5 ? 0 : wheel.rot * Math.max(0, 1 - (dt || 0.016) * 7);
       showWheel(); applyInput();
     }
+    driveCues(dt || 0.016);
     const f = BB.bus.fuel;
     needle = needle < 0 ? f : needle + (f - needle) * Math.min(1, (dt || 0.016) * 3);
     const low = f <= BB.cfg.fuelLow;
