@@ -362,7 +362,15 @@
     .bbu-tip.wheelhand { bottom: calc(var(--cb) + var(--wh) * .65); } .bbu-tip.pedalhand { bottom: calc(var(--cb) + var(--pgh) / 4); }
     .bbu-ped .lb { font-size: calc(var(--lb) + 3px); }
     .bbu-ped.go.nudge, .bbu-ped.go.idle { animation-name: bbu-pednudge-s; }
+    .bbu-ped.go.nudge svg, .bbu-ped.go.idle svg { animation-name: bbu-pedarrow-s; }
+    .bbu-uturn.idle { animation-name: bbu-pop, bbu-uturnnudge-s; }
   }
+  /* (phones: a thinner gold band inside the Turn around tile, so it stays at the tile's edge and clear of its word,
+     and a smaller bob for the Go pedal's arrow, so its tip stays clear of the band) */
+  @keyframes bbu-pedarrow-s { 50% { transform: translateY(-3%); } }
+  @keyframes bbu-uturnnudge-s {
+    0%, 100% { box-shadow: inset 0 0 0 0 #fff, inset 0 0 0 0 #ffc23a, inset -4px -5px 0 rgba(217,181,127,.45), 0 4px 0 rgba(120,80,40,.18), 0 0 0 0 #ffb81f, 0 0 0 0 rgba(176,104,0,.75); }
+    50% { box-shadow: inset 0 0 0 2px #fff, inset 0 0 0 4px #ffc23a, inset -4px -5px 0 rgba(217,181,127,.45), 0 4px 0 rgba(120,80,40,.18), 0 0 0 3.5px #ffb81f, 0 0 0 5px rgba(176,104,0,.75); } }
   @keyframes bbu-pednudge-s {
     0%, 100% { box-shadow: inset 0 0 0 0 #fff, inset 0 0 0 0 #ffc23a, inset -5px -6px 0 rgba(0,0,0,.1), 0 8px 0 #24702d, 0 0 0 0 #ffb81f, 0 0 0 0 rgba(176,104,0,.75), 0 10px 18px rgba(0,0,0,.15); }
     50% { box-shadow: inset 0 0 0 3px #fff, inset 0 0 0 8px #ffc23a, inset -5px -6px 0 rgba(0,0,0,.1), 0 8px 0 #24702d, 0 0 0 3px #ffb81f, 0 0 0 4.5px rgba(176,104,0,.75), 0 10px 18px rgba(0,0,0,.15); } }
@@ -721,7 +729,7 @@
     const A = BB.audio;
     soundBtn.classList.toggle('off', A.mute); U.setIcon(soundBtn, A.mute ? 'soundOff' : 'sound');
   }
-  function syncUturn() { const on = facing && driving && !!BB.bus.turnAround; if (uturnBtn) uturnBtn.classList.toggle('on', on); if (on && pedGo) pedGo.classList.remove('nudge'); }
+  function syncUturn() { const on = facing && driving && !!BB.bus.turnAround; if (uturnBtn) uturnBtn.classList.toggle('on', on); if (on && pedGo) { pedGo.classList.remove('nudge'); hideTip('pedalhand'); } }   // (and the first drive's hand stops pointing at Go)
   // ---------- the bus wash ----------
   // A dusty bus (save.dirt > 0.4, only looks) gets a Wash tile: the ribbon leads to the wash bay next to the garage. In
   // the bay a pay card: 3 coins (never taken without a yes; too few = "Let's do more jobs!"). Then bus.js's wash
@@ -908,6 +916,8 @@
     const J = BB.jobs;
     if (J.phase === 'tow') { BB.say("Let's wait for the tow truck!"); return; }
     BB.sfx.whoosh();
+    // (during the job-done banner the job is over: going home now, so jobDone says nothing more after "Home!")
+    if (J.phase === 'done') J.phase = 'home';
     if (!asked) BB.say('Home!');
     U.fade(() => {
       if (BB.bedtime) return;

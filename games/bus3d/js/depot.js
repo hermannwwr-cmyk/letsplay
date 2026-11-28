@@ -100,12 +100,14 @@
   // "You have enough coins for the taxi!" is good news, not a chant. It is said at most 4 times per ride (save.wishTold,
   // kept across visits) and never twice within 2 minutes, wherever it comes from (the job done, the garage, the Garage
   // tile); the gold glow on the Garage tile and the ride's tile shows it the rest of the time. Right after the job
-  // done or the Garage tile told it, the garage only says where the ride is, once. where: 'job' | 'garage' | 'tile'.
-  // Returns the line to say, or null.
+  // done or the Garage tile told it, the garage only says where the ride is, once. The 4 start again whenever the
+  // coins still needed go back above 0 (coins spent on something else, then saved up again: good news once more).
+  // where: 'job' | 'garage' | 'tile'. Returns the line to say, or null.
   let wishAt = -1e9, wishPoint = 0;
   const WISH_TELLS = 4, WISH_GAP = 120000;
   D.wishNews = function (where) {
-    const w = D.wish(); if (!w || w.need > 0) return null;
+    const w = D.wish(); if (!w) return null;
+    if (w.need > 0) { D.wishNews.reset(); return null; }
     const now = performance.now(), told = S.wishTold[w.id] | 0;
     if (told < WISH_TELLS && now - wishAt > WISH_GAP) {
       S.wishTold[w.id] = told + 1; wishAt = now; wishPoint = where === 'garage' ? 0 : now; BB.saveNow();
@@ -116,6 +118,8 @@
     if (where === 'garage' && wishPoint && now - wishPoint < 180000) { wishPoint = 0; return `There is the ${w.name}! Tap it to try it!`; }
     return null;
   };
+  BB.on('cash:changed', () => { try { D.wishNews.reset(); } catch (e) { console.error(e); } });
+  D.wishNews.reset = () => { const w = D.wish(); if (w && w.need > 0 && S.wishTold[w.id]) { S.wishTold[w.id] = 0; BB.saveNow(); } };
   // a ride's garage picture (the job-done tickets show the ride that did each job)
   D.ridePic = (id) => typePic(id);
   const curType = () => S.busType || fleetTypes()[0].id;

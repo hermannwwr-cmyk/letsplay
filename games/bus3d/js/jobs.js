@@ -1077,7 +1077,7 @@
   .bbj .cup { position: relative; margin-left: 4px; width: 62px; height: 62px; display: flex; align-items: center; justify-content: center; }
   .bbj .cup svg { display: block; width: 62px; height: 62px; }
   /* the trophy at the end of the path waits in full colour (a little smaller, now and then a wiggle: "come and get me") */
-  .bbj .cup:not(.on) svg { width: 52px; height: 52px; transform-origin: 50% 85%; animation: bbj-wait 3.2s ease-in-out 1s infinite; }
+  .bbj .cup:not(.on) svg { width: 52px; height: 52px; transform-origin: 50% 85%; animation: bbj-wait 3.2s ease-in-out -1.3s infinite; }   /* (its first wiggle about 1 s in, while the banner shows) */
   @keyframes bbj-wait { 0%, 72%, 100% { transform: rotate(0); } 78% { transform: rotate(-8deg) scale(1.06); } 86% { transform: rotate(6deg) scale(1.06); } 93% { transform: rotate(-3deg); } }
   .bbj .cup.new svg { animation: bbj-cup 1s .55s cubic-bezier(.2,1.5,.4,1) both; filter: drop-shadow(0 0 10px rgba(255,190,40,.95)); }
   @keyframes bbj-cup { 0% { transform: scale(.3) translateY(10px); } 45% { transform: scale(1.5) translateY(-6px) rotate(-6deg); } 70% { transform: scale(1.25) rotate(4deg); } 100% { transform: scale(1.3); } }
@@ -1556,10 +1556,10 @@
         const c = document.createElement('canvas'); c.width = c.height = 80; c.className = 'bbq-coin';
         c.getContext('2d').drawImage(coin, 0, 0);
         root.appendChild(c);
-        const mx = (x0 + x1) / 2 + (i - 1) * 40, my = Math.min(y0, y1) - 60 - i * 10;
+        const mx = (x0 + x1) / 2 + (i - 1) * 40, my = Math.max(10, Math.min(y0, y1) - 60 - i * 10);   // (the arc's high point stays on the screen)
         const kf = [
           { transform: `translate(${x0}px, ${y0}px) scale(.4)`, opacity: 0 },
-          { transform: `translate(${x0 + (i - 1) * 30}px, ${y0 - 50}px) scale(1.15)`, opacity: 1, offset: 0.25 },
+          { transform: `translate(${x0 + (i - 1) * 30}px, ${Math.max(10, y0 - 50)}px) scale(1.15)`, opacity: 1, offset: 0.25 },
           { transform: `translate(${mx}px, ${my}px) scale(1)`, opacity: 1, offset: 0.6 },
           { transform: `translate(${x1}px, ${y1}px) scale(.8)`, opacity: 1 },
         ];
@@ -2146,12 +2146,12 @@
     BB.emit('job:done', { cash: job.cash, job, jobs: n, trophy });
     // a happy toot of our own horn (only here: not a honk for the friends nearby), not at bedtime
     if (trophy) BB.later(700, () => { if (BB.ui && BB.ui.confetti) BB.ui.confetti(0.8); if (!timeUp() && !BB.bedtime) { try { BB.sfx.horn(!!(BB.save.upgrades && BB.save.upgrades.horn)); } catch (e) { /* no horn */ } } });
-    // one more line at most: the trophy, else the wish when there are enough coins (now and then: depot.js
+    // one more line at most (once time is up, only the trophy: the goodnight waits for it, main.js): the trophy, else the wish when there are enough coins (now and then: depot.js
     // wishNews, asked only when it will really be said), else "one more job for a trophy", else how many more coins
     // the wish takes
     const wishNews = () => { try { return BB.depot.wishNews ? BB.depot.wishNews('job') : null; } catch (e) { return null; } };
     const extra = () => trophy ? trophyLine(n) : (wish && wish.ready && wishNews()) || (n % 5 === 4 ? 'One more job for a trophy!' : wish && !wish.ready ? wish.line : null);
-    await Promise.all([say(doneLine(job)).then(() => { if (J.phase !== 'done' || BB.bedtime || timeUp()) return null; const l = extra(); return l ? say(l) : null; }), wait(trophy ? 3400 : 2800)]);
+    await Promise.all([say(doneLine(job)).then(() => { if (J.phase !== 'done' || BB.bedtime || (timeUp() && !trophy)) return null; const l = extra(); return l ? say(l) : null; }), wait(trophy ? 3400 : 2800)]);
     if (J.phase !== 'done' || BB.bedtime) return;
     if (timeUp()) { bedtime(); return; }
     if (J.wantDepot || BB.bus.fuel <= BB.cfg.fuelLow + 0.06) J.goDepot(BB.bus.fuel <= BB.cfg.fuelLow + 0.06 ? 'fuel' : undefined);
@@ -3369,7 +3369,9 @@
     const B = BB.bus, t = B.target;
     lostCool = Math.max(0, lostCool - dt);
     const off = !t || J.phase !== 'drive' || B.atStop || (B.isSettling && B.isSettling()) || BB.bedtime || BB.depot.isOpen ||
-      (BB.ui && BB.ui.homeShown && BB.ui.homeShown()) || (BB.ui && BB.ui.asking && BB.ui.asking());
+      (BB.ui && BB.ui.homeShown && BB.ui.homeShown()) || (BB.ui && BB.ui.asking && BB.ui.asking()) ||
+      // (a town event on screen, e.g. otters crossing or an ambulance coming: waiting for it is right, never "lost")
+      (BB.events && BB.events.active && BB.events.active()) || (BB.ui && BB.ui.roadWait && BB.ui.roadWait());
     if (off) { lostT = 0; stillT = 0; lostTarget = null; return; }
     if (t !== lostTarget) { lostTarget = t; lostBest = Infinity; lostT = 0; stillT = 0; }
     lostT += dt; stillT = Math.abs(B.speed) < 0.6 ? stillT + dt : 0;

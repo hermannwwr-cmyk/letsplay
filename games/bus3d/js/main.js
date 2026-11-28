@@ -168,7 +168,8 @@
     if (BB.bedtime || H.paused) return;
     const J = BB.jobs, ph = J.phase;
     // (the bus wash too: its pay card and the wash show finish first, then goodnight)
-    const busy = (J.busy && J.busy()) || ph === 'question' || ph === 'stop' || ph === 'tow' || !!(BB.ui.washBusy && BB.ui.washBusy());
+    // (and the job-done banner: a trophy is shown and said in full before the goodnight, never under the night)
+    const busy = (J.busy && J.busy()) || ph === 'question' || ph === 'stop' || ph === 'tow' || ph === 'done' || !!(BB.ui.washBusy && BB.ui.washBusy());
     // the last-minute warning waits for a calm moment between stops, never over a question or the counting
     if (warnPending && !H.timeUp() && !busy && !BB.depot.isOpen && !BB.ui.homeShown()) {
       warnPending = false;
