@@ -2151,7 +2151,7 @@
     // the wish takes
     const wishNews = () => { try { return BB.depot.wishNews ? BB.depot.wishNews('job') : null; } catch (e) { return null; } };
     const extra = () => trophy ? trophyLine(n) : (wish && wish.ready && wishNews()) || (n % 5 === 4 ? 'One more job for a trophy!' : wish && !wish.ready ? wish.line : null);
-    await Promise.all([say(doneLine(job)).then(() => { if (J.phase !== 'done' || BB.bedtime || (timeUp() && !trophy)) return null; const l = extra(); return l ? say(l) : null; }), wait(trophy ? 3400 : 2800)]);
+    await Promise.all([say(doneLine(job)).then(() => { if (J.phase !== 'done' || BB.bedtime || (timeUp() && !trophy)) return null; const l = extra(); return l ? say(l) : null; }), wait((trophy ? 3400 : 2800) + (timeUp() ? 500 : 0))]);   // (time up: the banner has gone before the night comes)
     if (J.phase !== 'done' || BB.bedtime) return;
     if (timeUp()) { bedtime(); return; }
     if (J.wantDepot || BB.bus.fuel <= BB.cfg.fuelLow + 0.06) J.goDepot(BB.bus.fuel <= BB.cfg.fuelLow + 0.06 ? 'fuel' : undefined);
