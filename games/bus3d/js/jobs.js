@@ -1815,7 +1815,7 @@
   // Short legs (about 7 s of driving): each next stop is picked from BB.world.stopsByDistance(current) within about
   // 40-80 road units, at random among those (variety, not always the nearest), never the stop just visited or one
   // already in the job, leaning toward named stops (st.minor = small automatic ones with shared names like "the flats").
-  const LEG_MIN = 40, LEG_MAX = 80;         // ~70 units apart: mostly the very next stop, about 7 s of driving
+  const LEG_MIN = 25, LEG_MAX = 55;         // stops ~30-55 apart: mostly the very next stop, about 4.5 s of driving (the owner asked for closer stops)
   const okStop = (s) => s && s.pos && s.edge != null && s.say;
   // ---- playing together: jobs bring the players to one place (the owner asked: "all the players are together, even
   // if it takes long to drive to the players"). Everybody drives to one player, the leader: of all who are out

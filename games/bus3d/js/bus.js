@@ -35,7 +35,7 @@
   let HITCH = LF / 2 + GAP / 2;          // front carriage centre -> hitch
   let R_AXLE = GAP / 2 + REAR_AXLE, R_CTR = GAP / 2 + LR / 2;   // hitch -> rear axle / rear carriage centre
   const totalLen = () => LF + GAP + LR, frontOff = () => totalLen() / 2 - LF / 2;   // front centre ahead of the middle
-  let MAX_FWD = 10.8, ACCEL = 4.6;                      // (per vehicle: see VEHICLE)
+  let MAX_FWD = 10.8, ACCEL = 6.5;                      // (per vehicle: see VEHICLE)
   const MAX_BACK = 4, BRAKE = 9, COAST = 5;
   // Cruising: on the long straight outer roads and the expressway, lined up with the road and well away from the next
   // junction or curve, the top speed eases up to MAX_CRUISE (the big map's long legs go quicker), and eases back down
@@ -46,12 +46,12 @@
   // first line; the taxi is nimble, the fire engine and the ice cream van steady. (Turning circles follow from each
   // model's wheelbase.)
   const VEHICLE = {                                   // (town top speeds raised by a fifth: the owner's choice)
-    bus: { top: 10.8, cruise: 15, accel: 4.6, steer: 0.55 },
-    taxi: { top: 12.6, cruise: 16, accel: 6.0, steer: 0.62 },
-    ambulance: { top: 12, cruise: 16, accel: 5.4, steer: 0.58 },
-    fire: { top: 10.6, cruise: 14, accel: 4.6, steer: 0.56 },
-    icecream: { top: 9.8, cruise: 13, accel: 4.4, steer: 0.6 },
-    tow: { top: 10.8, cruise: 14.5, accel: 4.8, steer: 0.58 },
+    bus: { top: 10.8, cruise: 15, accel: 6.5, steer: 0.55 },
+    taxi: { top: 12.6, cruise: 16, accel: 8.0, steer: 0.62 },
+    ambulance: { top: 12, cruise: 16, accel: 7.4, steer: 0.58 },
+    fire: { top: 10.6, cruise: 14, accel: 6.4, steer: 0.56 },
+    icecream: { top: 9.8, cruise: 13, accel: 6.2, steer: 0.6 },
+    tow: { top: 10.8, cruise: 14.5, accel: 6.6, steer: 0.58 },
   };
   const W = () => BB.world;
   const wrapA = (a) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
@@ -2300,7 +2300,7 @@
     const m2 = Math.sign((f.x * bay.fwd.x + f.z * bay.fwd.z) * mv) || 1;
     const prog = (dx * bay.fwd.x + dz * bay.fwd.z) * m2;
     if (prog < -26 || prog > 7) return Infinity;
-    return (arrivalHold > 0 ? 0.5 : 2.0) + Math.sqrt(13 * Math.max(0, 2 - prog));   // (held: creeps in the bay)      // (brakes later and a little firmer, still gentle)
+    return (arrivalHold > 0 ? 0.5 : 2.0) + Math.sqrt(20 * Math.max(0, 2 - prog));   // (held: creeps in the bay)      // (brakes later and a little firmer, still gentle)
   }
   // Is the bus roughly in the target bay? (mid point within the box, heading within 45 degrees either way round)
   function bayCheck() {

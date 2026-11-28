@@ -15,7 +15,7 @@
   // Fuel: a job of 2-3 stops is about 200 road units (measured: 120-280), and the first job after the pump starts
   // with the drive out of the depot yard (~300 more), so a full tank lasts about 3 jobs (measured with the lane
   // helper: 2.5-3.5) before the "getting hungry" trip to the fuel pump in the depot yard (C.fuelLow; as core.js).
-  C.fuelPerUnit = 1 / 1200;
+  C.fuelPerUnit = 1 / 900;
   const S = C.block, RH = C.roadHalf;
   const K = S / 46;                              // the layout was first drawn for 46-unit blocks: older numbers x K
   const g = (i) => (i - 1.5) * S;                // grid line -> world coordinate (-69, -23, 23, 69)
@@ -372,8 +372,8 @@
   // every bay the town keeps clear (trees, lamps, the stop cameras' spots)
   const allBays = () => W.stops.concat([W.depot, W.places.fireStation, W.places.clinic], W.sceneSpots, W.yardSlotsKerb);
   W.allBays = allBays;
-  // ---------- many small stops: one about every 7 s of driving ----------
-  // Along every straight road, on each kerb, a small stop (pole, little canopy, bench, sign) about every 70 (110 on the
+  // ---------- many small stops: one about every 4 s of driving (the owner asked for closer stops) ----------
+  // Along every straight road, on each kerb, a small stop (pole, little canopy, bench, sign) about every 30 (110 on the
   // expressway), well clear of junctions, the named stops, the places and scene spots, and the roads under the MRT
   // viaduct. Each gets a picture of what is near it (flats, trees, a market, swings; the seaside, the towers, old
   // town, the airport road in those areas). They are ordinary stops (st.minor = true); W.build drops any whose
@@ -389,14 +389,14 @@
       if (/^AP/.test(e.a) || /^AP/.test(e.b)) continue;                               // (the airport drop-off has its own stop)
       const a = e.points[0], b = e.points[e.points.length - 1];
       if (Math.abs(a.z - g(1)) < 12 && Math.abs(b.z - g(1)) < 12 && Math.abs(a.x) < 200) continue;   // under the viaduct
-      const step = e.kind === 'highway' ? 110 : 70, s0 = nodeClear(e.a, e) + 4, s1 = e.length - nodeClear(e.b, e) - 4;
+      const step = e.kind === 'highway' ? 110 : 30, s0 = nodeClear(e.a, e) + 4, s1 = e.length - nodeClear(e.b, e) - 4;
       if (s1 - s0 < 0) continue;
       for (const dir of [1, -1]) {
         const taken = allBays().filter((q) => q.edge === e.id && q.dir === dir).map((q) => q.s);
         const n = Math.max(1, Math.round((s1 - s0) / step) + 1);
         for (let i = 0; i < n; i++) {
           const sv = n === 1 ? (s0 + s1) / 2 : s0 + (s1 - s0) * i / (n - 1);
-          if (taken.some((t) => Math.abs(t - sv) < 40)) continue;
+          if (taken.some((t) => Math.abs(t - sv) < 26)) continue;
           const p = W.pointAt(e, sv), lx = p.dz * dir, lz = -p.dx * dir;           // kerb side of this direction
           const toward = [p.x + lx * 30, p.z + lz * 30], kx = p.x + lx * (e.half + 2.5), kz = p.z + lz * (e.half + 2.5);
           const pic = minorPic(kx, kz, k++), nm = MINOR_PICS[pic];

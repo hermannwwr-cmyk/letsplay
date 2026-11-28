@@ -18,7 +18,7 @@
     corner: 7,              // how far before/after a junction a turn curve starts
     maxSpeed: 13,           // units per second with the GO pedal held
     accel: 5.5, coast: 7, turnSpeed: 7.5,
-    fuelPerUnit: 1 / 1200,  // a full tank lasts about 3 jobs, then a trip to the fuel pump (world.js sets the same)
+    fuelPerUnit: 1 / 900,  // a full tank lasts about 3 jobs (closer stops: shorter jobs), then a trip to the fuel pump (world.js sets the same)
     fuelLow: 0.25,
     pixelRatioCap: 2,
   };
