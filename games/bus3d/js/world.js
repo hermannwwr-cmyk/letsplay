@@ -845,6 +845,8 @@
     for (const m of [wheelRim, planes, washRig, washFx].concat(LM_MOVERS)) if (m) scene.add(m);
     // the standing ones (the wash rig, the wheel, landmark movers) are far-culled too, by their box
     for (const m of [wheelRim, washRig].concat(LM_MOVERS)) if (m) { m.updateMatrixWorld(true); const bb = new THREE.Box3().setFromObject(m); if (!bb.isEmpty()) { m.userData.box = bb; m.userData.farR = m === wheelRim ? 210 : 140; FAR_CULL.push(m); } }
+    // (and the two moving planes: drawn only while the airfield is near enough to be seen through the haze)
+    if (planes) { planes.userData.box = new THREE.Box3(new THREE.Vector3(216, 0, -345), new THREE.Vector3(546, 40, -300)); planes.userData.farR = 285; FAR_CULL.push(planes); }
     for (const m of [boomN, boomS]) if (m && !m.parent) scene.add(m);
     addChunked(scene, TREES, fadeMat(new THREE.MeshLambertMaterial({ vertexColors: true })), 'trees', true, 195, 240);
     TREES = null;
@@ -858,8 +860,10 @@
     train = buildTrain(); scene.add(train);
     clouds = buildClouds(); scene.add(clouds);
     seaGlints = buildSeaGlints(); scene.add(seaGlints);
-    cars = buildCars(); scene.add(cars);
+    buildTownCars(); cars = buildCars(); scene.add(cars);
     birds = buildBirds(); scene.add(birds);
+    scene.add(buildFolk());
+    boats = buildBoats(); scene.add(boats);
     W.built = true;
     puddles = buildPuddles(); scene.add(puddles);
     rain = buildRain(); scene.add(rain);
@@ -908,6 +912,7 @@
   };
   W.sky = { share: 0, target: 0, night: 0, evening: 0, lights: 0 };
   let roadMat = null, puddles = null, rain = null, rainbow = null;
+  const wetU = { value: 1 };   // 1 dry, 0.76 soaked: the town walkers' and cars' ground shadows darken with the road
   function buildSky(scene) {
     const geo = new THREE.SphereGeometry(360, 32, 16);
     const mat = new THREE.ShaderMaterial({
@@ -1085,6 +1090,7 @@
     if (cloudMat) { cloudMat.color.lerp(_grey, c * 0.6); cloudMat.opacity = 0.94; }
     if (clouds) clouds.scale.set(1 + 0.35 * c, 1 + 0.6 * c, 1 + 0.35 * c);
     if (roadMat) roadMat.color.setScalar(1 - 0.24 * wx.wet);
+    wetU.value = 1 - 0.24 * wx.wet;
     if (puddles) { puddles.visible = wx.wet > 0.03; puddles.material.opacity = 0.5 * wx.wet; }
     if (rain) { rain.visible = wx.rain > 0.02; rain.material.uniforms.uAmount.value = wx.rain; rain.material.uniforms.uDark.value = nightK; }
     { const mist = 0.8 * Math.max(c * 0.8, wx.rain); skyU.hill1.value.lerp(skyU.hor.value, mist); skyU.hill2.value.lerp(skyU.hor.value, mist); }   // the hills sink into the mist
@@ -1281,9 +1287,11 @@
     const col = rpick(TREE_GREENS);
     if (inCamSpot(x + FRAME.x, z + FRAME.z)) return;   // keep the stop and garage camera views clear
     if (hypot2(x + FRAME.x, z + FRAME.z) < 200) W.addCircle(x, z, 0.9 * s);
-    b.disc(2.6 * s, 7, P.grassDark, x + 0.6, y0 + 0.02, z + 0.5, 1, 0.8);       // soft shadow patch
     if (TREES) b = TREES;                     // trees go in their own mesh: hidden whole when they block the view
     const p0 = propStart(b);
+    // (its soft shadow patch is part of it, so a tree hidden for the stop's side view leaves no green patch behind
+    // on the pavement)
+    b.disc(2.6 * s, 7, P.grassDark, x + 0.6, y0 + 0.02, z + 0.5, 1, 0.8);
     if (kind === 'rain') {                    // Singapore rain tree: a wide umbrella crown
       b.cyl(0.32 * s, 0.5 * s, 3.4 * s, 5, P.woodDark, x, y0, z);
       b.ball(3.2 * s, col, x, y0 + 4.6 * s, z, 0, 1.35, 0.5, 1.35);
@@ -1382,7 +1390,7 @@
   function buildMeadow(b) {
     const DISC = new THREE.CircleGeometry(1, 6); DISC.rotateX(-Math.PI / 2);
     const BUD = new THREE.ConeGeometry(1, 1, 3, 1, true), BUSH = new THREE.OctahedronGeometry(1, 0);   // (kept very cheap: 3 and 8 triangles)
-    const PATCH = [light(P.grass, 0.13), light(P.grass, 0.2), '#69b553', '#7fc862'];
+    const PATCH = [light(P.grass, 0.13), light(P.grass, 0.2), '#69b553', '#7fc862'], bays = allBays();
     let n = 0;
     for (const e of W.roads.edges) {
       if (e.kind === 'yard') continue;
@@ -1395,8 +1403,13 @@
           if (z > SZ + 8 || !clearOfRoads(x, z, RH + 4.4) || W.pushOut(x, z, 1.6).hit > 0.001 || inCamSpot(x, z)) continue;
           const y = W.groundY(x, z) ? 0.27 : 0, k = drnd(); n++;
           if (k < 0.46) {                                        // a paler or deeper scrap of grass
-            const r = dr(1.8, 4.6);
-            b.add(DISC, dpick(PATCH), x, y + 0.03, z, dr(0, 3.1), 0, 0, r * dr(1, 1.7), 1, r);
+            // (never over the paving: a scrap near the road is made smaller, or left out, so that it stays 3.3 clear
+            // of the road's edge and well clear of a stop's paving, since it is drawn a little above the ground)
+            let r = dr(1.8, 4.6);
+            const col = dpick(PATCH), rot = dr(0, 3.1), sx = dr(1, 1.7);
+            const clear = (q) => { if (!clearOfRoads(x, z, RH + 3.3 + q * sx)) return false; for (const st of bays) if (hypot2(st.pos.x - x, st.pos.z - z) < 9 + q * sx) return false; return true; };
+            while (r > 1 && !clear(r)) r *= 0.8;
+            if (r > 1) b.add(DISC, col, x, y + 0.03, z, rot, 0, 0, r * sx, 1, r);
           } else if (k < 0.8 || off < e.half + 11) {             // a clump of flowers in one or two colours
             const c1 = dpick(PETALS), c2 = drnd() < 0.5 ? c1 : dpick(PETALS), m = 3 + Math.floor(drnd() * 3);
             for (let i = 0; i < m; i++) {
@@ -1958,21 +1971,48 @@
 
   // ---------- life: little cars on the outer road, birds ----------
   const CAR_N = 18, carState = [], CAR_X0 = -150, CAR_X1 = 552;   // cars on the expressway's outer and inner lanes
+  const carU = { uNight: { value: 0 }, uWet: wetU };
   function buildCars() {
-    const b = BB.mk.builder();
-    b.box(1.9, 0.75, 4.0, '#ffffff', 0, 0.35, 0);                 // body (takes the instance colour)
-    b.box(1.95, 0.25, 4.05, '#d0d0d0', 0, 0.3, 0);                // a darker skirt
-    b.box(1.65, 0.7, 2.2, '#ffffff', 0, 1.1, -0.2);               // cabin
-    b.box(1.68, 0.48, 2.0, '#3c4a5a', 0, 1.18, -0.2);             // windows
-    b.box(1.5, 0.5, 0.06, '#3c4a5a', 0, 1.18, 0.92, 0, -0.5);     // windscreen
-    b.box(1.5, 0.45, 0.06, '#3c4a5a', 0, 1.18, -1.32, 0, 0.45);   // rear window
-    for (const x of [-0.6, 0.6]) { b.box(0.42, 0.2, 0.06, '#ffffff', x, 0.7, 2.01); b.box(0.36, 0.18, 0.06, '#ff3020', x, 0.7, -2.01); }   // head and tail lights
-    b.box(0.5, 0.14, 0.04, '#f0f0f0', 0, 0.42, 2.03);           // number plate
-    for (const [x, z] of [[-0.95, 1.3], [0.95, 1.3], [-0.95, -1.3], [0.95, -1.3]]) b.add(new THREE.CylinderGeometry(0.38, 0.38, 0.3, 8), '#3a3440', x, 0.38, z, 0, 0, Math.PI / 2);
-    const mesh = new THREE.InstancedMesh(b.geometry(), new THREE.MeshLambertMaterial({ vertexColors: true }), CAR_N);
+    const b = BB.mk.builder(), keep = [];
+    // keep: 0 = painted in the car's own colour, 1 = stays as it is (glass, wheels), 2 = a lamp (glows at night),
+    //       3 = the shadow on the road (darker when the road is wet)
+    const box = (k, ...a) => { b.box(...a); keep.push(k); };
+    box(0, 1.9, 0.75, 4.0, '#ffffff', 0, 0.35, 0);                 // body
+    box(0, 1.95, 0.25, 4.05, '#d0d0d0', 0, 0.3, 0);                // a darker skirt
+    box(0, 1.65, 0.7, 2.2, '#ffffff', 0, 1.1, -0.2);               // cabin
+    box(1, 1.68, 0.48, 2.0, '#3c4a5a', 0, 1.18, -0.2);             // windows
+    box(1, 1.5, 0.5, 0.06, '#3c4a5a', 0, 1.18, 0.92, 0, -0.5);     // windscreen
+    box(1, 1.5, 0.45, 0.06, '#3c4a5a', 0, 1.18, -1.32, 0, 0.45);   // rear window
+    for (const x of [-0.6, 0.6]) { box(2, 0.42, 0.2, 0.06, '#fff3c4', x, 0.7, 2.01); box(2, 0.36, 0.18, 0.06, '#ff3020', x, 0.7, -2.01); }   // head and tail lights
+    box(1, 0.5, 0.14, 0.04, '#f0f0f0', 0, 0.42, 2.03);            // number plate
+    const shadow = new THREE.CircleGeometry(1, 8); shadow.rotateX(-Math.PI / 2);
+    b.add(shadow, '#645e69', 0, 0.05, 0, 0, 0, 0, 1.3, 1, 2.4); keep.push(3);          // a soft shadow on the road, just above its painted lines
+    // wheels: a tyre and its outer face only (the inner face is never seen)
+    const TYRE = new THREE.CylinderGeometry(0.38, 0.38, 0.3, 8, 1, true), HUB = new THREE.CircleGeometry(0.38, 8);
+    for (const [x, z] of [[-0.95, 1.3], [0.95, 1.3], [-0.95, -1.3], [0.95, -1.3]]) {
+      b.add(TYRE, '#3a3440', x, 0.38, z, 0, 0, Math.PI / 2); keep.push(1);
+      b.add(HUB, '#3a3440', x + Math.sign(x) * 0.15, 0.38, z, Math.sign(x) * Math.PI / 2); keep.push(1);
+    }
+    const geo = b.geometry(), counts = b.counts;
+    let total = 0; for (let k = 0; k < counts.length; k++) total += counts[k];
+    const aKeep = new Float32Array(total);
+    for (let k = 0, o = 0; k < counts.length; k++) for (let v = 0; v < counts[k]; v++, o++) aKeep[o] = keep[k];
+    geo.setAttribute('aKeep', new THREE.BufferAttribute(aKeep, 1));
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    mat.onBeforeCompile = (sh) => {      // only the bodywork takes the car's colour; the lamps glow once the street lamps are on
+      sh.uniforms.uNight = carU.uNight; sh.uniforms.uWet = carU.uWet;
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float aKeep; uniform float uNight; uniform float uWet; varying float vGlow;')
+        .replace('#include <color_vertex>', 'vColor = aKeep > 2.5 ? color * uWet : aKeep > 0.5 ? color : color * instanceColor; vGlow = aKeep > 1.5 && aKeep < 2.5 ? uNight : 0.0;');
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vGlow;')
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * vGlow * 1.3;');
+    };
+    // (the town's own cars come first in the mesh, then the expressway's: W.update draws only the first lot when the
+    //  expressway is out of sight)
+    const mesh = new THREE.InstancedMesh(geo, mat, TOWN_CARS + CAR_N);
     const cols = [P.coral, P.berry, P.honey, P.teal, '#f4f1ea', P.plum, P.mint, P.rose, '#4fa3e0'];
+    for (let i = 0; i < TOWN_CARS; i++) mesh.setColorAt(i, new THREE.Color(cols[(i * 4 + 2) % cols.length]));
     for (let i = 0; i < CAR_N; i++) {
-      mesh.setColorAt(i, new THREE.Color(cols[i % cols.length]));
+      mesh.setColorAt(TOWN_CARS + i, new THREE.Color(cols[i % cols.length]));
       carState.push({ s: CAR_X0 + (i / CAR_N) * (CAR_X1 - CAR_X0) + rr(0, 10), dir: i % 2 ? 1 : -1, lane: (i >> 1) % 2 ? 10.8 : 2.6, v: rr(8, 12) });
     }
     mesh.name = 'cars'; mesh.frustumCulled = false;
@@ -1999,12 +2039,17 @@
       }
       const z = HZ - c.dir * c.lane;
       if (busNear(c.s + c.dir * 8, z, 4.5) && !busNear(c.s, z, 2.5)) v = 0;
+      for (let k = 0; k < TOWN_CARS; k++) {              // a town car crossing just ahead: let it through
+        const t = townCars[k]; if (!t || t.gone) continue;
+        const ah = (t.x - c.s) * c.dir;
+        if (ah > 0 && ah < 12 && Math.abs(t.z - z) < 2.4) v = Math.min(v, c.v * BB.clamp((ah - 5) / 6, 0, 1));
+      }
       c.s += c.dir * v * dt;
       if (c.s > CAR_X1) c.s -= span; else if (c.s < CAR_X0) c.s += span;
       const sc = BB.clamp(Math.min(c.s - CAR_X0, CAR_X1 - c.s) / 8, 0.01, 1);
       _q4.setFromAxisAngle(_up, c.dir > 0 ? Math.PI / 2 : -Math.PI / 2);
       _m4.compose(_p4.set(c.s, 0.03, z), _q4, _s4.set(sc, sc, sc));
-      cars.setMatrixAt(i, _m4);
+      cars.setMatrixAt(TOWN_CARS + i, _m4);
     }
     cars.instanceMatrix.needsUpdate = true;
   }
@@ -2487,7 +2532,7 @@
         x = 230 + vx; z = -340; h = Math.PI / 2;
         const air = Math.max(0, x - 400); y = 3.0 + air * air * 0.0016 + air * 0.08; pitch = -Math.min(0.22, air * 0.004);
       }
-      _q4.setFromEuler(new THREE.Euler(pitch, h, 0, 'YXZ'));
+      _q4.setFromEuler(_e4.set(pitch, h, 0));
       planes.setMatrixAt(i, _m4.compose(_p4.set(x, y, z), _q4, _s4.set(1, 1, 1)));
     }
     planes.instanceMatrix.needsUpdate = true;
@@ -2760,6 +2805,981 @@
   };
   W.isXmas = () => xmasOn;
 
+  // ======================= town life: people on the pavements, little cars in the streets, boats on the sea =======================
+  // Everything here is decoration that keeps out of the game's way: nothing has a collider, nothing ever blocks the
+  // bus or a stop, and it all stands still while the game is held (it runs from W.update). Three draw calls at most:
+  // the townsfolk (one instanced mesh), the town cars (extra instances of the expressway cars' mesh, so none), the
+  // boats (one instanced mesh, only near the sea).
+  // It has its own random numbers, so the town's layout and the clouds stay exactly as they were.
+  let lseed = 97531;
+  const lrnd = () => { lseed = lseed + 0x6D2B79F5 | 0; let t = Math.imul(lseed ^ lseed >>> 15, 1 | lseed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  const lr = (a, b) => a + lrnd() * (b - a);
+  const wrapPi = (a) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
+  // A polyline stored flat ({x, z, cum, n, len}) and a point on it at distance s, written into a scratch object:
+  // walkers and cars ask for one every frame, so nothing is made per call.
+  function flatLine(pts) {
+    const n = pts.length, x = new Float32Array(n), z = new Float32Array(n), cum = new Float32Array(n);
+    for (let i = 0; i < n; i++) { x[i] = pts[i].x; z[i] = pts[i].z; if (i) cum[i] = cum[i - 1] + hypot2(x[i] - x[i - 1], z[i] - z[i - 1]); }
+    return { x, z, cum, n, len: cum[n - 1] };
+  }
+  const _lp = { x: 0, z: 0, dx: 0, dz: 1 };
+  function lineAt(L, s) {
+    const cum = L.cum, n = L.n;
+    if (s < 0) s = 0; else if (s > L.len) s = L.len;
+    let i = 1; while (i < n - 1 && cum[i] < s) i++;
+    const l = cum[i] - cum[i - 1] || 1, t = (s - cum[i - 1]) / l, ax = L.x[i - 1], az = L.z[i - 1], bx = L.x[i], bz = L.z[i];
+    _lp.dx = (bx - ax) / l; _lp.dz = (bz - az) / l; _lp.x = ax + (bx - ax) * t; _lp.z = az + (bz - az) * t;
+    return _lp;
+  }
+  // The bus as the town's people and cars see it: its outline along the ground as a line of four points from the nose
+  // to the tail (front carriage, joint, rear carriage: a bendy bus bends at its joint, so a sharp turn bends this line
+  // too; a rigid one is a straight line), where it is heading and how fast. Worked out once a frame.
+  const BUSG = { ok: false, p: new Float32Array(8), mx: 0, mz: 0, fx: 0, fz: 1, speed: 0, calm: false, calmT: 9, tx: 0, tz: 0, tr: 0, ex: 0, ez: 0, er: 0, tow: false };
+  // The camera's view along the ground: where it stands, which way it looks and how wide (a wedge), and how fast it is
+  // turning (`spin`, smoothed) or how long it has stood still (`still`).
+  // (cosW: the wedge with a margin, for what is drawn; cosR: the picture itself, a little wider for a walker's size)
+  const CAMG = { ok: false, x: 0, y: 10, z: 0, fx: 0, fz: 1, cosW: 0, cosR: 0, flat: false, yaw: 0, spin: 0, still: 0 };
+  function camGeom(dt) {
+    const cam = BB.camera, V = CAMG;
+    V.ok = !!cam; if (!cam) return;
+    const me = cam.matrixWorld.elements; let fx = -me[8], fz = -me[10]; const fl = hypot2(fx, fz);
+    V.flat = fl > 0.2; if (V.flat) { fx /= fl; fz /= fl; }
+    const yaw = Math.atan2(fx, fz), px = cam.position.x, pz = cam.position.z;
+    const rate = dt > 0 ? Math.abs(wrapPi(yaw - V.yaw)) / dt : 0, moved = hypot2(px - V.x, pz - V.z);
+    V.spin += (rate - V.spin) * Math.min(1, dt * 12);
+    V.still = rate < 0.05 && moved < 0.02 + dt * 0.3 ? V.still + dt : 0;
+    V.yaw = yaw; V.x = px; V.y = cam.position.y; V.z = pz; V.fx = fx; V.fz = fz;
+    const half = Math.atan(Math.tan(cam.fov * Math.PI / 360) * cam.aspect);
+    V.cosW = Math.cos(Math.min(1.45, half + 0.2)); V.cosR = Math.cos(Math.min(1.45, half + 0.06));
+  }
+  // Is (x, z) in the picture itself (not just near its edge), as far as anybody is drawn?
+  function inPicture(x, z) {
+    const V = CAMG, dx = x - V.x, dz = z - V.z, d = hypot2(dx, dz);
+    return d < 125 && (!V.flat || dx * V.fx + dz * V.fz > V.cosR * d);
+  }
+  // Can the camera see the ground at (x, z)? (anything nearer than `near` counts as seen)
+  function inSight(x, z, near) {
+    const V = CAMG, dx = x - V.x, dz = z - V.z, d = hypot2(dx, dz);
+    return d < near || !V.flat || dx * V.fx + dz * V.fz > V.cosW * d;
+  }
+  // how far (x, z) is from a line of four points (an outline like BUSG.p)
+  function segD(x, z, ax, az, bx, bz) {
+    const dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz;
+    let t = l2 > 1e-6 ? ((x - ax) * dx + (z - az) * dz) / l2 : 0; t = t < 0 ? 0 : t > 1 ? 1 : t;
+    return hypot2(ax + dx * t - x, az + dz * t - z);
+  }
+  function lineD(p, x, z) {
+    const a = segD(x, z, p[0], p[1], p[2], p[3]), b = segD(x, z, p[2], p[3], p[4], p[5]), c = segD(x, z, p[4], p[5], p[6], p[7]);
+    return a < b ? (a < c ? a : c) : (b < c ? b : c);
+  }
+  const busDist = (x, z) => lineD(BUSG.p, x, z);      // how far (x, z) is from the bus
+  function busGeom(dt) {
+    const B = BB.bus, G = BUSG, p = G.p;
+    G.ok = !!(B && B.front && B.rear); if (!G.ok) return;
+    const f = B.front.position, r = B.rear.position, art = hypot2(f.x - r.x, f.z - r.z) > 0.5;
+    const L = B.length || 12;
+    const fX = Math.sin(B.front.rotation.y), fZ = Math.cos(B.front.rotation.y), rX = Math.sin(B.rear.rotation.y), rZ = Math.cos(B.rear.rotation.y);
+    if (art) {                        // (a bendy bus: the front carriage nose to back, then the rear carriage front to tail)
+      const hf = L * 0.26, hr = L * 0.21;
+      p[0] = f.x + fX * hf; p[1] = f.z + fZ * hf; p[2] = f.x - fX * hf; p[3] = f.z - fZ * hf;
+      p[4] = r.x + rX * hr; p[5] = r.z + rZ * hr; p[6] = r.x - rX * L * 0.25; p[7] = r.z - rZ * L * 0.25;
+    } else {
+      p[0] = f.x + fX * L * 0.5; p[1] = f.z + fZ * L * 0.5; p[6] = f.x - fX * L * 0.5; p[7] = f.z - fZ * L * 0.5;
+      p[2] = p[4] = f.x; p[3] = p[5] = f.z;
+    }
+    G.mx = (p[0] + p[6]) / 2; G.mz = (p[1] + p[7]) / 2; G.fx = fX; G.fz = fZ; G.speed = +B.speed || 0;
+    G.tow = B.type === 'tow';
+    // a stop, a scene, the tow or the wash in progress (the goodnight at a stop too): the side view must show only the
+    // people the question is about
+    const J = BB.jobs, wasCalm = G.calm;
+    // (only with the driving camera: not in the garage or on the home screen, in the workshop at the depot)
+    G.calm = !!((B.atStop || (B.isSettling && B.isSettling()) || (J && J.phase === 'tow') || B.inWash) && B.camMode === 'chase' && !B.inWorkshop);
+    G.calmT = G.calm ? 0 : wasCalm ? 0 : G.calmT + dt;
+    // the bay the bus is heading for (people wait there, a scene may be staged on its kerb), and the one it stands at
+    // until it drives off again (the people getting off walk away there; the side view looks at it)
+    const tg = B.target && B.target.pos ? B.target : B.atStop && B.atStop.pos ? B.atStop : null;
+    // (a stop's queue stands along the kerb for up to 12 units: nobody strolls near it, so the people waiting are
+    //  easy to tell apart and to count)
+    if (tg) { G.tx = tg.pos.x; G.tz = tg.pos.z; G.tr = tg.kind === 'scene' || tg.place ? 24 : 20; } else G.tr = 0;
+    stopView(); svPlan(); eventGeom(dt); friendGeom(dt);
+  }
+
+  // Where the side view at a stop will look. bus.js plans it once per stop from the kerb side, about 12 back from the
+  // bay and straight across the road (a job's scene may stand further back, and wider on phones): worked out here from
+  // the bay alone, as soon as the bus is near it, so whatever would stand in that view can step out of it, unseen,
+  // before the camera swings round.
+  const SV = { on: false, ok: false, st: null, asp: 0, ax: 0, az: 0, nx: 0, nz: 1, ux: 1, uz: 0, bx: 0, bz: 0, tan: 1 };
+  function stopView() {
+    const B = BB.bus, G = BUSG;
+    let st = B.atStop || null;
+    if (!st && B.target && B.target.pos && hypot2(B.target.pos.x - G.mx, B.target.pos.z - G.mz) < 90) st = B.target;
+    SV.on = !!st;
+    if (!st) { SV.st = null; SV.ok = false; return; }
+    const cam = BB.camera, asp = cam ? cam.aspect : 1.5;
+    if (st === SV.st && asp === SV.asp) return;
+    SV.st = st; SV.asp = asp; SV.ok = false;
+    if (st.edge == null && !st._bay && st.kind !== 'scene' && !st.place) return;     // (no bay to go by)
+    let bay = null; try { bay = W.bayOf(st); } catch (e) { bay = null; }
+    if (!bay || !bay.side || !bay.fwd) return;
+    const scene = st.kind === 'scene' || !!st.place, back = scene ? 22 : 15;
+    SV.bx = bay.x; SV.bz = bay.z; SV.nx = -bay.side.x; SV.nz = -bay.side.z; SV.ux = bay.fwd.x; SV.uz = bay.fwd.z;
+    SV.ax = bay.x + bay.side.x * back; SV.az = bay.z + bay.side.z * back;
+    const fov = scene && innerWidth <= 700 ? 68 : cam ? cam.fov : 50;
+    SV.tan = Math.tan(Math.min(1.35, Math.atan(Math.tan(fov * Math.PI / 360) * asp) + (scene ? 0.3 : 0.14)));
+    SV.ok = true;
+  }
+  function inStopView(x, z) {
+    const dx = x - SV.ax, dz = z - SV.az, a = dx * SV.nx + dz * SV.nz;
+    if (a < 0.5 || a > 150) return false;
+    const l = dx * SV.ux + dz * SV.uz;
+    return (l < 0 ? -l : l) < a * SV.tan + 8;
+  }
+  // Which bits of pavement that view will really show: in its wedge and not behind a building, as seen from where its
+  // camera will stand (two spots, for the different buses and screens). Each stretch of pavement near the stop is
+  // sampled every 3 units, once per stop, a few looks a frame (at most SV_LOOKS sight lines, so it never costs more
+  // than about a tenth of a millisecond on a frame); walkers only keep out of the bits it shows (a stretch not looked
+  // at yet counts as all in view). svVis[stretch]: undefined (not yet), null (none), or spans [s0, s1, s0, s1...].
+  const svVis = [], svQueue = [], SV_LOOKS = 14;
+  const svCur = { gi: -1, s: 0, open: -1, spans: null };
+  let svFor = null;
+  function svPlan() {
+    if (!SV.ok) return;
+    if (svFor !== SV.st) {
+      svFor = SV.st; svQueue.length = 0; svCur.gi = -1;
+      for (let gi = 0; gi < folkSegs.length; gi++) {
+        svVis[gi] = undefined;
+        const g = folkSegs[gi]; if (hypot2(g.cx - SV.ax, g.cz - SV.az) < 150 + g.r) svQueue.push(gi);
+      }
+    }
+    // (the camera stands 10-12 back at 4.5-9 high; a scene's further back: looked from a little higher than that, and
+    //  from 3.5 out, so a wall right behind where it will stand doesn't count)
+    const scene = SV.st && (SV.st.kind === 'scene' || SV.st.place), back = scene ? 18 : 11, sx = -SV.nx, sz = -SV.nz;
+    let looks = SV_LOOKS, samples = 80;
+    while (looks > 0 && samples > 0) {
+      if (svCur.gi < 0) { if (!svQueue.length) return; svCur.gi = svQueue.pop(); svCur.s = 0; svCur.open = -1; svCur.spans = []; }
+      const gi = svCur.gi, g = folkSegs[gi], spans = svCur.spans;
+      const s = svCur.s, end = s > g.len;
+      let vis = false;
+      samples--;
+      if (!end) {
+        const q = lineAt(g.line, s), x = q.x, z = q.z;
+        if (inStopView(x, z)) {
+          for (let e = 0; e < 2 && !vis; e++) {
+            const al = e ? 6.5 : 1.5, ex = SV.bx + sx * back + SV.ux * al, ez = SV.bz + sz * back + SV.uz * al;
+            const l = hypot2(x - ex, z - ez), t = l > 4 ? 3.5 / l : 0;
+            looks--;
+            vis = !W.blocksSight(ex + (x - ex) * t, 9 + (2.1 - 9) * t, ez + (z - ez) * t, x, 2.1, z);
+          }
+        }
+      }
+      if (vis && svCur.open < 0) svCur.open = s;
+      if (!vis && svCur.open >= 0) { spans.push(svCur.open - 3, s); svCur.open = -1; }   // (3 either side of the samples seen)
+      if (end) { svVis[gi] = spans.length ? spans : null; svCur.gi = -1; } else svCur.s = s + 3;
+    }
+  }
+  // Will the stop's side view show a walker at (x, z), at s along stretch gi?
+  function walkerInView(gi, s, x, z) {
+    const v = svVis[gi];
+    if (svFor !== SV.st || v === undefined) return inStopView(x, z);
+    if (v === null) return false;
+    for (let k = 0; k < v.length; k += 2) if (s >= v[k] && s <= v[k + 1]) return true;
+    return false;
+  }
+
+  // A town event on the ground (a parade, the otters, a kiosk, a fire engine...): where its things are and how they
+  // move, so walkers and cars keep out of their way. Looked up four times a second and moved on along their way in
+  // between. Its vehicles (a fire engine, the rubbish truck...) are a line along their length (`hl` either side of
+  // the middle, along their heading `ax, az`), not a point, so a car keeps clear of either end.
+  const EVN = 10, EVP = { n: 0, x: new Float32Array(EVN), z: new Float32Array(EVN), vx: new Float32Array(EVN), vz: new Float32Array(EVN),
+    px: new Float32Array(EVN), pz: new Float32Array(EVN), hl: new Float32Array(EVN), ax: new Float32Array(EVN), az: new Float32Array(EVN) };
+  const EV_CARS = { fireTruck: 1, ambulance: 1, police: 1, brokenCar: 1, towTruck: 1, iceCream: 1, milkVan: 1, rubbishTruck: 1 };
+  let evT = 0, evAge = 0;
+  function eventGeom(dt) {
+    const G = BUSG;
+    evAge += dt;
+    if ((evT -= dt) > 0) {
+      const ag = Math.min(evAge, 0.3);
+      for (let k = 0; k < EVP.n; k++) { EVP.x[k] = EVP.px[k] + EVP.vx[k] * ag; EVP.z[k] = EVP.pz[k] + EVP.vz[k] * ag; }
+      return;
+    }
+    evT = 0.25;
+    const ev = BB.events && BB.events.current, n0 = EVP.n, span = Math.max(0.05, evAge);
+    let n = 0; evAge = 0; G.er = 0;
+    const add = (x, z, len, h) => {
+      if (n >= EVN || !(x === x) || !(z === z)) return;
+      // (the same thing as last time, by its place in the list: how fast it moves)
+      const same = n < n0 && hypot2(x - EVP.px[n], z - EVP.pz[n]) < 12;
+      if (same) { EVP.vx[n] = (x - EVP.px[n]) / span; EVP.vz[n] = (z - EVP.pz[n]) / span; } else { EVP.vx[n] = 0; EVP.vz[n] = 0; }
+      // (a vehicle: which way it lies, from its heading)
+      const lies = len > 0 && typeof h === 'number' && h === h;
+      EVP.ax[n] = lies ? Math.sin(h) : 0; EVP.az[n] = lies ? Math.cos(h) : 0;
+      EVP.hl[n] = lies ? Math.min(6, len / 2) : 0;
+      EVP.x[n] = EVP.px[n] = x; EVP.z[n] = EVP.pz[n] = z; n++;
+    };
+    if (ev && ev.id !== 'fireworks' && ev.id !== 'plane') {
+      try { const a = ev.at && ev.at(); if (a) { G.ex = a.x; G.ez = a.z; G.er = 26; add(a.x, a.z, 0, null); } } catch (e) { /* no place */ }
+      try { const sp = ev.spots && ev.spots(); if (sp) for (let k = 0; k < sp.length; k++) { const q = sp[k]; if (q) add(+q[1], +q[3], EV_CARS[q[0]] ? +q[6] || 0 : 0, q[8]); } } catch (e) { /* no spots */ }
+    }
+    EVP.n = n;
+  }
+  // how far (x, z) is from event thing k (along its length, for a vehicle), and the nearest point of it (_ep)
+  const _ep = { x: 0, z: 0 };
+  function evDist(k, x, z) {
+    const hl = EVP.hl[k], cx = EVP.x[k], cz = EVP.z[k];
+    if (hl > 0) { const a = BB.clamp((x - cx) * EVP.ax[k] + (z - cz) * EVP.az[k], -hl, hl); _ep.x = cx + EVP.ax[k] * a; _ep.z = cz + EVP.az[k] * a; }
+    else { _ep.x = cx; _ep.z = cz; }
+    return hypot2(x - _ep.x, z - _ep.z);
+  }
+  const nearEvent = (x, z, r) => { for (let k = 0; k < EVP.n; k++) if (evDist(k, x, z) < r) return true; return false; };
+
+  // Friends' rides (playing together): where each one is and which way it is going (from its last two places heard),
+  // as a straight line from its nose to well behind it (long enough for a bendy bus). Looked up twice a second and
+  // moved on along its way in between. Each device has its own walkers and town cars, so they make way for these too.
+  const FRN = 9, FRIENDS = [], FRI = new Int8Array(FRN), frUsed = new Uint8Array(FRN);
+  for (let i = 0; i < FRN; i++) FRIENDS.push({ id: null, x: 0, z: 0, fx: 0, fz: 1, speed: 0, t: 0, known: false, p: new Float32Array(8), mx: 0, mz: 0 });
+  let frN = 0, frT = 0, frClock = 0;
+  function friendGeom(dt) {
+    frClock += dt;
+    if ((frT -= dt) <= 0) {
+      frT = 0.4;
+      const N = BB.net;
+      let list = null;
+      if (N && typeof N.driving === 'function' && typeof N.status === 'function') { try { if (N.status() === 'together') list = N.driving(); } catch (e) { list = null; } }
+      // (a fixed pool of slots matched by id, so each friend keeps its heading)
+      frUsed.fill(0);
+      const m = list ? Math.min(list.length, FRN) : 0;
+      for (let pass = 0; pass < 2; pass++) for (let j = 0; j < m; j++) {
+        const q = list[j]; if (!q || !(q.x === q.x) || !(q.z === q.z)) continue;
+        let k = -1;
+        if (pass === 0) { for (let s = 0; s < FRN; s++) if (!frUsed[s] && FRIENDS[s].id === q.id) { k = s; break; } }
+        else {
+          let done = false; for (let s = 0; s < FRN; s++) if (frUsed[s] && FRIENDS[s].id === q.id) { done = true; break; }
+          if (done) continue;
+          for (let s = 0; s < FRN; s++) if (!frUsed[s]) { k = s; break; }
+        }
+        if (k < 0) continue;
+        const o = FRIENDS[k]; frUsed[k] = 1;
+        if (pass === 1 || o.id !== q.id) { o.id = q.id; o.known = false; o.speed = 0; }
+        else {
+          const mv = hypot2(q.x - o.x, q.z - o.z), el = Math.max(0.1, frClock - o.t);
+          if (mv > 0.4 && mv < 30) { o.fx = (q.x - o.x) / mv; o.fz = (q.z - o.z) / mv; o.known = true; o.speed = Math.min(16, mv / el); } else o.speed *= 0.5;
+        }
+        o.x = q.x; o.z = q.z; o.t = frClock;
+      }
+      frN = 0;
+      for (let s = 0; s < FRN; s++) { if (frUsed[s]) FRI[frN++] = s; else FRIENDS[s].id = null; }
+    }
+    for (let k = 0; k < frN; k++) {
+      const o = FRIENDS[FRI[k]], p = o.p, ah = Math.min(0.6, frClock - o.t) * o.speed, x = o.x + o.fx * ah, z = o.z + o.fz * ah;
+      if (o.known) { p[0] = x + o.fx * 6.5; p[1] = z + o.fz * 6.5; p[6] = x - o.fx * 11; p[7] = z - o.fz * 11; }
+      else { p[0] = p[6] = x; p[1] = p[7] = z; }
+      p[2] = p[4] = (p[0] + p[6]) / 2; p[3] = p[5] = (p[1] + p[7]) / 2;
+      o.mx = p[2]; o.mz = p[3];
+    }
+  }
+  // how near (x, z) is to a friend's ride (one whose heading isn't known yet counts as a wide circle)
+  function friendDist(x, z) {
+    let m = 1e9;
+    for (let k = 0; k < frN; k++) { const o = FRIENDS[FRI[k]], d = lineD(o.p, x, z) - (o.known ? 0 : 6); if (d < m) m = d; }
+    return m;
+  }
+
+  // ---------- townsfolk: people strolling along the pavements ----------
+  // Every stretch of pavement that is free to walk (clear of buildings, shelters and the yard) has a few people on it,
+  // about one every 10 units in the town, every 13 in old town and by the sea, fewer on the other outer roads. They
+  // go round in a loop: out along the kerb-side lane of the pavement and back along the other, and where each one is
+  // follows from the clock, plus how long it has stood still (`lag`). Nobody ever walks into, or through, somebody
+  // ahead in the same lane: a walker comes up behind them, slows down and stands a step behind until there is room
+  // (a waver, someone waiting to turn round); one who turns round only steps into the other lane where there is room
+  // there, else waits a moment for the people in it to pass; and a hurry (catching up after a wave, getting out of a
+  // place to keep clear) stops a few steps behind the next one. Someone who isn't out (gone home, or stepped out of
+  // sight) never holds anybody up, gets out of their way unseen, and only comes back where there is room.
+  // Only the ones the camera can see are drawn (one instanced mesh, FOLK_MAX at most), with legs and arms swinging
+  // in the vertex shader.
+  // They notice the bus: as it drives past, someone stops, turns and waves (children give a little hop), and when the
+  // horn sounds everybody near hops and waves. In the rain they put up umbrellas; at night and in a storm most have
+  // gone home. They keep out of the way where the game needs a clear view or a clear kerb: round the bay the bus is
+  // heading for, in whatever its side view will show there (so the only people to count are the ones in the question),
+  // round a town event, under the bus or a friend's ride, and wherever a stop's view is on.
+  // Nobody ever pops in or out in plain view: someone who should go only goes while the camera can't see them (out of
+  // its view, behind a building, behind the bus, or in the moment the camera swings round to or from a stop's side
+  // view), and people walking towards a place that must stay clear turn round at its edge instead, and hurry out of it
+  // if they are inside. Only when the bus (or a friend's) drives right onto them do they step away at once.
+  const FOLK_MAX = 40;
+  let folk = null, folkMat = null, folkClock = 0, folkR = 118, folkN = 0;
+  const folkSegs = [];                      // {line, len, y, sd, v, cx, cz, r, i0, n}
+  let FS = null;                            // per-walker numbers (typed arrays), see buildFolk
+  const folkShown = new Int16Array(FOLK_MAX);   // which walkers were drawn last frame (for the horn)
+  const folkU = { uRain: { value: 0 }, uWet: wetU };
+  function folkGeometry() {
+    const b = BB.mk.builder(), PANTS = '#4a5a78', part = [], tint = [];
+    const add = (p, t) => { part.push(p); tint.push(t); };
+    // part: 0 body, 1 left leg, 2 right leg, 3 left arm, 4 right arm (the waving one), 5 umbrella, 6 shadow
+    // tint: 0 as painted, 1 shirt, 2 skin, 3 hair, 4 umbrella
+    const disc = new THREE.CircleGeometry(0.46, 6); disc.rotateX(-Math.PI / 2);
+    b.add(disc, '#c9b791', 0.08, 0.05, 0.06); add(6, 0);
+    b.box(0.22, 0.8, 0.24, PANTS, -0.13, 0, 0); add(1, 0);
+    b.box(0.22, 0.8, 0.24, PANTS, 0.13, 0, 0); add(2, 0);
+    b.add(new THREE.CylinderGeometry(0.26, 0.32, 0.85, 6, 1, true), '#ffffff', 0, 0.78 + 0.425, 0); add(0, 1);
+    b.ball(0.27, '#ffffff', 0, 1.9, 0); add(0, 2);
+    b.ball(0.28, '#ffffff', 0, 2.0, -0.05, 0, 1, 0.7, 1); add(0, 3);
+    b.box(0.12, 0.6, 0.14, '#ffffff', -0.36, 0.95, 0); add(3, 1);
+    b.box(0.12, 0.6, 0.14, '#ffffff', 0.36, 0.95, 0); add(4, 1);
+    b.box(0.05, 1.5, 0.05, '#6b5a4a', -0.24, 1.1, 0.14); add(5, 0);
+    b.add(new THREE.ConeGeometry(0.98, 0.4, 7, 1, true), '#ffffff', -0.24, 2.48 + 0.2, 0.14); add(5, 4);
+    const geo = b.geometry(), counts = b.counts;
+    let total = 0; for (let k = 0; k < counts.length; k++) total += counts[k];
+    const aPart = new Float32Array(total), aTint = new Float32Array(total);
+    for (let k = 0, o = 0; k < counts.length; k++) for (let v = 0; v < counts[k]; v++, o++) { aPart[o] = part[k]; aTint[o] = tint[k]; }
+    geo.setAttribute('aPart', new THREE.BufferAttribute(aPart, 1)); geo.setAttribute('aTint', new THREE.BufferAttribute(aTint, 1));
+    const inst = (name, size) => { const a = new THREE.InstancedBufferAttribute(new Float32Array(FOLK_MAX * size), size); a.setUsage(THREE.DynamicDrawUsage); geo.setAttribute(name, a); return a; };
+    inst('iShirt', 4); inst('iSkin', 3); inst('iHair', 3); inst('iAnim', 4);   // iShirt.w = hop height; iAnim = stride phase, stride, arm lift, umbrella colour
+    return geo;
+  }
+  function folkMaterial() {
+    const m = new THREE.MeshLambertMaterial({ vertexColors: true });
+    m.onBeforeCompile = (sh) => {
+      sh.uniforms.uRain = folkU.uRain; sh.uniforms.uWet = folkU.uWet;
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute float aPart; attribute float aTint; attribute vec4 iShirt; attribute vec3 iSkin; attribute vec3 iHair; attribute vec4 iAnim; uniform float uRain; uniform float uWet;')
+        .replace('#include <color_vertex>', `#include <color_vertex>
+          if (aTint > 3.5) vColor = iAnim.w < 0.25 ? vec3(1.0, 0.42, 0.36) : iAnim.w < 0.5 ? vec3(1.0, 0.76, 0.2) : iAnim.w < 0.75 ? vec3(0.1, 0.65, 0.61) : vec3(0.62, 0.5, 0.92);
+          else if (aTint > 2.5) vColor = iHair; else if (aTint > 1.5) vColor = iSkin; else if (aTint > 0.5) vColor = iShirt.rgb;
+          else if (aPart > 5.5) vColor *= uWet;                                  // (the shadow, on wet paving)`)
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+          if (aPart > 0.5 && aPart < 4.5) {
+            // legs swing from the hips, arms the other way from the shoulders
+            float sw = sin(iAnim.x) * iAnim.y * (aPart < 1.5 || aPart > 3.5 ? 1.0 : -1.0);
+            float py = aPart < 2.5 ? 0.8 : 1.5, a = sw * (aPart < 2.5 ? 0.62 : 0.5);
+            if (aPart > 2.5 && aPart < 3.5) a *= 1.0 - uRain;                    // (the left hand holds the umbrella still)
+            float c = cos(a), s = sin(a); vec2 q = transformed.yz - vec2(py, 0.0);
+            transformed.yz = vec2(q.x * c + q.y * s, -q.x * s + q.y * c) + vec2(py, 0.0);
+            if (aPart > 3.5) {                                                   // the right arm goes up to wave
+              float c2 = cos(iAnim.z), s2 = sin(iAnim.z); vec2 w = transformed.xy - vec2(0.36, 1.5);
+              transformed.xy = vec2(w.x * c2 - w.y * s2, w.x * s2 + w.y * c2) + vec2(0.36, 1.5);
+            }
+          } else if (aPart > 4.5 && aPart < 5.5) {                               // the umbrella opens in the rain
+            transformed = vec3(-0.24, 1.2, 0.14) + (transformed - vec3(-0.24, 1.2, 0.14)) * uRain;
+          }
+          if (aPart < 5.5) transformed.y += iShirt.w;                            // a hop (the shadow stays on the ground)`);
+    };
+    return m;
+  }
+  // The two walking lanes, measured in from the kerb: 1.5 and 2.3. (Lamp posts stand 0.7 in, and the paving is 2.6
+  // wide round a block and 3 wide along the outer roads, so both lanes are on the paving and clear of the posts.)
+  const FOLK_MID = 1.9, FOLK_HALF = 0.4;
+  // Is this spot of pavement free to walk on, in both lanes? ((lx, lz) points across the pavement)
+  function walkable(x, z, lx, lz, bays) {
+    if (W.inDepotYard(x, z)) return false;
+    for (let i = 0; i < bays.length; i++) { const q = bays[i]; if (hypot2(q.x - x, q.z - z) < q.r) return false; }
+    for (let k = -1; k <= 1; k += 2) {
+      const px = x + lx * FOLK_HALF * k, pz = z + lz * FOLK_HALF * k;
+      if (W.pushOut(px, pz, 0.3).hit > 0.001 || onRoad(px, pz, 0.45)) return false;
+    }
+    return true;
+  }
+  // Is (x, z) on a road, or within m of its kerb? (where another road crosses or joins the one a pavement runs along)
+  function onRoad(x, z, m) {
+    const edges = W.roads.edges;
+    for (let n = 0; n < edges.length; n++) {
+      const e = edges[n], p = e.points, r = (e.half || RH) + m;
+      for (let i = 1; i < p.length; i++) {
+        const a = p[i - 1], c = p[i], dx = c.x - a.x, dz = c.z - a.z, l2 = dx * dx + dz * dz;
+        let t = l2 > 1e-6 ? ((x - a.x) * dx + (z - a.z) * dz) / l2 : 0; t = t < 0 ? 0 : t > 1 ? 1 : t;
+        const ox = a.x + dx * t - x, oz = a.z + dz * t - z;
+        if (ox * ox + oz * oz < r * r) return true;
+      }
+    }
+    return false;
+  }
+  function buildFolk() {
+    const bays = W.stops.map((st) => ({ x: st.pos.x, z: st.pos.z, r: st.minor ? 5 : 8.5 }));
+    bays.push({ x: W.places.fireStation.pos.x, z: W.places.fireStation.pos.z, r: 15 }, { x: W.places.clinic.pos.x, z: W.places.clinic.pos.z, r: 5 });
+    const slots = [], runs = [];
+    for (const e of W.roads.edges) {
+      if (e.kind !== 'town' && e.kind !== 'outer') continue;
+      if (/^A[JP]/.test(e.a) || /^A[JP]/.test(e.b)) continue;                       // (not round the airport's drop-off loop)
+      const s0 = nodeHalf(nodeById[e.a]) + 3.5, s1 = e.length - nodeHalf(nodeById[e.b]) - 3.5;
+      for (const sd of [1, -1]) {
+        const off = (e.half + FOLK_MID) * sd;
+        let run = -1;
+        for (let s = s0; ; s += 1) {
+          const end = s > s1;
+          let ok = false;
+          if (!end) { const p = W.pointAt(e, s); ok = walkable(p.x + p.dz * off, p.z - p.dx * off, p.dz, -p.dx, bays); }
+          if (ok && run < 0) run = s;
+          if (!ok && run >= 0) { if (s - 1 - run >= 14) runs.push({ e, a: run, c: s - 1, off, sd, pts: null }); run = -1; }
+          if (end) break;
+        }
+      }
+    }
+    // Where two stretches meet (round a corner, across a side street), the end of one is kept 3.5 from the other, so
+    // the people turning round at its end never stand in the other stretch's people (each stretch's people keep a step
+    // apart, but they don't know about the next stretch's).
+    // (an edge's own point just after the start or before the end is left out: two points that close, with their
+    // different turns, would put a little backward kink in the line once it is moved out onto the pavement, and the
+    // people there would walk back over the same spot)
+    const tidy = (pts) => {
+      const out = [pts[0]], last = pts[pts.length - 1];
+      for (let i = 1; i < pts.length - 1; i++) { const q = out[out.length - 1]; if (hypot2(pts[i].x - q.x, pts[i].z - q.z) >= 2 && hypot2(pts[i].x - last.x, pts[i].z - last.z) >= 2) out.push(pts[i]); }
+      out.push(last);
+      return out;
+    };
+    const runPts = (r) => r.pts || (r.pts = offsetLine(tidy(subPts(r.e, r.a, r.c)), r.off));
+    const runEnd = (r, s) => { const p = W.pointAt(r.e, s); return { x: p.x + p.dz * r.off, z: p.z - p.dx * r.off }; };
+    const nearRun = (q, x, z, m) => {
+      const pt = runPts(q);
+      for (let i = 1; i < pt.length; i++) if (segD(x, z, pt[i - 1].x, pt[i - 1].z, pt[i].x, pt[i].z) < m) return true;
+      return false;
+    };
+    for (const r of runs) for (let end = 0; end < 2; end++) {
+      for (let k = 0; k < 10 && r.c - r.a >= 14; k++) {
+        const p = runEnd(r, end ? r.c : r.a);
+        let clash = false;
+        for (const q of runs) if (q !== r && q.c - q.a >= 14 && hypot2(q.e.points[0].x - p.x, q.e.points[0].z - p.z) < q.e.length + 20 && nearRun(q, p.x, p.z, 3.5)) { clash = true; break; }
+        if (!clash) break;
+        if (end) r.c -= 1; else r.a += 1;
+        r.pts = null;
+      }
+    }
+    for (const r of runs) {
+      if (r.c - r.a < 14) continue;
+      const e = r.e, line = flatLine(runPts(r)), mid = lineAt(line, line.len / 2), mx = mid.x, mz = mid.z;
+      const lively = e.kind === 'town' || mx < -175 || mz > 170;            // the town, old town, the seaside
+      const n = Math.max(1, Math.round(line.len / (e.kind === 'town' ? 10 : lively ? 13 : 24)));
+      const seg = { line, len: line.len, y: W.groundY(mx, mz) > 0 ? 0.25 : 0.2, sd: r.sd, v: lr(1.15, 1.6), cx: mx, cz: mz, r: line.len / 2 + 2, i0: slots.length, n };
+      const ph0 = lrnd();
+      for (let k = 0; k < n; k++) slots.push({ seg: folkSegs.length, phase: ((k + ph0 + lr(-0.2, 0.2)) / n) * 2 * line.len });
+      folkSegs.push(seg);
+    }
+    const NS = slots.length, f32 = () => new Float32Array(NS);
+    FS = { n: NS, seg: new Uint16Array(NS), phase: f32(), hash: f32(), kid: new Uint8Array(NS), shirt: new Uint8Array(NS), skin: new Uint8Array(NS), hair: new Uint8Array(NS), brolly: f32(),
+      lag: f32(), waveT: f32(), cool: f32(), hop: f32(), wv: f32(), vis: f32(), here: new Uint8Array(NS),
+      // the turn round at a clear place's edge (lateral place and heading eased, a little wait before the next one),
+      // the frame each was last in view, and whether it was last found hidden behind something
+      lw: f32(), hd: f32(), tb: f32(), seenF: new Uint32Array(NS), occ: new Uint8Array(NS), occAt: f32(),
+      // where on the loop each one is this frame, how much it has stopped to let somebody ahead get on (0 walking,
+      // 1 standing), and whether it is waiting for room in the other lane to turn round
+      u: f32(), st: f32(), hold: new Uint8Array(NS) };
+    for (let i = 0; i < NS; i++) {
+      FS.seg[i] = slots[i].seg; FS.phase[i] = slots[i].phase; FS.hash[i] = lrnd(); FS.kid[i] = lrnd() < 0.3 ? 1 : 0;
+      FS.shirt[i] = Math.floor(lrnd() * SHIRTS.length); FS.skin[i] = Math.floor(lrnd() * SKINS.length); FS.hair[i] = Math.floor(lrnd() * HAIRS.length);
+      FS.brolly[i] = lrnd(); FS.hop[i] = 9; FS.cool[i] = lr(0, 6); FS.vis[i] = 1; FS.here[i] = 1; FS.occAt[i] = -9;
+    }
+    folkMat = folkMaterial();
+    folk = new THREE.InstancedMesh(folkGeometry(), folkMat, FOLK_MAX);
+    folk.name = 'folk'; folk.frustumCulled = false; folk.count = 0; folk.matrixAutoUpdate = false;
+    folk.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    return folk;
+  }
+  const FCOL = { shirt: null, skin: null, hair: null };
+  const colTable = (list) => { const a = new Float32Array(list.length * 3), c = new THREE.Color(); list.forEach((h, i) => { c.set(h); a[i * 3] = c.r; a[i * 3 + 1] = c.g; a[i * 3 + 2] = c.b; }); return a; };
+  // Should a walker at (x, z) be out and about? 1 yes; 0 no (they go when nobody can see them); -1 no, at once (the
+  // bus, a friend's ride or an event's vehicle is right on top of them).
+  function folkWant(here, x, z, gi, s) {
+    const G = BUSG;
+    if (!G.ok) return here;
+    if (busDist(x, z) < 2.3 || (frN && friendDist(x, z) < 2.4)) return -1;
+    for (let k = 0; k < EVP.n; k++) if (evDist(k, x, z) < 2.2) return -1;
+    if (!here) return 0;
+    if (G.tr > 0 && hypot2(x - G.tx, z - G.tz) < G.tr) return 0;
+    if (G.er > 0 && hypot2(x - G.ex, z - G.ez) < G.er) return 0;
+    if (SV.on && SV.ok) { if (walkerInView(gi, s, x, z)) return 0; }
+    else if (G.calm) return 0;                     // (a stop with no bay to go by: nobody about)
+    return 1;
+  }
+  // Is (x, z) hidden from the camera right now, behind a building? (head and both shoulders: hidden only if all three
+  // are, so nobody peeps out past a corner; the bus doesn't count, its windows are glass and at a stop its near side is
+  // cut away.) A few looks a frame, each one kept for a moment.
+  let occBudget = 0, folkFrame = 1;
+  function folkHidden(i, x, z) {
+    if (folkClock - FS.occAt[i] < 0.3) return FS.occ[i] === 1;
+    if (occBudget <= 0) return false;
+    occBudget--; FS.occAt[i] = folkClock;
+    const V = CAMG, dx = x - V.x, dz = z - V.z, l = hypot2(dx, dz) || 1, sx = -dz / l * 0.55, sz = dx / l * 0.55;
+    const hid = W.blocksSight(V.x, V.y, V.z, x, 2.1, z) && W.blocksSight(V.x, V.y, V.z, x + sx, 1.7, z + sz) && W.blocksSight(V.x, V.y, V.z, x - sx, 1.7, z - sz);
+    FS.occ[i] = hid ? 1 : 0;
+    return hid;
+  }
+  function updateFolk(dt) {
+    const G = BUSG, V = CAMG;
+    if (!folk || !V.ok || !FS) return;
+    if (!FCOL.shirt) { FCOL.shirt = colTable(SHIRTS); FCOL.skin = colTable(SKINS); FCOL.hair = colTable(HAIRS); }
+    folkClock += dt;
+    const frame = ++folkFrame;
+    occBudget = 6;
+    // (walkers outside the wedge the camera sees along the ground aren't drawn)
+    const cx = V.x, cz = V.z, fx = V.fx, fz = V.fz, flat = V.flat, cosW = V.cosW;
+    const night = W.sky.night, rainUp = BB.clamp((wx.rain - 0.1) / 0.2, 0, 1);
+    folkU.uRain.value += BB.clamp(rainUp - folkU.uRain.value, -dt * 1.2, dt * 1.6);
+    const awake = 1 - 0.62 * night - 0.3 * wx.storm;                                // who is out and about
+    // The camera swinging round to or from a stop's side view: the picture moves so fast that somebody stepping out
+    // of it (or back in) isn't noticed. On the way round to the side view everybody it sweeps over steps out (it
+    // comes to rest within a few degrees of where it last swung fast, so whatever it will show has been swept, even
+    // where the guess of that view was wrong); once it slows down, nobody walks into the picture (they turn round at
+    // its edge). And if the side view has stood still a moment (0.3 s) with somebody still in it who shouldn't be,
+    // they go then (a last resort, hardly ever needed).
+    const swing = V.spin > 0.55 && (G.calm || G.calmT < 2.5), sweep = swing && G.calm, lastCall = G.calm && V.still > 0.3;
+    const im = folk.instanceMatrix.array, A = folk.geometry.attributes, aS = A.iShirt.array, aK = A.iSkin.array, aH = A.iHair.array, aA = A.iAnim.array;
+    const T = 0.9, R = folkR;
+    let n = 0, over = false;
+    const halfW = Math.acos(BB.clamp(cosW, -1, 1));
+    for (let gi = 0, gl = folkSegs.length; gi < gl; gi++) {
+      const g = folkSegs[gi], gx = g.cx - cx, gz = g.cz - cz, gd = hypot2(gx, gz);
+      if (gd > R + g.r) continue;
+      // (a stretch wholly outside the camera's wedge: nobody on it is placed, except the quarter looked at this frame)
+      const segOut = flat && gd > g.r + 9 && halfW + Math.asin(g.r / gd) < Math.PI && (gx * fx + gz * fz) < gd * Math.cos(halfW + Math.asin(g.r / gd));
+      const L = g.len, loop = 2 * L, i0 = g.i0, iEnd = g.i0 + g.n;
+      // where everybody on this stretch is on its loop, before anyone's step changes this frame
+      for (let i = i0; i < iEnd; i++) { const u0 = ((folkClock - FS.lag[i]) * g.v + FS.phase[i]) % loop; FS.u[i] = u0 < 0 ? u0 + loop : u0; }
+      for (let i = i0; i < iEnd; i++) {
+        // the nearest walker who is out (vis > 0) ahead on the loop (in this lane, going this way), and behind; for one
+        // who isn't out, the nearest ahead whether out or not (so the ones out of sight never bunch up either, and
+        // never come back out together in one spot)
+        const ui = FS.u[i], out = FS.vis[i] > 0;
+        let ahead = loop, behind = loop;
+        for (let j = i0; j < iEnd; j++) {
+          if (j === i) continue;
+          const oj = FS.vis[j] > 0;
+          if (!oj && out) continue;
+          let dj = FS.u[j] - ui; if (dj < 0) dj += loop;
+          if ((dj > 0 || j < i) && dj < ahead) ahead = dj;                   // (side by side: the lower number is ahead)
+          if (!oj) continue;
+          const bj = dj > 0 ? loop - dj : 0; if ((dj > 0 || j > i) && bj < behind) behind = bj;
+        }
+        // waving: stand still while the arm is up. Coming up behind somebody: slow down, and stand a step behind them
+        // (also while waiting for room to turn round). One who isn't out falls back, or hurries ahead, unseen.
+        let wv = FS.wv[i];
+        if (FS.waveT[i] > 0) { FS.waveT[i] -= dt; wv = Math.min(1, wv + dt * 5); } else if (wv > 0) wv = Math.max(0, wv - dt * 4);
+        FS.wv[i] = wv;
+        let stT = ahead < 2.6 ? Math.min(1, (2.6 - ahead) / 1.1) : 0;
+        if (FS.hold[i]) { stT = 1; FS.hold[i] = 0; }
+        if (!out) stT = ahead < 2.6 && ahead <= behind ? 1 : 0;
+        const st = FS.st[i] + BB.clamp(stT - FS.st[i], -dt * 3, dt * 5), stop = wv > st ? wv : st;
+        FS.st[i] = st;
+        // (then a little hurry to be back in step, but never into the one ahead)
+        if (stop > 0) FS.lag[i] += dt * stop;
+        else if (FS.lag[i] > 0 && ahead > 3.2) FS.lag[i] = Math.max(0, FS.lag[i] - dt * 0.45 * Math.min(1, (ahead - 3.2) / 3));
+        if (!out && stT === 0 && behind < 2.6) FS.lag[i] -= dt * 1.2;
+        if (FS.cool[i] > 0) FS.cool[i] -= dt;
+        if (FS.tb[i] > 0) FS.tb[i] -= dt;
+        if (FS.hop[i] < 1) FS.hop[i] += dt;
+        if (segOut && ((i + frame) & 3) !== 0) continue;
+        // where on the loop: out along the kerb half (w = 0), back along the other half (w = 1), a turn at each end
+        let u = ((folkClock - FS.lag[i]) * g.v + FS.phase[i]) % loop; if (u < 0) u += loop;
+        let w, turn;
+        if (u > L - T && u < L + T) { w = (u - L + T) / (2 * T); turn = w; }
+        else if (u > loop - T) { w = 1 - (u - loop + T) / (2 * T); turn = 2 - w; }
+        else if (u < T) { w = 0.5 - u / (2 * T); turn = 2 - w; }
+        else { w = u < L ? 0 : 1; turn = w; }
+        const sAt = u < L ? u : loop - u, ws = w * w * (3 - 2 * w), p = lineAt(g.line, sAt), px = p.x, pz = p.z, pdx = p.dx, pdz = p.dz;
+        const walkH = Math.atan2(pdx, pdz) + Math.PI * g.sd * turn;
+        // seen by the camera? (the line between the two walking lanes, 0.4 either side, is near enough)
+        const dx = px - cx, dz = pz - cz, d = hypot2(dx, dz);
+        if (d > R || (flat && d > 9 && dx * fx + dz * fz < cosW * d)) {
+          // out of sight: people go home and come out again, and step out of (or back into) a place to keep clear
+          // (looked at every fourth frame, a quarter of them each frame: nobody sees them meanwhile)
+          if (((i + frame) & 3) !== 0) continue;
+          FS.here[i] = FS.hash[i] < awake ? 1 : 0;
+          const lt = FOLK_HALF * (2 * ws - 1) * g.sd;
+          // (and back out only where there is room, and at a stop not where its side view looks)
+          const ox = px + pdz * lt, oz = pz - pdx * lt;
+          FS.vis[i] = folkWant(FS.here[i], ox, oz, gi, sAt) > 0 && (out || (ahead > 2.2 && behind > 2.2)) && !(G.calm && inPicture(ox, oz)) ? 1 : 0;
+          continue;
+        }
+        // in view: a turn round eases across (place and heading), from where they were if they were in view last frame
+        if (FS.seenF[i] !== frame - 1) { FS.lw[i] = ws; FS.hd[i] = walkH; }
+        else { FS.lw[i] += BB.clamp(ws - FS.lw[i], -dt * 3, dt * 3); FS.hd[i] += BB.clamp(wrapPi(walkH - FS.hd[i]), -dt * 4.5, dt * 4.5); }
+        FS.seenF[i] = frame;
+        const lat = FOLK_HALF * (2 * FS.lw[i] - 1) * g.sd, x = px + pdz * lat, z = pz - pdx * lat;
+        // in plain view nobody pops in or out: a change waits until they're hidden (behind a building or the bus), or
+        // for the camera's swing at a stop; only the bus (or a friend's ride, or an event's vehicle) right on top of
+        // them sends them away at once
+        let want = folkWant(FS.here[i], x, z, gi, sAt);
+        // (at a stop nobody is wanted in the picture: swept out as the camera swings round to it, and afterwards anybody
+        // behind a building in it goes while hidden, so nobody steps out from behind one into the view)
+        if (want > 0 && G.calm && (sweep || inPicture(x, z))) want = 0;
+        // (the side view has come to rest: anybody it really shows, not hidden behind something, must go after all)
+        if (want > 0 && lastCall && SV.on && !folkHidden(i, x, z)) want = 0;
+        if (want > 0 && !out && (ahead < 2.2 || behind < 2.2)) want = 0;         // (back only where there is room)
+        let vis = FS.vis[i];
+        if (want < 0) vis = Math.max(0, vis - dt * 6);
+        else if (vis !== want) {
+          if (swing || (lastCall && want === 0)) vis += BB.clamp(want - vis, -dt * 10, dt * 10);
+          else if (vis > 0 && vis < 1) vis = want && vis >= 0.5 ? Math.min(1, vis + dt * 6) : Math.max(0, vis - dt * 6);   // (half way: carry on)
+          else if (folkHidden(i, x, z)) vis = want;
+        }
+        FS.vis[i] = vis;
+        // walking towards a place that must stay clear: turn round at its edge; inside one: turn to walk out of it,
+        // and hurry a little (round the bay ahead, in its side view near the bay, round a town event)
+        if (vis > 0.5 && G.ok) {
+          const sg = u < L ? 1 : -1, ax = x + pdx * sg * 1.6, az = z + pdz * sg * 1.6;
+          let inside = false, back = false;
+          if (G.tr > 0) { const d0 = hypot2(x - G.tx, z - G.tz), d1 = hypot2(ax - G.tx, az - G.tz); if (d0 < G.tr) { inside = true; back = d1 < d0; } else back = d1 < G.tr; }
+          if (!back && G.er > 0) { const d0 = hypot2(x - G.ex, z - G.ez), d1 = hypot2(ax - G.ex, az - G.ez); if (d0 < G.er) { inside = true; back = d1 < d0; } else back = back || d1 < G.er; }
+          if (!back && SV.on && SV.ok) {
+            const d0 = hypot2(x - SV.bx, z - SV.bz);
+            if (d0 < 70) { if (walkerInView(gi, sAt, x, z)) { inside = true; back = hypot2(ax - SV.bx, az - SV.bz) < d0; } else back = walkerInView(gi, sAt + sg * 1.6, ax, az); }
+          }
+          // (at a stop, once the camera has slowed down: the edge of its picture)
+          if (!back && G.calm && !swing && !inPicture(x, z) && inPicture(ax, az)) back = true;
+          // (and a town event's things coming along the pavement, the otters or a runaway trolley: make way for them)
+          for (let k = 0; k < EVP.n && !back; k++) { const d0 = evDist(k, x, z); if (d0 < 7 && evDist(k, ax, az) < d0) back = true; }
+          if (back && FS.tb[i] <= 0) {
+            // (turning round: into the other lane at the same spot, only where there is room in it; else wait there a
+            // moment for the people in that lane to go by)
+            const ut = loop - u;
+            let room = true;
+            for (let j = i0; j < iEnd && room; j++) {
+              if (j === i || !(FS.vis[j] > 0)) continue;
+              let dj = Math.abs(FS.u[j] - ut); if (dj > L) dj = loop - dj;
+              if (dj < 2.6) room = false;
+            }
+            if (room) { FS.phase[i] = ((FS.phase[i] + loop - 2 * u) % loop + loop) % loop; FS.tb[i] = 2.5; } else FS.hold[i] = 1;
+          }
+          if (inside && ahead > 3.2) FS.lag[i] -= dt * 0.8 * Math.min(1, (ahead - 3.2) / 2);
+        }
+        const fade = BB.clamp((R - d) / 14, 0, 1), sc = vis * fade * (FS.kid[i] ? 0.72 : 1);
+        if (sc < 0.03) continue;
+        if (n >= FOLK_MAX) { over = true; continue; }
+        // the bus goes by: stop, turn and wave
+        let toBus = 0, near = 0;
+        if (G.ok) {
+          const bx = G.mx - x, bz = G.mz - z; near = hypot2(bx, bz); toBus = Math.atan2(bx, bz);
+          if (want > 0 && FS.cool[i] <= 0 && near < 15 && Math.abs(G.speed) > 1.5 && (FS.kid[i] || FS.hash[i] * 7.3 % 1 < 0.7)) {
+            FS.waveT[i] = 2 + Math.random() * 0.9; FS.cool[i] = 15 + Math.random() * 10;
+            if (FS.kid[i]) FS.hop[i] = -Math.random() * 0.2;
+          }
+        }
+        const hw = FS.hd[i], h = wv > 0 ? hw + wrapPi(toBus - hw) * (wv * wv * (3 - 2 * wv)) : hw;
+        const hop = FS.hop[i] > 0 && FS.hop[i] < 0.42 ? Math.sin(FS.hop[i] / 0.42 * Math.PI) * 0.5 : 0;
+        const c = Math.cos(h) * sc, sn = Math.sin(h) * sc, o = n * 16;
+        im[o] = c; im[o + 1] = 0; im[o + 2] = -sn; im[o + 3] = 0; im[o + 4] = 0; im[o + 5] = sc; im[o + 6] = 0; im[o + 7] = 0;
+        im[o + 8] = sn; im[o + 9] = 0; im[o + 10] = c; im[o + 11] = 0; im[o + 12] = x; im[o + 13] = g.y; im[o + 14] = z; im[o + 15] = 1;
+        let q = FS.shirt[i] * 3; aS[n * 4] = FCOL.shirt[q]; aS[n * 4 + 1] = FCOL.shirt[q + 1]; aS[n * 4 + 2] = FCOL.shirt[q + 2]; aS[n * 4 + 3] = hop;
+        q = FS.skin[i] * 3; aK[n * 3] = FCOL.skin[q]; aK[n * 3 + 1] = FCOL.skin[q + 1]; aK[n * 3 + 2] = FCOL.skin[q + 2];
+        q = FS.hair[i] * 3; aH[n * 3] = FCOL.hair[q]; aH[n * 3 + 1] = FCOL.hair[q + 1]; aH[n * 3 + 2] = FCOL.hair[q + 2];
+        // (the stride follows the walker's own clock, so a turn round never jolts the legs)
+        aA[n * 4] = ((folkClock - FS.lag[i]) * g.v + FS.hash[i] * 40) * 3.1; aA[n * 4 + 1] = 1 - stop; aA[n * 4 + 2] = wv * (2.55 + 0.4 * Math.sin(folkClock * 11 + i)); aA[n * 4 + 3] = FS.brolly[i];
+        folkShown[n] = i;
+        n++;
+      }
+    }
+    // (never more than FOLK_MAX: in a very busy street the far ones are left out first)
+    folkR = over ? Math.max(60, folkR * 0.95) : Math.min(118, folkR + dt * 6);
+    folk.count = n; folkN = n; folk.visible = n > 0;
+    if (n) { folk.instanceMatrix.needsUpdate = true; A.iShirt.needsUpdate = true; A.iSkin.needsUpdate = true; A.iHair.needsUpdate = true; A.iAnim.needsUpdate = true; }
+  }
+  // The horn: everybody near the bus hops and waves.
+  BB.on('bus:horn', () => {
+    if (!FS || !BUSG.ok) return;
+    for (let k = 0; k < folkN; k++) {
+      const i = folkShown[k], o = k * 16, im = folk.instanceMatrix.array;
+      if (hypot2(im[o + 12] - BUSG.mx, im[o + 14] - BUSG.mz) > 34 || !(FS.vis[i] > 0.5)) continue;
+      if (!(FS.hop[i] < 0.42)) FS.hop[i] = -Math.random() * 0.25;
+      FS.waveT[i] = Math.max(FS.waveT[i], 1.5 + Math.random() * 0.6); FS.cool[i] = Math.max(FS.cool[i], 5);
+    }
+    carToot();
+  });
+  W.folk = () => ({ walkers: FS ? FS.n : 0, stretches: folkSegs.length, shown: folkN });   // (for tools)
+
+  // ---------- town cars: little cars driving round the town's streets ----------
+  // TOWN_CARS more of the expressway's cars (the same instanced mesh: no extra draw call) drive round the town, the
+  // outer roads and the expressway, turning at random at the junctions. They are polite and never in the way: they
+  // keep to the lane by the middle line (the kerb lane, with its bays, stays the bus's), they wait at a junction while
+  // the bus (or a friend's ride) is coming to it, a car in front of the bus keeps ahead of it and one behind stays well
+  // back (out of the chase camera's sight), and they wait for a town event's things in the road ahead and pull over
+  // to the kerb to let an ambulance or a police car by. They come and go only where the camera can't see them: a car
+  // left far behind, near a stop in progress, near a town event, or stuck a long time is taken off the street while
+  // nobody is looking, and comes back somewhere else, mostly ahead of the bus and out of view, so there is nearly
+  // always some traffic to see. Only a car that the bus, a friend's ride or an event's vehicle drives right into is
+  // whisked away in view.
+  const TOWN_CARS = 10, LANES = [], townCars = [], CAR_FAR = 235;   // (a car further than CAR_FAR from the bus moves to its part of town)
+  function buildLanes() {
+    const ok = (e) => e.kind !== 'yard' && !/^A[JP]/.test(e.a) && !/^A[JP]/.test(e.b);
+    for (const e of W.roads.edges) {
+      if (!ok(e)) continue;
+      for (const dir of [1, -1]) {
+        const L = flatLine(offsetLine(dir > 0 ? e.points : e.points.slice().reverse(), e.kind === 'highway' ? C.lane : C.laneInner));
+        L.e = e; L.from = dir > 0 ? e.a : e.b; L.to = dir > 0 ? e.b : e.a; L.next = [];
+        const to = nodeById[L.to]; L.nx = to.x; L.nz = to.z; L.junction = to.edges.length >= 3; L.highNode = Math.abs(to.z - HZ) < 1;
+        // the stop line before the junction at its far end, and how far in from its near end a car is still in that junction
+        L.box = nodeHalf(to); L.stop = L.len - L.box - 3.5; L.clear = nodeHalf(nodeById[L.from]) + 5;
+        LANES.push(L);
+      }
+    }
+    for (const L of LANES) {
+      for (const M of LANES) if (M.from === L.to && M.e !== L.e) L.next.push(M);
+      if (!L.next.length) for (const M of LANES) if (M.from === L.to) L.next.push(M);   // (a dead end: back the way it came)
+    }
+  }
+  // Plan the way from the car's lane into its next one: a curve from a point before the junction to a point after it
+  // (bending round where the two lanes' lines cross), or a plain straight run where the road carries on.
+  function planTurn(c) {
+    const A = c.lane, N = c.next, n = A.n;
+    const d1x = (A.x[n - 1] - A.x[n - 2]) / (A.cum[n - 1] - A.cum[n - 2]), d1z = (A.z[n - 1] - A.z[n - 2]) / (A.cum[n - 1] - A.cum[n - 2]);
+    const d2x = (N.x[1] - N.x[0]) / N.cum[1], d2z = (N.z[1] - N.z[0]) / N.cum[1];
+    const ex = N.x[0] - A.x[n - 1], ez = N.z[0] - A.z[n - 1], cr = d1x * d2z - d1z * d2x;
+    c.straight = Math.abs(cr) < 0.25;
+    if (c.straight) { c.sEnd = Math.max(1, A.len - 7); c.s2 = Math.min(7, N.len - 1); }
+    else {
+      const t = (ex * d2z - ez * d2x) / cr, u = (ex * d1z - ez * d1x) / cr, r = t < 0 ? 5 : 9;   // (t < 0: the tight turn, to the left)
+      c.sEnd = BB.clamp(A.len + t - r, 1, A.len); c.s2 = BB.clamp(u + r, 0, N.len - 1);
+      c.kx = A.x[n - 1] + d1x * t; c.kz = A.z[n - 1] + d1z * t;
+    }
+    let p = lineAt(A, c.sEnd); c.x0 = p.x; c.z0 = p.z;
+    p = lineAt(N, c.s2); c.x2 = p.x; c.z2 = p.z;
+    if (c.straight) { c.kx = (c.x0 + c.x2) / 2; c.kz = (c.z0 + c.z2) / 2; }
+    const legs = hypot2(c.kx - c.x0, c.kz - c.z0) + hypot2(c.x2 - c.kx, c.z2 - c.kz), chord = hypot2(c.x2 - c.x0, c.z2 - c.z0);
+    c.tlen = Math.max(1, (legs + chord) / 2);
+  }
+  function pickNext(c) {
+    const opts = c.lane.next;
+    // (straight on a little more often than a turn)
+    let best = opts[0], bw = -1;
+    for (let i = 0; i < opts.length; i++) {
+      const M = opts[i], n = c.lane.n, A = c.lane;
+      const dot = (A.x[n - 1] - A.x[n - 2]) * (M.x[1] - M.x[0]) + (A.z[n - 1] - A.z[n - 2]) * (M.z[1] - M.z[0]);
+      const wgt = Math.random() * (dot > 0.5 ? 1.6 : 1);
+      if (wgt > bw) { bw = wgt; best = M; }
+    }
+    c.next = best; planTurn(c);
+  }
+  // Can the camera see a car at (x, z)? (a little wider than the view, for the car's size; nothing past the haze)
+  function carSeen(x, z) {
+    const V = CAMG; if (!V.ok) return false;
+    const dx = x - V.x, dz = z - V.z, d = hypot2(dx, dz);
+    if (d > 265) return false;
+    return d < 12 || !V.flat || dx * V.fx + dz * V.fz > V.cosW * d - 3;
+  }
+  // Put a car somewhere new: in the part of town the bus is in, mostly ahead of it (where the camera will soon look),
+  // never where the camera can see it (except far off in the haze, where it grows in), not near the bus or a stop in
+  // progress or a town event, and clear of the other cars.
+  function placeCar(c) {
+    const G = BUSG, V = CAMG;
+    for (let tries = 0; tries < 10; tries++) {
+      const L = LANES[Math.floor(Math.random() * LANES.length)];
+      if (L.len < 30) continue;
+      const s = 8 + Math.random() * (L.len - 24), p = lineAt(L, s), x = p.x, z = p.z;
+      if (G.ok) {
+        const dx = x - G.mx, dz = z - G.mz, d = hypot2(dx, dz);
+        if (d < 80 || d > CAR_FAR - 30 || (G.calm && d < 95)) continue;
+        if (tries < 8 && dx * G.fx + dz * G.fz < 0.25 * d) continue;
+      }
+      const seen = carSeen(x, z);
+      if (seen && hypot2(x - V.x, z - V.z) < 200) continue;
+      if (EVP.n > 0 && nearEvent(x, z, 60)) continue;
+      let clear = true;
+      for (let k = 0; k < townCars.length; k++) { const o = townCars[k]; if (o !== c && !o.gone && hypot2(o.x - x, o.z - z) < 22) { clear = false; break; } }
+      if (!clear) continue;
+      c.lane = L; c.s = s; c.x = x; c.z = z; c.h = Math.atan2(p.dx, p.dz); c.inTurn = false; c.v = c.v0; c.gone = false;
+      c.lat = 0; c.latT = 0; c.mw = 0; c.stuck = 0; c.still = 0; c.push = 0; c.sc = seen ? 0 : 1;
+      pickNext(c);
+      if (c.s > c.sEnd) c.s = Math.max(0, c.sEnd - 1);
+      return true;
+    }
+    return false;
+  }
+  function buildTownCars() {
+    buildLanes();
+    for (let i = 0; i < TOWN_CARS; i++) townCars.push({ lane: null, next: null, s: 0, sEnd: 0, s2: 0, straight: true, inTurn: false, tu: 0, tlen: 1, x0: 0, z0: 0, kx: 0, kz: 0, x2: 0, z2: 0,
+      x: 0, z: -9999, h: 0, v: 0, v0: 7 + (i * 0.37 % 1) * 3, sc: 0, gone: true, wait: 0, push: 0, stuck: 0, still: 0, lat: 0, latT: 0, mw: 0 });
+  }
+  const inJunction = (o, node) => (o.lane.to === node && (o.inTurn || o.s > o.lane.stop + 1)) || (!o.inTurn && o.lane.from === node && o.s < o.lane.clear);
+  const KERB_SHIFT = C.lane - C.laneInner;     // (pulling over: from the lane by the middle line to the kerb lane)
+  function carMatrix(i, c) {
+    const s = c.sc > 0 ? c.sc : 0.001;
+    _q4.setFromAxisAngle(_up, c.h);
+    _m4.compose(_p4.set(c.x, c.sc > 0 ? 0.03 : -50, c.z), _q4, _s4.set(s, s, s));
+    cars.setMatrixAt(i, _m4);
+  }
+  function updateTownCars(dt) {
+    const G = BUSG, V = CAMG;
+    // (the camera swinging round to a stop's side view, or that view standing still: see updateFolk)
+    const swing = V.spin > 0.55 && (G.calm || G.calmT < 2.5), lastCall = G.calm && V.still > 0.3;
+    for (let i = 0; i < TOWN_CARS; i++) {
+      const c = townCars[i];
+      if (c.gone) {
+        if (c.sc > 0) c.sc = Math.max(0, c.sc - dt * 7);                       // (whisked away: something drove into it)
+        if (c.sc <= 0 && G.ok && (c.wait -= dt) <= 0 && !placeCar(c)) c.wait = 0.3;
+        if (c.gone) { carMatrix(i, c); continue; }
+      } else if (c.sc < 1) c.sc = Math.min(1, c.sc + dt * 1.6);
+      const fX = Math.sin(c.h), fZ = Math.cos(c.h), lX = fZ, lZ = -fX, L = c.lane;
+      let want = c.inTurn && !c.straight ? c.v0 * 0.6 : c.v0;
+      // coming up to a junction's stop line (not yet over it): may have to wait there
+      const toLine = L.stop - c.s, atLine = !c.inTurn && L.junction && toLine < 12 && toLine > -1;
+      let wait = false, behind = false, makeWay = false;
+      if (G.ok) {
+        const md = hypot2(G.mx - c.x, G.mz - c.z), seen = carSeen(c.x, c.z);
+        // driven into by the bus, a friend's ride or an event's vehicle: whisked away, even in view
+        let hit = busDist(c.x, c.z) < 2.6 || (frN > 0 && friendDist(c.x, c.z) < 2.8);
+        for (let k = 0; k < EVP.n && !hit; k++) if (evDist(k, c.x, c.z) < (EVP.hl[k] > 0 ? 2.6 : 3.2)) hit = true;
+        // off the street (to come back somewhere else), only while nobody can see it: left far behind, near a stop in
+        // progress, near a town event, or stuck a long time; and the tow truck's stop view (it counts cars) keeps clear
+        // of town cars near the truck, going in the camera's swing if they must (one far off in the haze, small behind
+        // everything, just drives on)
+        const towView = G.calm && G.tow && md < 100 && ((SV.ok && inStopView(c.x, c.z)) || (swing && seen));
+        const off = !seen && (md > CAR_FAR || c.stuck > 20 || c.still > 25 || towView || (G.calm && md < 75) ||
+          (md > 125 && (c.x - V.x) * V.fx + (c.z - V.z) * V.fz < -10) || (EVP.n > 0 && nearEvent(c.x, c.z, 38)));
+        if (hit || off || (towView && (swing || (lastCall && md < 75)))) { c.gone = true; c.wait = 0; if (off) c.sc = 0; carMatrix(i, c); continue; }
+        // the bus and friends' rides: in my lane ahead (keep well back, out of the chase camera's sight), coming up
+        // behind (keep ahead of it), near the junction I'm coming to (wait for it, unless we simply go the same way)
+        for (let k = -1; k < frN; k++) {
+          const o = k < 0 ? G : FRIENDS[FRI[k]];
+          if (k >= 0 && !o.known) continue;
+          const op = o.p, same = fX * o.fx + fZ * o.fz;
+          let gapA = 99, beh = false;
+          for (let q = 0; q < 4; q++) {
+            const rx = op[q * 2] - c.x, rz = op[q * 2 + 1] - c.z, al = rx * fX + rz * fZ, la = Math.abs(rx * fZ - rz * fX);
+            if (la < 2.7) { if (al > 0 && al < gapA) gapA = al; if (al <= 0 && al > -20 && same > 0.5) beh = true; }
+          }
+          if (gapA < 99) {
+            if (same > 0.3) { if (gapA < 36) want = Math.min(want, Math.max(0, o.speed) * BB.clamp((gapA - 27) / 8, 0, 1.15)); }
+            else if (gapA < 15) want = 0;
+          }
+          if (beh && gapA > 30) want = Math.min(16, Math.max(want, o.speed + 2.5));
+          if (beh) behind = true;
+          // (not for the bus standing at a stop clear of the junction: it stays put, by the kerb, and nobody would wait
+          // for a bus that isn't moving)
+          const parked = k < 0 && G.calm && Math.abs(G.speed) < 0.3 && lineD(G.p, L.nx, L.nz) > L.box + 3;
+          if (atLine && !beh && !parked && hypot2(o.mx - L.nx, o.mz - L.nz) < 31 + L.box && !(c.straight && Math.abs(same) > 0.8)) wait = true;
+        }
+        // a town event's things: one in the road just ahead, wait behind it; something fast coming up behind in my
+        // lane (an ambulance, a police car): pull over to the kerb and stop until it has gone by
+        for (let k = 0; k < EVP.n; k++) {
+          // (a vehicle by its nearest end, and well back from it: the rubbish truck backs up to its bins)
+          evDist(k, c.x, c.z);
+          const rx = _ep.x - c.x, rz = _ep.z - c.z, al = rx * fX + rz * fZ, la = rx * lX + rz * lZ;
+          if (al > -2 && al < 30 && Math.abs(la) < 3.6) want = Math.min(want, c.v0 * BB.clamp((al - (EVP.hl[k] > 0 ? 10 : 9)) / 8, 0, 1));
+          else if (al < -1 && al > -34 && Math.abs(la + c.lat) < 3 && (al > -14 || EVP.vx[k] * fX + EVP.vz[k] * fZ > c.v + 1.5)) makeWay = true;
+        }
+      }
+      // making way (it stays on a moment after the thing behind has slowed or gone by): between junctions, pull over to
+      // the kerb lane and stop; near a junction (no room to pull over), go on through it instead of waiting there
+      if (makeWay) c.mw = Math.max(c.mw, 2);
+      if (c.mw > 0) {
+        c.mw -= dt;
+        if (c.latT === 0 && !c.inTurn && toLine > 14 && L.e.kind !== 'highway' && busDist(c.x + lX * (KERB_SHIFT - c.lat), c.z + lZ * (KERB_SHIFT - c.lat)) > 10) c.latT = KERB_SHIFT;
+        if (c.latT > 0) { if (!behind) want = Math.min(want, c.lat > KERB_SHIFT * 0.6 ? 0 : c.v0 * 0.5); }   // (the bus right behind: drive on in the kerb lane)
+        else { if (atLine && !behind) wait = false; want = Math.max(want, c.v0); }
+      } else c.latT = 0;
+      if (toLine < 14 && c.mw <= 0) c.latT = 0;
+      // turning on or off the expressway: wait for a gap in its cars
+      if (atLine && L.highNode && !c.straight) for (let k = 0; k < CAR_N; k++) { const o = carState[k], ah = (L.nx - o.s) * o.dir; if (ah > -6 && ah < 24) { wait = true; break; } }
+      // the other town cars: keep behind one just ahead, and one car at a time through a junction (of two arriving
+      // together the one with the lower number goes first; a car that has waited for others a long time just goes)
+      if (c.push > 0) c.push -= dt;
+      let held = false;
+      for (let k = 0; k < TOWN_CARS; k++) {
+        const o = townCars[k]; if (o === c || o.gone) continue;
+        if (atLine && c.push <= 0 && (inJunction(o, L.to) || (k < i && o.lane !== L && o.lane.to === L.to && !o.inTurn && o.lane.stop - o.s < 12))) { wait = true; held = true; continue; }
+        const rx = o.x - c.x, rz = o.z - c.z, al = rx * fX + rz * fZ;
+        if (al <= 0 || al > 10 || Math.abs(rx * fZ - rz * fX) > 2.3) continue;
+        const oF = -(rx * Math.sin(o.h) + rz * Math.cos(o.h));                    // am I ahead of it too?
+        if (oF > 0 && oF < 10 && i < k) continue;
+        want = Math.min(want, c.v0 * BB.clamp((al - 4.5) / 5, 0, 1));
+      }
+      if (wait) want = Math.min(want, c.v0 * BB.clamp(toLine / 6, 0, 1));         // (rolls up to the line and stops there)
+      c.stuck = held && c.v < 0.3 ? c.stuck + dt : 0;
+      c.still = c.v < 0.3 ? c.still + dt : 0;
+      if (c.stuck > 12) { c.stuck = 0; c.push = 5; }
+      c.v += BB.clamp(want - c.v, -dt * 14, dt * 5);
+      // along the lane, round the turn, into the next lane (pulled over to the kerb by c.lat, only between junctions)
+      let tx, tz;
+      if (!c.inTurn) {
+        c.s += c.v * dt;
+        if (c.s >= c.sEnd) { c.inTurn = true; c.tu = (c.s - c.sEnd) / c.tlen; c.lat = c.latT = 0; }
+      } else c.tu += c.v * dt / c.tlen;
+      if (c.inTurn && c.tu >= 1) { const left = (c.tu - 1) * c.tlen; c.lane = c.next; c.s = c.s2 + left; c.inTurn = false; pickNext(c); }
+      c.lat += BB.clamp(c.latT - c.lat, -dt * 2.3, dt * 2.3);
+      if (c.inTurn) {
+        const u = c.tu, v1 = 1 - u;
+        c.x = v1 * v1 * c.x0 + 2 * u * v1 * c.kx + u * u * c.x2; c.z = v1 * v1 * c.z0 + 2 * u * v1 * c.kz + u * u * c.z2;
+        tx = v1 * (c.kx - c.x0) + u * (c.x2 - c.kx); tz = v1 * (c.kz - c.z0) + u * (c.z2 - c.kz);
+      } else { const p = lineAt(c.lane, c.s); c.x = p.x + p.dz * c.lat; c.z = p.z - p.dx * c.lat; tx = p.dx; tz = p.dz; }
+      if (tx * tx + tz * tz > 1e-6) c.h += wrapPi(Math.atan2(tx, tz) - c.h) * Math.min(1, dt * 9);
+      carMatrix(i, c);
+    }
+    _s4.set(1, 1, 1);
+  }
+  // The horn again: the nearest little car in sight answers with a soft "meep meep" of its own (each car has its own
+  // note; quieter further away; not during a stop or scene, and not more than once every few seconds).
+  const TOOTS = [19, 21, 16, 24, 17, 22, 14, 20, 23, 18];
+  let tootAt = -99;
+  function carToot() {
+    if (!BUSG.ok || BUSG.calm || folkClock - tootAt < 2.5 || typeof BB.tone !== 'function') return;
+    let best = -1, bd = 55;
+    for (let i = 0; i < TOWN_CARS; i++) {
+      const c = townCars[i]; if (c.gone || c.sc < 0.9) continue;
+      const d = hypot2(c.x - BUSG.mx, c.z - BUSG.mz);
+      if (d < bd && inSight(c.x, c.z, 0)) { bd = d; best = i; }
+    }
+    if (best < 0) return;
+    tootAt = folkClock;
+    const f = 440 * Math.pow(2, (TOOTS[best % TOOTS.length] - 9) / 12), vol = 0.05 * BB.clamp(1.15 - bd / 55, 0.3, 1);
+    try { BB.tone(f, 0.09, { type: 'triangle', vol, at: 0.62 }); BB.tone(f, 0.14, { type: 'triangle', vol, at: 0.78 }); } catch (e) { /* no sound */ }
+  }
+  // Is a town car standing within r of (x, z)? (an event's vehicle waits behind one in its way)
+  W.townCarNear = function (x, z, r) {
+    for (let i = 0; i < TOWN_CARS; i++) { const c = townCars[i]; if (!c.gone && c.sc > 0.5 && hypot2(c.x - x, c.z - z) < r) return true; }
+    return false;
+  };
+  W.townCars = () => townCars.map((c) => ({ x: c.x, z: c.z, h: c.h, v: c.v, sc: c.sc, gone: c.gone, turning: c.inTurn, lat: c.lat }));   // (for tools)
+
+  // ---------- sailing boats off the waterfront ----------
+  // A handful of little boats with coloured sails go up and down the coast on long thin ovals, rocking on the swell.
+  // One instanced mesh (about 60 triangles a boat), drawn only when the camera is near the sea.
+  const BOAT_N = 6, boatState = [];
+  let boats = null;
+  const _e4 = new THREE.Euler(0, 0, 0, 'YXZ');
+  function buildBoats() {
+    const b = BB.mk.builder(), tint = [], HULL = '#fff6e0';
+    const add = (t) => tint.push(t);
+    const tri = (pts) => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pts.concat(pts.slice(0, 3), pts.slice(6, 9), pts.slice(3, 6)), 3)); return g; };   // (both faces)
+    b.box(1.9, 0.9, 5.0, HULL, 0, -0.3, -0.3); add(0);
+    const bow = new THREE.ConeGeometry(1.34, 2.0, 4); bow.rotateY(Math.PI / 4); bow.rotateX(Math.PI / 2);
+    b.add(bow, HULL, 0, 0.15, 3.2, 0, 0, 0, 1, 0.47, 1); add(0);                                                         // the bow
+    b.box(1.96, 0.22, 5.06, '#ffffff', 0, 0.42, -0.3); add(1);                                                           // a stripe in the sail's colour
+    b.box(1.2, 0.5, 1.5, '#e2b07c', 0, 0.6, -1.3); add(0);                                                               // a little cabin
+    b.box(0.14, 6.6, 0.14, '#9b6238', 0, 0.6, 0.5); add(0);                                                              // the mast
+    b.add(tri([0, 1.5, 0.3, 0, 7.0, 0.3, 0, 1.5, -3.0]), '#ffffff', 0, 0, 0); add(1);                                    // the mainsail
+    b.add(tri([0, 1.3, 0.7, 0, 5.8, 0.7, 0, 1.3, 3.3]), '#ffffff', 0, 0, 0); add(2);                                     // the jib (white)
+    b.box(0.05, 0.4, 0.7, '#ffffff', 0, 7.2, 0.15); add(1);                                                              // a pennant
+    const geo = b.geometry(), counts = b.counts;
+    let total = 0; for (let k = 0; k < counts.length; k++) total += counts[k];
+    const aTint = new Float32Array(total);
+    for (let k = 0, o = 0; k < counts.length; k++) for (let v = 0; v < counts[k]; v++, o++) aTint[o] = tint[k];
+    geo.setAttribute('aTint', new THREE.BufferAttribute(aTint, 1));
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    mat.onBeforeCompile = (sh) => {     // only the sail, the stripe and the pennant take the boat's own colour
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float aTint;')
+        .replace('#include <color_vertex>', 'vColor = aTint > 1.5 ? vec3(1.0, 0.98, 0.92) : aTint > 0.5 ? instanceColor : color;');
+    };
+    const mesh = new THREE.InstancedMesh(geo, mat, BOAT_N);
+    const cols = [P.coral, P.honey, P.teal, '#ffffff', P.berry, P.rose], c = new THREE.Color();
+    for (let i = 0; i < BOAT_N; i++) {
+      mesh.setColorAt(i, c.set(cols[i % cols.length]));
+      // (each on its own oval, just out past the beach, the gardens and the wheel's pier, which reach SZ + 66)
+      boatState.push({ cx: -150 + i * 92 + lr(-20, 20), cz: SZ + 80 + (i % 3) * 15 + lr(-2, 2), ax: lr(70, 120), az: lr(6, 9), a: lr(0, 6.28), w: (i % 2 ? -1 : 1) * lr(0.016, 0.026), ph: lr(0, 6), s: lr(1.6, 2.0) });
+    }
+    mesh.name = 'boats'; mesh.frustumCulled = false; mesh.matrixAutoUpdate = false;
+    return mesh;
+  }
+  function updateBoats(dt, t) {
+    for (let i = 0; i < BOAT_N; i++) {
+      const o = boatState[i];
+      o.a += o.w * dt;
+      const ca = Math.cos(o.a), sa = Math.sin(o.a);
+      const vx = -o.ax * sa * o.w, vz = o.az * ca * o.w;
+      _e4.set(Math.sin(t * 1.1 + o.ph) * 0.05, Math.atan2(vx, vz), Math.sin(t * 0.8 + o.ph * 2) * 0.07 + 0.05);
+      _q4.setFromEuler(_e4);
+      _m4.compose(_p4.set(o.cx + o.ax * ca, 0.32 + Math.sin(t * 1.3 + o.ph) * 0.12, o.cz + o.az * sa), _q4, _s4.set(o.s, o.s, o.s));
+      boats.setMatrixAt(i, _m4);
+    }
+    _s4.set(1, 1, 1);
+    boats.instanceMatrix.needsUpdate = true;
+  }
+
   // ---------- per frame ----------
   let clock = 0, skyTimer = 0;
   W.update = function (dt) {
@@ -2813,9 +3833,17 @@
       }
       train.position.x = trainX;
     }
-    if (cars) updateCars(dt);
+    busGeom(dt); camGeom(dt);
+    updateFolk(dt);
+    if (cars) {
+      // (the expressway's cars are only drawn while the expressway is near; the town's cars always)
+      updateTownCars(dt); updateCars(dt);
+      carU.uNight.value = sk.lights;
+      cars.count = !BB.camera || Math.abs(BB.camera.position.z - HZ) < 215 ? TOWN_CARS + CAR_N : TOWN_CARS;
+    }
+    // (the boats are all south of the camera: not drawn from far inland, nor when it looks away from the sea)
+    if (boats && BB.camera) { boats.visible = BB.camera.position.z > 35 && (!CAMG.flat || CAMG.fz > -Math.sqrt(1 - CAMG.cosW * CAMG.cosW)); if (boats.visible) updateBoats(dt, clock); }
     cullFar();
-    if (cars && BB.camera) cars.visible = Math.abs(BB.camera.position.z - HZ) < 215;
     if (BB.landmarks && typeof BB.landmarks.update === 'function') BB.landmarks.update(dt);
     if (birds) { birds.visible = sk.night < 0.6; if (birds.visible) updateBirds(dt, clock); }
   };
