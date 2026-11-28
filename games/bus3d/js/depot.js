@@ -596,6 +596,7 @@
   .bbd-wishbar { position: absolute; left: 9px; right: 9px; bottom: 4px; height: 7px; border-radius: 4px; background: #eadfca; overflow: hidden; }
   .bbd-wishbar i { display: block; height: 100%; min-width: 4px; border-radius: 4px; background: #ffb81f; }
   .bbd-tile.wish { padding-bottom: 9px; }
+  .bbd-tile.wish.ready:not(.preview) { border-color: #ffb81f; animation: bbd-glow 1s infinite alternate; }   /* enough coins: tap me! */
   .bbd-hint { flex-basis: 100%; font: 700 15px/1.2 ${BB.FONT}; color: #9a7a58; text-align: center; margin-top: -4px; }
   .bbd-goal { flex-basis: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font: 700 20px/1 ${BB.FONT}; color: #b06e00; animation: bbd-pop .3s; }
   .bbd-goal canvas { width: 30px; height: 30px; }
@@ -867,7 +868,7 @@
     if (opts.label) { BB.el('span', 'lb', t, opts.label); t.setAttribute('aria-label', opts.label); }
     if (opts.price) { const pr = BB.el('span', 'bbd-price', t); pr.appendChild(coinCv(20)); BB.el('span', '', pr, String(opts.price)); }
     // the wish (the ride being saved up for): a little bar along the foot of the tile fills up with the coins
-    if (opts.saved != null) { t.classList.add('wish'); BB.el('i', '', BB.el('span', 'bbd-wishbar', t)).style.width = Math.round(100 * Math.max(0, Math.min(1, opts.saved))) + '%'; }
+    if (opts.saved != null) { t.classList.add('wish'); if (opts.saved >= 1) t.classList.add('ready'); BB.el('i', '', BB.el('span', 'bbd-wishbar', t)).style.width = Math.round(100 * Math.max(0, Math.min(1, opts.saved))) + '%'; }
     t.style.animationDelay = (opts.i || 0) * 35 + 'ms';
     BB.tap(t, () => { opts.tap(t); camTo(camFor()); });
     return t;
@@ -1243,12 +1244,15 @@
       if (fuelBtn) fuelBtn.classList.add('gone');
       panel.querySelector('.bbd-go').classList.add('start');
       BB.say(D.welcome());
+      const w = D.wish(); if (w && w.need <= 0) BB.say(`You have enough coins for the ${w.name}! Tap it to try it!`, { queue: true });
       lastTap = performance.now(); calls = 0; if (!idleT) idleT = BB.later(1000, idleCheck);
       return;
     }
     // fuel is free: every visit fills the tank, with the pump's gurgle as a little show
     const low = BB.bus.fuel < 0.98;
     BB.say(low ? 'Welcome to the garage! Let\'s fill up the tank.' : 'Welcome to the garage! Make your bus beautiful!');
+    // enough coins for the wish: say where it is (its tile glows in My ride)
+    const w = D.wish(); if (w && w.need <= 0) BB.say(`You have enough coins for the ${w.name}! Tap it to try it!`, { queue: true });
     if (low) BB.later(900, () => { if (D.isOpen) fillUp(true); });
   };
   // opts.home: back to the home screen instead of driving off (a job in progress waits: jobs.js only picks it up when

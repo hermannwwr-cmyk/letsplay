@@ -900,6 +900,10 @@
       paper(x, (p) => arcP(p, 50, 46, 22), L2.skin || '#f1c7a0', { rimColor: BB.dark(L2.skin || '#f1c7a0', 0.25) });
       x.beginPath(); x.arc(50, 42, 23, Math.PI * 1.02, Math.PI * 1.98); x.fillStyle = L2.hair || '#3a2a3c'; x.fill();
       if (L2.bun) dot(x, 50, 18, 9, L2.hair || '#3a2a3c');
+      if (L2.hat) {                                     // a chef's hat
+        for (const [hx, hy, rx, ry] of [[37, 18, 10, 8], [63, 18, 10, 8], [50, 13, 20, 12]]) paper(x, (p) => p.ellipse(hx, hy, rx, ry, 0, 0, Math.PI * 2), '#ffffff', { rimColor: '#ddd5c8' });
+        paper(x, (p) => rrP(p, 32, 20, 36, 10, 3), '#ffffff', { rimColor: '#ddd5c8' });
+      }
       dot(x, 42, 48, 2.6, '#3a2a3c'); dot(x, 58, 48, 2.6, '#3a2a3c');
       x.beginPath(); x.ellipse(37, 55, 4, 2.5, 0, 0, Math.PI * 2); x.ellipse(63, 55, 4, 2.5, 0, 0, Math.PI * 2); x.fillStyle = 'rgba(255,120,130,.45)'; x.fill();
       x.strokeStyle = '#3a2a3c'; x.lineWidth = 2.2; x.beginPath(); x.arc(50, 54, 6, 0.2 * Math.PI, 0.8 * Math.PI); x.stroke();
@@ -913,6 +917,25 @@
       else if (prop === 'kite') paper(x, (p) => { p.moveTo(50, 8); p.lineTo(84, 44); p.lineTo(50, 90); p.lineTo(16, 44); p.closePath(); }, P.plum);
       else if (prop === 'durian') { paper(x, (p) => p.ellipse(50, 56, 32, 34, 0, 0, Math.PI * 2), '#9bbf3a'); for (let i = 0; i < 8; i++) dot(x, 34 + (i % 3) * 16, 36 + Math.floor(i / 3) * 18, 4, '#6e8f22'); }
       else if (prop === 'paper') paper(x, (p) => rrP(p, 20, 18, 60, 66, 6), '#f4f1ea');
+      else if (prop === 'flowers') {
+        paper(x, (p) => { p.moveTo(30, 52); p.lineTo(70, 52); p.lineTo(52, 92); p.lineTo(48, 92); p.closePath(); }, '#fff6e0', { rimColor: '#e2c99a' });
+        paper(x, (p) => arcP(p, 36, 40, 13), P.rose); paper(x, (p) => arcP(p, 64, 40, 13), P.honey); paper(x, (p) => arcP(p, 50, 26, 13), P.plum);
+        dot(x, 36, 40, 4, '#fff6e0'); dot(x, 64, 40, 4, '#fff6e0'); dot(x, 50, 26, 4, '#fff6e0');
+      } else if (prop === 'cage') {
+        paper(x, (p) => { p.moveTo(18, 84); p.lineTo(18, 46); p.bezierCurveTo(18, 14, 82, 14, 82, 46); p.lineTo(82, 84); p.closePath(); }, '#fdf3dc', { rimColor: '#c9a25e', rimW: 5 });
+        for (const bx of [34, 50, 66]) { x.fillStyle = '#d9b57f'; x.fillRect(bx - 2, 24, 4, 60); }
+        paper(x, (p) => rrP(p, 12, 80, 76, 10, 4), '#b98a52');
+        paper(x, (p) => p.ellipse(48, 60, 13, 11, 0, 0, Math.PI * 2), '#ffd45c'); dot(x, 58, 52, 7, '#ffd45c'); dot(x, 60, 51, 1.8, '#3a2a3c');
+        paper(x, (p) => { p.moveTo(64, 51); p.lineTo(72, 53); p.lineTo(64, 56); p.closePath(); }, '#f28b4b', { rim: false });
+      } else if (prop === 'ball') {
+        paper(x, (p) => arcP(p, 50, 50, 36), '#fffdf6', { rimColor: '#c9c2b8' });
+        paper(x, (p) => { for (let i = 0; i < 5; i++) { const a = -Math.PI / 2 + i * Math.PI * 2 / 5, px = 50 + Math.cos(a) * 12, py = 50 + Math.sin(a) * 12; if (i) p.lineTo(px, py); else p.moveTo(px, py); } p.closePath(); }, '#3a2a3c', { rim: false });
+        for (let i = 0; i < 5; i++) { const a = -Math.PI / 2 + Math.PI / 5 + i * Math.PI * 2 / 5; dot(x, 50 + Math.cos(a) * 30, 50 + Math.sin(a) * 30, 6, '#3a2a3c'); }
+      } else if (prop === 'cake') {
+        paper(x, (p) => rrP(p, 16, 34, 68, 50, 6), '#ffe4ec', { rimColor: '#e8a0b4' });
+        x.fillStyle = P.rose; x.fillRect(45, 34, 10, 50); x.fillRect(16, 54, 68, 9);
+        paper(x, (p) => p.ellipse(39, 26, 12, 8, -0.4, 0, Math.PI * 2), P.rose); paper(x, (p) => p.ellipse(61, 26, 12, 8, 0.4, 0, Math.PI * 2), P.rose);
+      }
       else paper(x, (p) => starP(p, 50, 52, 40, 18), P.honey);
       x.restore();
     });
