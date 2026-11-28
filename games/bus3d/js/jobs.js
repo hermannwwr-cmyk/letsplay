@@ -21,6 +21,9 @@
   const hypot2 = (a, b) => Math.sqrt(a * a + b * b);   // (Math.hypot is slow and makes garbage on every call)
   const BB = window.BB, P = BB.P;
   const J = BB.jobs = { current: null, phase: 'idle', walkers: [], waiting: [], extras: [], question: null, teaching: false };
+  // The hands-on moments (hands.js) are switched off (the owner's choice: young players didn't see what to do).
+  // Each story then shows the people and things getting on or off by themselves. true brings them back.
+  const HANDS_ON = false;
 
   // (slower on purpose, the owner's choice: about 50 coins a day at 15 minutes, so the rides take a few weeks)
   const CASH_STOP = 1, CASH_STOP_RETRY = CASH_STOP, CASH_JOB = 2;   // same coins after a retry: no hidden penalty
@@ -681,7 +684,7 @@
     const out = { fit: 3, loose: 3, blind: 3, tall: 999 };
     const all = J.waiting.length || Math.min(4, fr.queue | 0); if (!all) return out;
     const tap = J.waiting.length ? J.waiting.filter((m) => !m.userData.pre).length : all, T = BB.hands && BB.hands.size ? BB.hands.size() : 84;
-    const px = tap && BB.hands ? [T + 4, T * 0.8, T * 0.62] : [50, 40], n = tap && BB.hands ? tap : all;
+    const px = tap && HANDS_ON && BB.hands ? [T + 4, T * 0.8, T * 0.62] : [50, 40], n = tap && HANDS_ON && BB.hands ? tap : all;
     const H = innerHeight, cam = fr.cam;
     for (const mode of ['feet', 'toes', 'blind']) {
       if (mode === 'blind' && out.loose) { out.blind = out.loose; break; }
@@ -1380,7 +1383,7 @@
     if (!alive()) return;
     // friends who will be waved aboard with a tap each stand well apart (room for a ring each): at once when nobody
     // gets on first, else when those have got on and the queue moves up to the door
-    const tapOn = !!BB.hands && q.kind === 'add' && q.k > 0;
+    const tapOn = HANDS_ON && !!BB.hands && q.kind === 'add' && q.k > 0;
     queueUp(tapOn && !(q.pre > 0));
     await wait(350);
     if (!alive()) return;
@@ -1431,7 +1434,7 @@
     // the child waves each friend aboard, or says goodbye to each one, with a tap (BB.hands); then the story says it
     const onSeat = (seat) => { if (card) setSeat(seat, 'new'); };
     const onLeave = (seat) => { if (card) { setSeat(seat, 'gone'); seatEls[seat].classList.add('bye'); } };
-    if (BB.hands && q.k > 0 && (q.kind !== 'add' || J.waiting.length)) {
+    if (HANDS_ON && BB.hands && q.k > 0 && (q.kind !== 'add' || J.waiting.length)) {
       let done;
       if (q.kind === 'add') {
         const list = J.waiting.slice(), tall = (m) => (m.userData.look && m.userData.look.kid ? 0.72 : 1);
@@ -2312,7 +2315,7 @@
       const g = legGen, alive = () => g === legGen && !BB.bedtime && !!J.current && J.phase !== 'home';
       (async () => {
         buildCard(q); J.question = q;
-        if (q.scene) { try { q.scene.show(q.n); if (q.scene.prep) q.scene.prep(q); scnFrame(q.scene.points(Math.max(q.n, q.kind === 'add' ? q.n + q.k : q.n)), q.scene.close, q.scene.top, q.scene.pitch); } catch (e) { console.error(e); } }
+        if (q.scene) { try { q.scene.show(q.n); if (HANDS_ON && q.scene.prep) q.scene.prep(q); scnFrame(q.scene.points(Math.max(q.n, q.kind === 'add' ? q.n + q.k : q.n)), q.scene.close, q.scene.top, q.scene.pitch); } catch (e) { console.error(e); } }
         await wait(350); if (!alive()) return;
         for (let i = 0; i < q.n; i++) light(i, true);
         showSum('n1'); litSum('n1');
@@ -2322,7 +2325,7 @@
         showSum('n2'); litSum('n2');
         // the child does this part by hand (BB.hands): each thing they move is counted aloud and marked on the card
         let hs = null;
-        if (q.scene && q.scene.hands && BB.hands) { try { hs = q.scene.hands(q, (i) => cardStep(q, i)); } catch (e) { console.error(e); } }
+        if (HANDS_ON && q.scene && q.scene.hands && BB.hands) { try { hs = q.scene.hands(q, (i) => cardStep(q, i)); } catch (e) { console.error(e); } }
         if (hs) {
           const done = await BB.hands.run(hs);
           if (!done || !alive() || !card) return;
@@ -3124,7 +3127,7 @@
           scnFrame([-2.4, 0, 2.4].map((a) => new THREE.Vector3(cp.x + f.fx * a, 0, cp.z + f.fz * a)), false, 3.6);
         } catch (e) { console.error(e); }
         // the child winds the winch: a big wheel to turn with a finger, and the boom lifts the car as it turns
-        if (BB.hands && BB.bus.has && BB.bus.has('hook') && typeof BB.bus.setBoom === 'function') {
+        if (HANDS_ON && BB.hands && BB.bus.has && BB.bus.has('hook') && typeof BB.bus.setBoom === 'function') {
           BB.bus.setBoom(0);
           await say('Hook on!'); if (!ok()) return;
           const done = await BB.hands.run({ kind: 'crank', turns: 3, say: 'Turn the wheel to lift the car!', hint: 'Put your finger on the wheel and go round and round!', turn: (p) => BB.bus.setBoom(p) });
